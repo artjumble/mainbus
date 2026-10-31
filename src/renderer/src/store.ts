@@ -5,6 +5,9 @@ import { errorMessage } from './notify'
 
 export type BoardTicket = Ticket & { state: TicketState }
 
+/** The columns a person can place a card in by hand; the rest follow the agent's work. */
+export type ManualColumn = Ticket['manualColumn']
+
 interface MainbusState {
   /** null until the first setup check answers. */
   setup: ClaudeSetup | null
@@ -18,6 +21,11 @@ interface MainbusState {
   currentTicketId: string | null
   /** Unattended mode, as the engine last reported it. */
   unattended: UnattendedState
+  /**
+   * Moves the person asked for that the engine has not finished, by ticket id. The board shows these cards in
+   * their target column at once; `tickets` keeps the engine's view, so refreshes meanwhile don't undo the move.
+   */
+  pendingMoves: Record<string, ManualColumn>
 
   /** The first load: setup check, then workspace and board. Never rejects; a failure lands in `loadError`. */
   load(): Promise<void>
@@ -27,6 +35,12 @@ interface MainbusState {
   refreshBoard(): Promise<void>
   openTicket(id: string): void
   closeTicket(): void
+  /**
+   * Asks the engine to move a ticket, showing it in the target column until the engine answers. On 'moved'
+   * the board is read again before the overlay goes, so the card does not flicker back. Rejects with the
+   * engine's reason when it refuses; on 'dirty' or a rejection the card returns to its real column.
+   */
+  moveTicket(id: string, to: ManualColumn): Promise<'moved' | 'dirty'>
   /** Switches unattended mode; rejects with the engine's reason when it can't be switched on. */
   setUnattended(on: boolean): Promise<void>
 }
@@ -72,6 +86,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   loadError: null,
   currentTicketId: null,
   unattended: UNATTENDED_OFF,
+  pendingMoves: {},
 
   async load() {
     set({ loadError: null })
@@ -122,6 +137,20 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
 
   openTicket: (id) => set({ currentTicketId: id }),
   closeTicket: () => set({ currentTicketId: null }),
+
+  async moveTicket(id, to) {
+    set((s) => ({ pendingMoves: { ...s.pendingMoves, [id]: to } }))
+    try {
+      const result = await invoke('ticket.move', id, to)
+      if (result === 'moved') await get().refreshBoard()
+      return result
+    } finally {
+      set((s) => {
+        const { [id]: _settled, ...rest } = s.pendingMoves
+        return { pendingMoves: rest }
+      })
+    }
+  },
 
   async setUnattended(on) {
     // Every change arrives as an `unattended.changed` event, in order with the ones after it; the reply

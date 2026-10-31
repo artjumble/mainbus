@@ -11,9 +11,8 @@ import { ActionIcon, Badge, Box, Button, Group, Menu, Paper, Stack, Text, Title 
 import { notifications } from '@mantine/notifications'
 import { memo, useCallback, useMemo, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { Column } from '../../../shared/domain'
-import { invoke } from '../api'
 import { showError } from '../notify'
-import { useMainbus, type BoardTicket } from '../store'
+import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
 import { RoleSettings } from '../workspace/RoleSettings'
 import { TicketCard } from './TicketCard'
@@ -29,7 +28,6 @@ const COLUMNS: { id: Column; title: string }[] = [
 ]
 
 /** The only columns a person can place a card in by hand; the rest follow the agent's work. Any card can be moved. */
-type ManualColumn = 'backlog' | 'ready' | 'done'
 const MANUAL: { id: ManualColumn; title: string }[] = [
   { id: 'backlog', title: 'Backlog' },
   { id: 'ready', title: 'Ready' },
@@ -43,32 +41,35 @@ export function Board(): ReactElement {
   const workspace = useMainbus((s) => s.workspace)
   const tickets = useMainbus((s) => s.tickets)
   const openTicket = useMainbus((s) => s.openTicket)
-  const refreshBoard = useMainbus((s) => s.refreshBoard)
+  const pendingMoves = useMainbus((s) => s.pendingMoves)
+  const move = useMainbus((s) => s.moveTicket)
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // A small drag distance keeps a plain click on a card a click.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
-  /** Asks the engine to move a ticket; it refuses moves it can't make (an open run, uncommitted work) with a message. */
+  /**
+   * Shows the card in the target column at once and asks the engine to move it; the engine refuses moves it
+   * can't make (an open run, uncommitted work), and the card then goes back. One move per card at a time.
+   */
   const moveTicket = useCallback(async (ticket: BoardTicket, target: ManualColumn): Promise<void> => {
-    if (ticket.state.column === target) return
+    if (ticket.id in useMainbus.getState().pendingMoves || ticket.state.column === target) return
     try {
-      const result = await invoke('ticket.move', ticket.id, target)
+      const result = await move(ticket.id, target)
       if (result === 'dirty') {
         notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
-        return
       }
-      await refreshBoard()
     } catch (err) {
       showError(err, "Can't move this ticket")
     }
-  }, [refreshBoard])
+  }, [move])
 
   // Stable props and per-column arrays, so a refresh re-renders only the cards that changed.
   const onMove = useCallback((t: BoardTicket, to: ManualColumn) => void moveTicket(t, to), [moveTicket])
   const byColumn = useMemo(
-    () => new Map(COLUMNS.map((c) => [c.id, tickets.filter((t) => t.state.column === c.id)])),
-    [tickets]
+    () =>
+      new Map(COLUMNS.map((c) => [c.id, tickets.filter((t) => (pendingMoves[t.id] ?? t.state.column) === c.id)])),
+    [tickets, pendingMoves]
   )
 
   function onDragEnd({ active, over }: DragEndEvent): void {
@@ -113,6 +114,7 @@ export function Board(): ReactElement {
               id={c.id}
               title={c.title}
               tickets={byColumn.get(c.id) ?? []}
+              pendingMoves={pendingMoves}
               onOpen={openTicket}
               onMove={onMove}
             />
@@ -130,11 +132,12 @@ interface ColumnProps {
   id: Column
   title: string
   tickets: BoardTicket[]
+  pendingMoves: Record<string, ManualColumn>
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
 }
 
-const BoardColumn = memo(function BoardColumn({ id, title, tickets, onOpen, onMove }: ColumnProps): ReactElement {
+const BoardColumn = memo(function BoardColumn({ id, title, tickets, pendingMoves, onOpen, onMove }: ColumnProps): ReactElement {
   const { setNodeRef, isOver } = useDroppable({ id, disabled: !isManual(id) })
   const headingId = `column-${id}`
   return (
@@ -158,7 +161,7 @@ const BoardColumn = memo(function BoardColumn({ id, title, tickets, onOpen, onMo
       </Group>
       <Stack gap="xs">
         {tickets.map((t) => (
-          <DraggableTicket key={t.id} ticket={t} onOpen={onOpen} onMove={onMove} />
+          <DraggableTicket key={t.id} ticket={t} movingTo={pendingMoves[t.id] ?? null} onOpen={onOpen} onMove={onMove} />
         ))}
       </Stack>
     </Paper>
@@ -167,19 +170,24 @@ const BoardColumn = memo(function BoardColumn({ id, title, tickets, onOpen, onMo
 
 interface DraggableProps {
   ticket: BoardTicket
+  /** Where the card is being moved, while the engine has not answered; null otherwise. */
+  movingTo: ManualColumn | null
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
 }
 
 /**
  * Any card can be dragged; only drop targets are restricted. The same move is also reachable without dragging:
- * a menu opened by right-click, the context-menu key or Shift+F10 on the focused card.
+ * a menu opened by right-click, the context-menu key or Shift+F10 on the focused card. A card being moved
+ * can't be moved again until the engine answers.
  */
-const DraggableTicket = memo(function DraggableTicket({ ticket, onOpen, onMove }: DraggableProps): ReactElement {
-  const { setNodeRef, listeners, transform, isDragging } = useDraggable({ id: ticket.id })
+const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, onOpen, onMove }: DraggableProps): ReactElement {
+  const moving = movingTo !== null
+  const { setNodeRef, listeners, transform, isDragging } = useDraggable({ id: ticket.id, disabled: moving })
   const [menuOpen, setMenuOpen] = useState(false)
 
   function onKeyDown(e: KeyboardEvent): void {
+    if (moving) return
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault()
       setMenuOpen(true)
@@ -203,7 +211,7 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, onOpen, onMove }
           onKeyDown={onKeyDown}
           onContextMenu={(e) => {
             e.preventDefault()
-            setMenuOpen(true)
+            if (!moving) setMenuOpen(true)
           }}
           style={{
             transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
@@ -213,12 +221,12 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, onOpen, onMove }
             touchAction: 'none'
           }}
         >
-          <TicketCard ticket={ticket} onOpen={onOpen} />
+          <TicketCard ticket={ticket} cleaningUp={movingTo === 'done'} onOpen={onOpen} />
         </div>
       </Menu.Target>
       <Menu.Dropdown>
         {MANUAL.map((m) => (
-          <Menu.Item key={m.id} disabled={ticket.state.column === m.id} onClick={() => onMove(ticket, m.id)}>
+          <Menu.Item key={m.id} disabled={moving || ticket.state.column === m.id} onClick={() => onMove(ticket, m.id)}>
             Move to {m.title}
           </Menu.Item>
         ))}

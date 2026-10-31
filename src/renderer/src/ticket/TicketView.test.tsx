@@ -203,6 +203,18 @@ test('Start again starts a new run', async () => {
   expect(mockInvoke).toHaveBeenCalledWith('agent.start', ticket.id)
 })
 
+test('while the board is moving the ticket, it stays as it was and cannot be started', async () => {
+  const ticket = show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
+  useMainbus.setState({ pendingMoves: { [ticket.id]: 'done' } })
+  renderWithMantine(<TicketView />)
+  expect(await screen.findByRole('button', { name: 'Start again' })).toBeDisabled()
+  expect(screen.getByText('Ready for review')).toBeInTheDocument()
+  await userEvent.type(screen.getByPlaceholderText('Message to start a new run'), 'Try again')
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  expect(agentCalls()).toEqual([])
+  expect(screen.getByPlaceholderText('Message to start a new run')).toHaveValue('Try again')
+})
+
 test('a done ticket shows neither Start nor a composer', async () => {
   show({ column: 'done', phase: 'done' })
   renderWithMantine(<TicketView />)
