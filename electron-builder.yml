@@ -5,9 +5,13 @@ directories:
   output: dist
 files:
   - out/**
+  # The CLI runs outside the asar, from resources/cli (below).
+  - "!out/cli/**"
   - package.json
 win:
   target: dir
 extraResources:
   - from: src/engine/db/migrations
     to: migrations
+  - from: out/cli
+    to: cli

@@ -167,6 +167,7 @@ test('the settings button in the header opens the workspace settings', async () 
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'role.get') return { instructions: 'Be careful.', model: null, effort: null }
     if (command === 'allowRules.list') return []
+    if (command === 'agents.launcher') return null
     return { tickets: [] }
   })
   showBoard()

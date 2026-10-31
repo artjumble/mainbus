@@ -65,7 +65,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     async create(input) {
       const id = randomUUID()
       const at = now().toISOString()
-      const intent: IntentEntry[] = [{ text: input.intent, at }]
+      const intent: IntentEntry[] = [input.source ? { text: input.intent, at, source: input.source } : { text: input.intent, at }]
       await db.insert(tickets).values({
         id,
         workspaceId: input.workspaceId,

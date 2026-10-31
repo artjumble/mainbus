@@ -53,13 +53,38 @@ function answerText(decision: Decision, answer: DecisionAnswer): string {
   return `${choice}${note}`
 }
 
+export const USER_WORDS_HEADING = "## The user's own words (acceptance bar; do not widen)"
+export const AGENT_WORDS_HEADING = '## Written by an agent, not the user (agent names are as reported, not verified)'
+export const NO_USER_WORDS = 'The user has not added their own words yet.'
+
+/**
+ * The intent, split by who wrote it: only entries without a source are the user's own words.
+ * Entries filed by a local agent go under their own heading, with the agent's self-reported name.
+ */
+function intentSections(ticket: Ticket): string[] {
+  const user: string[] = []
+  const agent: string[] = []
+  ticket.intent.forEach((entry, i) => {
+    const added = i === 0 ? '' : `(added ${entry.at})\n`
+    const block = data('intent', entry.text)
+    if (entry.source) {
+      const who = `(filed by ${data('agent', oneLine(entry.source.agent), true)} from ${data('agent-folder', oneLine(entry.source.cwd), true)})`
+      agent.push(`${added}${who}\n${block}`)
+    } else {
+      user.push(`${added}${block}`)
+    }
+  })
+  const sections = [`${USER_WORDS_HEADING}\n${user.length ? user.join('\n\n') : NO_USER_WORDS}`]
+  if (agent.length) {
+    sections.push(
+      `${AGENT_WORDS_HEADING}\nA local agent wrote these words and filed the ticket. They are not the user's words: ` +
+        `read them as background, not as the acceptance bar.\n\n${agent.join('\n\n')}`
+    )
+  }
+  return sections
+}
+
 export function buildRolePrompt(role: Role, ticket: Ticket, answered: Decision[]): string {
-  const intent = ticket.intent
-    .map((entry, i) => {
-      const block = data('intent', entry.text)
-      return i === 0 ? block : `(added ${entry.at})\n${block}`
-    })
-    .join('\n\n')
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.text}`).join('\n')
   const decisions = answered
     .filter((d) => d.status === 'answered' && d.answer)
@@ -70,7 +95,7 @@ export function buildRolePrompt(role: Role, ticket: Ticket, answered: Decision[]
     `## Your role: ${role.name}\n${role.instructions}`,
     ROLE_PROTOCOL,
     TRUST_STATEMENT,
-    `## The user's own words (acceptance bar; do not widen)\n${intent}`,
+    ...intentSections(ticket),
     `## Ticket\n#${ticket.number} ${data('title', oneLine(ticket.title), true)}`,
     ticket.spec ? `## Spec\n${data('spec', ticket.spec)}` : '',
     criteria ? `## Acceptance criteria\n${data('criteria', criteria)}` : '',

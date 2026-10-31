@@ -46,3 +46,19 @@ test('clicking or pressing Enter opens the ticket', async () => {
   await userEvent.keyboard('{Enter}')
   expect(onOpen).toHaveBeenCalledTimes(2)
 })
+
+test('a ticket an agent filed shows "from <agent> (reported)" with the folder in a tooltip', async () => {
+  const ticket = makeTicket({
+    title: 'Filed by codex',
+    intent: [{ text: 'words', at: '2026-10-30T00:00:00.000Z', source: { kind: 'agent', agent: 'codex', cwd: '/home/me/tools' } }]
+  })
+  renderWithMantine(<TicketCard ticket={ticket} onOpen={() => {}} />)
+  const badge = screen.getByText('from codex (reported)')
+  await userEvent.hover(badge)
+  expect(await screen.findByText('Filed from /home/me/tools')).toBeInTheDocument()
+})
+
+test("the user's own tickets show no agent badge", () => {
+  renderWithMantine(<TicketCard ticket={makeTicket({ title: 'Mine' })} onOpen={() => {}} />)
+  expect(screen.queryByText(/\(reported\)/)).not.toBeInTheDocument()
+})

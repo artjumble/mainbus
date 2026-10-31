@@ -16,12 +16,14 @@
   "include": [
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "vite.cli.config.ts",
     "drizzle.config.ts",
     "playwright.config.ts",
     "src/main/**/*",
     "src/preload/**/*",
     "src/engine/**/*",
     "src/shared/**/*",
+    "src/cli/**/*",
     "e2e/**/*"
   ]
 }

@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import type { AllowRule, Effort, Role } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { ConnectAgents } from './ConnectAgents'
 
 interface Props {
   opened: boolean
@@ -162,6 +163,8 @@ export function RoleSettings({ opened, onClose }: Props): ReactElement {
             ))
           )}
         </Stack>
+
+        <ConnectAgents opened={opened} />
       </Stack>
     </Drawer>
   )

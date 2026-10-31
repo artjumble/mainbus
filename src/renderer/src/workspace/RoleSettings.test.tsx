@@ -122,3 +122,29 @@ test('loads nothing while closed', () => {
   renderWithMantine(<RoleSettings opened={false} onClose={() => {}} />)
   expect(mockInvoke).not.toHaveBeenCalled()
 })
+
+test('Connect agents shows copyable setup lines built from the real launcher', async () => {
+  const launcher = '/apps/Mainbus/bin/mainbus.cmd'
+  const base = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
+    command === 'agents.launcher' ? { kind: 'stable', program: [launcher], env: {}, exists: true } : base(command, ...args)
+  )
+  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  const section = await screen.findByRole('region', { name: 'Connect agents' })
+  expect(await within(section).findByText(`claude mcp add --scope user mainbus -- cmd /c ${launcher} mcp`)).toBeInTheDocument()
+  expect(within(section).getByText(/\[mcp_servers\.mainbus\]/)).toBeInTheDocument()
+  expect(within(section).getByText(/"servers"/)).toBeInTheDocument()
+  for (const client of ['Claude Code', 'Codex', 'GitHub Copilot in VS Code']) {
+    expect(within(section).getByRole('button', { name: `Copy the ${client} setup` })).toBeInTheDocument()
+  }
+  expect(within(section).queryByText(/isn't there yet/)).not.toBeInTheDocument()
+})
+
+test('Connect agents says when the stable launcher has not been written yet', async () => {
+  const base = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
+    command === 'agents.launcher' ? { kind: 'stable', program: ['/x/bin/mainbus.cmd'], env: {}, exists: false } : base(command, ...args)
+  )
+  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  expect(await screen.findByText(/build-stable\.ps1/)).toBeInTheDocument()
+})

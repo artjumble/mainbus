@@ -7,7 +7,9 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && npm run build:cli",
+    "build:cli": "vite build -c vite.cli.config.ts --logLevel warn",
+    "mainbus": "npm run --silent build:cli && node out/cli/mainbus.cjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "e2e": "npm run build && playwright test",
@@ -37,6 +39,7 @@
     "@mantine/core": "9.7.4",
     "@mantine/hooks": "9.7.4",
     "@mantine/notifications": "9.7.4",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "drizzle-orm": "0.45.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",

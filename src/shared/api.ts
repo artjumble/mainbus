@@ -1,6 +1,7 @@
 // Shared by the engine, the preload and the renderer: no Node imports (the renderer typechecks this file).
 // Mostly types; the channel names and error name at the bottom are the only runtime values.
 import type {
+  AgentLauncher,
   AllowRule,
   ClaudeSetup,
   Decision,
@@ -27,7 +28,8 @@ export interface EngineCommands {
   /** Detects the base branch with `git symbolic-ref --short HEAD`. The MVP supports one workspace. */
   'workspace.open'(repoPath: string): Workspace
   'board.get'(): { tickets: (Ticket & { state: TicketState })[] }
-  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId'>): Ticket
+  /** The user's own ticket: a source can only come in through agent intake. */
+  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source'>): Ticket
   'ticket.update'(id: string, p: TicketPatch): Ticket
   'ticket.appendIntent'(id: string, text: string): Ticket
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
@@ -42,6 +44,8 @@ export interface EngineCommands {
   'role.update'(p: Partial<Pick<Role, 'instructions' | 'model' | 'effort'>>): Role
   'allowRules.list'(): AllowRule[]
   'allowRules.remove'(id: string): void
+  /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */
+  'agents.launcher'(): AgentLauncher | null
 }
 
 export type CommandName = keyof EngineCommands

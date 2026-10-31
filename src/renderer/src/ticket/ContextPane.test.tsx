@@ -113,3 +113,37 @@ test('without activity the timeline says so', () => {
   renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
   expect(screen.getByText('Nothing has happened yet.')).toBeInTheDocument()
 })
+
+test('words an agent filed sit apart from "Your words", with its reported name and folder', async () => {
+  const filed = makeTicket({
+    intent: [
+      { text: 'The parser drops tabs.', at: '2026-10-30T09:00:00.000Z', source: { kind: 'agent', agent: 'codex', cwd: '/home/me/tools' } },
+      { text: 'Only the parser, please', at: '2026-10-30T10:00:00.000Z' }
+    ]
+  })
+  renderWithMantine(<ContextPane ticket={filed} events={[]} decisions={[]} />)
+  const fromAgent = screen.getByRole('region', { name: 'From an agent' })
+  expect(within(fromAgent).getByText('The parser drops tabs.')).toBeInTheDocument()
+  const badge = within(fromAgent).getByText('from codex (reported)')
+  await userEvent.hover(badge)
+  expect(await screen.findByText('Filed from /home/me/tools')).toBeInTheDocument()
+
+  const words = screen.getByRole('region', { name: 'Your words' })
+  expect(within(words).getByText('Only the parser, please')).toBeInTheDocument()
+  expect(within(words).queryByText('The parser drops tabs.')).not.toBeInTheDocument()
+  expect(within(words).queryByText(/haven't added/)).not.toBeInTheDocument()
+})
+
+test('a ticket only an agent wrote says the user has not added their own words', () => {
+  const filed = makeTicket({
+    intent: [{ text: 'Agent words', at: '2026-10-30T09:00:00.000Z', source: { kind: 'agent', agent: 'cli', cwd: '' } }]
+  })
+  renderWithMantine(<ContextPane ticket={filed} events={[]} decisions={[]} />)
+  expect(within(screen.getByRole('region', { name: 'Your words' })).getByText("You haven't added your own words yet.")).toBeInTheDocument()
+})
+
+test("the user's own tickets show no agent section or badge", () => {
+  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
+  expect(screen.queryByRole('region', { name: 'From an agent' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/\(reported\)/)).not.toBeInTheDocument()
+})

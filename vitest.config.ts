@@ -12,7 +12,7 @@ export default defineConfig({
           globals: true,
           // node:sqlite prints an ExperimentalWarning on import; keep test output clean.
           execArgv: ['--disable-warning=ExperimentalWarning'],
-          include: ['src/engine/**/*.test.ts', 'src/main/**/*.test.ts', 'src/shared/**/*.test.ts']
+          include: ['src/engine/**/*.test.ts', 'src/main/**/*.test.ts', 'src/shared/**/*.test.ts', 'src/cli/**/*.test.ts']
         }
       },
       {

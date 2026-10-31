@@ -40,9 +40,19 @@ export interface Role {
   effort: Effort | null
 }
 
+/** Who wrote an intent entry when it was not the user: a local agent, by the name it reported (not verified). */
+export interface IntentSource {
+  kind: 'agent'
+  agent: string
+  /** The working directory of the CLI or MCP process that filed it. */
+  cwd: string
+}
+
 export interface IntentEntry {
   text: string
   at: string // ISO time
+  /** Absent on the user's own words (the New Ticket form, "Add to your words"). */
+  source?: IntentSource
 }
 
 export interface Criterion {
@@ -113,6 +123,8 @@ export type NewTicketInput = {
   criteria: string[]
   labels: string[]
   column: 'backlog' | 'ready'
+  /** Set only by agent intake: marks the first intent entry as agent-written. */
+  source?: IntentSource
 }
 
 /** Never includes intent: intent is append-only. */
@@ -122,6 +134,18 @@ export type TicketPatch = Partial<{
   criteria: Criterion[]
   labels: string[]
 }>
+
+/** How other agents on this machine run this app's `mainbus` CLI and MCP server. */
+export interface AgentLauncher {
+  /** stable: the mainbus.cmd that build-stable.ps1 writes. dev: Node on the bundle in out/cli. */
+  kind: 'stable' | 'dev'
+  /** The program and its leading arguments; `mcp` or `ticket ...` follows. */
+  program: string[]
+  /** What the CLI must share with this app to reach it: a MAINBUS_HOME override, if any. */
+  env: Record<string, string>
+  /** False when the launcher (or the dev bundle) isn't on disk yet. */
+  exists: boolean
+}
 
 export type ClaudeSetup =
   | { ok: true; path: string; version: string }

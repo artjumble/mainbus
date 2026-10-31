@@ -2,6 +2,7 @@ import { Badge, Group, Paper, Text } from '@mantine/core'
 import { memo, type KeyboardEvent, type ReactElement } from 'react'
 import type { Phase, TicketState } from '../../../shared/domain'
 import type { BoardTicket } from '../store'
+import { AgentBadge } from './AgentBadge'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
   not_started: 'Not started',
@@ -42,9 +43,13 @@ interface Props {
   onOpen: (id: string) => void
 }
 
-/** A board card: number, title and phase chip, plus a one-line summary in Needs you. Nothing else, by design. */
+/**
+ * A board card: number, title and phase chip, a badge when an agent filed the ticket, and a one-line summary
+ * in Needs you. Nothing else, by design.
+ */
 export const TicketCard = memo(function TicketCard({ ticket, onOpen }: Props): ReactElement {
   const { state } = ticket
+  const source = ticket.intent[0]?.source
 
   function onKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -73,6 +78,7 @@ export const TicketCard = memo(function TicketCard({ ticket, onOpen }: Props): R
       </Text>
       <Group gap="xs">
         <PhaseChip state={state} />
+        {source && <AgentBadge source={source} />}
       </Group>
       {state.column === 'needs_you' && state.summary && (
         <Text size="xs" c="dimmed" mt={6} lineClamp={1}>

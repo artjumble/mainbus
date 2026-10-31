@@ -7,12 +7,13 @@ import {
   type CommandResult,
   type EngineEvent
 } from '../shared/api'
-import type { Workspace } from '../shared/domain'
+import type { AgentLauncher, NewTicketInput, Ticket, Workspace } from '../shared/domain'
 import { openDb } from './db/open'
 import type { GitRunner } from './git/git'
 import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
 import type { HomePaths } from './home'
+import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { TicketRunner } from './runner/ticketRunner'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
@@ -33,12 +34,16 @@ export interface EngineConfig {
   runtime: AgentRuntime | null
   git: GitRunner
   exec: ExecFn
+  /** Shown in the Connect agents settings. */
+  launcher?: AgentLauncher | null
 }
 
 export interface Engine {
   invoke<K extends CommandName>(k: K, ...args: CommandArgs<K>): Promise<CommandResult<K>>
   /** Subscribes to engine events; returns the unsubscribe function. */
   on(listener: (e: EngineEvent) => void): () => void
+  /** Answers requests from local agents (the intake pipe). Creates tickets in Backlog, lists and reads them; nothing else. */
+  intake: IntakeHandler
   /** Stops live agents (their runs stay resumable) and closes the database. Safe to call twice. */
   dispose(): Promise<void>
 }
@@ -135,6 +140,18 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return workspace
     }
 
+    /** The one way a ticket is created, by the user (ticket.create) or by an agent (intake). */
+    async function createTicket(ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> {
+      const ticket = await repos.tickets.create({ ...input, workspaceId: ws.id })
+      emit({ type: 'board.changed', workspaceId: ws.id })
+      return ticket
+    }
+
+    const boardTickets = async (ws: Workspace) => {
+      const tickets = await repos.tickets.list(ws.id)
+      return Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) })))
+    }
+
     const handlers: Handlers = {
       'setup.check': async () => {
         const setup = await resolveClaude(cfg.exec)
@@ -149,17 +166,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'board.get': async () => {
         const ws = await repos.workspaces.get()
-        if (!ws) return { tickets: [] }
-        const tickets = await repos.tickets.list(ws.id)
-        return { tickets: await Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) }))) }
+        return { tickets: ws ? await boardTickets(ws) : [] }
       },
 
-      'ticket.create': async (input) => {
-        const ws = await requireWorkspace()
-        const ticket = await repos.tickets.create({ ...input, workspaceId: ws.id })
-        emit({ type: 'board.changed', workspaceId: ws.id })
-        return ticket
-      },
+      // The user's own words: never marked as agent-written, whatever the renderer sends.
+      'ticket.create': async (input) => createTicket(await requireWorkspace(), { ...input, source: undefined }),
       'ticket.update': async (id, patch) => {
         const ticket = await repos.tickets.update(id, patch)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
@@ -209,8 +220,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ws = await repos.workspaces.get()
         return ws ? repos.allowRules.list(ws.id) : []
       },
-      'allowRules.remove': (id) => repos.allowRules.remove(id)
+      'allowRules.remove': (id) => repos.allowRules.remove(id),
+
+      'agents.launcher': () => cfg.launcher ?? null
     }
+
+    const intake = createIntakeHandler({ workspace: () => repos.workspaces.get(), createTicket, tickets: boardTickets })
 
     let disposal: Promise<void> | null = null
     return {
@@ -219,6 +234,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         if (!Object.hasOwn(handlers, k)) throw new Error(`Unknown command: ${String(k)}`)
         const handler = handlers[k] as (...a: unknown[]) => unknown
         return (await handler(...args)) as CommandResult<typeof k>
+      },
+      intake(method, params) {
+        if (disposal) return Promise.reject(new Error('Mainbus is shutting down'))
+        return intake(method, params)
       },
       on(listener) {
         listeners.add(listener)

@@ -3,6 +3,7 @@ import { useState, type ReactElement, type ReactNode } from 'react'
 import type { Criterion, Decision } from '../../../shared/domain'
 import type { StoredEvent } from '../../../shared/events'
 import { invoke } from '../api'
+import { AgentBadge } from '../board/AgentBadge'
 import { showError } from '../notify'
 import type { BoardTicket } from '../store'
 import { PERMISSION_ANSWERS } from '../thread/PermissionCard'
@@ -13,7 +14,7 @@ interface Props {
   decisions: Decision[]
 }
 
-/** The left side of the ticket: what the person asked for, the spec, criteria, labels and what has happened so far. */
+/** The left side of the ticket: what an agent filed and what the person asked for, the spec, criteria, labels and what has happened so far. */
 export function ContextPane({ ticket, events, decisions }: Props): ReactElement {
   return (
     <Stack gap="lg" p="md">
@@ -55,36 +56,68 @@ function YourWords({ ticket }: { ticket: BoardTicket }): ReactElement {
     }
   }
 
+  // Index in the whole intent: the first entry is the original, later ones say when they were added.
+  const entries = ticket.intent.map((entry, i) => ({ entry, i }))
+  const yours = entries.filter(({ entry }) => !entry.source)
+  const agents = entries.filter(({ entry }) => entry.source)
+
   return (
-    <Section title="Your words">
-      <Stack gap="xs">
-        {ticket.intent.map((entry, i) => (
-          <Box key={`${entry.at}:${i}`}>
-            {/* The first entry is the original; later ones say when they were added. */}
-            {i > 0 && (
-              <Text size="xs" c="dimmed" component="time" dateTime={entry.at}>
-                {new Date(entry.at).toLocaleString()}
-              </Text>
-            )}
-            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-              {entry.text}
+    <>
+      {agents.length > 0 && (
+        <Section title="From an agent">
+          <Stack gap="xs">
+            {agents.map(({ entry, i }) => (
+              <Box key={`${entry.at}:${i}`}>
+                <Group gap="xs" mb={4}>
+                  {entry.source && <AgentBadge source={entry.source} />}
+                  {i > 0 && <Added at={entry.at} />}
+                </Group>
+                <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+                  {entry.text}
+                </Text>
+              </Box>
+            ))}
+          </Stack>
+        </Section>
+      )}
+      <Section title="Your words">
+        <Stack gap="xs">
+          {yours.length === 0 && (
+            <Text size="sm" c="dimmed">
+              You haven't added your own words yet.
             </Text>
-          </Box>
-        ))}
-        <Textarea
-          aria-label="Add to your words"
-          placeholder="Add to your words"
-          autosize
-          minRows={2}
-          maxRows={6}
-          value={adding}
-          onChange={(e) => setAdding(e.currentTarget.value)}
-        />
-        <Button w="fit-content" size="compact-sm" disabled={adding.trim() === ''} loading={saving} onClick={() => void add()}>
-          Add
-        </Button>
-      </Stack>
-    </Section>
+          )}
+          {yours.map(({ entry, i }) => (
+            <Box key={`${entry.at}:${i}`}>
+              {i > 0 && <Added at={entry.at} />}
+              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+                {entry.text}
+              </Text>
+            </Box>
+          ))}
+          <Textarea
+            aria-label="Add to your words"
+            placeholder="Add to your words"
+            autosize
+            minRows={2}
+            maxRows={6}
+            value={adding}
+            onChange={(e) => setAdding(e.currentTarget.value)}
+          />
+          <Button w="fit-content" size="compact-sm" disabled={adding.trim() === ''} loading={saving} onClick={() => void add()}>
+            Add
+          </Button>
+        </Stack>
+      </Section>
+    </>
+  )
+}
+
+function Added({ at }: { at: string }): ReactElement {
+  return (
+    <Text size="xs" c="dimmed" component="time" dateTime={at}>
+      {new Date(at).toLocaleString()}
+    </Text>
   )
 }
 

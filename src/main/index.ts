@@ -7,6 +7,8 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runGit } from '../engine/git/git'
 import { resolveHome } from '../engine/home'
+import { intakeEndpoint } from '../engine/intake/endpoint'
+import { startIntakeServer, type IntakeServer } from '../engine/intake/server'
 import { FakeRuntime, type FakeStep } from '../engine/runtime/fakeRuntime'
 import { execFileNode, resolveClaude, type ExecFn } from '../engine/runtime/resolveClaude'
 import { SdkRuntime } from '../engine/runtime/sdkRuntime'
@@ -14,10 +16,12 @@ import type { AgentRuntime } from '../engine/runtime/types'
 import { isAppUrl, isExternalWebUrl } from './appUrl'
 import { fakeClaudeExec } from './fakeExec'
 import { registerIpc } from './ipc'
+import { agentLauncher } from './launcher'
 import { testRepoFromEnv } from './testHooks'
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
+let intake: IntakeServer | null = null
 
 /** The one page the window may show: the dev server in dev, the built renderer otherwise. */
 function appUrl(): string {
@@ -113,7 +117,13 @@ if (!app.requestSingleInstanceLock()) {
           : path.join(app.getAppPath(), 'src/engine/db/migrations'),
         runtime,
         git: runGit,
-        exec
+        exec,
+        launcher: agentLauncher({
+          packaged: app.isPackaged,
+          execPath: process.execPath,
+          appPath: app.getAppPath(),
+          env: process.env
+        })
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))
@@ -126,6 +136,14 @@ if (!app.requestSingleInstanceLock()) {
         await engine.dispose().catch(() => {})
         throw err
       }
+      // Local agents file tickets through the pipe. The board works without it, so a failure is only logged.
+      const running = engine
+      intake = await startIntakeServer(intakeEndpoint(home.root), (method, params) => running.intake(method, params)).catch(
+        (err: unknown) => {
+          console.error('Mainbus could not start the agent intake:', err)
+          return null
+        }
+      )
     })
     .catch((err: unknown) => {
       dialog.showErrorBox('Mainbus could not start', err instanceof Error ? err.message : String(err))
@@ -139,8 +157,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', (event) => {
     if (disposed || !engine) return
     event.preventDefault()
-    disposing ??= engine
-      .dispose()
+    disposing ??= Promise.resolve(intake?.close())
+      .then(() => engine?.dispose())
       .catch((err: unknown) => {
         console.error('Mainbus could not shut down cleanly:', err)
       })

@@ -1,6 +1,7 @@
 # Builds the app and installs it as the newest stable build under %LOCALAPPDATA%\Mainbus\app.
 # Keeps the 3 newest builds. current.txt names the build run-stable.ps1 starts; previous.txt the one
-# before it (run-stable.ps1 -Previous rolls back to it). Compatible with Windows PowerShell 5.1.
+# before it (run-stable.ps1 -Previous rolls back to it). Also installs %LOCALAPPDATA%\Mainbus\bin\mainbus.cmd,
+# the mainbus CLI and MCP server for agents (scripts\mainbus.cmd). Compatible with Windows PowerShell 5.1.
 $ErrorActionPreference = 'Stop'
 
 # Mainbus sets MAINBUS_AGENT for its agents: an agent must never replace the user's stable build.
@@ -62,6 +63,7 @@ try {
 
     $source = Join-Path $repo 'dist\win-unpacked'
     if (-not (Test-Path -LiteralPath (Join-Path $source 'Mainbus.exe'))) { throw "No Mainbus.exe in $source" }
+    if (-not (Test-Path -LiteralPath (Join-Path $source 'resources\cli\mainbus.cjs'))) { throw "No resources\cli\mainbus.cjs in $source" }
 
     New-Item -ItemType Directory -Force -Path $appRoot | Out-Null
     $target = Join-Path $appRoot $name
@@ -83,6 +85,19 @@ try {
         Write-Name $previousFile $old
     }
     Write-Name $currentFile $name
+
+    # The mainbus launcher for agents (bin\mainbus.cmd) runs whatever current.txt names, so it only needs
+    # writing when its text changes. cmd reads a running batch file as it goes, and an MCP server started
+    # through it may be running now: rewriting an unchanged file could break it for nothing.
+    $binDir = Join-Path (Split-Path -Parent $appRoot) 'bin'
+    $launcher = Join-Path $binDir 'mainbus.cmd'
+    $launcherText = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'mainbus.cmd'))
+    $installed = if (Test-Path -LiteralPath $launcher) { [System.IO.File]::ReadAllText($launcher) } else { $null }
+    if ($installed -ne $launcherText) {
+        New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+        [System.IO.File]::WriteAllText($launcher, $launcherText, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "Agent launcher written: $launcher"
+    }
 
     # Keep the 3 newest builds, and never remove the one a pointer names. A build that cannot be
     # removed (still running, say) is only a warning: the install itself has succeeded.
