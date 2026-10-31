@@ -10,8 +10,10 @@ export interface SimpleCommand {
   name: string
   /** Name first, then arguments, quotes removed. */
   argv: string[]
-  /** Targets of > and >> (and &>) redirects. Input redirects and fd duplication are dropped. */
+  /** Targets of > and >> (and &>) redirects. Fd duplication is dropped. */
   redirects: string[]
+  /** Files read through < redirects; only present when there are some. */
+  inputs?: string[]
   /** Folders a runner option makes the command run in (`pnpm -C`, `npm --prefix`, ...). */
   dirs?: string[]
 }
@@ -29,6 +31,8 @@ export function commandName(token: string): string {
 interface Stage {
   argv: string[]
   redirects: string[]
+  /** Files named by < redirects. */
+  inputs: string[]
   /** Input comes from a < redirect. */
   stdin: boolean
 }
@@ -39,7 +43,7 @@ type Scanned = { statements: Stage[][] } | { why: string }
 function scan(command: string): Scanned {
   const statements: Stage[][] = []
   let pipeline: Stage[] = []
-  let stage: Stage = { argv: [], redirects: [], stdin: false }
+  let stage: Stage = { argv: [], redirects: [], inputs: [], stdin: false }
   let token = ''
   let inToken = false
   let pending: 'out' | 'in' | null = null
@@ -48,6 +52,7 @@ function scan(command: string): Scanned {
   const endToken = (): void => {
     if (inToken) {
       if (pending === 'out') stage.redirects.push(token)
+      else if (pending === 'in') stage.inputs.push(token)
       else if (pending === null) stage.argv.push(token)
       pending = null
     }
@@ -58,7 +63,7 @@ function scan(command: string): Scanned {
     endToken()
     pending = null
     pipeline.push(stage)
-    stage = { argv: [], redirects: [], stdin: false }
+    stage = { argv: [], redirects: [], inputs: [], stdin: false }
   }
   const endStatement = (): void => {
     endStage()
@@ -174,6 +179,8 @@ const ALWAYS_OPAQUE = new Set([
 
 function wrapperWhy(name: string, args: string[]): string | null {
   const lower = args.map((a) => a.toLowerCase())
+  // `env` on its own runs nothing: it prints the environment, which credentials.ts checks.
+  if (name === 'env' && args.length === 0) return null
   if (ALWAYS_OPAQUE.has(name)) return `it runs another command through ${name}`
   if (name === 'cmd' && lower.some((a) => ['/c', '/k', '/r'].includes(a))) return 'it runs another command through cmd'
   const program = interpreterArgs(name, args)
@@ -239,6 +246,7 @@ export function parseShell(command: string): ShellParse {
       if ((index > 0 || stage.stdin) && readsStdinAsCode(s)) {
         return { opaque: true, why: `it feeds a script to ${s.name} on standard input` }
       }
+      if (stage.inputs.length > 0) s.inputs = stage.inputs
       simple.push(s)
     }
     if (simple.length > 0) pipelines.push(simple)

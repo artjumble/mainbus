@@ -283,4 +283,34 @@ describe('chains', () => {
     expect(isAllowed(saved, bash(c))).toBe(true)
     expect(isAllowed(saved, bash('git add src && git commit -m "second"'))).toBe(true)
   })
+
+  // Fake paths only: nothing here reads a file.
+  test('no rule, prefix, exact or tool-wide, allows reading or printing credentials', () => {
+    const pwsh = (command: string) => ({ toolName: 'PowerShell', input: { command } })
+    const cases = [
+      bash('cat ~/.npmrc | grep -v token'),
+      bash('cat .env'),
+      bash('npm config get //registry.npmjs.org/:_authToken'),
+      bash('gh auth token'),
+      bash('printenv'),
+      pwsh('Get-Content $env:USERPROFILE\\.npmrc'),
+      pwsh('Get-ChildItem env:'),
+    ]
+    for (const req of cases) {
+      const saved = [...rulesFromRequest('w1', req), ...rulesFromRequest('w1', req, { exact: true })]
+      const rules = [...saved, rule(req.toolName, null)].map((r, i) => ({ ...r, id: `r${i}` }))
+      expect(saved.some((r) => r.pattern?.startsWith('=')), req.input.command).toBe(true)
+      expect(isAllowed(rules, req), req.input.command).toBe(false)
+    }
+    for (const [toolName, input] of [
+      ['Read', { file_path: '.env' }],
+      ['Grep', { pattern: 'x', path: 'C:\\Users\\u\\.npmrc' }],
+      ['Glob', { pattern: '**/*.pem' }],
+    ] as const) {
+      expect(isAllowed([rule(toolName, null)], { toolName, input }), toolName).toBe(false)
+    }
+    // The same rules still allow ordinary reads.
+    expect(isAllowed([rule('Bash', 'cat *')], bash('cat .env.example'))).toBe(true)
+    expect(isAllowed([rule('Read', null)], { toolName: 'Read', input: { file_path: 'src/a.ts' } })).toBe(true)
+  })
 })

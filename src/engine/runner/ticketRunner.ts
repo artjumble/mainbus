@@ -2,6 +2,7 @@ import type { EngineEvent } from '../../shared/api'
 import type { Decision, DecisionAnswer, Role, Ticket, TicketState, Workspace } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { WorktreeManager } from '../git/worktrees'
+import { credentialReason } from '../permissions/credentials'
 import { guardReason } from '../permissions/guard'
 import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
@@ -607,11 +608,14 @@ export class TicketRunner {
     const shell = isShellTool(req.toolName)
     const command = shell ? commandOf(req.input) : null
     const forcePush = command !== null && isDestructivePush(command)
+    // Reading or printing credentials asks every time: no rule, not even an exact one, covers it.
+    const secret = credentialReason(req.toolName, req.input) !== null
     // "Always allow" would be a lie where no rule can allow the request: a force-push, an unparseable
-    // command, or a guarded non-shell request (its rule would cover the tool everywhere, not this path).
-    const noAlways = (command !== null && (forcePush || parseShell(command).opaque)) || (guarded && !shell)
+    // command, a credential read, or a guarded non-shell request (its rule would cover the tool
+    // everywhere, not this path).
+    const noAlways = (command !== null && (forcePush || parseShell(command).opaque)) || secret || (guarded && !shell)
 
-    if (!forcePush) {
+    if (!forcePush && !secret) {
       const rules = await this.repos.allowRules.list(target.workspaceId)
       // A guarded action is only covered by a rule for exactly this command.
       const usable = guarded ? rules.filter((r) => r.pattern?.startsWith('=')) : rules

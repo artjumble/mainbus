@@ -1,5 +1,6 @@
 import path from 'node:path'
-import { type Download, readDownload } from './downloads'
+import { credentialReason, NAMED_PATH, ntfsName, readArguments } from './credentials'
+import { type Download, DOWNLOAD_COMMANDS, readDownload } from './downloads'
 import { inPlaceFiles } from './interpreters'
 import { commandOf, isShellTool } from './policy'
 import { isDestructivePushArgs, parseGit, parseShell, type SimpleCommand } from './shell'
@@ -41,17 +42,21 @@ const HOME_FORM = /~|\$\{?HOME\}?|\$env:(?:HOME|USERPROFILE)|%(?:USERPROFILE|HOM
 const CLAUDE_WORD = /\.claude(?![\w-])/i
 const CLAUDE_SEGMENT = /(?:^|\\)\.claude(?:\\|$)/i
 const ABSOLUTE = /^(?:[a-zA-Z]:[\\/]|[\\/])/
-const NULL_TARGET = /^(\/dev\/null|nul|\$null)$/i
-const NAMED_PATH = /^-(?:path|literalpath|destination|destinationpath|filepath|outfile|target):(.+)$/i
+// The only places outside the worktree a command may name without a card are the null device
+// and the standard streams. Program paths (`"C:\Program Files\nodejs\node.exe" x`) are the command
+// itself, not an argument, so npm, node and git installs found through PATH need no exemption.
+const NULL_TARGET = /^(\/dev\/(null|stdin|stdout|stderr)|nul|\$null)$/i
+const CLIMBS_OUT = /(?:^|[\\/])\.\.(?:[\\/]|$)/
+// PowerShell automatic variables and shell special parameters hold values, not paths.
+const VALUE_VARIABLE = /^\$(?:true|false|_|psitem|lastexitcode|args|input|matches|pwd|[?#@*!$0-9-])$/i
+const BARE_VARIABLE = /^(?:\$\{?\w+\}?|%\w+%)$/
+// Claude Code saves long tool output under ~/.claude/projects/<project>/.../tool-results and tells the
+// agent to Read it there; that is the agent's own output, so Read may open it without a card.
+const TOOL_RESULTS = /\\\.claude\\projects\\.+\\tool-results\\[^\\]+$/i
 
 // Folders and files that the next agent session or a git hook will load or execute.
 const CONFIG_DIRECTORIES = new Set(['.claude', '.git', '.husky'])
 const CONFIG_FILES = new Set(['.mcp.json', '.gitmodules', '.gitattributes'])
-
-// NTFS ignores trailing dots and spaces and treats `name:stream` / `name::$DATA` as the same file.
-function ntfsName(segment: string): string {
-  return segment.replace(/:.*$/, '').replace(/[. ]+$/, '')
-}
 
 function isAgentConfigPath(segments: string[]): boolean {
   const lower = segments.map((s) => ntfsName(s).toLowerCase())
@@ -291,13 +296,19 @@ function commandReason(cmd: SimpleCommand, ctx: GuardContext): string | null {
   return firstReason([...written, ...edited, ...cmd.redirects], ctx)
 }
 
-/** A path-looking argument (absolute, home or variable) that is not inside the allowed folders. */
-function outsidePathIn(cmds: SimpleCommand[], ctx: GuardContext): string | null {
+/**
+ * A path-looking argument (absolute, home, variable, or climbing out with ..) that is not inside the
+ * allowed folders. `reading` looks only at the words a command reads files through (readArguments);
+ * otherwise every argument counts, since a pipe can hand any of them to a write command.
+ */
+function outsidePathIn(cmds: SimpleCommand[], ctx: GuardContext, reading = false): string | null {
   for (const cmd of cmds) {
-    for (const a of [...cmd.argv.slice(1), ...cmd.redirects]) {
+    for (const a of reading ? readArguments(cmd) : [...cmd.argv.slice(1), ...cmd.redirects]) {
       const value = (NAMED_PATH.exec(a)?.[1] ?? a).replace(FILESYSTEM_PROVIDER, '')
-      if (isFlag(value) || NULL_TARGET.test(value)) continue
-      if (!HOME_OR_VARIABLE.test(value) && !ABSOLUTE.test(value)) continue
+      if (isFlag(value) || NULL_TARGET.test(value) || VALUE_VARIABLE.test(value)) continue
+      // A downloader's bare `$URL` is the address it fetches.
+      if (reading && DOWNLOAD_COMMANDS.has(cmd.name) && BARE_VARIABLE.test(value)) continue
+      if (!HOME_OR_VARIABLE.test(value) && !ABSOLUTE.test(value) && !CLIMBS_OUT.test(value)) continue
       const { shown, inside } = locate(value, ctx)
       if (!inside) return shown
     }
@@ -320,6 +331,8 @@ function shellReason(command: string, ctx: GuardContext): string | null {
   const parsed = parseShell(command)
   if (parsed.opaque) return `Runs a command Mainbus can't check: ${parsed.why}`
   const all = parsed.pipelines.flat()
+  const secret = credentialReason('Bash', { command })
+  if (secret) return secret
   if (touchesClaudeFolder(command, all, ctx)) return 'Touches the .claude folder in the home directory'
   for (const pipeline of parsed.pipelines) {
     for (const cmd of pipeline) {
@@ -331,6 +344,27 @@ function shellReason(command: string, ctx: GuardContext): string | null {
     const outside = pathless ? outsidePathIn(pipeline, ctx) : null
     if (outside) return `Writes outside the ticket's folder: ${outside}`
   }
+  const read = outsidePathIn(all, ctx, true)
+  return read === null ? null : `Reads outside the ticket's folder: ${read}`
+}
+
+/** Inputs of the read-only file tools that name where they read. */
+const READ_PATH_KEYS: Record<string, string[]> = {
+  Read: ['file_path'],
+  NotebookRead: ['notebook_path'],
+  Grep: ['path'],
+  Glob: ['path', 'pattern'],
+}
+
+function toolReadReason(toolName: string, input: Record<string, unknown>, ctx: GuardContext): string | null {
+  for (const key of READ_PATH_KEYS[toolName]) {
+    const p = input[key]
+    if (typeof p !== 'string' || p === '') continue
+    // A Glob pattern is relative to its path unless it is rooted itself.
+    if (key === 'pattern' && !ABSOLUTE.test(p) && !HOME_OR_VARIABLE.test(p) && !CLIMBS_OUT.test(p)) continue
+    const { shown, inside } = locate(p, ctx)
+    if (!inside && !(toolName === 'Read' && TOOL_RESULTS.test(shown))) return `Reads outside the ticket's folder: ${shown}`
+  }
   return null
 }
 
@@ -338,6 +372,7 @@ function shellReason(command: string, ctx: GuardContext): string | null {
 export function guardReason(toolName: string, input: Record<string, unknown>, context: GuardContext): string | null {
   // Relative or empty extra folders would resolve against the process cwd: drop them.
   const ctx = { ...context, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
+  if (Object.hasOwn(READ_PATH_KEYS, toolName)) return credentialReason(toolName, input) ?? toolReadReason(toolName, input, ctx)
   const key = FILE_PATH_KEY[toolName]
   if (key) {
     const p = input[key]

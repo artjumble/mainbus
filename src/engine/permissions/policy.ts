@@ -1,5 +1,6 @@
 import type { AllowRule } from '../../shared/domain'
 import type { PermissionRequest } from '../runtime/types'
+import { credentialReason } from './credentials'
 import { commandName, isDestructivePush, parseShell, plainStages } from './shell'
 
 export { isDestructivePush }
@@ -111,6 +112,7 @@ export function isAllowed(rules: AllowRule[], r: Req): boolean {
   const command = isShellTool(r.toolName) ? commandOf(r.input) : null
   // No rule can allow these.
   if (command !== null && (parseShell(command).opaque || isDestructivePush(command))) return false
+  if (credentialReason(r.toolName, r.input) !== null) return false
   if (own.some((rule) => rule.pattern === null)) return true
   if (command === null) return false
   const cmd = normalize(command)

@@ -46,7 +46,6 @@ describe('guardReason: no opinion', () => {
     ['Get-ChildItem', pwsh('Get-ChildItem src')],
     ['Select-String', pwsh('Select-String foo src\\*.ts')],
     ['Write-Output', pwsh('Write-Output hi')],
-    ['read-only cmdlets in a pipeline from outside', pwsh('Get-ChildItem C:\\Users\\u\\x | Select-Object Name | Format-Table')],
     ['Out-Null', pwsh('git status | Out-Null')],
     ['write cmdlet on a path inside the worktree', pwsh('Clear-Content out\\log.txt')],
     ['node script', bash('node scripts/x.js')],
@@ -73,7 +72,6 @@ describe('guardReason: no opinion', () => {
     ['wget -O inside', bash('wget -O out.zip https://x.example')],
     ['iwr without output', pwsh('iwr https://x.example')],
     ['module-qualified FileSystem provider, inside', pwsh('Remove-Item Microsoft.PowerShell.Core\\FileSystem::C:\\h\\work\\ws\\14-x\\build')],
-    ['gci piped into a read-only cmdlet', pwsh('gci C:\\Users\\u\\x | Select-Object Name')],
     ['trailing dot on an ordinary file', ['Write', { file_path: 'notes.txt.' }]],
     ['write to a normal dotfile in .vscode',['Write', { file_path: '.vscode/settings.json' }]],
     ['echo of a variable', bash('echo $PATH')],
@@ -84,10 +82,7 @@ describe('guardReason: no opinion', () => {
     ['pipe into tee inside the worktree', bash('echo hi | tee out.txt')],
     ['cd inside the worktree', bash('cd sub && ls')],
     ['write to a normal dotfile in the worktree', ['Write', { file_path: 'C:\\h\\work\\ws\\14-x\\.gitignore' }]],
-    ['reads stay unguarded', ['Read', { file_path: 'C:\\Windows\\win.ini' }]],
     ['reads of .claude inside the worktree', ['Read', { file_path: 'C:\\h\\work\\ws\\14-x\\.claude\\settings.json' }]],
-    ['cat outside the worktree', bash('cat C:\\Windows\\win.ini')],
-    ['cp from outside into the worktree', bash('cp C:\\Windows\\win.ini ./win.ini')],
     ['unknown tool', ['WebFetch', { url: 'https://example.com' }]],
     ['missing input', ['Write', {}]],
     // Fix round 4: a wrapped tool's own flags are not runner flags.
@@ -134,7 +129,6 @@ describe('guardReason: no opinion', () => {
     ['wget -qO- to stdout', bash('wget -qO- https://x.example')],
     ['curl -O into the cwd', bash('curl -O https://x.example/a.zip')],
     ['curl -O with a variable url', bash('curl -O $URL')],
-    ['curl -T upload reads only', bash('curl -T C:\\Users\\u\\a https://x.example')],
     ['curl -sSLo inside', bash('curl -sSLo out.json https://x.example')],
     ['curl --create-dirs inside', bash('curl --create-dirs -o out/a.json https://x.example')],
     ['wget -P inside', bash('wget -P downloads https://x.example')],
@@ -156,13 +150,10 @@ describe('guardReason: no opinion', () => {
     ['yarn --mutex network install', bash('yarn --mutex network install')],
     ['unknown pnpm flag before a builtin', bash('pnpm --some-flag install')],
     ['unknown bun flag alone', bash('bun --some-flag')],
-    // curl --cookie reads a file.
-    ['curl --cookie from home', bash('curl --cookie ~/c.txt https://x.example')],
     // sed -i and perl -i inside the worktree.
     ['sed -i inside', bash('sed -i s/a/b/ src/x.ts')],
     ['sed -i with an address script', bash("sed -i '/^#/d' src/x.ts")],
     ['sed -i.bak -e inside', bash('sed -i.bak -e s/a/b/ src/x.ts')],
-    ['sed reading outside', bash('sed s/a/b/ C:\\Users\\u\\x')],
     ['perl -i with a script inside', bash('perl -i -p x.pl src/a.txt')],
     // Runner folders inside the worktree.
     ['pnpm -C inside', bash('pnpm -C sub install')],
@@ -642,5 +633,226 @@ describe('guardReason: context', () => {
     const other = { command: 'git branch -D mainbus/15-y' }
     expect(guardReason('Bash', other, ctx)).not.toBeNull()
     expect(guardReason('Bash', other, { ...ctx, ownBranch: 'mainbus/15-y' })).toBeNull()
+  })
+})
+
+// Every path below is made up: C:\Users\u is a fake home and nothing is read from disk.
+describe('guardReason: credentials', () => {
+  const files: [string, Row][] = [
+    ['the incident: cat ~/.npmrc piped into grep -v', bash('cat ~/.npmrc | grep -v token')],
+    ['Get-Content of $env:USERPROFILE\\.npmrc', pwsh('Get-Content $env:USERPROFILE\\.npmrc')],
+    ['.env inside the worktree', bash('cat .env')],
+    ['.npmrc in a subfolder of the worktree', bash('cat config/.npmrc')],
+    ['absolute .env inside the worktree', bash('cat C:\\h\\work\\ws\\14-x\\.env')],
+    ['.env.local', bash('cat .env.local')],
+    ['.ENV.Production, any case', bash('cat .ENV.Production')],
+    ['.yarnrc', bash('cat .yarnrc')],
+    ['.yarnrc.yml', bash('cat .yarnrc.yml')],
+    ['.pypirc', bash('cat ~/.pypirc')],
+    ['.netrc', bash('cat ~/.netrc')],
+    ['_netrc', pwsh('Get-Content $HOME\\_netrc')],
+    ['.git-credentials', bash('cat ~/.git-credentials')],
+    ['a key in .ssh', bash('cat ~/.ssh/id_rsa')],
+    ['the .ssh folder itself', bash('tar -czf keys.tgz ~/.ssh')],
+    ['any file under .ssh', bash('cat ~/.ssh/config')],
+    ['.aws credentials', bash('cat C:\\Users\\u\\.aws\\credentials')],
+    ['.azure', bash('ls C:\\Users\\u\\.azure')],
+    ['.kube config', bash('cat ~/.kube/config')],
+    ['.docker/config.json', bash('cat ~/.docker/config.json')],
+    ['.config/gh', bash('cat ~/.config/gh/hosts.yml')],
+    ['.config/gcloud', bash('ls ~/.config/gcloud')],
+    ['.gnupg', bash('ls ~/.gnupg')],
+    ['gnupg on Windows', pwsh('Get-ChildItem $env:APPDATA\\gnupg')],
+    ['Claude Code credentials', bash('cat ~/.claude/.credentials.json')],
+    ['Codex auth', bash('cat ~/.codex/auth.json')],
+    ['a .pem file', bash('cat certs/server.pem')],
+    ['a .key file', bash('cat tls.key')],
+    ['a .p12 file', bash('base64 cert.p12')],
+    ['a .pfx file', pwsh('Get-FileHash cert.pfx')],
+    ['id_ed25519', bash('cat id_ed25519')],
+    ['id_ecdsa.pub', bash('cat id_ecdsa.pub')],
+    ['npmrc under %APPDATA%', bash('type %APPDATA%\\npm\\etc\\npmrc')],
+    ['global npmrc next to Node', bash('cat "C:\\Program Files\\nodejs\\etc\\npmrc"')],
+    ['cp of .env', bash('cp .env /tmp/x')],
+    ['cp of .env inside the worktree', bash('cp .env backup.txt')],
+    ['mv of .npmrc', bash('mv .npmrc npmrc.txt')],
+    ['Copy-Item of .env', pwsh('Copy-Item .env -Destination x.txt')],
+    ['grep in .env', bash('grep TOKEN .env')],
+    ['rg in ~/.npmrc', bash('rg token ~/.npmrc')],
+    ['findstr in .npmrc', bash('findstr /i token .npmrc')],
+    ['Select-String -Path .env', pwsh('Select-String -Path .env -Pattern TOKEN')],
+    ['Select-String positional', pwsh('Select-String TOKEN .env')],
+    ['sha256sum', bash('sha256sum .env')],
+    ['input redirect', bash('wc -l < .env')],
+    ['node --env-file=', bash('node --env-file=.env x.js')],
+    ['git add .env', bash('git add .env')],
+    ['NTFS trailing dot', bash('cat .npmrc.')],
+    ['NTFS stream', bash('cat .npmrc::$DATA')],
+    ['FileSystem provider', pwsh('Get-Content FileSystem::C:\\Users\\u\\.npmrc')],
+    ['Git Bash drive form', bash('cat /c/Users/u/.npmrc')],
+    ['wildcard naming .npmrc', bash('cat ~/.n?mrc')],
+    ['wildcard under .ssh', bash('cat ~/.ssh/*')],
+    ['wildcard of keys', bash('cat id_*')],
+    ['wildcard of .env files', bash('cat .env*')],
+    ['wildcard of .pem files', bash('cat *.pem')],
+    ['inside a chain', bash('npm test && cat .env')],
+    ['through a runner', bash('npx cat .env')],
+    ['Read of .env', ['Read', { file_path: '.env' }]],
+    ['Read of config/.npmrc in the worktree', ['Read', { file_path: 'C:\\h\\work\\ws\\14-x\\config\\.npmrc' }]],
+    ['Read of ~/.npmrc', ['Read', { file_path: 'C:\\Users\\u\\.npmrc' }]],
+    ['Grep in .env', ['Grep', { pattern: 'TOKEN', path: '.env' }]],
+    ['Grep with a glob of .env files', ['Grep', { pattern: 'TOKEN', glob: '**/.env*' }]],
+    ['Glob of .pem files', ['Glob', { pattern: '**/*.pem' }]],
+    ['Glob in .ssh', ['Glob', { pattern: '*', path: 'C:\\Users\\u\\.ssh' }]],
+    ['NotebookRead of a key', ['NotebookRead', { notebook_path: 'C:\\Users\\u\\.ssh\\id_rsa' }]],
+  ]
+  test.each(files)('%s', (_name, [tool, input]) => {
+    expect(guardReason(tool, input, ctx)).toMatch(/^Reads a credentials file: .+/)
+  })
+
+  const printing: [string, Row][] = [
+    ['npm config get of the auth token', bash('npm config get //registry.npmjs.org/:_authToken')],
+    ['npm config get _auth', bash('npm config get _auth')],
+    ['npm get of a token', bash('npm get //registry.npmjs.org/:_authToken')],
+    ['npm config get with no key', bash('npm config get')],
+    ['npm config list --json', bash('npm config list --json')],
+    ['npm config ls --json', bash('npm config ls --json')],
+    ['pnpm config get of a token', bash('pnpm config get //registry.npmjs.org/:_authToken')],
+    ['yarn config get npmAuthToken', bash('yarn config get npmAuthToken')],
+    ['git credential fill', bash('git credential fill')],
+    ['git credential-manager get', bash('git credential-manager get')],
+    ['git config --get-regexp credential', bash('git config --get-regexp credential')],
+    ['git config of an extra header', bash('git config --get http.extraheader')],
+    ['gh auth token', bash('gh auth token')],
+    ['gh auth status --show-token', bash('gh auth status --show-token')],
+    ['gh auth status -t', bash('gh auth status -t')],
+    ['printenv', bash('printenv')],
+    ['printenv of one variable', bash('printenv NPM_TOKEN')],
+    ['env', bash('env')],
+    ['set', bash('set')],
+    ['Get-ChildItem env:', pwsh('Get-ChildItem env:')],
+    ['gci env:', pwsh('gci env:')],
+    ['dir env:', pwsh('dir env:')],
+    ['ls Env:\\', pwsh('ls Env:\\')],
+    ['Get-ChildItem -Path Env:', pwsh('Get-ChildItem -Path Env:')],
+    ['Get-Item env:NPM_TOKEN', pwsh('Get-Item env:NPM_TOKEN')],
+  ]
+  test.each(printing)('%s', (_name, [tool, input]) => {
+    expect(guardReason(tool, input, ctx)).toMatch(/^Prints credentials: .+/)
+  })
+
+  test('the reason names the path as typed', () => {
+    expect(guardReason('Bash', { command: 'cat ~/.npmrc | grep -v token' }, ctx)).toBe('Reads a credentials file: ~/.npmrc')
+    expect(guardReason('Read', { file_path: '.env' }, ctx)).toBe('Reads a credentials file: .env')
+  })
+
+  test('credentials win over other reasons for the same command', () => {
+    expect(guardReason('Bash', { command: 'cp ~/.npmrc C:\\Users\\u\\x' }, ctx)).toBe('Reads a credentials file: ~/.npmrc')
+  })
+
+  const quiet: [string, Row][] = [
+    ['.env.example', bash('cat .env.example')],
+    ['.env.sample', bash('cp .env.sample local.txt')],
+    ['.env.template', ['Read', { file_path: '.env.template' }]],
+    ['.envrc is not .env', bash('cat .envrc')],
+    ['a pattern that mentions .env', bash('grep -rn "\\.env" src')],
+    ['a pattern that mentions id_rsa', bash('rg id_rsa src')],
+    ['Select-String -Pattern .env', pwsh('Select-String -Pattern .env -Path src\\x.ts')],
+    ['echo of a credential file name', bash('echo .env >> .gitignore')],
+    ['commit message mentioning .npmrc', bash('git commit -m .npmrc')],
+    ['npm config get registry', bash('npm config get registry')],
+    ['npm config list', bash('npm config list')],
+    ['git config user.name', bash('git config --get user.name')],
+    ['gh auth status', bash('gh auth status')],
+    ['a wildcard of every file', bash('cat src/*')],
+    ['a wildcard of yml files', bash('cat .github/workflows/*.yml')],
+    ['Glob of ts files', ['Glob', { pattern: 'src/**/*.ts' }]],
+    ['Grep for TOKEN in src', ['Grep', { pattern: 'TOKEN', path: 'src' }]],
+    ['a key-like name that is not one', bash('cat src/keyboard.ts')],
+  ]
+  test.each(quiet)('%s', (_name, [tool, input]) => {
+    expect(guardReason(tool, input, ctx)).toBeNull()
+  })
+})
+
+describe('guardReason: reads outside the ticket folder', () => {
+  const cases: [string, Row, string][] = [
+    ['cat', bash('cat C:\\Windows\\win.ini'), 'C:\\Windows\\win.ini'],
+    ['type', bash('type C:\\Windows\\win.ini'), 'C:\\Windows\\win.ini'],
+    ['head', bash('head -n 5 /c/Users/u/notes.txt'), 'C:\\Users\\u\\notes.txt'],
+    ['grep', bash('grep -n foo C:\\Users\\u\\notes.txt'), 'C:\\Users\\u\\notes.txt'],
+    ['rg', bash('rg foo C:\\Users\\u'), 'C:\\Users\\u'],
+    ['findstr', bash('findstr /s /i foo C:\\Users\\u\\*.txt'), 'C:\\Users\\u\\*.txt'],
+    ['Select-String', pwsh('Select-String -Pattern foo -Path C:\\Users\\u\\a.txt'), 'C:\\Users\\u\\a.txt'],
+    ['Select-String -Path:', pwsh('Select-String foo -Path:C:\\Users\\u\\a.txt'), 'C:\\Users\\u\\a.txt'],
+    ['Get-Content -LiteralPath', pwsh('Get-Content -LiteralPath C:\\Users\\u\\a.txt'), 'C:\\Users\\u\\a.txt'],
+    ['cp from outside', bash('cp C:\\Windows\\win.ini ./win.ini'), 'C:\\Windows\\win.ini'],
+    ['Copy-Item from outside', pwsh('Copy-Item C:\\Users\\u\\a.txt .\\a.txt'), 'C:\\Users\\u\\a.txt'],
+    ['tar -C outside', bash('tar -C /c/Users/u -czf out.tgz x'), 'C:\\Users\\u'],
+    ['git -C outside', bash('git -C C:\\other\\repo status'), 'C:\\other\\repo'],
+    ['git --git-dir outside', bash('git --git-dir C:\\other\\.git log'), 'C:\\other\\.git'],
+    ['git --work-tree= outside', bash('git --work-tree=C:\\other status'), 'C:\\other'],
+    ['relative path climbing out', bash('cat ../../x'), 'C:\\h\\work\\x'],
+    ['relative path climbing out, backslashes', pwsh('Get-Content ..\\..\\x'), 'C:\\h\\work\\x'],
+    ['home', bash('cat ~/notes.txt'), '~/notes.txt'],
+    ['$HOME', bash('cat $HOME/notes.txt'), '$HOME/notes.txt'],
+    ['%USERPROFILE%', bash('type %USERPROFILE%\\notes.txt'), '%USERPROFILE%\\notes.txt'],
+    ['a variable', bash('cat $FILE'), '$FILE'],
+    ['input redirect from outside', bash('wc -l < C:\\Users\\u\\a.txt'), 'C:\\Users\\u\\a.txt'],
+    ['ls outside', bash('ls C:\\Users\\u'), 'C:\\Users\\u'],
+    ['read-only cmdlets in a pipeline', pwsh('Get-ChildItem C:\\Users\\u\\x | Select-Object Name'), 'C:\\Users\\u\\x'],
+    ['curl -T uploads a file from outside', bash('curl -T C:\\Users\\u\\a https://x.example'), 'C:\\Users\\u\\a'],
+    ['curl --cookie from home', bash('curl --cookie ~/c.txt https://x.example'), '~/c.txt'],
+    ['sed reading outside', bash('sed s/a/b/ C:\\Users\\u\\x'), 'C:\\Users\\u\\x'],
+    ['Read outside', ['Read', { file_path: 'C:\\Windows\\win.ini' }], 'C:\\Windows\\win.ini'],
+    ['Read climbing out', ['Read', { file_path: '..\\..\\x.txt' }], 'C:\\h\\work\\x.txt'],
+    ['Grep outside', ['Grep', { pattern: 'x', path: 'C:\\Users\\u' }], 'C:\\Users\\u'],
+    ['Glob outside', ['Glob', { pattern: '*.txt', path: 'C:\\Users\\u' }], 'C:\\Users\\u'],
+    ['Glob with a rooted pattern', ['Glob', { pattern: 'C:/Users/u/*.txt' }], 'C:\\Users\\u\\*.txt'],
+    ['NotebookRead outside', ['NotebookRead', { notebook_path: 'C:\\Users\\u\\n.ipynb' }], 'C:\\Users\\u\\n.ipynb'],
+  ]
+  test.each(cases)('%s', (_name, [tool, input], shown) => {
+    expect(guardReason(tool, input, ctx)).toBe(`Reads outside the ticket's folder: ${shown}`)
+  })
+
+  const quiet: [string, Row][] = [
+    ['npm test', bash('npm test')],
+    ['npm run build', bash('npm run build')],
+    ['git status', bash('git status')],
+    ['git diff', bash('git diff')],
+    ['git diff of a range', bash('git diff main..HEAD')],
+    ['ls src', bash('ls src')],
+    ['cat package.json', bash('cat package.json')],
+    ['node_modules inside the worktree', bash('cat node_modules/zod/package.json')],
+    ['ls node_modules/.bin', bash('ls node_modules/.bin')],
+    ['Read in node_modules', ['Read', { file_path: 'C:\\h\\work\\ws\\14-x\\node_modules\\zod\\package.json' }]],
+    ['.. that stays inside', bash('cat src/../package.json')],
+    ['null device', bash('cat /dev/null')],
+    ['grep pattern that looks rooted', bash('grep -rn "/api" src')],
+    ['rg pattern that looks rooted', bash('rg /api src')],
+    ['sed address script', bash("sed -n '/^#/p' src/x.ts")],
+    ['findstr switches', bash('findstr /s /i foo *.ts')],
+    ['echo of $HOME', bash('echo $HOME')],
+    ['exit status', bash('exit $?')],
+    ['curl with a variable url', bash('curl -s $URL')],
+    ['git commit message with a rooted path', bash('git commit -m "/api fix"')],
+    ['Read without a path', ['Read', {}]],
+    ['Glob with a relative pattern', ['Glob', { pattern: 'src/**/*.ts' }]],
+    ['Grep without a path', ['Grep', { pattern: 'x' }]],
+    ['Read of Claude Code saved tool output', ['Read', { file_path: 'C:\\Users\\u\\.claude\\projects\\C--h-work\\s1\\tool-results\\t1.txt' }]],
+  ]
+  test.each(quiet)('%s', (_name, [tool, input]) => {
+    expect(guardReason(tool, input, ctx)).toBeNull()
+  })
+
+  test('additional directories count as inside for reads', () => {
+    const c = { ...ctx, additionalDirectories: ['C:\\shared\\docs'] }
+    expect(guardReason('Bash', { command: 'cat C:\\shared\\docs\\a.md' }, c)).toBeNull()
+    expect(guardReason('Read', { file_path: 'C:\\shared\\docs\\a.md' }, c)).toBeNull()
+  })
+
+  test('saved tool output under .claude is still checked for credentials', () => {
+    const p = 'C:\\Users\\u\\.claude\\projects\\C--h-work\\s1\\tool-results\\..\\..\\..\\..\\.credentials.json'
+    expect(guardReason('Read', { file_path: p }, ctx)).toMatch(/^Reads a credentials file/)
   })
 })

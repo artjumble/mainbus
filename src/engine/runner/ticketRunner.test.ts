@@ -495,6 +495,35 @@ describe('TicketRunner', () => {
     expect(await repos.allowRules.list(ticket.workspaceId)).toMatchObject([{ pattern: 'git push *' }])
   })
 
+  it('a credential read opens a card without Always allow, even with prefix, exact and tool-wide rules', async () => {
+    // A made-up home path: the fake runtime runs nothing, so no file is read.
+    const command = 'cat C:\\Users\\u\\.npmrc | grep -v token'
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'cat *' })
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'grep *' })
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: `=${command}` })
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Read', pattern: null })
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const spec = runtime.specs[0]
+
+    const shellVerdict = spec.onPermission(permission(command))
+    const shellDecision = await waitForPending()
+    expect(shellDecision).toMatchObject({ kind: 'permission', allowAlways: false })
+    await expect(runner.answer(shellDecision.id, { kind: 'permission', choice: 'always_allow' })).rejects.toThrow(
+      /Always allow/
+    )
+    await runner.answer(shellDecision.id, { kind: 'permission', choice: 'allow_once' })
+    expect(await shellVerdict).toEqual({ allow: true })
+
+    const readVerdict = spec.onPermission({ ...permission(''), toolName: 'Read', input: { file_path: '.env' } })
+    const readDecision = await waitForPending()
+    expect(readDecision).toMatchObject({ kind: 'permission', allowAlways: false })
+    await runner.answer(readDecision.id, { kind: 'permission', choice: 'deny' })
+    expect(await readVerdict).toMatchObject({ allow: false })
+    expect(await repos.allowRules.list(ticket.workspaceId)).toHaveLength(4)
+  })
+
   it('partial events are emitted but not stored', async () => {
     const runtime = new FakeRuntime([
       { emit: { kind: 'message', text: 'Hel', partial: true } },

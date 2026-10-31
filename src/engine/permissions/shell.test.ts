@@ -19,12 +19,17 @@ describe('parseShell', () => {
     expect(argvs('rm C:\\Users\\u\\x')).toEqual([[['rm', 'C:\\Users\\u\\x']]])
   })
 
-  test('collects output redirects and drops fd duplication and input', () => {
+  test('collects output redirects and input files, and drops fd duplication', () => {
     const p = parseShell('echo hi 2> err.txt >> out.txt 2>&1 < in.txt')
     expect(p).toEqual({
       opaque: false,
-      pipelines: [[{ name: 'echo', argv: ['echo', 'hi'], redirects: ['err.txt', 'out.txt'] }]],
+      pipelines: [[{ name: 'echo', argv: ['echo', 'hi'], redirects: ['err.txt', 'out.txt'], inputs: ['in.txt'] }]],
     })
+  })
+
+  test('env with no arguments prints the environment and is not a wrapper', () => {
+    expect(argvs('env')).toEqual([[['env']]])
+    expect(parseShell('env FOO=1 x').opaque).toBe(true)
   })
 
   test('strips assignments and sudo, and lower-cases the command name', () => {
