@@ -179,7 +179,14 @@ export class Normalizer {
   private rateLimit(msg: Json): AgentEvent[] {
     const info = msg.rate_limit_info
     if (!isRecord(info) || typeof info.status !== 'string') return []
-    return [{ kind: 'rate_limit', status: info.status, windows: windowsOf(info) }]
+    return [
+      {
+        kind: 'rate_limit',
+        status: info.status,
+        ...(typeof info.resetsAt === 'number' ? { resetsAt: info.resetsAt } : {}),
+        windows: windowsOf(info)
+      }
+    ]
   }
 
   private result(msg: Json): AgentEvent[] {

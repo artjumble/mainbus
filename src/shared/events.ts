@@ -23,7 +23,10 @@ export type AgentEvent =
   | { kind: 'session'; sessionId: string }
   | {
       kind: 'rate_limit'
+      /** The SDK sends 'allowed', 'allowed_warning' or 'rejected'; 'rejected' means the usage limit is reached. */
       status: string
+      /** When the limit that applies resets, in Unix seconds, when the SDK says. */
+      resetsAt?: number
       windows: Record<string, { utilization: number; resetsAt: number; status: string }>
     }
   | { kind: 'vcs_changed' }
@@ -36,5 +39,7 @@ export type ThreadEvent =
   | { kind: 'nudge'; text: string }
   | { kind: 'process_exit'; code: number | null }
   | { kind: 'stopped' }
+  /** Something Mainbus did on its own, such as unattended mode allowing a request. */
+  | { kind: 'notice'; text: string }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }

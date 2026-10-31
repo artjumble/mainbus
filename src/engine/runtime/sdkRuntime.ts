@@ -269,7 +269,7 @@ export class SdkRuntime implements AgentRuntime {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'ask',
-          permissionDecisionReason: reason
+          permissionDecisionReason: reason.message
         }
       }
     }

@@ -33,6 +33,7 @@ function describe(event: ThreadEvent, decisions: Map<string, Decision>, roleName
     case 'user_message':
       return `User: ${event.text}`
     case 'nudge':
+    case 'notice':
       return `Mainbus: ${event.text}`
     case 'handoff':
       return `Handoff: ${event.summary}`

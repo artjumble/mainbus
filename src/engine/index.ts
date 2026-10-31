@@ -15,6 +15,7 @@ import { WorktreeManager } from './git/worktrees'
 import type { HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { TicketRunner } from './runner/ticketRunner'
+import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
 import { createRepos } from './store'
@@ -38,6 +39,8 @@ export interface EngineConfig {
   launcher?: AgentLauncher | null
   /** Why the intake pipe couldn't be opened, if it couldn't; shown in the Connect agents settings. */
   intakeError?: () => string | null
+  /** Held exactly while unattended mode is on; the app passes Electron's powerSaveBlocker. */
+  keepAwake?: KeepAwake
 }
 
 export interface Engine {
@@ -76,7 +79,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
   try {
     const repos = createRepos(handle.db, now)
     const listeners = new Set<(e: EngineEvent) => void>()
+    // Created below, once the runner it drives exists; it sees every event before the listeners do.
+    let unattended: UnattendedMode | null = null
     const emit = (e: EngineEvent): void => {
+      unattended?.observe(e)
       for (const listener of [...listeners]) {
         try {
           listener(e)
@@ -87,7 +93,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     }
 
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
-    const runner = new TicketRunner({ repos, worktrees, runtime: cfg.runtime ?? missingRuntime, now, emit })
+    const runner = new TicketRunner({
+      repos,
+      worktrees,
+      runtime: cfg.runtime ?? missingRuntime,
+      now,
+      emit,
+      unattended: () => unattended?.isOn() ?? false
+    })
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()
 
@@ -99,6 +112,23 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const requireRuntime = (): void => {
       if (cfg.runtime === null) throw new SetupRequiredError()
     }
+
+    // Always off at launch: nothing about it is stored.
+    const mode = new UnattendedMode({
+      runner,
+      tickets: async () => {
+        const ws = await repos.workspaces.get()
+        return ws ? repos.tickets.list(ws.id) : []
+      },
+      checkCanRun: async () => {
+        requireRuntime()
+        await requireWorkspace()
+      },
+      emit,
+      keepAwake: cfg.keepAwake ?? { start: () => {}, stop: () => {} },
+      now
+    })
+    unattended = mode
 
     async function openWorkspace(repoPath: string): Promise<Workspace> {
       const folder = path.resolve(repoPath)
@@ -209,7 +239,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return runner.send(ticketId, text)
       },
       // Stopping needs no runtime: without one nothing is live, and a paused run can still be ended.
-      'agent.stop': (ticketId) => runner.stop(ticketId),
+      // Stopping the ticket unattended mode is running turns the mode off: the user is here.
+      'agent.stop': (ticketId) => {
+        mode.userStopped(ticketId)
+        return runner.stop(ticketId)
+      },
       'agent.continue': (ticketId) => {
         requireRuntime()
         return runner.continue(ticketId)
@@ -232,7 +266,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         if (!cfg.launcher) return null
         const intakeError = cfg.intakeError?.() ?? null
         return intakeError === null ? cfg.launcher : { ...cfg.launcher, intakeError }
-      }
+      },
+
+      // Reached only through `invoke` (the renderer's IPC); the intake handler below has no way to it.
+      'unattended.get': () => mode.get(),
+      'unattended.set': (on) => mode.set(on === true)
     }
 
     const intake = createIntakeHandler({
@@ -263,6 +301,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       dispose() {
         disposal ??= (async () => {
           try {
+            // First, so the queue starts nothing while the agents are stopped.
+            mode.dispose()
             await runner.shutdown()
           } finally {
             listeners.clear()

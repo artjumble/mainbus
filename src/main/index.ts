@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as sdk from '@anthropic-ai/claude-agent-sdk'
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, powerSaveBlocker, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runGit } from '../engine/git/git'
 import { invocationDir, resolveHome } from '../engine/home'
@@ -28,6 +28,19 @@ let intakeError: string | null = null
 /** The one page the window may show: the dev server in dev, the built renderer otherwise. */
 function appUrl(): string {
   return process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(path.join(import.meta.dirname, '../renderer/index.html')).href
+}
+
+/** Keeps the machine from sleeping while unattended mode is on; the engine starts and stops it. */
+let blockerId: number | null = null
+const keepAwake = {
+  start(): void {
+    blockerId ??= powerSaveBlocker.start('prevent-app-suspension')
+  },
+  stop(): void {
+    if (blockerId === null) return
+    powerSaveBlocker.stop(blockerId)
+    blockerId = null
+  }
 }
 
 function openExternally(url: string): void {
@@ -132,7 +145,8 @@ if (!app.requestSingleInstanceLock()) {
           appPath: app.getAppPath(),
           home: process.env['MAINBUS_HOME'] ? home.root : null
         }),
-        intakeError: () => intakeError
+        intakeError: () => intakeError,
+        keepAwake
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))

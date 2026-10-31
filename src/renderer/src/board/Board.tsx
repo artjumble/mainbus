@@ -17,6 +17,7 @@ import { useMainbus, type BoardTicket } from '../store'
 import { NewTicketModal } from './NewTicketModal'
 import { RoleSettings } from '../workspace/RoleSettings'
 import { TicketCard } from './TicketCard'
+import { UnattendedSwitch } from './UnattendedSwitch'
 
 const COLUMNS: { id: Column; title: string }[] = [
   { id: 'backlog', title: 'Backlog' },
@@ -87,7 +88,8 @@ export function Board(): ReactElement {
             </Text>
           )}
         </Group>
-        <Group gap="xs">
+        <Group gap="md">
+          <UnattendedSwitch />
           <ActionIcon variant="default" size="lg" aria-label="Workspace settings" onClick={() => setSettingsOpen(true)}>
             <span aria-hidden>⚙</span>
           </ActionIcon>

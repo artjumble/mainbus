@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { type GuardContext, guardReason } from './guard'
+import { type GuardContext, guardReason, kindOf } from './guard'
 
 const ctx: GuardContext = {
   worktree: 'C:\\h\\work\\ws\\14-x',
@@ -10,6 +10,11 @@ const ctx: GuardContext = {
 type Row = [tool: string, input: Record<string, unknown>]
 const bash = (command: string): Row => ['Bash', { command }]
 const pwsh = (command: string): Row => ['PowerShell', { command }]
+
+/** The guard's sentence alone, for the tests that don't care about its kind. */
+function messageOf(tool: string, input: Record<string, unknown>, c: GuardContext): string | null {
+  return guardReason(tool, input, c)?.message ?? null
+}
 
 describe('guardReason: no opinion', () => {
   const cases: [string, Row][] = [
@@ -170,7 +175,7 @@ describe('guardReason: no opinion', () => {
     ['pipe into pypy3 with a script', bash('cat x | pypy3 x.py')],
   ]
   test.each(cases)('%s', (_name, [tool, input]) => {
-    expect(guardReason(tool, input, ctx)).toBeNull()
+    expect(messageOf(tool, input, ctx)).toBeNull()
   })
 })
 
@@ -398,28 +403,28 @@ describe('guardReason: guarded', () => {
     ['runner folder after an unknown option', bash('pnpm --foo --dir C:\\Users\\u install')],
   ]
   test.each(cases)('%s', (_name, [tool, input]) => {
-    const reason = guardReason(tool, input, ctx)
+    const reason = messageOf(tool, input, ctx)
     expect(reason).not.toBeNull()
     expect(reason).not.toBe('')
   })
 
   test('write reasons are short sentences naming the path', () => {
-    expect(guardReason('Write', { file_path: 'C:\\Users\\u\\a.txt' }, ctx)).toBe(
+    expect(messageOf('Write', { file_path: 'C:\\Users\\u\\a.txt' }, ctx)).toBe(
       "Writes outside the ticket's folder: C:\\Users\\u\\a.txt",
     )
-    expect(guardReason('Edit', { file_path: '..\\..\\other\\f.ts' }, ctx)).toBe(
+    expect(messageOf('Edit', { file_path: '..\\..\\other\\f.ts' }, ctx)).toBe(
       "Writes outside the ticket's folder: C:\\h\\work\\other\\f.ts",
     )
-    expect(guardReason('Bash', { command: 'rm -rf /tmp/x' }, ctx)).toContain("outside the ticket's folder")
-    expect(guardReason('Bash', { command: 'rm -rf /c/Users/u/x' }, ctx)).toBe(
+    expect(messageOf('Bash', { command: 'rm -rf /tmp/x' }, ctx)).toContain("outside the ticket's folder")
+    expect(messageOf('Bash', { command: 'rm -rf /c/Users/u/x' }, ctx)).toBe(
       "Writes outside the ticket's folder: C:\\Users\\u\\x",
     )
   })
 
   test('push reasons distinguish force-pushes', () => {
-    expect(guardReason('Bash', { command: 'git push' }, ctx)).toBe('Pushes commits to a remote')
-    expect(guardReason('Bash', { command: 'git push -f' }, ctx)).toBe('Force-pushes to a remote')
-    expect(guardReason('Bash', { command: 'git push --f' }, ctx)).toBe('Force-pushes to a remote')
+    expect(messageOf('Bash', { command: 'git push' }, ctx)).toBe('Pushes commits to a remote')
+    expect(messageOf('Bash', { command: 'git push -f' }, ctx)).toBe('Force-pushes to a remote')
+    expect(messageOf('Bash', { command: 'git push --f' }, ctx)).toBe('Force-pushes to a remote')
   })
 })
 
@@ -598,12 +603,12 @@ describe('guardReason: commands Mainbus cannot check', () => {
     ['pipe into pypy3', bash('echo 1 | pypy3')],
   ]
   test.each(cases)('%s', (_name, [tool, input]) => {
-    const reason = guardReason(tool, input, ctx)
+    const reason = messageOf(tool, input, ctx)
     expect(reason).not.toBeNull()
   })
 
   test('opaque reason is a short sentence', () => {
-    expect(guardReason('Bash', { command: 'pnpm install $(rm -rf ~)' }, ctx)).toMatch(
+    expect(messageOf('Bash', { command: 'pnpm install $(rm -rf ~)' }, ctx)).toMatch(
       /^Runs a command Mainbus can't check: .+/,
     )
   })
@@ -612,27 +617,27 @@ describe('guardReason: commands Mainbus cannot check', () => {
 describe('guardReason: context', () => {
   test('additional directories count as inside', () => {
     const c = { ...ctx, additionalDirectories: ['C:\\shared\\docs'] }
-    expect(guardReason('Write', { file_path: 'c:\\SHARED\\docs\\a.md' }, c)).toBeNull()
-    expect(guardReason('Bash', { command: 'rm C:\\shared\\docs\\a.md' }, c)).toBeNull()
-    expect(guardReason('Write', { file_path: 'C:\\shared\\other\\a.md' }, c)).not.toBeNull()
+    expect(messageOf('Write', { file_path: 'c:\\SHARED\\docs\\a.md' }, c)).toBeNull()
+    expect(messageOf('Bash', { command: 'rm C:\\shared\\docs\\a.md' }, c)).toBeNull()
+    expect(messageOf('Write', { file_path: 'C:\\shared\\other\\a.md' }, c)).not.toBeNull()
   })
 
   test('a drive root as additional directory contains its subfolders', () => {
     const c = { ...ctx, additionalDirectories: ['D:\\'] }
-    expect(guardReason('Write', { file_path: 'D:\\x\\y.txt' }, c)).toBeNull()
+    expect(messageOf('Write', { file_path: 'D:\\x\\y.txt' }, c)).toBeNull()
   })
 
   test('relative and empty additional directories are dropped, not resolved', () => {
     const c = { ...ctx, additionalDirectories: ['', '.', '..', 'sub', '..\\..'] }
-    expect(guardReason('Write', { file_path: 'C:\\h\\work\\other\\a.md' }, c)).not.toBeNull()
-    expect(guardReason('Write', { file_path: 'C:\\h\\work\\ws\\a.md' }, c)).not.toBeNull()
-    expect(guardReason('Write', { file_path: 'a.md' }, c)).toBeNull()
+    expect(messageOf('Write', { file_path: 'C:\\h\\work\\other\\a.md' }, c)).not.toBeNull()
+    expect(messageOf('Write', { file_path: 'C:\\h\\work\\ws\\a.md' }, c)).not.toBeNull()
+    expect(messageOf('Write', { file_path: 'a.md' }, c)).toBeNull()
   })
 
   test('only the ticket own branch may be deleted', () => {
     const other = { command: 'git branch -D mainbus/15-y' }
-    expect(guardReason('Bash', other, ctx)).not.toBeNull()
-    expect(guardReason('Bash', other, { ...ctx, ownBranch: 'mainbus/15-y' })).toBeNull()
+    expect(messageOf('Bash', other, ctx)).not.toBeNull()
+    expect(messageOf('Bash', other, { ...ctx, ownBranch: 'mainbus/15-y' })).toBeNull()
   })
 })
 
@@ -707,7 +712,7 @@ describe('guardReason: credentials', () => {
     ['NotebookRead of a key', ['NotebookRead', { notebook_path: 'C:\\Users\\u\\.ssh\\id_rsa' }]],
   ]
   test.each(files)('%s', (_name, [tool, input]) => {
-    expect(guardReason(tool, input, ctx)).toMatch(/^Reads a credentials file: .+/)
+    expect(messageOf(tool, input, ctx)).toMatch(/^Reads a credentials file: .+/)
   })
 
   const printing: [string, Row][] = [
@@ -738,16 +743,16 @@ describe('guardReason: credentials', () => {
     ['Get-Item env:NPM_TOKEN', pwsh('Get-Item env:NPM_TOKEN')],
   ]
   test.each(printing)('%s', (_name, [tool, input]) => {
-    expect(guardReason(tool, input, ctx)).toMatch(/^Prints credentials: .+/)
+    expect(messageOf(tool, input, ctx)).toMatch(/^Prints credentials: .+/)
   })
 
   test('the reason names the path as typed', () => {
-    expect(guardReason('Bash', { command: 'cat ~/.npmrc | grep -v token' }, ctx)).toBe('Reads a credentials file: ~/.npmrc')
-    expect(guardReason('Read', { file_path: '.env' }, ctx)).toBe('Reads a credentials file: .env')
+    expect(messageOf('Bash', { command: 'cat ~/.npmrc | grep -v token' }, ctx)).toBe('Reads a credentials file: ~/.npmrc')
+    expect(messageOf('Read', { file_path: '.env' }, ctx)).toBe('Reads a credentials file: .env')
   })
 
   test('credentials win over other reasons for the same command', () => {
-    expect(guardReason('Bash', { command: 'cp ~/.npmrc C:\\Users\\u\\x' }, ctx)).toBe('Reads a credentials file: ~/.npmrc')
+    expect(messageOf('Bash', { command: 'cp ~/.npmrc C:\\Users\\u\\x' }, ctx)).toBe('Reads a credentials file: ~/.npmrc')
   })
 
   const quiet: [string, Row][] = [
@@ -771,7 +776,7 @@ describe('guardReason: credentials', () => {
     ['a key-like name that is not one', bash('cat src/keyboard.ts')],
   ]
   test.each(quiet)('%s', (_name, [tool, input]) => {
-    expect(guardReason(tool, input, ctx)).toBeNull()
+    expect(messageOf(tool, input, ctx)).toBeNull()
   })
 })
 
@@ -812,7 +817,7 @@ describe('guardReason: reads outside the ticket folder', () => {
     ['NotebookRead outside', ['NotebookRead', { notebook_path: 'C:\\Users\\u\\n.ipynb' }], 'C:\\Users\\u\\n.ipynb'],
   ]
   test.each(cases)('%s', (_name, [tool, input], shown) => {
-    expect(guardReason(tool, input, ctx)).toBe(`Reads outside the ticket's folder: ${shown}`)
+    expect(messageOf(tool, input, ctx)).toBe(`Reads outside the ticket's folder: ${shown}`)
   })
 
   const quiet: [string, Row][] = [
@@ -842,17 +847,96 @@ describe('guardReason: reads outside the ticket folder', () => {
     ['Read of Claude Code saved tool output', ['Read', { file_path: 'C:\\Users\\u\\.claude\\projects\\C--h-work\\s1\\tool-results\\t1.txt' }]],
   ]
   test.each(quiet)('%s', (_name, [tool, input]) => {
-    expect(guardReason(tool, input, ctx)).toBeNull()
+    expect(messageOf(tool, input, ctx)).toBeNull()
   })
 
   test('additional directories count as inside for reads', () => {
     const c = { ...ctx, additionalDirectories: ['C:\\shared\\docs'] }
-    expect(guardReason('Bash', { command: 'cat C:\\shared\\docs\\a.md' }, c)).toBeNull()
-    expect(guardReason('Read', { file_path: 'C:\\shared\\docs\\a.md' }, c)).toBeNull()
+    expect(messageOf('Bash', { command: 'cat C:\\shared\\docs\\a.md' }, c)).toBeNull()
+    expect(messageOf('Read', { file_path: 'C:\\shared\\docs\\a.md' }, c)).toBeNull()
   })
 
   test('saved tool output under .claude is still checked for credentials', () => {
     const p = 'C:\\Users\\u\\.claude\\projects\\C--h-work\\s1\\tool-results\\..\\..\\..\\..\\.credentials.json'
-    expect(guardReason('Read', { file_path: p }, ctx)).toMatch(/^Reads a credentials file/)
+    expect(messageOf('Read', { file_path: p }, ctx)).toMatch(/^Reads a credentials file/)
+  })
+})
+
+describe('guardReason: kinds for unattended mode', () => {
+  // One case per reason the guard gives: [the sentence it starts with, a request that gives it].
+  const hardStops: [string, Row][] = [
+    ['Force-pushes to a remote', bash('git push --force origin main')],
+    ['Pushes commits to a remote', bash('git push')],
+    ['Reads a credentials file', ['Read', { file_path: '.env' }]],
+    ['Reads a credentials file', bash('cat ~/.npmrc')],
+    ['Prints credentials', bash('gh auth token')],
+    ["Writes outside the ticket's folder", ['Write', { file_path: 'C:\\Users\\u\\a.txt' }]],
+    ["Writes outside the ticket's folder", bash('curl -o C:\\Users\\u\\a https://x.example')],
+    ["Runs in a folder outside the ticket's folder", bash('pnpm -C C:\\Users\\u install')],
+    ["Leaves the ticket's folder", bash('cd C:\\Users\\u && ls')],
+    ['Touches the .claude folder in the home directory', bash('cat ~/.claude/settings.json')],
+    ['Changes agent or git settings', ['Write', { file_path: '.mcp.json' }]],
+    ['Changes agent or git settings', bash('echo x > .husky/pre-commit')],
+    ['Runs inside agent or git settings', bash('pnpm -C .claude exec touch x')],
+    ["Deletes a branch other than the ticket's own", bash('git branch -D main')],
+    ['Renames a branch', bash('git branch -M main')],
+    ['Changes repository internals with git worktree', bash('git worktree remove x')],
+    ['Changes repository internals with git update-ref', bash('git update-ref -d refs/heads/main')],
+    ['Deletes stashed work', bash('git stash drop')],
+    ['Permanently prunes git objects', bash('git gc --prune=now')],
+    ['Deletes git reflog entries', bash('git reflog expire --expire=now --all')],
+    ['Changes git config', bash('git config user.name x')],
+    ['Changes npm config', bash('npm config set registry x')],
+  ]
+  test.each(hardStops)('hard stop: %s', (sentence, [tool, input]) => {
+    const reason = guardReason(tool, input, ctx)
+    expect(reason?.kind).toBe('hard_stop')
+    expect(reason?.message.startsWith(sentence)).toBe(true)
+  })
+
+  const automatic: [string, Row][] = [
+    ["Runs a command Mainbus can't check", bash('npm run dev &')],
+    ["Downloads with options from a file Mainbus can't check", bash('curl -K cfg.txt https://x.example')],
+    ['Discards uncommitted work with git reset --hard', bash('git reset --hard')],
+    ['Deletes untracked files with git clean', bash('git clean -fdx')],
+    ['Discards file changes with git checkout', bash('git checkout -- src/a.ts')],
+    ['Discards file changes with git restore', bash('git restore .')],
+    ['Discards changes with git switch', bash('git switch -f main')],
+    ['Overrides git alias or core settings for one command', bash('git -c core.hooksPath=x status')],
+    ["Reads outside the ticket's folder", ['Read', { file_path: 'C:\\Users\\u\\notes.txt' }]],
+    ["Reads outside the ticket's folder", bash('cat C:\\Users\\u\\notes.txt')],
+  ]
+  test.each(automatic)('automatic: %s', (sentence, [tool, input]) => {
+    const reason = guardReason(tool, input, ctx)
+    expect(reason?.kind).toBe('automatic')
+    expect(reason?.message.startsWith(sentence)).toBe(true)
+  })
+
+  // An automatic reason early in a command must not hide a hard stop later in it.
+  const mixed: [string, string, Row][] = [
+    ['reset, then push', 'Pushes commits to a remote', bash('git reset --hard && git push')],
+    ['core override on a push', 'Force-pushes to a remote', bash('git -c core.x=y push -f')],
+    ['download config with an outside target', "Writes outside the ticket's folder", bash('curl -K c.txt -o C:\\Users\\u\\a https://x')],
+    ['read outside, then write outside', "Writes outside the ticket's folder", bash('cat C:\\Users\\u\\a && rm C:\\Users\\u\\b')],
+    ['reset with a redirect outside', "Writes outside the ticket's folder", bash('git reset --hard > C:\\Users\\u\\log')],
+    ['credential read outside the folder', 'Reads a credentials file', bash('cat C:\\Users\\u\\.npmrc')],
+  ]
+  test.each(mixed)('mixed: %s gives the hard stop', (_name, sentence, [tool, input]) => {
+    const reason = guardReason(tool, input, ctx)
+    expect(reason?.kind).toBe('hard_stop')
+    expect(reason?.message.startsWith(sentence)).toBe(true)
+  })
+
+  test('an automatic command keeps the first automatic sentence', () => {
+    expect(guardReason('Bash', { command: 'git reset --hard && cat C:\\Users\\u\\a' }, ctx)).toEqual({
+      kind: 'automatic',
+      message: 'Discards uncommitted work with git reset --hard',
+    })
+  })
+
+  test('a sentence the classification does not know is a hard stop', () => {
+    expect(kindOf('Does something new')).toBe('hard_stop')
+    expect(kindOf("Reads outside the ticket's folder, and more")).toBe('hard_stop')
+    expect(kindOf("Reads outside the ticket's folder: C:\\x")).toBe('automatic')
   })
 })

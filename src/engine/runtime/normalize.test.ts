@@ -35,6 +35,15 @@ describe('Normalizer', () => {
     expect(rl.windows.five_hour.utilization).toBe(0.04)
     expect(rl.windows.five_hour).toEqual({ utilization: 0.04, resetsAt: 1793418600, status: 'allowed' })
     expect(rl.windows.seven_day.utilization).toBe(0.07)
+    expect(rl.resetsAt).toBe(1793418600)
+  })
+
+  test('a rejected rate_limit_event keeps its reset time, in Unix seconds', () => {
+    const events = new Normalizer().push({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1793430000, rateLimitType: 'five_hour' }
+    })
+    expect(events).toEqual([{ kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} }])
   })
 
   test('e2-interrupt: two turns, each with a system/init, emit session only once', () => {

@@ -98,6 +98,12 @@ test('events the person does not need are not rendered', () => {
   expect(container.querySelector('[data-event]')).toBeNull()
 })
 
+test('a notice from Mainbus is shown in the thread', () => {
+  const text = 'Allowed by unattended mode: Implementer wants to run `npm install zod`'
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'notice', text })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="notice"]')).toHaveTextContent(text)
+})
+
 test('partial messages are replaced by the final message, not duplicated', () => {
   const partial = (text: string): StoredEvent => makeEvent({ kind: 'message', text, partial: true }, { seq: 0 })
   const stream = [partial('Hel'), partial('Hello'), ev({ kind: 'message', text: 'Hello world' })]

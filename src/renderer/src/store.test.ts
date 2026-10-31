@@ -26,6 +26,7 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
     if (command === 'setup.check') return { ok: true, path: 'claude', version: '2.1.0' }
     if (command === 'workspace.get') return workspace
     if (command === 'board.get') return { tickets: [ticket] }
+    if (command === 'unattended.get') return { on: true, status: { kind: 'working', ticketNumber: 3 } }
     throw new Error(`unexpected ${command}`)
   })
   await useMainbus.getState().checkSetup()
@@ -34,6 +35,7 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
   expect(s.workspace).toEqual(workspace)
   expect(s.workspaceLoaded).toBe(true)
   expect(s.tickets).toEqual([ticket])
+  expect(s.unattended).toEqual({ on: true, status: { kind: 'working', ticketNumber: 3 } })
 })
 
 test('openWorkspace stores the workspace and loads its board', async () => {
@@ -89,6 +91,28 @@ test('startSync refreshes the board on board.changed and stops after unsubscribe
 
   stop()
   expect(unsubscribe).toHaveBeenCalled()
+})
+
+test('startSync keeps the unattended state from unattended.changed, and setUnattended asks the engine', async () => {
+  let listener: (e: EngineEvent) => void = () => {}
+  vi.mocked(onEngineEvent).mockImplementation((l) => {
+    listener = l
+    return () => {}
+  })
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'setup.check') return { ok: false, reason: 'not_logged_in', detail: '' }
+    if (command === 'unattended.set') return { on: true, status: { kind: 'starting' } }
+    throw new Error(`unexpected ${command}`)
+  })
+  const stop = startSync(vi.fn())
+  listener({ type: 'unattended.changed', state: { on: true, status: { kind: 'working', ticketNumber: 2 } } })
+  expect(useMainbus.getState().unattended).toEqual({ on: true, status: { kind: 'working', ticketNumber: 2 } })
+
+  await useMainbus.getState().setUnattended(true)
+  expect(mockInvoke).toHaveBeenCalledWith('unattended.set', true)
+  // The reply could overtake later events, so only the events change the state.
+  expect(useMainbus.getState().unattended.status).toEqual({ kind: 'working', ticketNumber: 2 })
+  stop()
 })
 
 test('20 board.changed events during one refresh cost at most two board.get calls', async () => {

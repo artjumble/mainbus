@@ -21,6 +21,7 @@ import { currentState } from '../state/currentState'
 import type { Repos } from '../store'
 import type { AgentRunRow } from '../store/runs'
 import { previousAttempt } from './digest'
+import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
 
 export interface RunnerDeps {
   repos: Repos
@@ -28,6 +29,11 @@ export interface RunnerDeps {
   runtime: AgentRuntime
   now: () => Date
   emit: (e: EngineEvent) => void
+  /**
+   * True while unattended mode is on: permission requests that aren't hard stops are allowed without a card,
+   * and a run stopped by a usage limit is paused (its process stopped, the run kept open) rather than left idle.
+   */
+  unattended?: () => boolean
 }
 
 export const NUDGE_TEXT =
@@ -47,6 +53,8 @@ const STOP_DRAIN_MS = 2000
 /** How long shutdown waits for launches and queued user actions to finish before it drains the live agents. */
 const SHUTDOWN_SETTLE_MS = 5000
 const SHUTTING_DOWN = 'Mainbus is shutting down'
+const USAGE_LIMIT_PAUSE = 'Paused by the usage limit. Unattended mode continues this ticket when the limit resets.'
+const AUTO_ALLOWED = 'Allowed by unattended mode'
 
 /** Where a thread event goes: the run's thread, announced for its ticket and workspace. */
 interface ThreadTarget {
@@ -68,6 +76,8 @@ interface LiveRun extends ThreadTarget {
   ended: boolean
   /** Set by the first stop request; the handle must not be used after it. */
   stopping: Promise<void> | null
+  /** The usage limit the agent last ran into, until a request is allowed again or a turn succeeds. */
+  limit: UsageLimit | null
   /** Settles when the event pump has finished. */
   done: Promise<void>
 }
@@ -99,9 +109,20 @@ export class TicketRunner {
   private shuttingDown = false
   /** Permission decisions an agent is waiting on, by decision id. */
   private readonly waiters = new Map<string, PermissionWaiter>()
+  /** Tickets whose run was paused by a usage limit in unattended mode, until it is resumed, started or stopped. */
+  private readonly limited = new Map<string, UsageLimit>()
 
   constructor(private readonly deps: RunnerDeps) {
     this.repos = deps.repos
+  }
+
+  /** The usage limit that paused this ticket's run, if one did and nothing has touched the run since. */
+  usageLimit(ticketId: string): UsageLimit | undefined {
+    return this.limited.get(ticketId)
+  }
+
+  private unattended(): boolean {
+    return this.deps.unattended?.() ?? false
   }
 
   start(ticketId: string): Promise<void> {
@@ -272,6 +293,7 @@ export class TicketRunner {
   private async stopNow(ticketId: string): Promise<void> {
     // Everything queued before this stop has finished; later actions are not affected.
     this.stopRequested.delete(ticketId)
+    this.limited.delete(ticketId)
     const run = await this.repos.runs.latest(ticketId)
     if (!run) return
     const ticket = await this.repos.tickets.get(ticketId)
@@ -339,6 +361,7 @@ export class TicketRunner {
       if (await this.repos.runs.end(run.id, 'stopped')) await this.record(this.target(run, ticket), { kind: 'stopped' })
     }
     await this.repos.tickets.setManualColumn(ticket.id, 'done')
+    this.limited.delete(ticket.id)
     await this.expirePending(where, () => true)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
     return 'done'
@@ -385,6 +408,7 @@ export class TicketRunner {
 
   /** Marks the ticket as launching for the whole of `fn` (worktree setup included), so stateOf shows it working. */
   private async whileLaunching(ticketId: string, fn: () => Promise<void>): Promise<void> {
+    this.limited.delete(ticketId)
     this.launching.add(ticketId)
     try {
       await fn()
@@ -445,6 +469,7 @@ export class TicketRunner {
         askedThisTurn: false,
         ended: false,
         stopping: null,
+        limit: null,
         done: Promise.resolve()
       }
       this.live.set(runId, live)
@@ -468,8 +493,11 @@ export class TicketRunner {
         }
       }
     } catch (err) {
+      if (isUsageLimitText(errorText(err))) live.limit ??= { resetsAt: null }
       await this.record(live, { kind: 'error', message: errorText(err) }).catch(() => {})
     }
+    // The process ended over a usage limit with the run still open: the run is paused until the limit resets.
+    if (!live.ended && live.limit !== null && !this.shuttingDown && this.unattended()) this.limited.set(live.ticketId, live.limit)
     try {
       if (!live.ended) await this.record(live, { kind: 'process_exit', code: null })
       // A permission answer can no longer reach this process.
@@ -489,6 +517,8 @@ export class TicketRunner {
       return
     }
     if (event.kind === 'session') await this.repos.runs.setSession(live.runId, event.sessionId)
+    if (event.kind === 'rate_limit') live.limit = limitFromEvent(event)
+    if (event.kind === 'error' && isUsageLimitText(event.message)) live.limit ??= { resetsAt: null }
     await this.record(live, event)
     if (event.kind === 'turn_end') await this.onTurnEnd(live, event)
   }
@@ -505,6 +535,15 @@ export class TicketRunner {
     live.askedThisTurn = false
     // Mainbus's own interrupt is not the agent going quiet.
     if (event.interrupted) return
+    if (!event.ok && isUsageLimitText(event.error)) live.limit ??= { resetsAt: null }
+    if (!event.ok && live.limit !== null && this.unattended()) {
+      // A usage limit is not a failure: stop the process and keep the run open, so it can be continued once
+      // the limit resets. The pump marks the ticket as paused by the limit when the process has gone.
+      await this.record(live, { kind: 'notice', text: USAGE_LIMIT_PAUSE })
+      void this.stopProcess(live)
+      return
+    }
+    if (event.ok) live.limit = null
     if (!event.ok) {
       // An error (the API failing, say) is not the agent going quiet either; twice in a row fails the run.
       live.errorTurns++
@@ -602,9 +641,12 @@ export class TicketRunner {
     req: PermissionRequest
   ): Promise<PermissionVerdict> {
     if (!(await this.isOpen(target))) return { allow: false, message: RUN_ENDED }
-    const guarded =
-      guardReason(req.toolName, req.input, { worktree: worktree.path, additionalDirectories: [], ownBranch: worktree.branch }) !==
-      null
+    const guard = guardReason(req.toolName, req.input, {
+      worktree: worktree.path,
+      additionalDirectories: [],
+      ownBranch: worktree.branch
+    })
+    const guarded = guard !== null
     const shell = isShellTool(req.toolName)
     const command = shell ? commandOf(req.input) : null
     const forcePush = command !== null && isDestructivePush(command)
@@ -620,6 +662,13 @@ export class TicketRunner {
       // A guarded action is only covered by a rule for exactly this command.
       const usable = guarded ? rules.filter((r) => r.pattern?.startsWith('=')) : rules
       if (isAllowed(usable, req)) return { allow: true }
+    }
+
+    // Unattended mode answers every card but the hard stops, and never saves a rule for what it allowed.
+    // Force-pushes and credential reads are hard stops whatever the guard made of the command.
+    if (this.unattended() && guard?.kind !== 'hard_stop' && !forcePush && !secret) {
+      await this.record(target, { kind: 'notice', text: `${AUTO_ALLOWED}: ${describeRequest(req, 'Implementer')}` })
+      return { allow: true }
     }
 
     const decision = await this.repos.decisions.open({

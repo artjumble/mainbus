@@ -76,7 +76,8 @@ export class FakeRuntime implements AgentRuntime {
   private nextId = 1
 
   constructor(
-    private readonly script: FakeStep[],
+    /** The same steps for every run, or the steps for each run by its spec. */
+    private readonly script: FakeStep[] | ((spec: RunSpec) => FakeStep[]),
     private readonly opts: { rejectResume?: boolean } = {}
   ) {}
 
@@ -133,7 +134,7 @@ export class FakeRuntime implements AgentRuntime {
     // Yield first so nothing fires until the caller has the handle, as with a real runtime.
     await new Promise<void>((resolve) => setImmediate(resolve))
     try {
-      for (const step of this.script) {
+      for (const step of typeof this.script === 'function' ? this.script(spec) : this.script) {
         if (run.stopped) return
         if ('emit' in step) {
           run.queue.push(step.emit)

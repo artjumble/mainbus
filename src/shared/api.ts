@@ -11,6 +11,7 @@ import type {
   Ticket,
   TicketPatch,
   TicketState,
+  UnattendedState,
   Workspace
 } from './domain'
 import type { StoredEvent } from './events'
@@ -20,6 +21,7 @@ export type EngineEvent =
   | { type: 'board.changed'; workspaceId: string }
   | { type: 'thread.appended'; ticketId: string; event: StoredEvent }
   | { type: 'decision.changed'; decision: Decision }
+  | { type: 'unattended.changed'; state: UnattendedState }
 
 /** Every command the renderer can send to the engine. A thrown error reaches the renderer as a rejected promise. */
 export interface EngineCommands {
@@ -46,6 +48,12 @@ export interface EngineCommands {
   'allowRules.remove'(id: string): void
   /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */
   'agents.launcher'(): AgentLauncher | null
+  /**
+   * Unattended mode: works through Ready one ticket at a time. Only the renderer can reach these: the agent
+   * intake (pipe, CLI, MCP) has no way to switch it on. It is off whenever the app starts.
+   */
+  'unattended.get'(): UnattendedState
+  'unattended.set'(on: boolean): UnattendedState
 }
 
 export type CommandName = keyof EngineCommands

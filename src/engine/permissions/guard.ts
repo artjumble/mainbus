@@ -11,6 +11,62 @@ export interface GuardContext {
   ownBranch: string
 }
 
+/**
+ * How unattended mode treats a reason. A hard stop opens a card and waits for the user; an automatic reason
+ * is allowed without one while unattended mode is on (and opens a card as usual when it is off).
+ */
+export type GuardKind = 'hard_stop' | 'automatic'
+
+export interface GuardReason {
+  kind: GuardKind
+  /** A short human sentence: why Mainbus asks first. */
+  message: string
+}
+
+/**
+ * The reasons unattended mode allows on its own, by how the sentence starts. Everything else is a hard stop,
+ * including any reason added later that is not listed here. The hard stops today:
+ * - pushes: "Force-pushes to a remote", "Pushes commits to a remote";
+ * - credentials: "Reads a credentials file", "Prints credentials";
+ * - leaving the worktree: "Writes outside the ticket's folder", "Runs in a folder outside the ticket's folder",
+ *   "Leaves the ticket's folder" (downloads that write outside give the first);
+ * - code that later runs in the user's own environment: "Touches the .claude folder in the home directory",
+ *   "Changes agent or git settings", and "Runs inside agent or git settings" (a runner option such as
+ *   `pnpm -C .claude`; it came with the runner checks and is classified with the settings writes);
+ * - the shared repository beyond the ticket's branch: "Deletes a branch other than the ticket's own",
+ *   "Renames a branch", "Changes repository internals with git …", "Deletes stashed work" (the stash is
+ *   shared with the main checkout), "Permanently prunes git objects", "Deletes git reflog entries",
+ *   "Changes git config", "Changes npm config".
+ */
+const AUTOMATIC: readonly string[] = [
+  "Runs a command Mainbus can't check",
+  "Downloads with options from a file Mainbus can't check",
+  // Discarding work inside the ticket's own worktree.
+  'Discards uncommitted work with git reset --hard',
+  'Deletes untracked files with git clean',
+  'Discards file changes with git checkout',
+  'Discards file changes with git restore',
+  'Discards changes with git switch',
+  'Overrides git alias or core settings for one command',
+  // A credential file gives "Reads a credentials file" instead, which is checked first.
+  "Reads outside the ticket's folder",
+]
+
+/** The kind of a guard sentence; anything not known to be automatic is a hard stop. */
+export function kindOf(message: string): GuardKind {
+  return AUTOMATIC.some((a) => message === a || message.startsWith(`${a}:`)) ? 'automatic' : 'hard_stop'
+}
+
+/** The first hard stop among `messages`, else the first automatic one. Stops looking at the first hard stop. */
+function pick(messages: Iterable<string>): GuardReason | null {
+  let automatic: string | null = null
+  for (const message of messages) {
+    if (kindOf(message) === 'hard_stop') return { kind: 'hard_stop', message }
+    automatic ??= message
+  }
+  return automatic === null ? null : { kind: 'automatic', message: automatic }
+}
+
 const win = path.win32
 
 const FILE_PATH_KEY: Record<string, string> = {
@@ -131,14 +187,15 @@ function isFlag(a: string): boolean {
   return a.startsWith('-')
 }
 
-/** Reason to ask before a downloader writes, or null. */
-function downloadReason(d: Download, ctx: GuardContext): string | null {
-  if (d.config) return `Downloads with options from a file Mainbus can't check`
-  if (!d.writes) return null
+/** Reasons to ask before a downloader runs. */
+function* downloadReasons(d: Download, ctx: GuardContext): Generator<string> {
+  if (d.config) yield `Downloads with options from a file Mainbus can't check`
+  if (!d.writes) return
   // A positional `$URL` is a URL, but an absolute or home path there means an option was misread.
   const paths = d.positional.filter((a) => !a.includes('://') && (ABSOLUTE.test(a) || HOME_FORM.test(a)))
   // `-` is standard output.
-  return firstReason([...d.targets, ...paths].filter((t) => t !== '-'), ctx)
+  const reason = firstReason([...d.targets, ...paths].filter((t) => t !== '-'), ctx)
+  if (reason) yield reason
 }
 
 /** A folder a runner option makes the command run in behaves like `cd`. */
@@ -219,11 +276,15 @@ function branchReason(rest: string[], ctx: GuardContext): string | null {
   return other === undefined ? null : `Deletes a branch other than the ticket's own: ${other}`
 }
 
-function gitReason(cmd: SimpleCommand, ctx: GuardContext): string | null {
+function* gitReasons(cmd: SimpleCommand, ctx: GuardContext): Generator<string> {
   const git = parseGit(cmd.argv)
-  if (!git) return null
-  if (git.configs.some((c) => /^(alias|core)\./i.test(c))) return 'Overrides git alias or core settings for one command'
-  const { sub, rest } = git
+  if (!git) return
+  if (git.configs.some((c) => /^(alias|core)\./i.test(c))) yield 'Overrides git alias or core settings for one command'
+  const reason = gitSubcommandReason(git.sub, git.rest, ctx)
+  if (reason) yield reason
+}
+
+function gitSubcommandReason(sub: string | undefined, rest: string[], ctx: GuardContext): string | null {
   switch (sub) {
     case 'push':
       return isDestructivePushArgs(rest) ? 'Force-pushes to a remote' : 'Pushes commits to a remote'
@@ -275,25 +336,32 @@ function firstReason(paths: string[], ctx: GuardContext): string | null {
   return null
 }
 
-function commandReason(cmd: SimpleCommand, ctx: GuardContext): string | null {
+function* commandReasons(cmd: SimpleCommand, ctx: GuardContext): Generator<string> {
   for (const dir of cmd.dirs ?? []) {
     const reason = folderReason(dir, ctx)
-    if (reason) return reason
+    if (reason) yield reason
   }
-  const git = gitReason(cmd, ctx) ?? packageManagerReason(cmd)
-  if (git) return git
+  yield* gitReasons(cmd, ctx)
+  const npm = packageManagerReason(cmd)
+  if (npm) yield npm
   const download = readDownload(cmd.name, cmd.argv.slice(1))
-  if (download) return downloadReason(download, ctx) ?? firstReason(cmd.redirects, ctx)
+  if (download) {
+    yield* downloadReasons(download, ctx)
+    const redirect = firstReason(cmd.redirects, ctx)
+    if (redirect) yield redirect
+    return
+  }
   if (CD_COMMANDS.has(cmd.name)) {
     const target = cmd.argv
       .slice(1)
       .map((a) => NAMED_PATH.exec(a)?.[1] ?? a)
       .find((a) => !isFlag(a))
-    if (target !== undefined && !locate(target, ctx).inside) return `Leaves the ticket's folder: ${locate(target, ctx).shown}`
+    if (target !== undefined && !locate(target, ctx).inside) yield `Leaves the ticket's folder: ${locate(target, ctx).shown}`
   }
   const written = isWriteCommand(cmd.name) ? pathArguments(cmd) : []
   const edited = inPlaceFiles(cmd.name, cmd.argv.slice(1)) ?? []
-  return firstReason([...written, ...edited, ...cmd.redirects], ctx)
+  const reason = firstReason([...written, ...edited, ...cmd.redirects], ctx)
+  if (reason) yield reason
 }
 
 /**
@@ -327,25 +395,29 @@ function touchesClaudeFolder(command: string, cmds: SimpleCommand[], ctx: GuardC
   )
 }
 
-function shellReason(command: string, ctx: GuardContext): string | null {
+/**
+ * Every reason to ask before a shell command, in order. `pick` stops at the first hard stop, so an automatic
+ * reason early on (git reset --hard) never hides a hard stop later in the command (git push).
+ */
+function* shellReasons(command: string, ctx: GuardContext): Generator<string> {
   const parsed = parseShell(command)
-  if (parsed.opaque) return `Runs a command Mainbus can't check: ${parsed.why}`
+  if (parsed.opaque) {
+    yield `Runs a command Mainbus can't check: ${parsed.why}`
+    return
+  }
   const all = parsed.pipelines.flat()
   const secret = credentialReason('Bash', { command })
-  if (secret) return secret
-  if (touchesClaudeFolder(command, all, ctx)) return 'Touches the .claude folder in the home directory'
+  if (secret) yield secret
+  if (touchesClaudeFolder(command, all, ctx)) yield 'Touches the .claude folder in the home directory'
   for (const pipeline of parsed.pipelines) {
-    for (const cmd of pipeline) {
-      const reason = commandReason(cmd, ctx)
-      if (reason) return reason
-    }
+    for (const cmd of pipeline) yield* commandReasons(cmd, ctx)
     // `Get-ChildItem C:\x | Remove-Item`: the path reaches the write command through the pipe.
     const pathless = pipeline.some((c) => isWriteCommand(c.name) && pathArguments(c).length === 0)
     const outside = pathless ? outsidePathIn(pipeline, ctx) : null
-    if (outside) return `Writes outside the ticket's folder: ${outside}`
+    if (outside) yield `Writes outside the ticket's folder: ${outside}`
   }
   const read = outsidePathIn(all, ctx, true)
-  return read === null ? null : `Reads outside the ticket's folder: ${read}`
+  if (read !== null) yield `Reads outside the ticket's folder: ${read}`
 }
 
 /** Inputs of the read-only file tools that name where they read. */
@@ -368,19 +440,28 @@ function toolReadReason(toolName: string, input: Record<string, unknown>, ctx: G
   return null
 }
 
-/** A short human sentence when Mainbus should ask first; null means no opinion. */
-export function guardReason(toolName: string, input: Record<string, unknown>, context: GuardContext): string | null {
+/** Why Mainbus should ask first, and whether unattended mode may allow it anyway; null means no opinion. */
+export function guardReason(toolName: string, input: Record<string, unknown>, context: GuardContext): GuardReason | null {
   // Relative or empty extra folders would resolve against the process cwd: drop them.
   const ctx = { ...context, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
-  if (Object.hasOwn(READ_PATH_KEYS, toolName)) return credentialReason(toolName, input) ?? toolReadReason(toolName, input, ctx)
+  return pick(reasonsFor(toolName, input, ctx))
+}
+
+function* reasonsFor(toolName: string, input: Record<string, unknown>, ctx: GuardContext): Generator<string> {
+  if (Object.hasOwn(READ_PATH_KEYS, toolName)) {
+    const reason = credentialReason(toolName, input) ?? toolReadReason(toolName, input, ctx)
+    if (reason) yield reason
+    return
+  }
   const key = FILE_PATH_KEY[toolName]
   if (key) {
     const p = input[key]
-    return typeof p === 'string' && p !== '' ? writeTargetReason(p, ctx) : null
+    const reason = typeof p === 'string' && p !== '' ? writeTargetReason(p, ctx) : null
+    if (reason) yield reason
+    return
   }
   if (isShellTool(toolName)) {
     const command = commandOf(input)
-    return command === null ? null : shellReason(command, ctx)
+    if (command !== null) yield* shellReasons(command, ctx)
   }
-  return null
 }

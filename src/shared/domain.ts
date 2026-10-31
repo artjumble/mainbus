@@ -149,6 +149,22 @@ export interface AgentLauncher {
   intakeError?: string
 }
 
+/** What unattended mode is doing; the board header shows it next to the switch. */
+export type UnattendedStatus =
+  | { kind: 'off' }
+  /** On, and about to pick the next Ready ticket. */
+  | { kind: 'starting' }
+  | { kind: 'working'; ticketNumber: number }
+  /** `until` is an ISO time. */
+  | { kind: 'waiting'; ticketNumber: number; until: string }
+  /** Turned itself off; `reason` says why. */
+  | { kind: 'stopped'; reason: string }
+
+export interface UnattendedState {
+  on: boolean
+  status: UnattendedStatus
+}
+
 export type ClaudeSetup =
   | { ok: true; path: string; version: string }
   | { ok: false; reason: 'not_found' | 'not_logged_in' | 'restart_required'; detail: string }

@@ -131,6 +131,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return <Divider text="Stopped" />
     case 'process_exit':
       return <Divider text="The agent process ended" />
+    case 'notice':
+      return (
+        <Text size="xs" c="dimmed" data-event="notice" style={{ whiteSpace: 'pre-wrap' }}>
+          {event.text}
+        </Text>
+      )
     case 'error':
       return (
         <Text size="sm" c="needs.7" data-event="error" style={{ whiteSpace: 'pre-wrap' }}>

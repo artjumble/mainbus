@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ClaudeSetup, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { ClaudeSetup, Ticket, TicketState, UnattendedState, Workspace } from '../../shared/domain'
 import { invoke, onEngineEvent } from './api'
 import { errorMessage } from './notify'
 
@@ -16,6 +16,8 @@ interface MainbusState {
   loadError: string | null
   /** Set by clicking a card; the ticket view (Task 14) reads it. */
   currentTicketId: string | null
+  /** Unattended mode, as the engine last reported it. */
+  unattended: UnattendedState
 
   /** The first load: setup check, then workspace and board. Never rejects; a failure lands in `loadError`. */
   load(): Promise<void>
@@ -25,7 +27,11 @@ interface MainbusState {
   refreshBoard(): Promise<void>
   openTicket(id: string): void
   closeTicket(): void
+  /** Switches unattended mode; rejects with the engine's reason when it can't be switched on. */
+  setUnattended(on: boolean): Promise<void>
 }
+
+const UNATTENDED_OFF: UnattendedState = { on: false, status: { kind: 'off' } }
 
 /** Plain-data equality (tickets are JSON from the engine). */
 function isEqual(a: unknown, b: unknown): boolean {
@@ -65,6 +71,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   tickets: [],
   loadError: null,
   currentTicketId: null,
+  unattended: UNATTENDED_OFF,
 
   async load() {
     set({ loadError: null })
@@ -82,6 +89,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     const workspace = await invoke('workspace.get')
     set({ workspace, workspaceLoaded: true })
     if (workspace) await get().refreshBoard()
+    set({ unattended: await invoke('unattended.get') })
   },
 
   async openWorkspace(repoPath) {
@@ -113,7 +121,13 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   },
 
   openTicket: (id) => set({ currentTicketId: id }),
-  closeTicket: () => set({ currentTicketId: null })
+  closeTicket: () => set({ currentTicketId: null }),
+
+  async setUnattended(on) {
+    // Every change arrives as an `unattended.changed` event, in order with the ones after it; the reply
+    // could overtake those, so it is not used.
+    await invoke('unattended.set', on)
+  }
 }))
 
 /**
@@ -144,6 +158,10 @@ export function startSync(onError: (err: unknown) => void): () => void {
   }
 
   const off = onEngineEvent((e) => {
+    if (e.type === 'unattended.changed') {
+      useMainbus.setState({ unattended: e.state })
+      return
+    }
     if (e.type !== 'board.changed') return
     // A burst (every thread event announces a change) costs one refresh per window: the first runs at once,
     // the rest wait for one trailing refresh.

@@ -44,8 +44,15 @@ async function exists(p: string): Promise<boolean> {
   )
 }
 
-function makeRunner(runtime: FakeRuntime, wt: WorktreeManager = worktrees): TicketRunner {
-  const runner = new TicketRunner({ repos, worktrees: wt, runtime, now: () => FIXED_NOW, emit: (e) => emitted.push(e) })
+function makeRunner(runtime: FakeRuntime, wt: WorktreeManager = worktrees, unattended = false): TicketRunner {
+  const runner = new TicketRunner({
+    repos,
+    worktrees: wt,
+    runtime,
+    now: () => FIXED_NOW,
+    emit: (e) => emitted.push(e),
+    unattended: () => unattended
+  })
   runners.push(runner)
   return runner
 }
@@ -1203,5 +1210,84 @@ describe('TicketRunner', () => {
       expect(fresh.specs[1].prompt).toContain('Asked the user: Which API? → New API (note: keep it small)')
       expect(fresh.specs[1].prompt.endsWith('\n\nAnswer: New API\nNote: keep it small')).toBe(true)
     })
+  })
+})
+
+describe('TicketRunner in unattended mode', () => {
+  async function started(script: FakeStep[] = keepAlive): Promise<{ runner: TicketRunner; spec: RunSpec }> {
+    const runtime = new FakeRuntime(script)
+    const runner = makeRunner(runtime, worktrees, true)
+    await runner.start(ticket.id)
+    return { runner, spec: runtime.specs[0] }
+  }
+
+  it('allows a request the guard has no opinion on, records it in the thread, and saves no rule', async () => {
+    const { spec } = await started()
+    expect(await spec.onPermission(permission('npm install zod'))).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+    expect(await thread()).toContainEqual({
+      kind: 'notice',
+      text: 'Allowed by unattended mode: Implementer wants to run `npm install zod`'
+    })
+    expect(await repos.allowRules.list(ticket.workspaceId)).toEqual([])
+  })
+
+  it('a request covered by an allow rule is allowed by the rule, with no notice', async () => {
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'npm test *' })
+    const { spec } = await started()
+    expect(await spec.onPermission(permission('npm test -- login'))).toEqual({ allow: true })
+    expect(count(await thread(), 'notice')).toBe(0)
+  })
+
+  it.each([
+    ['a push', 'git push origin main'],
+    ['a force-push', 'git push --force origin main'],
+    ['a credentials read', 'cat ~/.npmrc'],
+    ['a write outside the folder', 'rm -rf C:\\Users\\u\\x'],
+    ['git config', 'git config user.name x']
+  ])('%s still opens a card', async (_name, command) => {
+    const { spec } = await started()
+    void spec.onPermission(permission(command))
+    const decision = await waitForPending()
+    expect(decision).toMatchObject({ kind: 'permission', question: describeRequest(permission(command), 'Implementer') })
+    expect(count(await thread(), 'notice')).toBe(0)
+  })
+
+  it('a usage limit stops the process but keeps the run open, and is not a failure', async () => {
+    const { runner } = await started([
+      { emit: { kind: 'session', sessionId: 's1' } },
+      { emit: { kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} } },
+      { emit: { kind: 'turn_end', ok: false, error: 'Claude AI usage limit reached' } },
+      { waitForSend: true }
+    ])
+    await waitForThread((e) => e.kind === 'process_exit')
+    expect(runner.usageLimit(ticket.id)).toEqual({ resetsAt: 1793430000 * 1000 })
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'paused', canContinue: true })
+    expect((await repos.runs.latest(ticket.id))?.endReason).toBeNull()
+
+    // Continuing clears it.
+    await runner.continue(ticket.id)
+    expect(runner.usageLimit(ticket.id)).toBeUndefined()
+  })
+
+  it('a limit that only shows as error text pauses with no reset time', async () => {
+    const { runner } = await started([
+      { emit: { kind: 'turn_end', ok: false, error: "You've hit your limit · resets 3pm" } },
+      { waitForSend: true }
+    ])
+    await waitForThread((e) => e.kind === 'process_exit')
+    expect(runner.usageLimit(ticket.id)).toEqual({ resetsAt: null })
+  })
+
+  it('with the mode off, a usage limit leaves the agent as before', async () => {
+    const runtime = new FakeRuntime([
+      { emit: { kind: 'turn_end', ok: false, error: 'Claude AI usage limit reached' } },
+      { waitForSend: true }
+    ])
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await waitForThread((e) => e.kind === 'turn_end')
+    expect(runner.usageLimit(ticket.id)).toBeUndefined()
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' })
   })
 })
