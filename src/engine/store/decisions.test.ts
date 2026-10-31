@@ -1,0 +1,147 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { Db } from '../db/open'
+import { createDecisionRepo } from './decisions'
+import { createRunRepo } from './runs'
+import { FIXED_NOW, openTestDb } from './testDb'
+import { createTicketRepo } from './tickets'
+import { createWorkspaceRepo } from './workspaces'
+
+let db: Db
+let cleanup: () => void
+let ticketId: string
+let runId: string
+let clock: Date
+const now = () => clock
+
+beforeEach(async () => {
+  ;({ db, cleanup } = await openTestDb())
+  clock = FIXED_NOW
+  const ws = await createWorkspaceRepo(db, now).create('/r', 'main', 'r', 'r')
+  ticketId = (
+    await createTicketRepo(db, now).create({
+      workspaceId: ws.id,
+      title: 'T',
+      intent: 'i',
+      spec: '',
+      criteria: [],
+      labels: [],
+      column: 'ready'
+    })
+  ).id
+  runId = await createRunRepo(db, now).create(ticketId, 'Implementer', null, null)
+})
+afterEach(() => cleanup())
+
+const question = () =>
+  ({
+    ticketId,
+    agentRunId: runId,
+    kind: 'question',
+    question: 'Which database?',
+    options: ['SQLite', 'Postgres'],
+    recommended: 0,
+    allowAlways: true
+  }) as const
+
+describe('decision repo', () => {
+  it('opens a pending decision', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({ ...question(), options: [...question().options] })
+    expect(d).toEqual({
+      id: expect.any(String),
+      ...question(),
+      options: ['SQLite', 'Postgres'],
+      status: 'pending',
+      answer: null,
+      createdAt: FIXED_NOW.toISOString(),
+      answeredAt: null
+    })
+    expect(await repo.get(d.id)).toEqual(d)
+  })
+
+  it('stores a null recommendation and allowAlways false', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({
+      ...question(),
+      kind: 'permission',
+      options: ['Allow once', 'Always allow', 'Deny'],
+      recommended: null,
+      allowAlways: false
+    })
+    const got = await repo.get(d.id)
+    expect(got.recommended).toBeNull()
+    expect(got.allowAlways).toBe(false)
+    expect(got.kind).toBe('permission')
+  })
+
+  it('answers a decision', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({ ...question(), options: [...question().options] })
+    clock = new Date('2026-10-30T12:05:00.000Z')
+    const answered = await repo.answer(d.id, { kind: 'option', index: 1, note: 'team uses it' })
+    expect(answered).toMatchObject({
+      status: 'answered',
+      answer: { kind: 'option', index: 1, note: 'team uses it' },
+      answeredAt: '2026-10-30T12:05:00.000Z'
+    })
+    expect(await repo.get(d.id)).toEqual(answered)
+  })
+
+  it('answering a decision twice throws', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({ ...question(), options: [...question().options] })
+    await repo.answer(d.id, { kind: 'option', index: 0 })
+    await expect(repo.answer(d.id, { kind: 'option', index: 1 })).rejects.toThrow(/pending/i)
+    expect((await repo.get(d.id)).answer).toEqual({ kind: 'option', index: 0 })
+  })
+
+  it('answering an expired decision throws', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({ ...question(), options: [...question().options] })
+    await repo.expire(d.id)
+    await expect(repo.answer(d.id, { kind: 'option', index: 0 })).rejects.toThrow(/pending/i)
+  })
+
+  it('expires a pending decision', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({ ...question(), options: [...question().options] })
+    const expired = await repo.expire(d.id)
+    expect(expired.status).toBe('expired')
+    expect(expired.answer).toBeNull()
+  })
+
+  it('pending returns only pending decisions for the ticket', async () => {
+    const repo = createDecisionRepo(db, now)
+    const base = { ...question(), options: [...question().options] }
+    const first = await repo.open(base)
+    const second = await repo.open({ ...base, question: 'Which ORM?' })
+    const third = await repo.open({ ...base, question: 'Which port?' })
+    await repo.answer(first.id, { kind: 'option', index: 0 })
+    await repo.expire(third.id)
+
+    expect((await repo.pending(ticketId)).map((d) => d.id)).toEqual([second.id])
+    expect(await repo.pending('other-ticket')).toEqual([])
+  })
+
+  it('forTicket returns every decision of the ticket, whatever its status, in the order opened', async () => {
+    const repo = createDecisionRepo(db, now)
+    const base = { ...question(), options: [...question().options] }
+    const first = await repo.open(base)
+    const second = await repo.open({ ...base, question: 'Which ORM?' })
+    const third = await repo.open({ ...base, question: 'Which port?' })
+    await repo.answer(first.id, { kind: 'option', index: 0 })
+    await repo.expire(third.id)
+
+    const all = await repo.forTicket(ticketId)
+    expect(all.map((d) => [d.id, d.status])).toEqual([
+      [first.id, 'answered'],
+      [second.id, 'pending'],
+      [third.id, 'expired']
+    ])
+    expect(await repo.forTicket('other-ticket')).toEqual([])
+  })
+
+  it('throws for an unknown decision', async () => {
+    await expect(createDecisionRepo(db, now).get('missing')).rejects.toThrow(/decision/i)
+  })
+})

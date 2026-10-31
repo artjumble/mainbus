@@ -1,0 +1,188 @@
+import { describe, expect, test } from 'vitest'
+import type { Decision, Ticket, TicketState } from '../../shared/domain'
+import type { StoredEvent, ThreadEvent } from '../../shared/events'
+import { currentState, type StateInput } from './currentState'
+
+const ticket: Ticket = {
+  id: 't-1',
+  workspaceId: 'w-1',
+  number: 5,
+  kind: 'change',
+  title: 'Add login',
+  intent: [],
+  spec: '',
+  criteria: [],
+  labels: [],
+  manualColumn: 'backlog',
+  branch: null,
+  worktreePath: null,
+  createdAt: '2026-10-30T10:00:00.000Z',
+  updatedAt: '2026-10-30T10:00:00.000Z'
+}
+
+function stored(seq: number, event: ThreadEvent): StoredEvent {
+  return { runId: 'r-1', seq, at: '2026-10-30T10:00:00.000Z', event }
+}
+
+function pending(kind: Decision['kind'], question: string): Decision {
+  return {
+    id: 'd-1',
+    ticketId: 't-1',
+    agentRunId: 'r-1',
+    kind,
+    question,
+    options: [],
+    recommended: null,
+    allowAlways: true,
+    status: 'pending',
+    answer: null,
+    createdAt: '2026-10-30T10:00:00.000Z',
+    answeredAt: null
+  }
+}
+
+const base: StateInput = {
+  ticket,
+  run: null,
+  pendingDecisions: [],
+  processAlive: false,
+  activePhase: 'implementing'
+}
+
+const cases: Array<{ name: string; input: StateInput; expected: TicketState }> = [
+  {
+    name: 'no run, manualColumn ready',
+    input: { ...base, ticket: { ...ticket, manualColumn: 'ready' } },
+    expected: { column: 'ready', phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
+  },
+  {
+    name: 'manualColumn done wins over a handoff run and a pending decision',
+    input: {
+      ...base,
+      ticket: { ...ticket, manualColumn: 'done' },
+      run: { endReason: 'handoff', events: [] },
+      pendingDecisions: [pending('question', 'Which database?')]
+    },
+    expected: { column: 'done', phase: 'done', agentStatus: null, summary: null, canContinue: false }
+  },
+  {
+    name: 'run ended with handoff',
+    input: { ...base, run: { endReason: 'handoff', events: [] } },
+    expected: {
+      column: 'review',
+      phase: 'ready_for_review',
+      agentStatus: 'handed_off',
+      summary: null,
+      canContinue: false
+    }
+  },
+  {
+    name: 'pending question decision',
+    input: { ...base, run: { endReason: null, events: [] }, pendingDecisions: [pending('question', 'Which database?')] },
+    expected: {
+      column: 'needs_you',
+      phase: 'waiting_on_you',
+      agentStatus: 'waiting_on_you',
+      summary: 'Which database?',
+      canContinue: false
+    }
+  },
+  {
+    name: 'pending permission decision',
+    input: {
+      ...base,
+      run: { endReason: null, events: [] },
+      pendingDecisions: [pending('permission', 'Implementer wants to run `pnpm install`')]
+    },
+    expected: {
+      column: 'needs_you',
+      phase: 'waiting_on_you',
+      agentStatus: 'waiting_on_you',
+      summary: 'Implementer wants to run `pnpm install`',
+      canContinue: false
+    }
+  },
+  {
+    name: 'run ended with failed, last error event is "boom"',
+    input: {
+      ...base,
+      run: {
+        endReason: 'failed',
+        events: [stored(1, { kind: 'error', message: 'first' }), stored(2, { kind: 'error', message: 'boom' })]
+      }
+    },
+    expected: {
+      column: 'needs_you',
+      phase: 'implementing',
+      agentStatus: 'failed',
+      summary: 'Failed: boom',
+      canContinue: false
+    }
+  },
+  {
+    name: 'run ended with failed, no error event, last failed turn_end has the error',
+    input: {
+      ...base,
+      run: { endReason: 'failed', events: [stored(1, { kind: 'turn_end', ok: false, error: 'rate limited' })] }
+    },
+    expected: {
+      column: 'needs_you',
+      phase: 'implementing',
+      agentStatus: 'failed',
+      summary: 'Failed: rate limited',
+      canContinue: false
+    }
+  },
+  {
+    name: 'run ended with failed, nothing to say',
+    input: { ...base, run: { endReason: 'failed', events: [] } },
+    expected: {
+      column: 'needs_you',
+      phase: 'implementing',
+      agentStatus: 'failed',
+      summary: 'Failed',
+      canContinue: false
+    }
+  },
+  {
+    name: 'run ended with stopped, manualColumn ready',
+    input: { ...base, ticket: { ...ticket, manualColumn: 'ready' }, run: { endReason: 'stopped', events: [] } },
+    expected: { column: 'ready', phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
+  },
+  {
+    name: 'run ended with stopped, then moved to Backlog',
+    input: { ...base, ticket: { ...ticket, manualColumn: 'backlog' }, run: { endReason: 'stopped', events: [] } },
+    expected: { column: 'backlog', phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
+  },
+  {
+    name: 'run not ended, process not alive',
+    input: { ...base, run: { endReason: null, events: [] }, processAlive: false },
+    expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', summary: null, canContinue: true }
+  },
+  {
+    name: 'run not ended, process alive',
+    input: { ...base, run: { endReason: null, events: [] }, processAlive: true },
+    expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'working', summary: null, canContinue: false }
+  },
+  {
+    name: 'run ended with failed takes phase from activePhase',
+    input: { ...base, activePhase: 'testing', run: { endReason: 'failed', events: [] } },
+    expected: { column: 'needs_you', phase: 'testing', agentStatus: 'failed', summary: 'Failed', canContinue: false }
+  },
+  {
+    name: 'run not ended, process not alive takes phase from activePhase',
+    input: { ...base, activePhase: 'testing', run: { endReason: null, events: [] }, processAlive: false },
+    expected: { column: 'in_progress', phase: 'testing', agentStatus: 'paused', summary: null, canContinue: true }
+  },
+  {
+    name: 'run not ended, process alive takes phase from activePhase',
+    input: { ...base, activePhase: 'testing', run: { endReason: null, events: [] }, processAlive: true },
+    expected: { column: 'in_progress', phase: 'testing', agentStatus: 'working', summary: null, canContinue: false }
+  }
+]
+
+describe('currentState', () => {
+  test.each(cases)('$name', ({ input, expected }) => {
+    expect(currentState(input)).toEqual(expected)
+  })
+})

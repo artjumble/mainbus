@@ -1,0 +1,33 @@
+/* Mantine's Divider cannot wrap a long label (a handoff summary), so the dividers are drawn here. */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.label {
+  max-width: 70%;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.handoff {
+  color: var(--mantine-color-working-6);
+  font-weight: 600;
+}
+
+.handoff::before,
+.handoff::after {
+  border-top-width: 2px;
+  border-top-color: var(--mantine-color-working-6);
+}
