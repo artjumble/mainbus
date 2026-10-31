@@ -272,6 +272,22 @@ describe('TicketRunner', () => {
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
   })
 
+  it('always_allow on a command chain stores a rule per command, so a later chain of them needs no card', async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const spec = runtime.specs[0]
+
+    const verdict = spec.onPermission(permission('git add -A && git commit -m "first"'))
+    const decision = await waitForPending()
+    await runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' })
+
+    expect(await verdict).toEqual({ allow: true })
+    expect((await repos.allowRules.list(ticket.workspaceId)).map((r) => r.pattern)).toEqual(['git add *', 'git commit *'])
+    expect(await spec.onPermission(permission('git add src && git commit -m "second"'))).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+  })
+
   it("a permission card's question carries the guard's reason when there is one", async () => {
     const runtime = new FakeRuntime(keepAlive)
     const runner = makeRunner(runtime)

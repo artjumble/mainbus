@@ -276,7 +276,9 @@ export class SdkRuntime implements AgentRuntime {
       ...(spec.effort !== undefined ? { effort: spec.effort } : {}),
       ...(spec.resumeSessionId !== undefined ? { resume: spec.resumeSessionId } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code', append: spec.appendSystemPrompt },
-      permissionMode: 'auto',
+      // Edits and simple file commands inside cwd and additionalDirectories run without asking;
+      // every other non-read-only call reaches canUseTool, so the allow list decides, not a classifier.
+      permissionMode: 'acceptEdits',
       // Skips the user's global and managed settings files. The live test logs what system/init
       // still reports (plugins, MCP servers, skills) so the remainder is visible.
       settingSources: ['project', 'local'],
@@ -284,6 +286,8 @@ export class SdkRuntime implements AgentRuntime {
       strictMcpConfig: true,
       includePartialMessages: true,
       disallowedTools,
+      // Mainbus's own role tools: outside auto mode they would otherwise raise a permission card per call.
+      allowedTools: ['mcp__mainbus__ask_user', 'mcp__mainbus__handoff'],
       additionalDirectories: spec.additionalDirectories,
       mcpServers: { mainbus: server },
       hooks: { PreToolUse: [{ hooks: [guard] }] },

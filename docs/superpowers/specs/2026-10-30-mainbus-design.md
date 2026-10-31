@@ -63,7 +63,7 @@ Names: "Mainbus" in the UI; `mainbus` for the repo, npm package and binary. The 
 | Frontend | React + TypeScript with Mantine components. No Tailwind; CSS Modules only where Mantine can't do it. |
 | Primary agent runtime | Headless via the TypeScript Agent SDK, pointed at the installed `claude.exe`. Background sessions come later as a second adapter, only if a spike shows they can be driven without a terminal. |
 | Parallel tickets in one repo | One git worktree and branch per ticket, created and cleaned up by Mainbus |
-| Agent permissions | Claude Code auto mode in the worktree; anything it would prompt on becomes a decision with Allow once / Always allow in this workspace / Deny |
+| Agent permissions | Claude Code accept-edits mode in the worktree (changed from auto mode after M1); anything it would prompt on becomes a decision with Allow once / Always allow in this workspace / Deny |
 | Board columns | Backlog, Ready, In progress, Needs you, Review, Done (fixed). Failed lineups land in Needs you. |
 | Ticket phases | Not started, Planning, Implementing, Testing, Waiting on you, Ready for review, Done (fixed) |
 | Agent statuses | Queued, Working, Waiting on you, Handed off, Paused, Failed, Replaced (separate from phase) |
@@ -245,11 +245,11 @@ The runtime is chosen per workspace in settings, default SdkRuntime. Switching r
 If a turn ends with no tool call and no pending decision, the engine sends one nudge asking the agent to hand off, ask, or report a problem. If the next turn also ends without one, the agent is marked Failed and the ticket moves to Needs you.
 
 ### Permissions
-Decided with the user: **Claude Code's auto permission mode, plus "always allow".**
-- **Mode:** role agents run in Claude Code's `auto` permission mode with `cwd` set to the ticket's worktree.
-- **Approvals:** anything auto mode would prompt on goes to the SDK's permission callback and becomes a `permission` decision ("Implementer wants to run `pnpm install`"). The tool call waits until it's answered. It shows in the same three places as questions.
-- **Answers:** a permission decision offers Allow once, Always allow in this workspace, and Deny with an optional note to the agent. "Always allow" adds a rule to the workspace's allow list, which is applied before asking. The list can be viewed and edited in workspace settings.
-- **Mainbus guard (changed by M0 finding E3).** Auto mode treats the prompt as the user's authorization. In the spike it allowed a force-push and deleting and writing files outside the working folder without asking. So a `PreToolUse` hook sends these to a permission card whatever the mode, after checking the allow list:
+Decided with the user: **Claude Code's accept-edits permission mode, plus "always allow".** M1 shipped with `auto` mode; after the acceptance run the user switched to `acceptEdits` (2026-10-31). Auto mode's classifier approves almost anything the prompt implies, so containment rested on the guard recognising every risky command. Accept-edits turns that around: only what the user has approved runs without a card.
+- **Mode:** role agents run in Claude Code's `acceptEdits` permission mode with `cwd` set to the ticket's worktree. Edits and simple file commands (`mkdir`, `touch`, `rm`, `mv`, `cp`, `sed`) inside the worktree and its extra directories run without asking. Read-only commands run without asking. Every other call, including reads outside the worktree, reaches the permission callback. Mainbus's own `ask_user` and `handoff` tools are pre-approved with `allowedTools`.
+- **Approvals:** anything the mode would prompt on goes to the SDK's permission callback and becomes a `permission` decision ("Implementer wants to run `pnpm install`"). The tool call waits until it's answered. It shows in the same three places as questions.
+- **Answers:** a permission decision offers Allow once, Always allow in this workspace, and Deny with an optional note to the agent. "Always allow" adds a rule to the workspace's allow list, which is applied before asking. For a chain of plain commands (`npm test && git commit -m x`) it saves a prefix rule per command, and a chain is allowed when every command in it is covered. Redirects, variables, a lone `&`, and interpreters get one exact rule for the whole command. The list can be viewed and edited in workspace settings.
+- **Mainbus guard (changed by M0 finding E3).** It was added because auto mode treats the prompt as the user's authorization, and it stays under accept-edits so a broad allow rule (`git push *`, `rm *`) can never cover these. In the spike it allowed a force-push and deleting and writing files outside the working folder without asking. So a `PreToolUse` hook sends these to a permission card whatever the mode, after checking the allow list:
   - writes, edits or deletes outside the worktree and its extra directories;
   - any `git push` (a force-push always needs a card);
   - `git reset --hard`, `git clean`, `git checkout --`, and deleting branches other than the ticket's own;
@@ -258,7 +258,7 @@ Decided with the user: **Claude Code's auto permission mode, plus "always allow"
 
   Reads stay unguarded.
 - **Never write the CLI's own rules (M0 finding E3).** Mainbus never hands permission suggestions back to the CLI, because that writes `.claude/settings.local.json` into the worktree, where an agent might commit it. Always-allow rules live only in Mainbus's database.
-- **`read_only` profile** (for example the Planner): edit and write tools are disallowed outright. Shell commands still go through auto mode and the allow list, so a read-only role can run tests. **(designer's call)** Reviewers default to `read_only`; Implementers to `edit`.
+- **`read_only` profile** (for example the Planner): edit and write tools are disallowed outright. Shell commands still go through the permission mode and the allow list, so a read-only role can run tests. **(designer's call)** Reviewers default to `read_only`; Implementers to `edit`.
 - **Verify in M0:** auto mode's exact behavior under the SDK on a subscription. If auto mode isn't available headless, fall back to: allow edits inside the worktree, plus a per-workspace command allow list seeded with test, build and git commands.
 
 ### Controls on the active role

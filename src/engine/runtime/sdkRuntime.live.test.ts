@@ -136,6 +136,9 @@ describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
       expect(init).toBeDefined()
       expect(init?.apiKeySource).toBe('none')
       expect(optionsSeen?.settingSources).toEqual(['project', 'local'])
+      expect(init?.permissionMode).toBe('acceptEdits')
+      // Writing a.txt inside the worktree is an accepted edit, so nothing should have asked.
+      expect(permissions).toEqual([])
       // Isolation from the user's own setup: only the binary's built-in plugins, and only our MCP server.
       const plugins = (init?.plugins ?? []) as Array<{ name: string; source: string }>
       expect(plugins.filter((p) => !p.source.endsWith('@builtin'))).toEqual([])

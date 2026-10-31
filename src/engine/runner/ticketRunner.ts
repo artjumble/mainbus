@@ -3,7 +3,7 @@ import type { Decision, DecisionAnswer, Role, Ticket, TicketState, Workspace } f
 import type { AgentEvent, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { WorktreeManager } from '../git/worktrees'
 import { guardReason } from '../permissions/guard'
-import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, ruleFromRequest } from '../permissions/policy'
+import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
 import { buildRolePrompt, firstMessage } from '../roles/prompt'
@@ -643,7 +643,7 @@ export class TicketRunner {
     }
     if (a.choice === 'deny') return { allow: false, message: 'Denied by the user' + (a.note ? `: ${a.note}` : '') }
     if (a.choice === 'always_allow' && decision.allowAlways) {
-      await this.repos.allowRules.add(ruleFromRequest(target.workspaceId, req, { exact: guarded }))
+      for (const rule of rulesFromRequest(target.workspaceId, req, { exact: guarded })) await this.repos.allowRules.add(rule)
     }
     return { allow: true }
   }

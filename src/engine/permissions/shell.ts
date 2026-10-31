@@ -214,6 +214,18 @@ function readsStdinAsCode(c: SimpleCommand): boolean {
   return interpreterArgs(c.name, c.argv.slice(1))?.stdin ?? false
 }
 
+/**
+ * Each command's words as typed (quotes removed, nothing peeled), when the command is only plain
+ * commands joined by && || ; | or newlines. Null when any of them has a redirect or reads a < file.
+ */
+export function plainStages(command: string): string[][] | null {
+  const scanned = scan(command)
+  if ('why' in scanned) return null
+  const stages = scanned.statements.flat()
+  if (stages.some((s) => s.redirects.length > 0 || s.stdin)) return null
+  return stages.map((s) => s.argv).filter((argv) => argv.length > 0)
+}
+
 export function parseShell(command: string): ShellParse {
   const scanned = scan(command)
   if ('why' in scanned) return { opaque: true, why: scanned.why }

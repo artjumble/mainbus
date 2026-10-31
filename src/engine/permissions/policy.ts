@@ -1,6 +1,6 @@
 import type { AllowRule } from '../../shared/domain'
 import type { PermissionRequest } from '../runtime/types'
-import { commandName, isDestructivePush, parseShell, type ShellParse } from './shell'
+import { commandName, isDestructivePush, parseShell, plainStages } from './shell'
 
 export { isDestructivePush }
 
@@ -52,62 +52,75 @@ function normalize(command: string): string {
   return command.trim().split(/\s+/).join(' ')
 }
 
-function mustBeExact(command: string, tokens: string[]): boolean {
+/**
+ * The commands of a chain that prefix rules may cover: plain commands joined by && || ; or |,
+ * with no redirect, variable, backtick or lone & anywhere. Null means only an exact rule fits.
+ */
+function plainParts(command: string): string[][] | null {
+  if (/[$`]/.test(command) || command.replace(/&&/g, '').includes('&')) return null
+  if (parseShell(command).opaque) return null
+  const parts = plainStages(command)
+  return parts !== null && parts.length > 0 ? parts : null
+}
+
+/** The words a prefix rule for this command keeps, or null when it must get an exact rule. */
+function prefixOf(tokens: string[]): string[] | null {
   const first = commandName(tokens[0] ?? '')
   const second = tokens[1] ?? ''
   // A prefix rule must never start with '=', which marks an exact rule.
-  if ((tokens[0] ?? '').startsWith('=')) return true
-  if (INTERPRETERS.has(first) || /^python[\d.]*$/.test(first)) return true
-  if (PACKAGE_MANAGERS.has(first) && RUNNER_SUBCOMMANDS.has(second)) return true
+  if ((tokens[0] ?? '').startsWith('=')) return null
+  if (INTERPRETERS.has(first) || /^python[\d.]*$/.test(first)) return null
+  if (PACKAGE_MANAGERS.has(first) && RUNNER_SUBCOMMANDS.has(second)) return null
   // `git -C x status` would generalise to `git *`.
-  if (first === 'git' && second.startsWith('-')) return true
-  return parseShell(command).opaque || /[<>$&`]/.test(command)
+  if (first === 'git' && second.startsWith('-')) return null
+  const prefix = [tokens[0] ?? '']
+  if (tokens[1] !== undefined && !tokens[1].startsWith('-')) prefix.push(tokens[1])
+  // A quoted word with spaces in it would not read back as the same words.
+  if (prefix.some((w) => w === '' || /\s/.test(w))) return null
+  return prefix
 }
 
-export function ruleFromRequest(
+/**
+ * The rules "Always allow" saves: one prefix rule per command of a plain chain, so
+ * `npm test && git commit -m x` saves `npm test *` and `git commit *`; otherwise one exact rule.
+ */
+export function rulesFromRequest(
   workspaceId: string,
   r: Req,
   opts: { exact?: boolean } = {},
-): Omit<AllowRule, 'id'> {
+): Array<Omit<AllowRule, 'id'>> {
   const command = isShellTool(r.toolName) ? commandOf(r.input) : null
-  if (command === null) return { workspaceId, toolName: r.toolName, pattern: null }
-  const normalized = normalize(command)
-  const tokens = normalized.split(' ').filter(Boolean)
-  if (opts.exact || mustBeExact(command, tokens)) return { workspaceId, toolName: r.toolName, pattern: `=${normalized}` }
-  const prefix = [tokens[0] ?? '']
-  if (tokens[1] !== undefined && !tokens[1].startsWith('-')) prefix.push(tokens[1])
-  return { workspaceId, toolName: r.toolName, pattern: `${prefix.join(' ')} *` }
+  if (command === null) return [{ workspaceId, toolName: r.toolName, pattern: null }]
+  const exact = [{ workspaceId, toolName: r.toolName, pattern: `=${normalize(command)}` }]
+  if (opts.exact) return exact
+  const parts = plainParts(command)
+  const prefixes = parts?.map(prefixOf)
+  if (!prefixes || prefixes.some((p) => p === null)) return exact
+  const patterns = [...new Set(prefixes.map((p) => `${(p as string[]).join(' ')} *`))]
+  return patterns.map((pattern) => ({ workspaceId, toolName: r.toolName, pattern }))
 }
 
-function isSingleSimpleCommand(parsed: Extract<ShellParse, { opaque: false }>): boolean {
-  return parsed.pipelines.length === 1 && parsed.pipelines[0].length === 1 && parsed.pipelines[0][0].redirects.length === 0
-}
-
-function matches(pattern: string, command: string, parsed: Extract<ShellParse, { opaque: false }>): boolean {
-  const cmd = normalize(command)
-  // Exact rules are stored as '=' + the normalised command, so a command that
-  // ends in ' *' cannot be mistaken for a prefix rule.
-  if (pattern.startsWith('=')) return cmd === normalize(pattern.slice(1))
-  if (!pattern.endsWith(' *')) return false
-  if (!isSingleSimpleCommand(parsed) || /[$&`]/.test(command)) return false
-  const prefix = normalize(pattern.slice(0, -2))
-  return cmd === prefix || cmd.startsWith(`${prefix} `)
+function coveredBy(pattern: string, words: string[]): boolean {
+  if (pattern.startsWith('=') || !pattern.endsWith(' *')) return false
+  const prefix = normalize(pattern.slice(0, -2)).split(' ')
+  return prefix.length <= words.length && prefix.every((w, i) => w === words[i])
 }
 
 export function isAllowed(rules: AllowRule[], r: Req): boolean {
-  const shell = isShellTool(r.toolName)
-  const command = shell ? commandOf(r.input) : null
-  let parsed: ShellParse | null = null
-  if (command !== null) {
-    parsed = parseShell(command)
-    if (parsed.opaque || isDestructivePush(command)) return false // no rule can allow these
-  }
-  return rules.some((rule) => {
-    if (rule.toolName !== r.toolName) return false
-    if (rule.pattern === null) return true
-    if (command === null || parsed === null || parsed.opaque) return false
-    return matches(rule.pattern, command, parsed)
-  })
+  const own = rules.filter((rule) => rule.toolName === r.toolName)
+  const command = isShellTool(r.toolName) ? commandOf(r.input) : null
+  // No rule can allow these.
+  if (command !== null && (parseShell(command).opaque || isDestructivePush(command))) return false
+  if (own.some((rule) => rule.pattern === null)) return true
+  if (command === null) return false
+  const cmd = normalize(command)
+  // Exact rules are stored as '=' + the normalised command, so a command that
+  // ends in ' *' cannot be mistaken for a prefix rule.
+  if (own.some((rule) => rule.pattern?.startsWith('=') && normalize(rule.pattern.slice(1)) === cmd)) return true
+  // A chain is allowed only when a prefix rule covers every command in it.
+  const parts = plainParts(command)
+  if (parts === null) return false
+  return parts.every((words) => own.some((rule) => rule.pattern !== null && coveredBy(rule.pattern, words)))
 }
 
 export function describeRequest(r: Req, role: string): string {

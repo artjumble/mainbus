@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { AllowRule } from '../../shared/domain'
-import { describeRequest, isAllowed, isDestructivePush, ruleFromRequest } from './policy'
+import { describeRequest, isAllowed, isDestructivePush, rulesFromRequest } from './policy'
 
 const rule = (toolName: string, pattern: string | null): AllowRule => ({
   id: 'r1',
@@ -9,6 +9,12 @@ const rule = (toolName: string, pattern: string | null): AllowRule => ({
   pattern,
 })
 const bash = (command: string) => ({ toolName: 'Bash', input: { command } })
+/** The single rule "Always allow" saves for a request that is not a chain. */
+const ruleFromRequest = (...args: Parameters<typeof rulesFromRequest>) => {
+  const rules = rulesFromRequest(...args)
+  expect(rules).toHaveLength(1)
+  return rules[0]
+}
 
 describe('ruleFromRequest', () => {
   test('PowerShell tool rules behave like Bash', () => {
@@ -232,5 +238,49 @@ describe('fail-closed policy', () => {
 
   test('prefix rules still allow quoted separators in arguments', () => {
     expect(isAllowed(prefix('git commit *'), bash('git commit -m "fix; x"'))).toBe(true)
+  })
+})
+
+describe('chains', () => {
+  test('Always allow on a chain saves a prefix rule for each command in it', () => {
+    expect(rulesFromRequest('w1', bash('git add -A && git commit -m "x; y"')).map((r) => r.pattern)).toEqual([
+      'git add *',
+      'git commit *',
+    ])
+    expect(rulesFromRequest('w1', bash('npm test; npm test -- --run | tail -5')).map((r) => r.pattern)).toEqual([
+      'npm test *',
+      'tail *',
+    ])
+  })
+
+  test('a chain with any command that needs an exact rule saves one exact rule', () => {
+    for (const c of ['npm test && node x.js', 'git add . && git -C sub commit', 'ls && echo $HOME', 'ls > out.txt && ls', 'ls & ls']) {
+      expect(rulesFromRequest('w1', bash(c)).map((r) => r.pattern), c).toEqual([`=${c}`])
+    }
+  })
+
+  test('a chain is allowed only when every command in it is covered', () => {
+    const rules = [rule('Bash', 'git add *'), rule('Bash', 'git commit *'), rule('Bash', 'npm test *')]
+    expect(isAllowed(rules, bash('git add -A && git commit -m "fix; x"'))).toBe(true)
+    expect(isAllowed(rules, bash('npm test || git add .'))).toBe(true)
+    expect(isAllowed(rules, bash('git add -A && git commit -m x && git push'))).toBe(false)
+    expect(isAllowed(rules, bash('git add -A && rm -rf x'))).toBe(false)
+    expect(isAllowed(rules, bash('git add -A | sh'))).toBe(false)
+    expect(isAllowed(rules, bash('git add -A && git commit -m x > log.txt'))).toBe(false)
+    expect(isAllowed(rules, bash('git add $X && git commit -m x'))).toBe(false)
+    expect(isAllowed(rules, bash('git add -A & git commit -m x'))).toBe(false)
+    expect(isAllowed(rules, bash('git add -A && sudo git commit -m x'))).toBe(false)
+  })
+
+  test('a prefix rule matches whole words, not part of one', () => {
+    expect(isAllowed([rule('Bash', 'git add *')], bash('git adder x'))).toBe(false)
+    expect(isAllowed([rule('Bash', 'git add *')], bash('git add'))).toBe(true)
+  })
+
+  test('the rules saved for a chain allow that chain again', () => {
+    const c = 'git add -A && git commit -m "first"'
+    const saved = rulesFromRequest('w1', bash(c)).map((r, i) => ({ ...r, id: `r${i}` }))
+    expect(isAllowed(saved, bash(c))).toBe(true)
+    expect(isAllowed(saved, bash('git add src && git commit -m "second"'))).toBe(true)
   })
 })
