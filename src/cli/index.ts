@@ -4,6 +4,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { main, type Io } from './main'
 import { createMcpServer } from './mcp'
+import { invocationDir } from '../engine/home'
 import { modeOf } from './target'
 
 function readStdin(): Promise<string> {
@@ -30,7 +31,8 @@ async function serveMcp(...args: Parameters<Io['serveMcp']>): Promise<void> {
 
 const io: Io = {
   env: process.env,
-  cwd: process.cwd(),
+  // `npm run mainbus` runs in the package root; the folder it was typed in is the one that counts.
+  cwd: invocationDir(process.env, 'mainbus', process.cwd()),
   mode: modeOf(__dirname),
   stdout: (text) => void process.stdout.write(text),
   stderr: (text) => void process.stderr.write(text),

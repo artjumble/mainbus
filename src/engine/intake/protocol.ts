@@ -4,8 +4,12 @@ import type { AgentStatus, Column, IntentSource, Phase } from '../../shared/doma
 
 export const INTAKE_VERSION = 1
 
-/** A request line longer than this (in bytes, without its newline) gets a too_large error and the connection closes. */
-export const MAX_LINE_BYTES = 1024 * 1024
+/**
+ * A request line longer than this (in bytes, without its newline) gets a too_large error and the connection closes.
+ * The largest valid create has about 173,300 UTF-16 units of text, and JSON escaping turns a unit into at most
+ * 6 bytes (`\u0001`), so it needs about 1.04 MB; 2 MiB leaves room for any client's escaping and spacing.
+ */
+export const MAX_LINE_BYTES = 2 * 1024 * 1024
 
 export const INTAKE_METHODS = ['create', 'list', 'get'] as const
 export type IntakeMethod = (typeof INTAKE_METHODS)[number]
@@ -47,7 +51,7 @@ export interface CreateParams {
   spec?: string
   criteria?: string[]
   labels?: string[]
-  /** Absolute path; must be the open workspace's repo. Omitted means the open workspace. */
+  /** Absolute path; must be the open workspace's repo or a folder inside it. Omitted means the open workspace. */
   repo?: string
   source: { agent: string; cwd: string }
 }

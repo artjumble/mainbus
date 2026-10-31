@@ -44,6 +44,11 @@ export function ConnectAgents({ opened }: { opened: boolean }): ReactElement {
               This is a dev build: these lines run the CLI from this checkout with Node, against the dev data home.
             </Text>
           )}
+          {launcher.intakeError !== undefined && (
+            <Alert color="red" variant="light" title="Agents can't reach this board">
+              {launcher.intakeError}. Agents get "Mainbus isn't running" until it can. Restart Mainbus to try again.
+            </Alert>
+          )}
           {!launcher.exists && (
             <Alert color="yellow" variant="light" title="The launcher isn't there yet">
               {launcher.kind === 'stable'

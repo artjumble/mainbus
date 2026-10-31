@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import type { Decision, Role, Ticket } from '../../shared/domain'
 import { DISALLOWED_TOOLS, TRUST_STATEMENT } from './hardening'
 import {
+  AGENT_FILED_SUFFIX,
   AGENT_WORDS_HEADING,
   NO_USER_WORDS,
   ROLE_PROTOCOL,
@@ -173,6 +174,18 @@ describe('agent-written intent', () => {
     expect(prompt).not.toContain(NO_USER_WORDS)
     expect(agentSection(prompt)).toContain('Agent says: fix the parser')
     expect(agentSection(prompt)).not.toContain('Only the parser')
+  })
+
+  test("labels an agent ticket's spec and criteria as agent-written, and leaves a user ticket's alone", () => {
+    const prompt = buildRolePrompt(role, agentTicket, [])
+    expect(prompt).toContain(`## Spec ${AGENT_FILED_SUFFIX}\n<ticket-data field="spec">`)
+    expect(prompt).toContain(`## Acceptance criteria ${AGENT_FILED_SUFFIX}\n<ticket-data field="criteria">`)
+    expect(AGENT_FILED_SUFFIX).toMatch(/not the user's words/)
+
+    const user = buildRolePrompt(role, ticket, [])
+    expect(user).toContain('## Spec\n<ticket-data field="spec">')
+    expect(user).toContain('## Acceptance criteria\n<ticket-data field="criteria">')
+    expect(user).not.toContain(AGENT_FILED_SUFFIX)
   })
 
   test('a forged agent name or folder stays inside its delimiters on one line', () => {

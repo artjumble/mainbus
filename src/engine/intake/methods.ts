@@ -36,6 +36,8 @@ export interface IntakeDeps {
   /** The same path as the ticket.create command: stores the ticket and emits board.changed. */
   createTicket(ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket>
   tickets(ws: Workspace): Promise<(Ticket & { state: TicketState })[]>
+  /** One ticket by number, or null; loads only that ticket. */
+  ticket(ws: Workspace, number: number): Promise<(Ticket & { state: TicketState }) | null>
 }
 
 const COLUMNS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done'] as const satisfies readonly Column[]
@@ -76,8 +78,12 @@ function parse<T>(schema: z.ZodType<T>, params: unknown): T {
   throw new IntakeFailure('invalid', `${field}: ${issue.message}`, field)
 }
 
-function samePath(a: string, b: string): boolean {
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+/** True when `inner` is `outer` or a path inside it; case-insensitive on Windows. Both must be absolute. */
+export function isInside(inner: string, outer: string, platform: NodeJS.Platform = process.platform): boolean {
+  const p = platform === 'win32' ? path.win32 : path.posix
+  const fold = (s: string): string => (platform === 'win32' ? p.resolve(s).toLowerCase() : p.resolve(s))
+  const rel = p.relative(fold(outer), fold(inner))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel))
 }
 
 function status(state: TicketState): IntakeStatus {
@@ -96,7 +102,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
   }
 
   async function byNumber(ws: Workspace, number: number): Promise<Ticket & { state: TicketState }> {
-    const ticket = (await deps.tickets(ws)).find((t) => t.number === number)
+    const ticket = await deps.ticket(ws, number)
     if (!ticket) throw new IntakeFailure('not_found', `No ticket #${number} in ${ws.name}`, 'number')
     return ticket
   }
@@ -107,10 +113,10 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
       const ws = await openWorkspace()
       if (p.repo !== undefined) {
         if (!path.isAbsolute(p.repo)) throw new IntakeFailure('invalid', 'repo: must be an absolute path', 'repo')
-        if (!samePath(path.resolve(p.repo), path.resolve(ws.repoPath))) {
+        if (!isInside(p.repo, ws.repoPath)) {
           throw new IntakeFailure(
             'workspace_mismatch',
-            `repo: ${p.repo} is not the open workspace (${ws.repoPath})`,
+            `repo: ${p.repo} is not in the open workspace (${ws.repoPath})`,
             'repo'
           )
         }

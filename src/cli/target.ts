@@ -15,19 +15,27 @@ export function modeOf(bundleDir: string): 'stable' | 'dev' {
   return fs.existsSync(path.join(bundleDir, '..', 'app.asar')) ? 'stable' : 'dev'
 }
 
-export function resolveTarget(env: Env, mode: 'stable' | 'dev'): IntakeTarget {
-  const root = resolveHome(env, mode, os.homedir()).root
+/** The app this CLI talks to. `cwd` is where the command was run; a relative MAINBUS_HOME is taken from there. */
+export function resolveTarget(env: Env, mode: 'stable' | 'dev', cwd: string): IntakeTarget {
+  const root = resolveHome(env, mode, os.homedir(), cwd).root
   return { endpoint: intakeEndpoint(root), homeRoot: root }
 }
 
 /**
- * Mainbus sets MAINBUS_AGENT for its own agents. Such an agent must not file tickets on the board that
- * is running it, but may still test against a temporary MAINBUS_HOME. Returns the refusal, or null.
+ * Mainbus sets MAINBUS_AGENT for its own agents, and MAINBUS_AGENT_HOME to the data home of the app that
+ * runs them. Such an agent must not file tickets on that board, however it names the home (MAINBUS_HOME
+ * pointing at it included), but may still test against a temporary one. Comparing endpoints compares the
+ * homes the way the pipe name does. Without MAINBUS_AGENT_HOME (an app from before it existed), only an
+ * explicit MAINBUS_HOME is let through. Returns the refusal, or null.
  */
-export function refusalUnderAgent(env: Env): string | null {
-  if (!env.MAINBUS_AGENT || env.MAINBUS_HOME) return null
+export function refusalUnderAgent(env: Env, target: IntakeTarget): string | null {
+  if (!env.MAINBUS_AGENT) return null
+  const agentHome = env.MAINBUS_AGENT_HOME
+  const own = agentHome ? intakeEndpoint(path.resolve(agentHome)) === target.endpoint : !env.MAINBUS_HOME
+  if (!own) return null
   return (
-    'Refusing to run: MAINBUS_AGENT is set, so this is a Mainbus agent, and it must not file tickets on the ' +
-    'board that runs it. Set MAINBUS_HOME to a temporary data home to test against that instead.'
+    `Refusing to run: MAINBUS_AGENT is set, so this is a Mainbus agent, and ${target.homeRoot} is the data home ` +
+    'of the Mainbus that runs it: it must not file tickets on that board. Set MAINBUS_HOME to a temporary data ' +
+    'home to test against that instead.'
   )
 }

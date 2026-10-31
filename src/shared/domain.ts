@@ -145,6 +145,8 @@ export interface AgentLauncher {
   env: Record<string, string>
   /** False when the launcher (or the dev bundle) isn't on disk yet. */
   exists: boolean
+  /** Why the app couldn't open the intake pipe agents reach it through; absent while it listens. */
+  intakeError?: string
 }
 
 export type ClaudeSetup =

@@ -5,7 +5,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { makeTestBoard, type TestBoard } from '../engine/intake/testBoard'
 import type { IntakeTarget } from './client'
-import { createMcpServer } from './mcp'
+import { agentName, createMcpServer } from './mcp'
 
 let b: TestBoard
 let clients: Client[] = []
@@ -74,6 +74,19 @@ describe('mainbus mcp', () => {
     expect((await b.engine.invoke('board.get')).tickets[0]!.intent[0]!.source?.agent).toBe('codex')
   })
 
+  it('records mcp-client for a client with an empty name, and cuts long names to 100 characters', async () => {
+    const anonymous = await connect(b.target, '')
+    expect((await anonymous.callTool({ name: 'create_ticket', arguments: { title: 'A', intent: 'I' } })).isError).toBeFalsy()
+    const verbose = await connect(b.target, 'v'.repeat(300))
+    expect((await verbose.callTool({ name: 'create_ticket', arguments: { title: 'B', intent: 'I' } })).isError).toBeFalsy()
+    const named = await connect()
+    const long = await named.callTool({ name: 'create_ticket', arguments: { title: 'C', intent: 'I', agent: 'a'.repeat(150) } })
+    expect(long.isError).toBeFalsy()
+
+    const agents = (await b.engine.invoke('board.get')).tickets.map((t) => t.intent[0]!.source?.agent)
+    expect(agents).toEqual(['mcp-client', 'v'.repeat(100), 'a'.repeat(100)])
+  })
+
   it('returns validation errors as tool errors naming the field, and creates nothing', async () => {
     const client = await connect()
     const result = await client.callTool({ name: 'create_ticket', arguments: { title: 'x'.repeat(201), intent: 'I' } })
@@ -85,7 +98,7 @@ describe('mainbus mcp', () => {
       arguments: { title: 'T', intent: 'I', repo: path.join(b.tmp, 'elsewhere') }
     })
     expect(mismatch.isError).toBe(true)
-    expect(textOf(mismatch)).toMatch(/not the open workspace.*\(field: repo\)$/)
+    expect(textOf(mismatch)).toMatch(/not in the open workspace.*\(field: repo\)$/)
     expect((await b.engine.invoke('board.get')).tickets).toEqual([])
   })
 
@@ -102,5 +115,19 @@ describe('mainbus mcp', () => {
       expect(result.isError).toBe(true)
       expect(textOf(result)).toBe(`Mainbus isn't running (data home: ${root}). Start it and try again.`)
     }
+  })
+})
+
+describe('agentName', () => {
+  it('prefers the named agent, then the client name, then mcp-client', () => {
+    expect(agentName('codex', 'client')).toBe('codex')
+    expect(agentName(undefined, 'client')).toBe('client')
+    expect(agentName('  ', ' client ')).toBe('client')
+    expect(agentName(undefined, '')).toBe('mcp-client')
+    expect(agentName(undefined, undefined)).toBe('mcp-client')
+  })
+
+  it('never cuts a character in half', () => {
+    expect(agentName(`${'x'.repeat(99)}😀`, undefined)).toBe('x'.repeat(99))
   })
 })

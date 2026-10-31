@@ -1,11 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { intakeEndpoint } from '../src/engine/intake/endpoint'
 
 const root = path.resolve(import.meta.dirname, '..')
 const bundle = path.join(root, 'out', 'cli', 'mainbus.cjs')
@@ -25,6 +27,7 @@ function cleanEnv(): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env['ELECTRON_RUN_AS_NODE']
   delete env['MAINBUS_AGENT']
+  delete env['MAINBUS_AGENT_HOME']
   return env
 }
 
@@ -120,6 +123,24 @@ test('agents file tickets through the CLI and the MCP server, and the board show
       [2, 'e2e-agent']
     ])
 
+    // `npm run mainbus` runs in the package root; the folder it was typed in is the one recorded and the base
+    // of relative paths.
+    fs.writeFileSync(path.join(repo, 'intent.txt'), 'Read from the folder it was typed in.')
+    const viaNpm = spawnSync(
+      process.execPath,
+      [bundle, 'ticket', 'create', '--title', 'Typed in the repo', '--intent-file', 'intent.txt', '--repo', '.'],
+      {
+        cwd: root,
+        env: { ...cleanEnv(), MAINBUS_HOME: home, npm_lifecycle_event: 'mainbus', INIT_CWD: repo },
+        encoding: 'utf8',
+        windowsHide: true
+      }
+    )
+    expect(viaNpm.stderr).toBe('')
+    expect(viaNpm.stdout).toBe('#3 Typed in the repo\n')
+    const shown = JSON.parse(cli(['ticket', 'show', '3', '--json']).stdout) as { intent: { text: string; source: { cwd: string } }[] }
+    expect(shown.intent[0]).toMatchObject({ text: 'Read from the folder it was typed in.', source: { cwd: repo } })
+
     // The ticket view keeps the agent's words apart from the user's.
     await backlog.getByText('Parser drops tabs').click()
     const fromAgent = page.getByRole('region', { name: 'From an agent' })
@@ -136,6 +157,47 @@ test('agents file tickets through the CLI and the MCP server, and the board show
   } finally {
     await client?.close().catch(() => {})
     await session?.app.close().catch(() => {})
+    if (tmp) {
+      try {
+        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      } catch {
+        // A temp folder left behind is harmless.
+      }
+    }
+  }
+})
+
+test("the settings say so when the app can't open its intake pipe, and the board still works", async () => {
+  let tmp: string | null = null
+  let session: { app: ElectronApplication; page: Page } | null = null
+  // Something else already holds this home's pipe name, so the app can't listen on it.
+  let squatter: net.Server | null = null
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-intake-busy-'))
+    const home = path.join(tmp, 'home')
+    const repo = path.join(tmp, 'repo')
+    fs.mkdirSync(repo)
+    git(repo, 'init')
+    fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
+    git(repo, 'add', '.')
+    git(repo, 'commit', '-m', 'initial')
+    if (process.platform !== 'win32') fs.mkdirSync(home, { recursive: true })
+    const server = net.createServer((socket) => socket.destroy())
+    squatter = server
+    await new Promise<void>((resolve, reject) => server.once('error', reject).listen(intakeEndpoint(home), resolve))
+
+    session = await launch(home, repo)
+    const { page } = session
+    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Workspace settings' }).click()
+    const connect = page.getByRole('region', { name: 'Connect agents' })
+    await expect(connect.getByText("Agents can't reach this board")).toBeVisible()
+    await expect(connect.getByText(intakeEndpoint(home), { exact: false })).toBeVisible()
+  } finally {
+    await session?.app.close().catch(() => {})
+    await new Promise((resolve) => (squatter ? squatter.close(resolve) : resolve(undefined)))
     if (tmp) {
       try {
         fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })

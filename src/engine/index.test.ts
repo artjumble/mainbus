@@ -394,3 +394,15 @@ describe('lifecycle', () => {
     await expect(fs.access(worktreePath!)).rejects.toThrow()
   })
 })
+
+describe('agents.launcher', () => {
+  it("adds why the intake pipe couldn't be opened, read when asked", async () => {
+    const launcher = { kind: 'stable' as const, program: ['/x/mainbus.cmd'], env: {}, exists: true }
+    let intakeError: string | null = null
+    const engine = await createEngine({ paths, migrationsDir, runtime: null, git: runGit, exec, launcher, intakeError: () => intakeError })
+    engines.push(engine)
+    expect(await engine.invoke('agents.launcher')).toEqual(launcher)
+    intakeError = "Mainbus couldn't open the pipe: EADDRINUSE"
+    expect(await engine.invoke('agents.launcher')).toEqual({ ...launcher, intakeError })
+  })
+})

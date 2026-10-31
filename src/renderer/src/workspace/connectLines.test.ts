@@ -41,5 +41,11 @@ test('dev lines run Node on the bundle, under their own name, with the home over
   expect(JSON.parse(lines.copilot!)).toEqual({
     servers: { 'mainbus-dev': { type: 'stdio', command: 'node', args: [bundle, 'mcp'], env: { MAINBUS_HOME: 'C:\\tmp\\home' } } }
   })
-  expect(lines.shell).toBe(`$env:MAINBUS_HOME = C:\\tmp\\home; node ${bundle} ticket list`)
+  expect(lines.shell).toBe(`$env:MAINBUS_HOME = 'C:\\tmp\\home'; node ${bundle} ticket list`)
+})
+
+test("the PowerShell line single-quotes the home, so spaces, $ and quotes in it survive", () => {
+  const home = "C:\\Users\\Jo O'Neil\\$tmp home"
+  const lines = byId({ kind: 'dev', program: ['node', 'C:\\b.cjs'], env: { MAINBUS_HOME: home }, exists: true })
+  expect(lines.shell).toBe(`$env:MAINBUS_HOME = 'C:\\Users\\Jo O''Neil\\$tmp home'; node C:\\b.cjs ticket list`)
 })

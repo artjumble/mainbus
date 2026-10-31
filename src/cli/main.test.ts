@@ -183,9 +183,40 @@ describe('when it cannot or must not reach the app', () => {
     }
   })
 
-  it('still works under MAINBUS_AGENT with a MAINBUS_HOME of its own', async () => {
-    const r = await run(['ticket', 'list'], { env: { MAINBUS_AGENT: '1', MAINBUS_HOME: b.paths.root } })
+  it("exits 4 whenever the home is the one of the app running the agent, however it's named", async () => {
+    const local = path.join(b.tmp, 'local')
+    const own = path.join(local, 'Mainbus-dev')
+    const homes: Record<string, string | undefined>[] = [
+      // The default home, with MAINBUS_HOME unset.
+      { LOCALAPPDATA: local },
+      // MAINBUS_HOME naming the app's own home: no way around the refusal.
+      { MAINBUS_HOME: own },
+      { MAINBUS_HOME: `${own}${path.sep}` },
+      { MAINBUS_HOME: path.relative(b.repoPath, own) },
+      ...(process.platform === 'win32' ? [{ MAINBUS_HOME: own.toUpperCase() }] : [])
+    ]
+    for (const home of homes) {
+      for (const argv of [['ticket', 'list'], ['mcp']]) {
+        const r = await run(argv, { env: { MAINBUS_AGENT: '1', MAINBUS_AGENT_HOME: own, ...home } })
+        expect(r.code, JSON.stringify(home)).toBe(EXIT.refused)
+        expect(r.stderr).toContain('is the data home of the Mainbus that runs it')
+        expect(r.io.serveMcp).not.toHaveBeenCalled()
+      }
+    }
+  })
+
+  it('still works under MAINBUS_AGENT against another home', async () => {
+    const elsewhere = path.join(b.tmp, 'the-app-running-the-agent')
+    expect((await run(['ticket', 'list'], { env: { MAINBUS_AGENT: '1', MAINBUS_HOME: b.paths.root } })).code).toBe(EXIT.ok)
+    const r = await run(['ticket', 'list'], {
+      env: { MAINBUS_AGENT: '1', MAINBUS_AGENT_HOME: elsewhere, MAINBUS_HOME: b.paths.root }
+    })
     expect(r.code).toBe(EXIT.ok)
+  })
+
+  it('resolves a relative MAINBUS_HOME against the folder it was run from', async () => {
+    const r = await run(['ticket', 'list'], { env: { MAINBUS_HOME: path.relative(b.repoPath, b.paths.root) } })
+    expect(r).toMatchObject({ code: EXIT.ok, stdout: 'No tickets.\n' })
   })
 
   it('mainbus mcp serves against the resolved data home', async () => {

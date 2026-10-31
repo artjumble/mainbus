@@ -2,7 +2,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../../shared/api'
 import { FakeRuntime } from '../runtime/fakeRuntime'
-import { IntakeFailure } from './methods'
+import { createIntakeHandler, IntakeFailure, isInside } from './methods'
 import { makeTestBoard, type TestBoard } from './testBoard'
 
 let boards: TestBoard[] = []
@@ -120,15 +120,18 @@ describe('intake create', () => {
     expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
   })
 
-  it('accepts the open workspace as repo and rejects any other folder as workspace_mismatch', async () => {
+  it('accepts the open workspace or a folder inside it as repo, and rejects any other folder as workspace_mismatch', async () => {
     const { engine, repoPath, tmp } = await board()
     await engine.intake('create', { ...valid, repo: repoPath })
     await engine.intake('create', { ...valid, repo: `${repoPath}${path.sep}` })
-    if (process.platform === 'win32') await engine.intake('create', { ...valid, repo: repoPath.toUpperCase() })
+    await engine.intake('create', { ...valid, repo: path.join(repoPath, 'src', 'deep') })
+    if (process.platform === 'win32') await engine.intake('create', { ...valid, repo: path.join(repoPath, 'Src').toUpperCase() })
 
-    const error = await failure(engine.intake('create', { ...valid, repo: path.join(tmp, 'other') }))
-    expect(error).toMatchObject({ code: 'workspace_mismatch', field: 'repo' })
-    expect((await engine.invoke('board.get')).tickets).toHaveLength(process.platform === 'win32' ? 3 : 2)
+    for (const outside of [path.join(tmp, 'other'), tmp, `${repoPath}-sibling`, path.join(repoPath, '..', 'other')]) {
+      const error = await failure(engine.intake('create', { ...valid, repo: outside }))
+      expect(error, outside).toMatchObject({ code: 'workspace_mismatch', field: 'repo' })
+    }
+    expect((await engine.invoke('board.get')).tickets).toHaveLength(process.platform === 'win32' ? 4 : 3)
   })
 
   it('answers no_workspace when no workspace is open', async () => {
@@ -218,9 +221,33 @@ describe('intake list and get', () => {
     expect(await engine.intake('get', { number: 1 })).toMatchObject({ column: 'needs_you', agentStatus: 'waiting_on_you' })
   })
 
+  it('get loads only the requested ticket', async () => {
+    const ws = { id: 'w', name: 'repo', repoPath: '/r' } as Parameters<Parameters<typeof createIntakeHandler>[0]['ticket']>[0]
+    const ticket = vi.fn(async () => null)
+    const tickets = vi.fn(async () => {
+      throw new Error('get must not load the whole board')
+    })
+    const handle = createIntakeHandler({ workspace: async () => ws, createTicket: vi.fn(), tickets, ticket })
+    expect(await failure(handle('get', { number: 3 }))).toMatchObject({ code: 'not_found' })
+    expect(ticket).toHaveBeenCalledWith(ws, 3)
+    expect(tickets).not.toHaveBeenCalled()
+  })
+
   it('rejects unknown methods', async () => {
     const { engine } = await board()
     const error = await failure(engine.intake('delete' as 'get', { number: 1 }))
     expect(error.code).toBe('unknown_method')
+  })
+})
+
+describe('isInside', () => {
+  it('compares Windows paths case-insensitively, and never matches a sibling with the same prefix', () => {
+    expect(isInside('C:\\Repo', 'c:\\repo', 'win32')).toBe(true)
+    expect(isInside('c:\\repo\\SRC\\x', 'C:\\Repo\\', 'win32')).toBe(true)
+    expect(isInside('C:\\Repo-2', 'C:\\Repo', 'win32')).toBe(false)
+    expect(isInside('C:\\', 'C:\\Repo', 'win32')).toBe(false)
+    expect(isInside('D:\\Repo', 'C:\\Repo', 'win32')).toBe(false)
+    expect(isInside('/repo/..x', '/repo', 'linux')).toBe(true)
+    expect(isInside('/Repo', '/repo', 'linux')).toBe(false)
   })
 })

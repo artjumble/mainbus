@@ -10,7 +10,7 @@ describe('agentLauncher', () => {
       packaged: true,
       execPath: path.join(appRoot, 'app', '20261031-0900-abc1234', 'Mainbus.exe'),
       appPath: 'unused',
-      env: {},
+      home: null,
       exists: (file) => {
         seen.push(file)
         return false
@@ -26,7 +26,7 @@ describe('agentLauncher', () => {
       packaged: false,
       execPath: 'electron.exe',
       appPath: path.join('C:', 'src', 'mainbus'),
-      env: { MAINBUS_HOME: 'C:\\tmp\\home', MAINBUS_RUNTIME: 'fake:x' },
+      home: 'C:\\tmp\\home',
       exists: () => true
     })
     expect(launcher).toEqual({

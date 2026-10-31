@@ -56,6 +56,8 @@ function answerText(decision: Decision, answer: DecisionAnswer): string {
 export const USER_WORDS_HEADING = "## The user's own words (acceptance bar; do not widen)"
 export const AGENT_WORDS_HEADING = '## Written by an agent, not the user (agent names are as reported, not verified)'
 export const NO_USER_WORDS = 'The user has not added their own words yet.'
+/** Added to the Spec and Acceptance criteria headings of a ticket an agent filed. */
+export const AGENT_FILED_SUFFIX = "(written by the agent that filed this ticket, not the user's words)"
 
 /**
  * The intent, split by who wrote it: only entries without a source are the user's own words.
@@ -90,6 +92,8 @@ export function buildRolePrompt(role: Role, ticket: Ticket, answered: Decision[]
     .filter((d) => d.status === 'answered' && d.answer)
     .map((d) => `Q: ${oneLine(d.question)} → A: ${answerText(d, d.answer as DecisionAnswer)}`)
     .join('\n')
+  // An agent filed the ticket, so it also wrote the spec and criteria it came with.
+  const byAgent = ticket.intent[0]?.source ? ` ${AGENT_FILED_SUFFIX}` : ''
 
   const sections = [
     `## Your role: ${role.name}\n${role.instructions}`,
@@ -97,8 +101,8 @@ export function buildRolePrompt(role: Role, ticket: Ticket, answered: Decision[]
     TRUST_STATEMENT,
     ...intentSections(ticket),
     `## Ticket\n#${ticket.number} ${data('title', oneLine(ticket.title), true)}`,
-    ticket.spec ? `## Spec\n${data('spec', ticket.spec)}` : '',
-    criteria ? `## Acceptance criteria\n${data('criteria', criteria)}` : '',
+    ticket.spec ? `## Spec${byAgent}\n${data('spec', ticket.spec)}` : '',
+    criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : '',
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',
   ]

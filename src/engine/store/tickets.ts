@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import type { Criterion, IntentEntry, NewTicketInput, Ticket, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
@@ -7,6 +7,8 @@ import { criteria, tickets } from '../db/schema'
 export interface TicketRepo {
   create(input: NewTicketInput): Promise<Ticket>
   get(id: string): Promise<Ticket>
+  /** The ticket with this number in the workspace, or null. */
+  byNumber(workspaceId: string, number: number): Promise<Ticket | null>
   list(workspaceId: string): Promise<Ticket[]>
   update(id: string, patch: TicketPatch): Promise<Ticket>
   /** Intent is append-only: this is the only way to add to it, and nothing edits or removes an entry. */
@@ -89,6 +91,14 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     },
 
     get,
+
+    async byNumber(workspaceId, number) {
+      const [row] = await db
+        .select()
+        .from(tickets)
+        .where(and(eq(tickets.workspaceId, workspaceId), eq(tickets.number, number)))
+      return row ? toTicket(row, await criteriaFor(row.id)) : null
+    },
 
     async list(workspaceId) {
       const rows = await db

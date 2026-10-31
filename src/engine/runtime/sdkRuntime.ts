@@ -55,14 +55,16 @@ const AUTH_ENV_VARS = new Set([
 /**
  * The agent's environment: ours, minus credential and endpoint overrides, so the binary uses its own
  * subscription login. MAINBUS_AGENT marks the agent's process tree; the stable-build scripts refuse to
- * run under it, so an agent can't replace the user's stable build.
+ * run under it, so an agent can't replace the user's stable build. MAINBUS_AGENT_HOME names the data
+ * home of the app running the agent; the `mainbus` CLI refuses to file tickets there.
  */
-function childEnv(): Record<string, string | undefined> {
+function childEnv(agentHome: string | null): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {}
   for (const [k, v] of Object.entries(process.env)) {
-    if (!AUTH_ENV_VARS.has(k.toUpperCase())) env[k] = v
+    if (!AUTH_ENV_VARS.has(k.toUpperCase()) && k.toUpperCase() !== 'MAINBUS_AGENT_HOME') env[k] = v
   }
   env.MAINBUS_AGENT = '1'
+  if (agentHome !== null) env.MAINBUS_AGENT_HOME = agentHome
   return env
 }
 
@@ -77,14 +79,22 @@ function toolText(result: string) {
 export class SdkRuntime implements AgentRuntime {
   private readonly runs = new Map<string, Run>()
 
+  /** How long stop() waits for the child process to finish before giving up. */
+  private readonly stopTimeoutMs: number
+  /** How long a resume waits for the CLI's `system/init` before it counts as failed. */
+  private readonly resumeInitTimeoutMs: number
+  /** The data home of the app running the agents, passed to them as MAINBUS_AGENT_HOME. */
+  private readonly agentHome: string | null
+
   constructor(
     private readonly claudePath: string,
     private readonly sdk: SdkApi,
-    /** How long stop() waits for the child process to finish before giving up. */
-    private readonly stopTimeoutMs = 7000,
-    /** How long a resume waits for the CLI's `system/init` before it counts as failed. */
-    private readonly resumeInitTimeoutMs = 60_000
-  ) {}
+    options: { stopTimeoutMs?: number; resumeInitTimeoutMs?: number; agentHome?: string } = {}
+  ) {
+    this.stopTimeoutMs = options.stopTimeoutMs ?? 7000
+    this.resumeInitTimeoutMs = options.resumeInitTimeoutMs ?? 60_000
+    this.agentHome = options.agentHome ?? null
+  }
 
   async start(spec: RunSpec): Promise<RunHandle> {
     const input = new InputQueue<SDKUserMessage>()
@@ -310,7 +320,7 @@ export class SdkRuntime implements AgentRuntime {
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: verdict.message }
       },
-      env: childEnv(),
+      env: childEnv(this.agentHome),
       abortController
     }
   }

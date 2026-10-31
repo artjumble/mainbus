@@ -20,7 +20,11 @@ export interface IntakeServer {
 export interface IntakeServerOptions {
   /** A connection with no traffic for this long is closed. */
   idleMs?: number
+  /** A connection is closed this long after it opened, busy or not, so slow clients can't hold every slot. */
+  maxLifetimeMs?: number
   maxConnections?: number
+  /** At most this many requests read from one connection wait for their replies; reading pauses meanwhile. */
+  maxInFlight?: number
   log?: (message: string, error?: unknown) => void
 }
 
@@ -48,8 +52,12 @@ function isMethod(method: string): method is IntakeMethod {
  * server.test.ts checks this DACL. Off Windows the socket is created with mode 0600.
  *
  * Every connection is served one request at a time, in order. A malformed line, a bad envelope, an
- * unknown method or a line over MAX_LINE_BYTES gets an error reply and the connection is closed.
- * Nothing a client sends can throw out of here.
+ * unknown method or a line over MAX_LINE_BYTES gets an error reply and the connection is closed once
+ * that reply is flushed. Nothing a client sends can throw out of here.
+ *
+ * Backpressure: a connection is not read while any of its requests waits for a reply or a reply waits
+ * to be written, and only `maxInFlight` requests are taken from bytes already read. A client that floods
+ * requests without reading the replies stalls only itself, until its idle timeout or lifetime ends it.
  */
 export async function startIntakeServer(
   endpoint: string,
@@ -57,36 +65,77 @@ export async function startIntakeServer(
   options: IntakeServerOptions = {}
 ): Promise<IntakeServer> {
   const idleMs = options.idleMs ?? 60_000
+  const maxLifetimeMs = options.maxLifetimeMs ?? 5 * 60_000
+  const maxInFlight = options.maxInFlight ?? 8
   const log = options.log ?? ((message: string, error?: unknown) => console.error(`Mainbus intake: ${message}`, error ?? ''))
   const sockets = new Set<net.Socket>()
 
   function serve(socket: net.Socket): void {
     sockets.add(socket)
-    socket.on('close', () => sockets.delete(socket))
+    const lifetime = setTimeout(() => socket.destroy(), maxLifetimeMs)
+    socket.on('close', () => {
+      clearTimeout(lifetime)
+      sockets.delete(socket)
+    })
     // A client that vanishes mid-reply is not an error worth more than dropping the connection.
     socket.on('error', () => socket.destroy())
     socket.setTimeout(idleMs, () => socket.destroy())
 
-    let pending: Buffer[] = []
-    let pendingBytes = 0
+    /** The start of a line whose newline hasn't arrived yet. */
+    let partial: Buffer[] = []
+    let partialBytes = 0
+    /** Bytes read but not yet split into lines, because maxInFlight requests were already waiting. */
+    let unread: Buffer | null = null
+    let inFlight = 0
+    let writeBlocked = false
     let closing = false
     let queue = Promise.resolve()
 
+    /** Reads only while nothing waits: no unanswered request, no unsplit bytes, no unsent reply. */
+    const flow = (): void => {
+      if (closing || socket.destroyed) return
+      if (inFlight === 0 && unread === null && !writeBlocked) socket.resume()
+      else socket.pause()
+    }
+    /** Settles when a blocked write drains or the connection closes; shared by every waiting request. */
+    let drained: Promise<void> | null = null
+    socket.on('drain', () => {
+      writeBlocked = false
+      drained = null
+      flow()
+    })
+    const writable = (): Promise<void> => {
+      if (!writeBlocked || socket.destroyed) return Promise.resolve()
+      drained ??= new Promise((resolve) => {
+        const done = (): void => {
+          socket.off('drain', done).off('close', done)
+          resolve()
+        }
+        socket.on('drain', done).on('close', done)
+      })
+      return drained
+    }
+
     const send = (reply: IntakeReply): void => {
-      if (!socket.destroyed && socket.writable) socket.write(`${JSON.stringify(reply)}\n`)
+      if (socket.destroyed || !socket.writable) return
+      if (!socket.write(`${JSON.stringify(reply)}\n`)) writeBlocked = true
     }
     const fail = (id: RequestId | null, error: IntakeError): void => send({ id, error })
 
-    /** Replies after any requests still being answered, then closes. Later input is ignored. */
+    /** Replies after any requests still being answered, then closes once the reply is flushed. Later input is ignored. */
     const fatal = (id: RequestId | null, error: IntakeError): void => {
       closing = true
+      socket.pause()
+      partial = []
+      unread = null
       queue = queue.then(() => {
-        fail(id, error)
-        socket.end()
+        if (socket.destroyed || !socket.writable) return void socket.destroy()
+        // end() alone leaves the connection half open, holding a slot, until the client closes its side.
+        socket.end(`${JSON.stringify({ id, error } satisfies IntakeReply)}\n`, () => socket.destroy())
       })
     }
 
-    async function answer(line: string): Promise<void> {
+    function answer(line: string): void {
       let message: unknown
       try {
         message = JSON.parse(line)
@@ -105,8 +154,12 @@ export async function startIntakeServer(
       if (!isMethod(method)) {
         return fatal(id, { code: 'unknown_method', message: `Unknown method: ${method.slice(0, 100)}` })
       }
+      inFlight++
       queue = queue.then(async () => {
         try {
+          // A client that isn't reading its replies gets nothing more done for it until it does.
+          await writable()
+          if (socket.destroyed) return
           send({ id, result: await handle(method, request.params) })
         } catch (error) {
           fail(
@@ -115,33 +168,43 @@ export async function startIntakeServer(
               ? error.toError()
               : { code: 'internal', message: error instanceof Error ? error.message : String(error) }
           )
+        } finally {
+          inFlight--
+          split()
         }
       })
     }
 
-    socket.on('data', (chunk: Buffer) => {
-      let start = 0
-      while (!closing) {
-        const end = chunk.indexOf(NEWLINE, start)
-        const part = chunk.subarray(start, end === -1 ? chunk.length : end)
-        if (pendingBytes + part.length > MAX_LINE_BYTES) {
-          pending = []
-          pendingBytes = 0
+    /** Takes whole lines from the unread bytes while fewer than maxInFlight requests wait. */
+    function split(): void {
+      while (!closing && unread !== null && inFlight < maxInFlight) {
+        const end = unread.indexOf(NEWLINE)
+        const part = end === -1 ? unread : unread.subarray(0, end)
+        if (partialBytes + part.length > MAX_LINE_BYTES) {
           return fatal(null, { code: 'too_large', message: `Request line is over ${MAX_LINE_BYTES} bytes` })
         }
         if (end === -1) {
           if (part.length > 0) {
-            pending.push(part)
-            pendingBytes += part.length
+            partial.push(part)
+            partialBytes += part.length
           }
-          return
+          unread = null
+          break
         }
-        const line = Buffer.concat([...pending, part]).toString('utf8').replace(/\r$/, '')
-        pending = []
-        pendingBytes = 0
-        start = end + 1
-        if (line.trim() !== '') void answer(line)
+        const line = Buffer.concat([...partial, part]).toString('utf8').replace(/\r$/, '')
+        partial = []
+        partialBytes = 0
+        unread = end + 1 < unread.length ? unread.subarray(end + 1) : null
+        if (line.trim() !== '') answer(line)
       }
+      flow()
+    }
+
+    socket.on('data', (chunk: Buffer) => {
+      if (closing) return
+      // Reading pauses while anything is unsplit, so at most one chunk is ever held here.
+      unread = unread === null ? chunk : Buffer.concat([unread, chunk])
+      split()
     })
   }
 

@@ -148,3 +148,28 @@ test('Connect agents says when the stable launcher has not been written yet', as
   renderWithMantine(<RoleSettings opened onClose={() => {}} />)
   expect(await screen.findByText(/build-stable\.ps1/)).toBeInTheDocument()
 })
+
+test("Connect agents shows why agents can't reach the board when the intake pipe couldn't be opened", async () => {
+  const base = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
+  const intakeError = "Mainbus couldn't open \\.\pipe\mainbus-0123456789abcdef: listen EADDRINUSE"
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
+    command === 'agents.launcher'
+      ? { kind: 'stable', program: ['/x/bin/mainbus.cmd'], env: {}, exists: true, intakeError }
+      : base(command, ...args)
+  )
+  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  const section = await screen.findByRole('region', { name: 'Connect agents' })
+  expect(await within(section).findByText("Agents can't reach this board")).toBeInTheDocument()
+  expect(within(section).getByText(/listen EADDRINUSE/)).toBeInTheDocument()
+})
+
+test('Connect agents shows no intake error while the pipe is open', async () => {
+  const base = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
+    command === 'agents.launcher' ? { kind: 'stable', program: ['/x/bin/mainbus.cmd'], env: {}, exists: true } : base(command, ...args)
+  )
+  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  const section = await screen.findByRole('region', { name: 'Connect agents' })
+  await within(section).findByText(/claude mcp add/)
+  expect(within(section).queryByText("Agents can't reach this board")).not.toBeInTheDocument()
+})

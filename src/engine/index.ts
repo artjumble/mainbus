@@ -36,6 +36,8 @@ export interface EngineConfig {
   exec: ExecFn
   /** Shown in the Connect agents settings. */
   launcher?: AgentLauncher | null
+  /** Why the intake pipe couldn't be opened, if it couldn't; shown in the Connect agents settings. */
+  intakeError?: () => string | null
 }
 
 export interface Engine {
@@ -151,6 +153,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const tickets = await repos.tickets.list(ws.id)
       return Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) })))
     }
+    const boardTicket = async (ws: Workspace, number: number) => {
+      const ticket = await repos.tickets.byNumber(ws.id, number)
+      return ticket && { ...ticket, state: await runner.stateOf(ticket.id) }
+    }
 
     const handlers: Handlers = {
       'setup.check': async () => {
@@ -222,10 +228,19 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       'allowRules.remove': (id) => repos.allowRules.remove(id),
 
-      'agents.launcher': () => cfg.launcher ?? null
+      'agents.launcher': () => {
+        if (!cfg.launcher) return null
+        const intakeError = cfg.intakeError?.() ?? null
+        return intakeError === null ? cfg.launcher : { ...cfg.launcher, intakeError }
+      }
     }
 
-    const intake = createIntakeHandler({ workspace: () => repos.workspaces.get(), createTicket, tickets: boardTickets })
+    const intake = createIntakeHandler({
+      workspace: () => repos.workspaces.get(),
+      createTicket,
+      tickets: boardTickets,
+      ticket: boardTicket
+    })
 
     let disposal: Promise<void> | null = null
     return {

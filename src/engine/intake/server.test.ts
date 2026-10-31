@@ -1,13 +1,15 @@
 import { execFile } from 'node:child_process'
+import fs from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NotRunningError, request } from '../../cli/client'
 import { resolveHome } from '../home'
 import { intakeEndpoint } from './endpoint'
 import { MAX_LINE_BYTES } from './protocol'
+import { startIntakeServer } from './server'
 import { makeTestBoard, type TestBoard } from './testBoard'
 
 let boards: TestBoard[] = []
@@ -102,7 +104,7 @@ describe('intake server', () => {
     expect(await request(target, 'create', create)).toMatchObject({ number: 1 })
   })
 
-  it('replies too_large to a line over 1 MB, closes, and keeps working', async () => {
+  it('replies too_large to a line over MAX_LINE_BYTES, closes, and keeps working', async () => {
     const { target, engine } = await board()
     const huge = line({ v: 1, id: 1, method: 'create', params: { ...create, intent: 'x'.repeat(MAX_LINE_BYTES) } })
     const { replies, closed } = await exchange(target.endpoint, huge)
@@ -117,13 +119,32 @@ describe('intake server', () => {
     expect(await request(target, 'list', {})).toEqual({ tickets: [] })
   })
 
-  it('accepts a line of exactly 1 MB', async () => {
+  it('accepts a line of exactly MAX_LINE_BYTES', async () => {
     const { target } = await board()
     const envelope = line({ v: 1, id: 1, method: 'list', params: {} }).trimEnd()
     const padded = `${envelope.slice(0, -1)}${' '.repeat(MAX_LINE_BYTES - Buffer.byteLength(envelope))}}\n`
     expect(Buffer.byteLength(padded)).toBe(MAX_LINE_BYTES + 1)
     const { replies } = await exchange(target.endpoint, padded, 1_000)
     expect(replies).toEqual([{ id: 1, result: { tickets: [] } }])
+  })
+
+  it('fits the largest valid request, even when every character is escaped', async () => {
+    const { target, repoPath } = await board()
+    // U+0001 is one character that JSON escapes to six bytes, the worst case.
+    const w = (n: number): string => '\u0001'.repeat(n)
+    const largest = {
+      title: w(200),
+      intent: w(20_000),
+      spec: w(100_000),
+      criteria: Array.from({ length: 50 }, () => w(1_000)),
+      labels: Array.from({ length: 20 }, () => w(50)),
+      repo: path.join(repoPath, w(999 - repoPath.length)),
+      source: { agent: w(100), cwd: w(1_000) }
+    }
+    const size = Buffer.byteLength(line({ v: 1, id: 1, method: 'create', params: largest }))
+    expect(size).toBeGreaterThan(1_030_000)
+    expect(size).toBeLessThan(MAX_LINE_BYTES)
+    expect(await request(target, 'create', largest)).toMatchObject({ number: 1 })
   })
 
   it('a client of one data home cannot reach another', async () => {
@@ -195,5 +216,105 @@ describe('intakeEndpoint', () => {
 
   it('uses a socket in the data home off Windows', () => {
     expect(intakeEndpoint('/home/x/.mainbus', 'linux')).toBe(path.join('/home/x/.mainbus', 'intake.sock'))
+  })
+})
+
+/** A server with a stub handler on a fresh endpoint, for connection-level tests. */
+async function stubServer(
+  options: Parameters<typeof startIntakeServer>[2] = {},
+  result: unknown = { ok: true }
+): Promise<{ target: { endpoint: string; homeRoot: string }; calls: () => number }> {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-stub-'))
+  const endpoint = intakeEndpoint(tmp)
+  let calls = 0
+  const server = await startIntakeServer(endpoint, async () => (calls++, result) as never, { log: () => {}, ...options })
+  cleanups.push(async () => {
+    await server.close()
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+  return { target: { endpoint, homeRoot: tmp }, calls: () => calls }
+}
+
+let cleanups: (() => Promise<void>)[] = []
+afterEach(async () => {
+  for (const cleanup of cleanups) await cleanup()
+  cleanups = []
+})
+
+const connected = (socket: net.Socket): Promise<void> =>
+  new Promise((resolve, reject) => socket.once('connect', resolve).once('error', reject))
+
+describe('intake server under load', () => {
+  it('stops reading a client that floods requests without reading replies, and still answers another client', async () => {
+    const { target, calls } = await stubServer({ idleMs: 30_000 }, { padding: 'x'.repeat(4_096) })
+    const total = 5_000
+    const flood = net.connect(target.endpoint)
+    flood.on('error', () => {})
+    await connected(flood)
+    flood.pause()
+    flood.write(Array.from({ length: total }, (_, i) => line({ v: 1, id: i, method: 'list', params: {} })).join(''))
+
+    // The server answers until its replies back up, then stops taking requests from this client.
+    let last = -1
+    await vi.waitFor(
+      () => {
+        const now = calls()
+        const settled = now === last && now > 0
+        last = now
+        expect(settled).toBe(true)
+      },
+      { timeout: 10_000, interval: 300 }
+    )
+    expect(calls()).toBeLessThan(total / 10)
+
+    // Another client is served meanwhile.
+    expect(await request(target, 'list', {}, 2_000)).toEqual({ padding: expect.any(String) })
+
+    // Once the flooding client reads, every reply arrives, in order.
+    let text = ''
+    let received = 0
+    flood.setEncoding('utf8')
+    await new Promise<void>((resolve) => {
+      flood.on('data', (chunk: string) => {
+        text += chunk
+        const lines = text.split('\n')
+        text = lines.pop()!
+        for (const l of lines) expect((JSON.parse(l) as { id: number }).id).toBe(received++)
+        if (received === total) resolve()
+      })
+      flood.resume()
+    })
+    flood.destroy()
+  }, 30_000)
+
+  it('drops a connection once a fatal reply is flushed, even if the client never closes its side', async () => {
+    const { target } = await stubServer({ maxConnections: 1, idleMs: 30_000 })
+    const stubborn = net.connect({ path: target.endpoint, allowHalfOpen: true })
+    stubborn.on('error', () => {})
+    await connected(stubborn)
+    stubborn.setEncoding('utf8')
+    const reply = new Promise<string>((resolve) => stubborn.once('data', resolve))
+    stubborn.write('not json\n')
+    expect(JSON.parse(await reply)).toMatchObject({ error: { code: 'parse_error' } })
+
+    // The only slot is free again: the server closed its end for good.
+    await vi.waitFor(() => expect(request(target, 'list', {}, 1_000)).resolves.toEqual({ ok: true }), { timeout: 3_000 })
+    stubborn.destroy()
+  })
+
+  it('closes a connection at the end of its lifetime, so a slow client cannot hold a slot', async () => {
+    const { target } = await stubServer({ maxConnections: 1, idleMs: 30_000, maxLifetimeMs: 300 })
+    const slow = net.connect(target.endpoint)
+    slow.on('error', () => {})
+    await connected(slow)
+    // A byte every 50 ms keeps it from ever going idle, and never finishes a line.
+    const drip = setInterval(() => slow.writable && slow.write('{'), 50)
+    try {
+      await expect(request(target, 'list', {}, 1_000)).rejects.toThrow()
+      await vi.waitFor(() => expect(request(target, 'list', {}, 1_000)).resolves.toEqual({ ok: true }), { timeout: 3_000 })
+    } finally {
+      clearInterval(drip)
+      slow.destroy()
+    }
   })
 })

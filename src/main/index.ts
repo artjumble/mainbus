@@ -6,7 +6,7 @@ import * as sdk from '@anthropic-ai/claude-agent-sdk'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runGit } from '../engine/git/git'
-import { resolveHome } from '../engine/home'
+import { invocationDir, resolveHome } from '../engine/home'
 import { intakeEndpoint } from '../engine/intake/endpoint'
 import { startIntakeServer, type IntakeServer } from '../engine/intake/server'
 import { FakeRuntime, type FakeStep } from '../engine/runtime/fakeRuntime'
@@ -22,6 +22,8 @@ import { testRepoFromEnv } from './testHooks'
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
 let intake: IntakeServer | null = null
+/** Why the intake pipe couldn't be opened; shown in the Connect agents settings. */
+let intakeError: string | null = null
 
 /** The one page the window may show: the dev server in dev, the built renderer otherwise. */
 function appUrl(): string {
@@ -90,11 +92,17 @@ async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: Ex
     return { runtime: new FakeRuntime(script), exec: fakeClaudeExec }
   }
   const setup = await resolveClaude(execFileNode)
-  return { runtime: setup.ok ? new SdkRuntime(setup.path, sdk) : null, exec: execFileNode }
+  return { runtime: setup.ok ? new SdkRuntime(setup.path, sdk, { agentHome: home.root }) : null, exec: execFileNode }
 }
 
 // The data home comes first: the lock lives in userData, so stable, dev and test runs each get their own.
-const home = resolveHome(process.env, app.isPackaged ? 'stable' : 'dev', os.homedir())
+// A relative MAINBUS_HOME is taken from where `npm run dev` was typed, as the CLI does for `npm run mainbus`.
+const home = resolveHome(
+  process.env,
+  app.isPackaged ? 'stable' : 'dev',
+  os.homedir(),
+  invocationDir(process.env, 'dev', process.cwd())
+)
 app.setPath('userData', path.join(home.root, 'electron'))
 
 if (!app.requestSingleInstanceLock()) {
@@ -122,8 +130,9 @@ if (!app.requestSingleInstanceLock()) {
           packaged: app.isPackaged,
           execPath: process.execPath,
           appPath: app.getAppPath(),
-          env: process.env
-        })
+          home: process.env['MAINBUS_HOME'] ? home.root : null
+        }),
+        intakeError: () => intakeError
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))
@@ -136,14 +145,15 @@ if (!app.requestSingleInstanceLock()) {
         await engine.dispose().catch(() => {})
         throw err
       }
-      // Local agents file tickets through the pipe. The board works without it, so a failure is only logged.
+      // Local agents file tickets through the pipe. The board works without it, so a failure doesn't stop the
+      // app: it is logged, and the Connect agents settings show it.
       const running = engine
-      intake = await startIntakeServer(intakeEndpoint(home.root), (method, params) => running.intake(method, params)).catch(
-        (err: unknown) => {
-          console.error('Mainbus could not start the agent intake:', err)
-          return null
-        }
-      )
+      const endpoint = intakeEndpoint(home.root)
+      intake = await startIntakeServer(endpoint, (method, params) => running.intake(method, params)).catch((err: unknown) => {
+        console.error(`Mainbus could not start the agent intake on ${endpoint}:`, err)
+        intakeError = `Mainbus couldn't open ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
+        return null
+      })
     })
     .catch((err: unknown) => {
       dialog.showErrorBox('Mainbus could not start', err instanceof Error ? err.message : String(err))

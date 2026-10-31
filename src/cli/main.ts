@@ -10,6 +10,7 @@ export const EXIT = { ok: 0, usage: 1, failed: 2, notRunning: 3, refused: 4 } as
 
 export interface Io {
   env: Env
+  /** Where the command was run: recorded as the agent's folder, and the base of relative paths. */
   cwd: string
   mode: 'stable' | 'dev'
   stdout(text: string): void
@@ -186,12 +187,12 @@ export async function main(argv: string[], io: Io): Promise<number> {
     return command === undefined ? EXIT.usage : EXIT.ok
   }
 
-  const refusal = refusalUnderAgent(io.env)
+  const target = resolveTarget(io.env, io.mode, io.cwd)
+  const refusal = refusalUnderAgent(io.env, target)
   if (refusal) {
     io.stderr(`${refusal}\n`)
     return EXIT.refused
   }
-  const target = resolveTarget(io.env, io.mode)
 
   try {
     if (command === 'mcp') {

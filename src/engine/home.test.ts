@@ -1,17 +1,24 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { resolveHome } from './home'
+import { invocationDir, resolveHome } from './home'
 
 // Expectations are built with the same flavour of path module the code runs under.
 const p = process.platform === 'win32' ? path.win32 : path.posix
 
 describe('resolveHome', () => {
   it('uses MAINBUS_HOME when set', () => {
-    const home = resolveHome({ MAINBUS_HOME: 'D:\\mb' }, 'stable', 'C:\\Users\\x')
-    expect(home.root).toBe('D:\\mb')
-    expect(home.db).toBe(p.join('D:\\mb', 'mainbus.db'))
-    expect(home.worktrees).toBe(p.join('D:\\mb', 'work'))
-    expect(home.backups).toBe(p.join('D:\\mb', 'backups'))
+    const mb = p.resolve(p.sep, 'mb')
+    const home = resolveHome({ MAINBUS_HOME: mb }, 'stable', 'C:\\Users\\x')
+    expect(home.root).toBe(mb)
+    expect(home.db).toBe(p.join(mb, 'mainbus.db'))
+    expect(home.worktrees).toBe(p.join(mb, 'work'))
+    expect(home.backups).toBe(p.join(mb, 'backups'))
+  })
+
+  it('resolves a relative MAINBUS_HOME against the given directory', () => {
+    const base = p.resolve(p.sep, 'work', 'repo')
+    expect(resolveHome({ MAINBUS_HOME: 'tmp-home' }, 'dev', 'unused', base).root).toBe(p.join(base, 'tmp-home'))
+    expect(resolveHome({ MAINBUS_HOME: p.join('..', 'h') }, 'dev', 'unused', base).root).toBe(p.resolve(base, '..', 'h'))
   })
 
   it('stable and dev default to different LOCALAPPDATA folders', () => {
@@ -30,5 +37,15 @@ describe('resolveHome', () => {
     const dev = resolveHome({}, 'dev', p.join(p.sep, 'home', 'x'))
     expect(stable.root).toBe(p.join(p.sep, 'home', 'x', '.mainbus'))
     expect(dev.root).toBe(p.join(p.sep, 'home', 'x', '.mainbus-dev'))
+  })
+})
+
+describe('invocationDir', () => {
+  it("is npm's INIT_CWD only inside the named script", () => {
+    const env = { npm_lifecycle_event: 'mainbus', INIT_CWD: '/where/typed' }
+    expect(invocationDir(env, 'mainbus', '/pkg')).toBe('/where/typed')
+    expect(invocationDir({ ...env, npm_lifecycle_event: 'dev' }, 'mainbus', '/pkg')).toBe('/pkg')
+    expect(invocationDir({ npm_lifecycle_event: 'mainbus' }, 'mainbus', '/pkg')).toBe('/pkg')
+    expect(invocationDir({}, 'mainbus', '/pkg')).toBe('/pkg')
   })
 })

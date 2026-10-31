@@ -50,7 +50,8 @@ export function setupLines(launcher: AgentLauncher): SetupLine[] {
   )
 
   const cli = launcher.program.map(quote)
-  const shellEnv = env.map(([k, v]) => `$env:${k} = ${quote(v)}; `).join('')
+  // Single quotes keep PowerShell from expanding anything in the value; a quote inside is doubled.
+  const shellEnv = env.map(([k, v]) => `$env:${k} = '${v.replace(/'/g, "''")}'; `).join('')
   const shell = `${shellEnv}${cli[0]!.startsWith('"') ? '& ' : ''}${cli.join(' ')} ticket list`
 
   return [

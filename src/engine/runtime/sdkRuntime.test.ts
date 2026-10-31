@@ -258,7 +258,7 @@ describe('SdkRuntime', () => {
 
   test('stop() gives up waiting after the stop timeout and is harmless to repeat', async () => {
     const f = fakeSdk({ slowExit: 'never' })
-    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk, 40)
+    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk, { stopTimeoutMs: 40 })
     const run = await runtime.start(makeSpec())
     const t0 = Date.now()
     await runtime.stop(run)
@@ -298,7 +298,7 @@ describe('SdkRuntime', () => {
 
   test('start with resumeSessionId gives up when system/init never comes: aborts, waits for the stream, rejects', async () => {
     const f = fakeSdk({ messages: [], slowExit: 'after-abort' })
-    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk, 1000, 50)
+    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk, { stopTimeoutMs: 1000, resumeInitTimeoutMs: 50 })
 
     const started = runtime.start(makeSpec({ resumeSessionId: 'sess-1' }))
 
@@ -310,7 +310,7 @@ describe('SdkRuntime', () => {
 
   test('the init timeout still rejects when the stream never ends, after the bounded stop wait', async () => {
     const f = fakeSdk({ messages: [], slowExit: 'never' })
-    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk, 40, 30)
+    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk, { stopTimeoutMs: 40, resumeInitTimeoutMs: 30 })
     const t0 = Date.now()
 
     await expect(runtime.start(makeSpec({ resumeSessionId: 'sess-1' }))).rejects.toBeInstanceOf(ResumeFailedError)
@@ -407,6 +407,17 @@ describe('SdkRuntime', () => {
     // Marks the agent's process tree, so the stable-build scripts refuse to run inside it.
     expect(env.MAINBUS_AGENT).toBe('1')
     expect(process.env.ANTHROPIC_API_KEY).toBe('should-not-leak') // the parent is untouched
+  })
+
+  test("names the app's data home in MAINBUS_AGENT_HOME, never an inherited one", async () => {
+    vi.stubEnv('MAINBUS_AGENT_HOME', '/inherited')
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk, { agentHome: '/agent-home' }).start(makeSpec())
+    expect(f.calls[0].options.env.MAINBUS_AGENT_HOME).toBe('/agent-home')
+
+    const g = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, g.sdk).start(makeSpec())
+    expect('MAINBUS_AGENT_HOME' in g.calls[0].options.env).toBe(false)
   })
 
   test('read_only adds the edit tools to disallowedTools', async () => {

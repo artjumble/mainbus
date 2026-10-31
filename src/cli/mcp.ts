@@ -18,6 +18,19 @@ function failure(error: unknown): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true }
 }
 
+export const MAX_AGENT_NAME = 100
+
+/**
+ * The name recorded on a ticket: the call's agent, else the client's clientInfo.name, else "mcp-client"
+ * when both are missing or blank. Cut to MAX_AGENT_NAME characters, so a long client name never fails a create.
+ */
+export function agentName(agent: string | undefined, clientName: string | undefined): string {
+  const name = [agent, clientName].map((n) => n?.trim()).find((n) => n) ?? 'mcp-client'
+  const cut = name.slice(0, MAX_AGENT_NAME)
+  // Never end on half of a surrogate pair.
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
+}
+
 /**
  * The `mainbus mcp` server: create_ticket, list_tickets and get_ticket, each one request to the running
  * app. The schemas here only describe the arguments; the app validates them. The agent name is the
@@ -57,7 +70,7 @@ export function createMcpServer(target: IntakeTarget, cwd: string): McpServer {
     },
     ({ agent, repo, ...fields }) =>
       call(async () => {
-        const name = agent ?? server.server.getClientVersion()?.name ?? 'mcp'
+        const name = agentName(agent, server.server.getClientVersion()?.name)
         const created = await request(target, 'create', {
           ...fields,
           ...(repo === undefined ? {} : { repo: path.resolve(cwd, repo) }),
