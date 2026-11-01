@@ -9,11 +9,19 @@ import { commandName, isDestructivePushArgs, parseGit, parseShell, type SimpleCo
 export interface FolderContext {
   worktree: string
   additionalDirectories: string[]
+  /**
+   * The ticket's scratch folder, which TEMP, TMP and TMPDIR name in the agent's shells. It is inside only when
+   * it is also one of `additionalDirectories`. Absent in tests and in runs from before scratch folders.
+   */
+  scratch?: string
 }
 
 export interface GuardContext extends FolderContext {
   ownBranch: string
 }
+
+/** The context of one shell command: `tempForms` match the variable reads that name the scratch folder in it. */
+type Ctx = GuardContext & { tempForms?: RegExp[] }
 
 /**
  * How unattended mode treats a reason. A hard stop opens a card and waits for the user; an automatic reason
@@ -167,10 +175,15 @@ interface Located {
   segments: string[]
 }
 
-function locate(rawPath: string, ctx: FolderContext): Located {
+function locate(rawPath: string, ctx: FolderContext & { tempForms?: RegExp[] }): Located {
   const p = rawPath.replace(FILESYSTEM_PROVIDER, '')
-  if (HOME_OR_VARIABLE.test(p)) return { shown: p, inside: false, segments: [] }
-  const resolved = win.resolve(ctx.worktree, fromGitBash(p))
+  const temp = ctx.scratch === undefined ? undefined : ctx.tempForms?.map((f) => f.exec(p)?.[0]).find((m) => m !== undefined)
+  const tail = temp === undefined ? '' : p.slice(temp.length)
+  let resolved: string
+  // join, not resolve: the tail starts with a separator. A tail with a variable of its own can climb anywhere.
+  if (temp !== undefined && ctx.scratch !== undefined && !tail.includes('$')) resolved = win.join(ctx.scratch, tail)
+  else if (HOME_OR_VARIABLE.test(p)) return { shown: p, inside: false, segments: [] }
+  else resolved = win.resolve(ctx.worktree, fromGitBash(p))
   const root = [ctx.worktree, ...ctx.additionalDirectories].find((r) => isInside(resolved, [r]))
   return {
     shown: resolved,
@@ -198,7 +211,7 @@ export function isCdInside(argv: string[], context: FolderContext): boolean {
 }
 
 /** Reason to ask before writing to this path, or null. */
-function writeTargetReason(p: string, ctx: GuardContext): string | null {
+function writeTargetReason(p: string, ctx: Ctx): string | null {
   const { shown, inside, segments } = locate(p, ctx)
   if (!inside) return `Writes outside the ticket's folder: ${shown}`
   if (isAgentConfigPath(segments)) return `Changes agent or git settings: ${shown}`
@@ -210,7 +223,7 @@ function isFlag(a: string): boolean {
 }
 
 /** Reasons to ask before a downloader runs. */
-function* downloadReasons(d: Download, ctx: GuardContext): Generator<string> {
+function* downloadReasons(d: Download, ctx: Ctx): Generator<string> {
   if (d.config) yield `Downloads with options from a file Mainbus can't check`
   if (!d.writes) return
   // A positional `$URL` is a URL, but an absolute or home path there means an option was misread.
@@ -221,7 +234,7 @@ function* downloadReasons(d: Download, ctx: GuardContext): Generator<string> {
 }
 
 /** A folder a runner option makes the command run in behaves like `cd`. */
-function folderReason(dir: string, ctx: GuardContext): string | null {
+function folderReason(dir: string, ctx: Ctx): string | null {
   const { shown, inside, segments } = locate(dir, ctx)
   if (!inside) return `Runs in a folder outside the ticket's folder: ${shown}`
   return isAgentConfigPath(segments) ? `Runs inside agent or git settings: ${shown}` : null
@@ -350,7 +363,7 @@ function packageManagerReason(cmd: SimpleCommand): string | null {
   return first === 'config' && ['set', 'delete', 'edit'].includes(second) ? 'Changes npm config' : null
 }
 
-function firstReason(paths: string[], ctx: GuardContext): string | null {
+function firstReason(paths: string[], ctx: Ctx): string | null {
   for (const p of paths) {
     if (NULL_TARGET.test(p)) continue
     const reason = writeTargetReason(p, ctx)
@@ -359,7 +372,7 @@ function firstReason(paths: string[], ctx: GuardContext): string | null {
   return null
 }
 
-function* commandReasons(cmd: SimpleCommand, ctx: GuardContext): Generator<string> {
+function* commandReasons(cmd: SimpleCommand, ctx: Ctx): Generator<string> {
   for (const dir of cmd.dirs ?? []) {
     const reason = folderReason(dir, ctx)
     if (reason) yield reason
@@ -389,7 +402,7 @@ function* commandReasons(cmd: SimpleCommand, ctx: GuardContext): Generator<strin
  * allowed folders. `reading` looks only at the words a command reads files through (readArguments);
  * otherwise every argument counts, since a pipe can hand any of them to a write command.
  */
-function outsidePathIn(cmds: SimpleCommand[], ctx: GuardContext, reading = false): string | null {
+function outsidePathIn(cmds: SimpleCommand[], ctx: Ctx, reading = false): string | null {
   for (const cmd of cmds) {
     for (const a of reading ? readArguments(cmd) : [...cmd.argv.slice(1), ...cmd.redirects]) {
       const value = (NAMED_PATH.exec(a)?.[1] ?? a).replace(FILESYSTEM_PROVIDER, '')
@@ -404,7 +417,7 @@ function outsidePathIn(cmds: SimpleCommand[], ctx: GuardContext, reading = false
   return null
 }
 
-function touchesClaudeFolder(command: string, cmds: SimpleCommand[], ctx: GuardContext): boolean {
+function touchesClaudeFolder(command: string, cmds: SimpleCommand[], ctx: Ctx): boolean {
   if (HOME_FORM.test(command) && CLAUDE_WORD.test(command)) return true
   return cmds.some((cmd) =>
     cmd.argv.slice(1).some((a) => {
@@ -415,17 +428,80 @@ function touchesClaudeFolder(command: string, cmds: SimpleCommand[], ctx: GuardC
   )
 }
 
+interface TempForm {
+  /** The read at the start of a path, followed by its end or a separator. */
+  start: RegExp
+  /** The read anywhere in the command (global). */
+  anywhere: RegExp
+}
+
+function tempForm(source: string, flags = ''): TempForm {
+  return { start: new RegExp(`^(?:${source})(?=$|[\\\\/])`, flags), anywhere: new RegExp(source, `${flags}g`) }
+}
+
+// The variable reads that name the scratch folder, per shell tool. Each tool gets only its own: Bash `$TEMP` is
+// an unset variable in PowerShell (`$TEMP\x` is the drive root), and `$env:TEMP` is plain text in Bash. Neither
+// shell expands `%TEMP%`: it stays a relative path, so it lands in the worktree with the same tail, and a tail
+// that stays inside the scratch folder stays inside the worktree too, with the same folders for the settings checks.
+const CMD_TEMP = tempForm(String.raw`%(?:TEMP|TMP)%`, 'i')
+const TEMP_FORMS: Record<string, TempForm[]> = {
+  // Bash names are case-sensitive.
+  Bash: [tempForm(String.raw`\$\{(?:TMPDIR|TMP|TEMP)\}|\$(?:TMPDIR|TMP|TEMP)(?!\w)`), CMD_TEMP],
+  // Not followed by an assignment (`$env:TEMP = ...`, `+=`, `??=`).
+  PowerShell: [tempForm(String.raw`\$env:(?:TMPDIR|TMP|TEMP)(?!\w)(?!\s*(?:[-+*/%]|\?\?)?=)`, 'i'), CMD_TEMP],
+}
+// The names anywhere else, in any case and spelling, mean the command may change them. IFS changes how an
+// unquoted `$TEMP` splits into words.
+const TEMP_NAME = /(?<![A-Za-z0-9_])(?:TEMP|TMP|TMPDIR|IFS)(?![A-Za-z0-9_])/i
+// Builtins that set or unset variables by a name they are given, which may be computed (`export "${n}MP=1"`).
+const SETS_VARIABLES = new Set(
+  ['export', 'declare', 'typeset', 'local', 'readonly', 'unset', 'read', 'readarray', 'mapfile', 'let'].concat(
+    ['getopts', 'wait', 'alias'],
+  ),
+)
+// Commands that run code in the shell itself, where it can change the variables. PowerShell dot-sourcing is `.`.
+const RUNS_IN_SHELL = new Set(['source', '.', 'eval', 'trap', 'iex', 'invoke-expression', 'import-module', 'ipmo', 'using'])
+
+/** PowerShell runs a script (`.\x.ps1`, or a path that may resolve to one) in its own process. */
+function runsScriptInProcess(word: string): boolean {
+  return /\.psm?1$/i.test(word) || (/[\\/]/.test(word) && !/\.(?:exe|com|cmd|bat)$/i.test(word))
+}
+
+/**
+ * The read forms that name the scratch folder in this command, or undefined when the command could change what
+ * they name: it mentions the names any other way, sets variables by name, or runs code in the shell itself.
+ * Kept simple and on the side of asking: a needless card is fine, a misplaced write is not.
+ */
+function tempFormsFor(toolName: string, command: string, cmds: SimpleCommand[], scratch: string | undefined): RegExp[] | undefined {
+  const forms = TEMP_FORMS[toolName]
+  if (scratch === undefined || forms === undefined) return undefined
+  // Wildcards in the folder's own name would glob, and Bash splits an unquoted `$TEMP` at spaces.
+  if (/[*?[\]]/.test(scratch) || (toolName === 'Bash' && /\s/.test(scratch))) return undefined
+  // Also without quotes and escapes, which can hide a name from the first look (`export TE""MP=x`).
+  for (const text of [command, command.replace(/["'`\\]/g, '')]) {
+    if (TEMP_NAME.test(forms.reduce((t, f) => t.replace(f.anywhere, ''), text))) return undefined
+  }
+  const setsOrRuns = (c: SimpleCommand): boolean =>
+    SETS_VARIABLES.has(c.name) || RUNS_IN_SHELL.has(c.name) || (c.name === 'printf' && c.argv.some((a) => a.startsWith('-v')))
+  if (cmds.some(setsOrRuns)) return undefined
+  if (toolName === 'PowerShell' && (/(?<!\$)\benv:/i.test(command) || cmds.some((c) => runsScriptInProcess(c.argv[0] ?? '')))) {
+    return undefined
+  }
+  return forms.map((f) => f.start)
+}
+
 /**
  * Every reason to ask before a shell command, in order. `pick` stops at the first hard stop, so an automatic
  * reason early on (git reset --hard) never hides a hard stop later in the command (git push).
  */
-function* shellReasons(command: string, ctx: GuardContext): Generator<string> {
+function* shellReasons(toolName: string, command: string, context: GuardContext): Generator<string> {
   const parsed = parseShell(command)
   if (parsed.opaque) {
     yield `Runs a command Mainbus can't check: ${parsed.why}`
     return
   }
   const all = parsed.pipelines.flat()
+  const ctx: Ctx = { ...context, tempForms: tempFormsFor(toolName, command, all, context.scratch) }
   const secret = credentialReason('Bash', { command })
   if (secret) yield secret
   if (touchesClaudeFolder(command, all, ctx)) yield 'Touches the .claude folder in the home directory'
@@ -465,9 +541,11 @@ export function guardReason(toolName: string, input: Record<string, unknown>, co
   return pick(reasonsFor(toolName, input, usable(context)))
 }
 
-/** Relative or empty extra folders would resolve against the process cwd: drop them. */
+/** Relative or empty extra folders (and scratch folder) would resolve against the process cwd: drop them. */
 function usable<T extends FolderContext>(context: T): T {
-  return { ...context, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
+  const { scratch, ...rest } = context
+  const folders = { ...rest, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
+  return (scratch !== undefined && scratch !== '' && win.isAbsolute(scratch) ? { ...folders, scratch } : folders) as T
 }
 
 function* reasonsFor(toolName: string, input: Record<string, unknown>, ctx: GuardContext): Generator<string> {
@@ -485,6 +563,6 @@ function* reasonsFor(toolName: string, input: Record<string, unknown>, ctx: Guar
   }
   if (isShellTool(toolName)) {
     const command = commandOf(input)
-    if (command !== null) yield* shellReasons(command, ctx)
+    if (command !== null) yield* shellReasons(toolName, command, ctx)
   }
 }

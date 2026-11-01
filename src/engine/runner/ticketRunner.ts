@@ -864,7 +864,7 @@ export class TicketRunner {
   ): Promise<PermissionVerdict> {
     if (!(await this.isOpen(target))) return { allow: false, message: RUN_ENDED }
     // The same folders as the run's, so the guard and allow rules treat the scratch folder as inside.
-    const folders = { worktree: worktree.path, additionalDirectories: [worktree.scratch] }
+    const folders = { worktree: worktree.path, additionalDirectories: [worktree.scratch], scratch: worktree.scratch }
     const guard = guardReason(req.toolName, req.input, { ...folders, ownBranch: worktree.branch })
     const guarded = guard !== null
     const shell = isShellTool(req.toolName)

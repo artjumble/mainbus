@@ -32,6 +32,14 @@ describe('parseShell', () => {
     expect(parseShell('env FOO=1 x').opaque).toBe(true)
   })
 
+  test('reads ${TEMP}, ${TMP} and ${TMPDIR} as words; every other ${ is opaque', () => {
+    expect(argvs('rm ${TEMP}/x ${TMP} a${TMPDIR}b')).toEqual([[['rm', '${TEMP}/x', '${TMP}', 'a${TMPDIR}b']]])
+    expect(parseShell('rm ${HOME}/x').opaque).toBe(true)
+    expect(parseShell('rm ${TEMP:-x}/y').opaque).toBe(true)
+    expect(parseShell('rm ${temp}/y').opaque).toBe(true)
+    expect(parseShell('rm ${TEMP').opaque).toBe(true)
+  })
+
   test('strips assignments and sudo, and lower-cases the command name', () => {
     const p = parseShell('FOO=1 BAR=2 sudo C:\\Tools\\RM.exe -rf x')
     expect(p).toMatchObject({ opaque: false, pipelines: [[{ name: 'rm', argv: ['C:\\Tools\\RM.exe', '-rf', 'x'] }]] })

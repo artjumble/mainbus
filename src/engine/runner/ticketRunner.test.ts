@@ -1297,6 +1297,17 @@ describe('TicketRunner in unattended mode', () => {
     expect(count(await thread(), 'notice')).toBe(0)
   })
 
+  it("a write through $TEMP into the ticket's scratch folder is not a hard stop; one climbing out of it is", async () => {
+    const { spec } = await started()
+    const reviewer =
+      'npm run typecheck > "$TEMP/tc.txt" 2>&1; echo TC=$? >> "$TEMP/tc.txt"; npm test > "$TEMP/test.txt" 2>&1'
+    expect(await spec.onPermission(permission(reviewer))).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+
+    void spec.onPermission(permission('echo hi > $TEMP/../x'))
+    expect(await waitForPending()).toMatchObject({ kind: 'permission' })
+  })
+
   it('a usage limit stops the process but keeps the run open, and is not a failure', async () => {
     const { runner } = await started([
       { emit: { kind: 'session', sessionId: 's1' } },

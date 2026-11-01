@@ -100,6 +100,14 @@ function scan(command: string): Scanned {
       case '(':
       case ')':
         return { why: 'parentheses' }
+      case '$': {
+        // `${TEMP}`, `${TMP}` and `${TMPDIR}` are plain reads; every other `${` stays opaque at its brace.
+        const braced = /^\$\{(?:TMPDIR|TMP|TEMP)\}/.exec(command.slice(i))?.[0] ?? c
+        token += braced
+        inToken = true
+        i += braced.length - 1
+        break
+      }
       case '{':
       case '}':
         return { why: 'braces' }
