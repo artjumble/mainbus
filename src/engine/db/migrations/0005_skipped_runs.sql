@@ -1,0 +1,1 @@
+ALTER TABLE `agent_runs` ADD `skipped` integer DEFAULT false NOT NULL;

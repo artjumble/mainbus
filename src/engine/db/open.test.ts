@@ -248,6 +248,32 @@ describe('openDb', () => {
     expect(await decisions.actionOf('d1')).toBeNull()
   })
 
+  it('backs up and marks existing runs as not skipped', async () => {
+    // The migrations as they were before Skip to next role.
+    const first = await open(firstMigrations(5))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into ticket_runs (id, ticket_id, roles, status, started_at) values ('tr1', 't1', '[]', 'done', '2026-10-30T01:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into agent_runs (id, ticket_id, ticket_run_id, role_id, role, started_at, ended_at, end_reason)
+          values ('r1', 't1', 'tr1', 'role-i', 'Implementer', '2026-10-30T01:00:00.000Z', '2026-10-30T02:00:00.000Z', 'handoff')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 10, 1, 9, 30, 0))
+    expect(backupFiles()).toEqual(['mainbus-20261101-093000.db'])
+    expect(await createRunRepo(db, () => new Date()).latest('t1')).toMatchObject({ id: 'r1', endReason: 'handoff', skipped: false })
+  })
+
   it('backs up an existing database before applying pending migrations', async () => {
     const first = await open()
     await first.db.run(

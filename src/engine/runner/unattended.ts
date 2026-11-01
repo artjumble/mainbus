@@ -108,6 +108,14 @@ export class UnattendedMode {
     else this.setAside.add(ticketId)
   }
 
+  /**
+   * Called before the user's Pause reaches the runner: pausing the queue's ticket means the user is here, as Stop
+   * does. Any other paused ticket stays in progress and is not working, so the queue may start the next one.
+   */
+  userPaused(ticketId: string): void {
+    if (this.on && this.current?.id === ticketId) this.turnOff({ kind: 'off' })
+  }
+
   /** Called before the user's move reaches the runner: a ticket the user puts in Ready may be started again. */
   userMoved(ticketId: string, column: string): void {
     if (column === 'ready') this.setAside.delete(ticketId)

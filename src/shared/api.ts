@@ -22,9 +22,10 @@ import type { StoredEvent, ThreadRun } from './events'
 
 /**
  * A ticket as the board shows it: its state, and its lineup strip (the latest ticket run's roles, or the
- * workspace lineup before the first run).
+ * workspace lineup before the first run). `skipTo` names the role Skip to next role would start: null when no
+ * role is active, or when the active role is the last.
  */
-export type BoardTicket = Ticket & { state: TicketState; lineup: StripRole[] }
+export type BoardTicket = Ticket & { state: TicketState; lineup: StripRole[]; skipTo: string | null }
 
 /**
  * What the engine pushes to the renderer. Partial (streaming) thread events carry seq 0: they are never stored.
@@ -68,6 +69,15 @@ export interface EngineCommands {
   'agent.send'(ticketId: string, text: string): void
   'agent.stop'(ticketId: string): void
   'agent.continue'(ticketId: string): void
+  /** Interrupts the active role and stops its process; the run stays open, Paused, until Resume. */
+  'agent.pause'(ticketId: string): void
+  /** Resumes a role the user paused, in the same session, with "Continue.". */
+  'agent.resume'(ticketId: string): void
+  /**
+   * Ends the active role as handed off, with a handoff summary Mainbus generates from its log, and starts the
+   * next ticked role; on the last role the ticket goes to Review. Like Pause and Resume, only the renderer can reach it.
+   */
+  'agent.skip'(ticketId: string): void
   'decision.answer'(id: string, a: DecisionAnswer): void
   /** The workspace's Change lineup, first role first. */
   'lineup.get'(): LineupRole[]

@@ -58,6 +58,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     createdAt: '2026-10-30T00:00:00.000Z',
     updatedAt: '2026-10-30T00:00:00.000Z',
     lineup: makeLineup().map((r) => ({ id: r.id, name: r.name, status: 'not_started', active: false })),
+    skipTo: null,
     ...overrides,
     state: {
       column: 'backlog',
@@ -65,6 +66,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
       agentStatus: null,
       summary: null,
       canContinue: false,
+      pausedByUser: false,
       ...state
     }
   }

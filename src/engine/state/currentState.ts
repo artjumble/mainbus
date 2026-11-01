@@ -18,46 +18,55 @@ export interface StateInput {
 /**
  * Derives a ticket's board column, phase and agent status from its manual column,
  * its latest run, and the decisions still waiting on the user.
- * Precedence: done, handoff, pending decision, failed, stopped, paused, working.
+ * Precedence: done, handoff, pending decision, failed, stopped, paused by the user, paused, working.
  */
 export function currentState(input: StateInput): TicketState {
   const { ticket, run, pendingDecisions, processAlive, activePhase } = input
+  const none = { summary: null, canContinue: false, pausedByUser: false }
 
   if (ticket.manualColumn === 'done') {
-    return { column: 'done', phase: 'done', agentStatus: null, summary: null, canContinue: false }
+    return { ...none, column: 'done', phase: 'done', agentStatus: null }
   }
   if (!run) {
-    return { column: ticket.manualColumn, phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
+    return { ...none, column: ticket.manualColumn, phase: 'not_started', agentStatus: null }
   }
   if (run.endReason === 'handoff') {
-    return { column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off', summary: null, canContinue: false }
+    return { ...none, column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' }
   }
   if (pendingDecisions.length > 0) {
     return {
+      ...none,
       column: 'needs_you',
       phase: 'waiting_on_you',
       agentStatus: 'waiting_on_you',
-      summary: pendingDecisions[0].question,
-      canContinue: false
+      summary: pendingDecisions[0].question
     }
   }
   if (run.endReason === 'failed') {
-    return {
-      column: 'needs_you',
-      phase: activePhase,
-      agentStatus: 'failed',
-      summary: failureSummary(run.events),
-      canContinue: false
-    }
+    return { ...none, column: 'needs_you', phase: activePhase, agentStatus: 'failed', summary: failureSummary(run.events) }
   }
   if (run.endReason === 'stopped') {
     // Stopping puts the ticket back in Ready; the user may then move it to Backlog.
-    return { column: ticket.manualColumn, phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
+    return { ...none, column: ticket.manualColumn, phase: 'not_started', agentStatus: null }
+  }
+  if (run.endReason === null && pausedByUser(run.events)) {
+    // Paused at once, even while the process is still going down; only Resume continues it.
+    return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'paused', pausedByUser: true }
   }
   if (!processAlive || run.endReason === 'handed_back') {
-    return { column: 'in_progress', phase: activePhase, agentStatus: 'paused', summary: null, canContinue: true }
+    return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'paused', canContinue: true }
   }
-  return { column: 'in_progress', phase: activePhase, agentStatus: 'working', summary: null, canContinue: false }
+  return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'working' }
+}
+
+/** True when the user paused the run and nothing has resumed it since. */
+export function pausedByUser(events: StoredEvent[]): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const kind = events[i].event.kind
+    if (kind === 'paused') return true
+    if (kind === 'resumed') return false
+  }
+  return false
 }
 
 /** The last error event's message, else the last failed turn's error, else nothing. */

@@ -67,6 +67,7 @@ const missingRuntime: AgentRuntime = {
   send: () => Promise.reject(new SetupRequiredError()),
   interrupt: () => Promise.reject(new SetupRequiredError()),
   stop: () => Promise.resolve(),
+  summarize: () => Promise.reject(new SetupRequiredError()),
   // Never called: there is no run without a runtime.
   events: () => (async function* () {})()
 }
@@ -274,6 +275,19 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'agent.continue': (ticketId) => {
         requireRuntime()
         return runner.continue(ticketId)
+      },
+      // Like Stop: pausing needs no runtime, and pausing the ticket unattended mode is running turns the mode off.
+      'agent.pause': (ticketId) => {
+        mode.userPaused(ticketId)
+        return runner.pause(ticketId)
+      },
+      'agent.resume': (ticketId) => {
+        requireRuntime()
+        return runner.resumePaused(ticketId)
+      },
+      'agent.skip': (ticketId) => {
+        requireRuntime()
+        return runner.skip(ticketId)
       },
       'decision.answer': (id, answer) => {
         requireRuntime()

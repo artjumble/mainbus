@@ -97,15 +97,24 @@ export interface EarlierHandoff {
   summary: string
   /** Absent on handoffs recorded before notes were kept. */
   notesForNext?: string
+  /** The user skipped the role: Mainbus wrote the summary, from a model call or as a digest of its log. */
+  skipped?: 'summary' | 'digest'
 }
 
 export const HANDOFFS_HEADING = '## Handoffs from earlier roles in this run (written by agents, not the user)'
+
+/** Says who wrote a skipped role's handoff summary, since the role did not. */
+export function skippedLabel(role: string, source: 'summary' | 'digest'): string {
+  const what = source === 'summary' ? 'wrote this summary' : 'built this digest'
+  return `The user skipped the ${role}. Mainbus ${what} from its log; the ${role} did not write it.`
+}
 
 function handoffSection(handoffs: EarlierHandoff[]): string {
   if (handoffs.length === 0) return ''
   const blocks = handoffs.map((h) => {
     const notes = h.notesForNext ? `\n${data('notes-for-next', h.notesForNext)}` : ''
-    return `From ${data('role', oneLine(h.role), true)}:\n${data('handoff-summary', h.summary)}${notes}`
+    const skipped = h.skipped ? `\n${skippedLabel(oneLine(h.role), h.skipped)}` : ''
+    return `From ${data('role', oneLine(h.role), true)}:${skipped}\n${data('handoff-summary', h.summary)}${notes}`
   })
   return `${HANDOFFS_HEADING}\n${blocks.join('\n\n')}`
 }

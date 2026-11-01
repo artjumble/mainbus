@@ -518,6 +518,68 @@ describe('SdkRuntime', () => {
   })
 })
 
+describe('SdkRuntime.summarize', () => {
+  const request = { cwd: 'C:\\work\\ws\\1-fix', tempDir: 'C:\\scratch\\ws\\1-fix', prompt: 'Summarise this log', timeoutMs: 5000 }
+  const result = (over: Record<string, unknown> = {}) => ({ type: 'result', subtype: 'success', is_error: false, result: ' The plan. ', ...over })
+
+  test("runs one turn of the user's own claude, with its own login, no tools, no MCP servers and no saved session", async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'should-not-leak')
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'should-not-leak')
+    const f = fakeSdk({ messages: [{ type: 'system', subtype: 'init' }, result()] })
+
+    expect(await new SdkRuntime(CLAUDE_PATH, f.sdk, { agentHome: 'C:\\home' }).summarize(request)).toBe('The plan.')
+
+    expect(f.calls).toHaveLength(1)
+    expect(f.calls[0].prompt).toBe('Summarise this log')
+    const o = f.calls[0].options
+    expect(o.pathToClaudeCodeExecutable).toBe(CLAUDE_PATH)
+    expect(o.cwd).toBe(request.cwd)
+    expect(o.tools).toEqual([])
+    expect(o.allowedTools).toEqual([])
+    expect(o.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write', 'Read', 'WebFetch']))
+    expect(o.mcpServers).toEqual({})
+    expect(o.strictMcpConfig).toBe(true)
+    expect(o.settingSources).toEqual([])
+    expect(o.maxTurns).toBe(1)
+    expect(o.persistSession).toBe(false)
+    expect(o).not.toHaveProperty('resume')
+    expect(typeof o.systemPrompt).toBe('string')
+    expect(await o.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal })).toMatchObject({ behavior: 'deny' })
+    const env = o.env as Record<string, string | undefined>
+    expect(env).not.toHaveProperty('ANTHROPIC_API_KEY')
+    expect(env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN')
+    expect(env).toMatchObject({ MAINBUS_AGENT: '1', MAINBUS_AGENT_HOME: 'C:\\home', TEMP: request.tempDir })
+    expect(f.servers).toEqual([])
+    expect(f.tools).toEqual([])
+  })
+
+  test('rejects once the time limit passes, and aborts the call', async () => {
+    const f = fakeSdk({ slowExit: 'after-abort' })
+    const started = Date.now()
+    await expect(new SdkRuntime(CLAUDE_PATH, f.sdk).summarize({ ...request, timeoutMs: 50 })).rejects.toThrow('No summary within 50 ms')
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect((f.calls[0].options.abortController as AbortController).signal.aborted).toBe(true)
+  })
+
+  test.each([
+    ['an error result', [result({ subtype: 'error_during_execution', result: undefined })], /The summary failed/],
+    ['an API error', [result({ is_error: true, result: 'API Error: 529 overloaded' })], /API Error: 529/],
+    ['an empty answer', [result({ result: '   ' })], 'The summary was empty'],
+    ['no result at all', [], 'The summary was empty']
+  ])('rejects on %s', async (_name, messages, error) => {
+    const f = fakeSdk({ messages })
+    await expect(new SdkRuntime(CLAUDE_PATH, f.sdk).summarize(request)).rejects.toThrow(error)
+  })
+
+  test('the summary path never calls the API itself: no API SDK, no fetch', () => {
+    for (const file of ['sdkRuntime.ts', '../runner/ticketRunner.ts', '../runner/digest.ts']) {
+      const source = readFileSync(resolve(import.meta.dirname, file), 'utf8')
+      expect(source).not.toMatch(/@anthropic-ai\/sdk\b/)
+      expect(source).not.toMatch(/\bfetch\(/)
+    }
+  })
+})
+
 /** Git Bash, as Claude Code finds it: CLAUDE_CODE_GIT_BASH_PATH, else beside the git on PATH. */
 function gitBashes(): string[] {
   if (process.platform !== 'win32') return []

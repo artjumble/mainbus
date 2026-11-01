@@ -18,9 +18,17 @@ export type AgentEvent =
   | { kind: 'needs_input'; decision: DecisionDraft }
   /**
    * `notesForNext` is absent on handoffs recorded before lineups ran role after role. `to` names the role handed
-   * to; it is absent when the last role hands off, and on handoffs recorded before it was kept.
+   * to; it is absent when the last role hands off, and on handoffs recorded before it was kept. `skipped` marks
+   * the handoff of a role the user skipped: Mainbus wrote its summary, from a model call or as a digest.
    */
-  | { kind: 'handoff'; summary: string; outcome: 'done' | 'hand_back' | 'ask'; notesForNext?: string; to?: string }
+  | {
+      kind: 'handoff'
+      summary: string
+      outcome: 'done' | 'hand_back' | 'ask'
+      notesForNext?: string
+      to?: string
+      skipped?: { by: 'user'; source: 'summary' | 'digest' }
+    }
   | { kind: 'usage'; inputTokens: number; outputTokens: number } // stored, never shown on cards
   | { kind: 'error'; message: string }
   | { kind: 'turn_end'; ok: boolean; interrupted?: boolean; error?: string }
@@ -67,6 +75,10 @@ export type ThreadEvent =
   | { kind: 'role_hand_back'; from: string; to: string }
   /** The run's role ticked the ticket's acceptance criterion at zero-based `index`. */
   | { kind: 'criterion_checked'; index: number; text: string }
+  /** The user paused the run's role: its process stopped, and the run stays open until Resume. */
+  | { kind: 'paused' }
+  /** The user's pause ended: Resume, or a message or answer that resumed the role. */
+  | { kind: 'resumed' }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 

@@ -116,7 +116,9 @@ export const agentRuns = sqliteTable(
      * The snapshot id of the role this run's handoff goes to instead of the next one: the role that reported
      * a problem and is waiting for this one to deal with it. Null hands on to the next role.
      */
-    returnTo: text('return_to')
+    returnTo: text('return_to'),
+    /** The user skipped the run's role: it ended as handed off, with a handoff summary Mainbus generated. */
+    skipped: integer('skipped', { mode: 'boolean' }).notNull().default(false)
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )

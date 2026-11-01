@@ -5,8 +5,14 @@ import {
   type PermissionRequest,
   type RoleToolHandlers,
   type RunHandle,
-  type RunSpec
+  type RunSpec,
+  type SummaryRequest
 } from './types'
+
+/** What the fake's summarize() does: answer with a text, fail with a message, or never answer (until aborted by its timeout). */
+export type FakeSummary = string | { fail: string } | { hang: true }
+
+export const FAKE_SUMMARY = 'A summary the fake runtime wrote.'
 
 /** One scripted step. Plain data only, so a script can be loaded from a JSON file. */
 export type FakeStep =
@@ -90,14 +96,29 @@ export class FakeRuntime implements AgentRuntime {
   readonly specs: RunSpec[] = []
   /** Every text passed to send(). */
   readonly sent: string[] = []
+  /** Every handle passed to interrupt(). */
+  readonly interrupted: string[] = []
+  /** Every request passed to summarize(). */
+  readonly summaries: SummaryRequest[] = []
   private readonly runs = new Map<string, Run>()
   private nextId = 1
 
   constructor(
     /** The same steps for every run, or the steps for each run by its spec. */
     private readonly script: FakeStep[] | ((spec: RunSpec) => FakeStep[]),
-    private readonly opts: { rejectResume?: boolean } = {}
+    private readonly opts: { rejectResume?: boolean; summary?: FakeSummary } = {}
   ) {}
+
+  async summarize(req: SummaryRequest): Promise<string> {
+    this.summaries.push(req)
+    const summary = this.opts.summary ?? FAKE_SUMMARY
+    if (typeof summary === 'string') return summary
+    if ('fail' in summary) throw new Error(summary.fail)
+    // Like a hung CLI: only the timeout ends it.
+    return new Promise((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`No summary within ${req.timeoutMs} ms`)), req.timeoutMs)
+    )
+  }
 
   async start(spec: RunSpec): Promise<RunHandle> {
     this.specs.push(spec)
@@ -126,6 +147,7 @@ export class FakeRuntime implements AgentRuntime {
 
   async interrupt(handle: RunHandle): Promise<void> {
     this.get(handle) // the script is not affected; it has no turns to cut short
+    this.interrupted.push(handle.id)
   }
 
   async stop(handle: RunHandle): Promise<void> {
