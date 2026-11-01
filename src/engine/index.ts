@@ -245,9 +245,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return { events, decisions: await repos.decisions.forTicket(ticketId) }
       },
 
-      'agent.start': (ticketId) => {
+      'agent.start': (ticketId, opts) => {
         requireRuntime()
-        return runner.start(ticketId)
+        return runner.start(ticketId, opts)
       },
       'agent.send': (ticketId, text) => {
         requireRuntime()

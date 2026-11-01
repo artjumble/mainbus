@@ -16,7 +16,8 @@ export type AgentEvent =
   | { kind: 'tool_result'; id: string; ok: boolean; summary: string }
   | { kind: 'status'; status: AgentStatus; detail?: string }
   | { kind: 'needs_input'; decision: DecisionDraft }
-  | { kind: 'handoff'; summary: string; outcome: 'done' | 'hand_back' | 'ask' }
+  /** `notesForNext` is absent on handoffs recorded before lineups ran role after role. */
+  | { kind: 'handoff'; summary: string; outcome: 'done' | 'hand_back' | 'ask'; notesForNext?: string }
   | { kind: 'usage'; inputTokens: number; outputTokens: number } // stored, never shown on cards
   | { kind: 'error'; message: string }
   | { kind: 'turn_end'; ok: boolean; interrupted?: boolean; error?: string }
@@ -43,5 +44,7 @@ export type ThreadEvent =
   | { kind: 'notice'; text: string }
   /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
+  /** The first event of a role's run when an earlier role of the same ticket run handed off to it. */
+  | { kind: 'role_handoff'; from: string; to: string }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }

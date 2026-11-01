@@ -76,6 +76,22 @@ export const criteria = sqliteTable(
   (t) => [primaryKey({ columns: [t.ticketId, t.position] })]
 )
 
+/** One run of a lineup on a ticket: the roles ticked at start, copied whole, so editing the lineup never changes it. */
+export const ticketRuns = sqliteTable(
+  'ticket_runs',
+  {
+    id: text('id').primaryKey(),
+    ticketId: text('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    roles: text('roles').notNull(), // JSON: LineupRole[], in order
+    status: text('status', { enum: ['running', 'done', 'stopped', 'failed'] }).notNull(),
+    startedAt: text('started_at').notNull(),
+    endedAt: text('ended_at')
+  },
+  (t) => [index('ticket_runs_ticket_idx').on(t.ticketId)]
+)
+
 export const agentRuns = sqliteTable(
   'agent_runs',
   {
@@ -83,6 +99,12 @@ export const agentRuns = sqliteTable(
     ticketId: text('ticket_id')
       .notNull()
       .references(() => tickets.id, { onDelete: 'cascade' }),
+    ticketRunId: text('ticket_run_id')
+      .notNull()
+      .references(() => ticketRuns.id, { onDelete: 'cascade' }),
+    /** The id of the role in its ticket run's snapshot. */
+    roleId: text('role_id').notNull(),
+    /** The role's name, as it was when the run started. */
     role: text('role').notNull(),
     sessionId: text('session_id'),
     model: text('model'),

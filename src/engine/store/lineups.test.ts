@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { LineupRole, LineupRoleInput } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { createLineupRepo, lineupProblem, soloRole, type LineupRepo } from './lineups'
+import { createLineupRepo, lineupProblem, type LineupRepo } from './lineups'
 import { FIXED_NOW, openTestDb } from './testDb'
 import { createWorkspaceRepo } from './workspaces'
 
@@ -115,23 +115,5 @@ describe('lineup repo', () => {
     const saved = await repo.save(workspaceId, [newRole(theirs[0]!.id, 'Solo')])
     expect(saved[0]!.id).not.toBe(theirs[0]!.id)
     expect(await repo.get(other)).toEqual(theirs)
-  })
-})
-
-describe('soloRole', () => {
-  it('is the first role that edits', async () => {
-    const lineup = await repo.get(workspaceId)
-    expect(soloRole(lineup).name).toBe('Implementer')
-    const saved = await repo.save(workspaceId, [
-      newRole('a', 'Looker'),
-      newRole('b', 'Fixer', { toolProfile: 'edit' }),
-      newRole('c', 'Other fixer', { toolProfile: 'edit' })
-    ])
-    expect(soloRole(saved).name).toBe('Fixer')
-  })
-
-  it('is the first role when none edits', async () => {
-    const saved = await repo.save(workspaceId, [newRole('a', 'Looker'), newRole('b', 'Watcher')])
-    expect(soloRole(saved).name).toBe('Looker')
   })
 })

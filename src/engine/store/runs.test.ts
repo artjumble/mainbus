@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../db/open'
 import { createRunRepo } from './runs'
-import { FIXED_NOW, openTestDb } from './testDb'
+import { FIXED_NOW, openTestDb, testRole } from './testDb'
 import { createTicketRepo } from './tickets'
 import { createWorkspaceRepo } from './workspaces'
 
@@ -36,10 +36,13 @@ describe('run repo', () => {
 
   it('creates a run and returns it as the latest', async () => {
     const repo = createRunRepo(db, now)
-    const runId = await repo.create(ticketId, 'Implementer', 'opus', 'high')
-    expect(await repo.latest(ticketId)).toEqual({
+    const runId = await repo.create(ticketId, [testRole({ model: 'opus', effort: 'high' })])
+    const latest = await repo.latest(ticketId)
+    expect(latest).toEqual({
       id: runId,
       ticketId,
+      ticketRunId: expect.any(String),
+      roleId: 'implementer',
       role: 'Implementer',
       sessionId: null,
       endReason: null,
@@ -48,19 +51,80 @@ describe('run repo', () => {
     })
   })
 
+  it("create starts a ticket run holding a copy of its roles, and the first role's run", async () => {
+    const repo = createRunRepo(db, now)
+    const roles = [testRole({ id: 'p', name: 'Planner' }), testRole({ id: 'i', name: 'Implementer', model: 'opus' })]
+    const runId = await repo.create(ticketId, roles)
+    const run = (await repo.latest(ticketId))!
+    expect(run).toMatchObject({ id: runId, roleId: 'p', role: 'Planner' })
+    expect(await repo.ticketRun(run.ticketRunId)).toEqual({
+      id: run.ticketRunId,
+      ticketId,
+      roles,
+      status: 'running',
+      startedAt: FIXED_NOW.toISOString(),
+      endedAt: null
+    })
+    await expect(repo.create(ticketId, [])).rejects.toThrow(/at least one role/)
+  })
+
+  it("handOn starts the next role's run before ending the previous one as handed off", async () => {
+    const repo = createRunRepo(db, now)
+    const next = testRole({ id: 'r', name: 'Reviewer', model: 'sonnet', effort: 'low' })
+    const first = await repo.create(ticketId, [testRole(), next])
+    const second = await repo.handOn(first, next)
+
+    expect(second).not.toBeNull()
+    const runs = await repo.listForTicket(ticketId)
+    expect(runs.map((r) => [r.id, r.role, r.endReason])).toEqual([
+      [first, 'Implementer', 'handoff'],
+      [second, 'Reviewer', null]
+    ])
+    expect(runs[1]).toMatchObject({ ticketRunId: runs[0]!.ticketRunId, roleId: 'r' })
+    expect(await repo.listForTicketRun(runs[0]!.ticketRunId)).toEqual(runs)
+    expect((await repo.latest(ticketId))?.id).toBe(second)
+    expect((await repo.ticketRun(runs[0]!.ticketRunId)).status).toBe('running')
+  })
+
+  it('handOn changes nothing once the previous run or its ticket run has ended', async () => {
+    const repo = createRunRepo(db, now)
+    const next = testRole({ id: 'r', name: 'Reviewer' })
+    const stopped = await repo.create(ticketId, [testRole(), next])
+    await repo.end(stopped, 'stopped')
+    expect(await repo.handOn(stopped, next)).toBeNull()
+    expect(await repo.listForTicket(ticketId)).toHaveLength(1)
+    expect(await repo.handOn('missing', next)).toBeNull()
+  })
+
+  it('ending a run ends its ticket run: a handoff as done, a stop or failure as such', async () => {
+    const repo = createRunRepo(db, now)
+    for (const [reason, status] of [
+      ['handoff', 'done'],
+      ['stopped', 'stopped'],
+      ['failed', 'failed']
+    ] as const) {
+      const runId = await repo.create(ticketId, [testRole()])
+      clock = new Date('2026-10-30T12:30:00.000Z')
+      await repo.end(runId, reason)
+      const run = (await repo.latest(ticketId))!
+      expect(await repo.ticketRun(run.ticketRunId)).toMatchObject({ status, endedAt: '2026-10-30T12:30:00.000Z' })
+      clock = FIXED_NOW
+    }
+  })
+
   it('latest is the most recently started run', async () => {
     const repo = createRunRepo(db, now)
-    const first = await repo.create(ticketId, 'Implementer', null, null)
+    const first = await repo.create(ticketId, [testRole()])
     clock = new Date('2026-10-30T13:00:00.000Z')
-    const second = await repo.create(ticketId, 'Implementer', null, null)
+    const second = await repo.create(ticketId, [testRole()])
     expect(first).not.toBe(second)
     expect((await repo.latest(ticketId))?.id).toBe(second)
   })
 
   it('latest breaks a same-instant tie by creation order', async () => {
     const repo = createRunRepo(db, now)
-    await repo.create(ticketId, 'Implementer', null, null)
-    const second = await repo.create(ticketId, 'Implementer', null, null)
+    await repo.create(ticketId, [testRole()])
+    const second = await repo.create(ticketId, [testRole()])
     expect((await repo.latest(ticketId))?.id).toBe(second)
   })
 
@@ -68,11 +132,11 @@ describe('run repo', () => {
     const repo = createRunRepo(db, now)
     expect(await repo.listForTicket(ticketId)).toEqual([])
     clock = new Date('2026-10-30T13:00:00.000Z')
-    const second = await repo.create(ticketId, 'Implementer', null, null)
+    const second = await repo.create(ticketId, [testRole()])
     clock = FIXED_NOW
-    const first = await repo.create(ticketId, 'Implementer', null, null)
+    const first = await repo.create(ticketId, [testRole()])
     // Same instant as `first`: creation order breaks the tie.
-    const firstTie = await repo.create(ticketId, 'Implementer', null, null)
+    const firstTie = await repo.create(ticketId, [testRole()])
     await repo.end(first, 'handoff')
 
     const runs = await repo.listForTicket(ticketId)
@@ -82,7 +146,7 @@ describe('run repo', () => {
 
   it('records the session and how the run ended', async () => {
     const repo = createRunRepo(db, now)
-    const runId = await repo.create(ticketId, 'Implementer', null, null)
+    const runId = await repo.create(ticketId, [testRole()])
     await repo.setSession(runId, 'sess-1')
     clock = new Date('2026-10-30T12:30:00.000Z')
     await repo.end(runId, 'handoff')
@@ -95,7 +159,7 @@ describe('run repo', () => {
 
   it('end only ends an open run: the first caller wins', async () => {
     const repo = createRunRepo(db, now)
-    const runId = await repo.create(ticketId, 'Implementer', null, null)
+    const runId = await repo.create(ticketId, [testRole()])
 
     expect(await repo.end(runId, 'stopped')).toBe(true)
     clock = new Date('2026-10-30T12:45:00.000Z')
@@ -106,8 +170,8 @@ describe('run repo', () => {
 
   it('events get consecutive seq numbers per run', async () => {
     const repo = createRunRepo(db, now)
-    const a = await repo.create(ticketId, 'Implementer', null, null)
-    const b = await repo.create(ticketId, 'Implementer', null, null)
+    const a = await repo.create(ticketId, [testRole()])
+    const b = await repo.create(ticketId, [testRole()])
 
     const a1 = await repo.append(a, { kind: 'message', text: 'hello' })
     const a2 = await repo.append(a, { kind: 'tool_call', id: 'c1', name: 'Bash', input: { command: 'ls' } })
@@ -126,7 +190,7 @@ describe('run repo', () => {
 
   it('concurrent appends still get distinct consecutive seq numbers', async () => {
     const repo = createRunRepo(db, now)
-    const runId = await repo.create(ticketId, 'Implementer', null, null)
+    const runId = await repo.create(ticketId, [testRole()])
     const stored = await Promise.all(
       [1, 2, 3, 4, 5].map((n) => repo.append(runId, { kind: 'message', text: `m${n}` }))
     )

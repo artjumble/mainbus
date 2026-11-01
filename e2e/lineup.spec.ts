@@ -27,14 +27,19 @@ function makeRepo(): { tmp: string; home: string; repo: string } {
   return { tmp, home: path.join(tmp, 'home'), repo }
 }
 
-async function launch(home: string, repo: string, open = true): Promise<{ app: ElectronApplication; page: Page }> {
+async function launch(
+  home: string,
+  repo: string,
+  open = true,
+  script = 'e2e/fixtures/handoff.json'
+): Promise<{ app: ElectronApplication; page: Page }> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env['ELECTRON_RUN_AS_NODE']
   const app = await electron.launch({
     args: ['.'],
     cwd: root,
-    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/handoff.json', MAINBUS_TEST_REPO: repo }
+    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: `fake:${script}`, MAINBUS_TEST_REPO: repo }
   })
   const page = await app.firstWindow()
   if (open) await page.getByRole('button', { name: 'Open a repo folder' }).click()
@@ -132,6 +137,48 @@ test("the lineup settings show why a lineup can't be saved", async () => {
     const alert = page.getByRole('alert')
     await expect(alert).toContainText('Two roles are called "Implementer". Give each role its own name.')
     await expect(alert).not.toContainText('Error invoking')
+  } finally {
+    await app?.close()
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
+  }
+})
+
+test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and it reaches Review after the last', async () => {
+  const { tmp, home, repo } = makeRepo()
+  let app: ElectronApplication | undefined
+  try {
+    let page: Page
+    // Each scripted role says who it is, then hands off when it gets a message.
+    ;({ app, page } = await launch(home, repo, true, 'e2e/fixtures/lineup-by-role.json'))
+    await page.getByRole('button', { name: 'New ticket' }).click()
+    await page.getByLabel('Title').fill('Add hello file')
+    await page.getByLabel('In your words').fill('Add hello.txt')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.getByRole('button', { name: /Add hello file/ }).click()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
+
+    const composer = page.getByLabel('Message the Implementer')
+    for (const [phase, said] of [
+      ['Planning', 'Planner: reading the ticket.'],
+      ['Implementing', 'Implementer: adding the file.'],
+      ['Reviewing', 'Reviewer: checking the change.']
+    ] as const) {
+      await expect(page.getByText(said)).toBeVisible()
+      await expect(page.getByText(phase, { exact: true })).toBeVisible()
+      // Between roles the ticket never shows as ready for review.
+      await expect(page.getByText('Ready for review', { exact: true })).toHaveCount(0)
+      await composer.fill(`Go on, ${phase}`)
+      await page.getByRole('button', { name: 'Send' }).click()
+      // The composer clears once the message has gone through.
+      await expect(composer).toHaveValue('')
+    }
+
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+    // The thread keeps every role's work.
+    await expect(page.getByText('Planner: reading the ticket.')).toBeVisible()
+    await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
+    await page.getByRole('button', { name: /board/ }).click()
+    await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
   } finally {
     await app?.close()
     fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })

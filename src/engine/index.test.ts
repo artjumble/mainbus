@@ -431,7 +431,16 @@ describe('pull requests', () => {
 
     const ticket = await engine.invoke('ticket.create', newTicket)
     await engine.invoke('agent.start', ticket.id)
-    await runtime.specs[0].roleTools.handoff({ summary: 'Done', notesForNext: '' })
+    // Planner, Implementer and Reviewer hand off in turn; only the Reviewer's handoff pushes.
+    for (const i of [0, 1, 2]) {
+      const spec = await vi.waitFor(() => {
+        expect(runtime.specs[i]).toBeDefined()
+        return runtime.specs[i]!
+      })
+      expect(gh.calls.filter((c) => c[0] === 'pr')).toEqual([])
+      expect((await engine.invoke('board.get')).tickets[0]?.state.column).toBe('in_progress')
+      await spec.roleTools.handoff({ summary: 'Done', notesForNext: '' })
+    }
     const pr = { url: 'https://github.com/example/repo/pull/1', number: 1 }
     await vi.waitFor(async () => expect((await engine.invoke('board.get')).tickets[0]).toMatchObject({ pr, prError: null }), {
       timeout: 20_000,

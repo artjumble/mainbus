@@ -15,6 +15,17 @@ export type FakeStep =
   | { waitForSend: true }
   | { exit: number | null }
 
+/**
+ * A script as a JSON file holds it: the steps for every agent, or the steps for each role by name, with `*`
+ * for any other role. A role with no script of its own and no `*` gets an empty script (its agent stays open).
+ */
+export type FakeScriptFile = FakeStep[] | Record<string, FakeStep[]>
+
+export function scriptFromFile(file: FakeScriptFile): FakeStep[] | ((spec: RunSpec) => FakeStep[]) {
+  if (Array.isArray(file)) return file
+  return (spec) => (spec.role !== undefined && Object.hasOwn(file, spec.role) ? file[spec.role]! : (file['*'] ?? []))
+}
+
 /** An async queue that can be closed; the consumer side is an AsyncIterable. */
 class EventQueue implements AsyncIterable<AgentEvent> {
   private readonly items: AgentEvent[] = []

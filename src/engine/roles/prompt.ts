@@ -87,7 +87,31 @@ function intentSections(ticket: Ticket): string[] {
   return sections
 }
 
-export function buildRolePrompt(role: LineupRole, ticket: Ticket, answered: Decision[]): string {
+/** What an earlier role of the same ticket run said when it handed off. */
+export interface EarlierHandoff {
+  role: string
+  summary: string
+  /** Absent on handoffs recorded before notes were kept. */
+  notesForNext?: string
+}
+
+export const HANDOFFS_HEADING = '## Handoffs from earlier roles in this run (written by agents, not the user)'
+
+function handoffSection(handoffs: EarlierHandoff[]): string {
+  if (handoffs.length === 0) return ''
+  const blocks = handoffs.map((h) => {
+    const notes = h.notesForNext ? `\n${data('notes-for-next', h.notesForNext)}` : ''
+    return `From ${data('role', oneLine(h.role), true)}:\n${data('handoff-summary', h.summary)}${notes}`
+  })
+  return `${HANDOFFS_HEADING}\n${blocks.join('\n\n')}`
+}
+
+export function buildRolePrompt(
+  role: LineupRole,
+  ticket: Ticket,
+  answered: Decision[],
+  handoffs: EarlierHandoff[] = []
+): string {
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.text}`).join('\n')
   const decisions = answered
     .filter((d) => d.status === 'answered' && d.answer)
@@ -106,10 +130,15 @@ export function buildRolePrompt(role: LineupRole, ticket: Ticket, answered: Deci
     criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : '',
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',
+    handoffSection(handoffs)
   ]
   return sections.filter(Boolean).join('\n\n')
 }
 
-export function firstMessage(ticket: Ticket): string {
-  return `Start work on #${ticket.number} ${oneLine(ticket.title)}.`
+/** The first message to a role; `from` names the earlier role that handed off to it. */
+export function firstMessage(ticket: Ticket, from?: string): string {
+  const start = `Start work on #${ticket.number} ${oneLine(ticket.title)}.`
+  return from === undefined
+    ? start
+    : `${start} ${oneLine(from)} handed off to you: its summary and notes are in your instructions.`
 }

@@ -18,6 +18,8 @@ export interface PermissionRequest {
 export type PermissionVerdict = { allow: true } | { allow: false; message: string }
 
 export interface RunSpec {
+  /** The name of the lineup role the agent plays. The fake runtime can pick its script by it. */
+  role?: string
   cwd: string
   ownBranch: string
   prompt: string

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
-import { FakeRuntime, type FakeStep } from './fakeRuntime'
+import { FakeRuntime, scriptFromFile, type FakeStep } from './fakeRuntime'
 import { ResumeFailedError, type RoleToolHandlers, type RunSpec } from './types'
 
 function makeSpec(over: Partial<RunSpec> = {}) {
@@ -155,5 +155,22 @@ describe('FakeRuntime', () => {
       { exit: null }
     ]
     expect(JSON.parse(JSON.stringify(script))).toEqual(script)
+  })
+})
+
+describe('scriptFromFile', () => {
+  const steps = (text: string): FakeStep[] => [{ emit: { kind: 'message', text } }]
+
+  test('plays a list of steps for every agent', () => {
+    expect(scriptFromFile(steps('all'))).toEqual(steps('all'))
+  })
+
+  test("picks a role's own steps, else the * steps, else none", () => {
+    const pick = scriptFromFile({ Planner: steps('plan'), '*': steps('other') }) as (spec: RunSpec) => FakeStep[]
+    expect(pick(makeSpec({ role: 'Planner' }).spec)).toEqual(steps('plan'))
+    expect(pick(makeSpec({ role: 'Reviewer' }).spec)).toEqual(steps('other'))
+    expect(pick(makeSpec({ role: 'toString' }).spec)).toEqual(steps('other'))
+    const only = scriptFromFile({ Planner: steps('plan') }) as (spec: RunSpec) => FakeStep[]
+    expect(only(makeSpec({ role: 'Reviewer' }).spec)).toEqual([])
   })
 })

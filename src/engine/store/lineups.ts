@@ -72,16 +72,6 @@ export function defaultLineup(): LineupRoleInput[] {
   ]
 }
 
-/**
- * The one role a run uses until runs go through the whole lineup: the first role that edits (the Implementer
- * by default), or the first role if none does.
- */
-export function soloRole(lineup: LineupRole[]): LineupRole {
-  const role = lineup.find((r) => r.toolProfile === 'edit') ?? lineup[0]
-  if (!role) throw new Error('This workspace has no roles')
-  return role
-}
-
 const TOOL_PROFILES: ToolProfile[] = ['read_only', 'edit']
 const ON_PROBLEM: OnProblem[] = ['hand_back', 'ask_me']
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']

@@ -24,7 +24,8 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
     env: {
       ...env,
       MAINBUS_HOME: home,
-      MAINBUS_RUNTIME: 'fake:e2e/fixtures/ask-then-handoff.json',
+      // The Planner hands off on the first message and the Reviewer at once; the Implementer asks and requests.
+      MAINBUS_RUNTIME: 'fake:e2e/fixtures/ask-then-handoff-by-role.json',
       MAINBUS_TEST_REPO: repo
     }
   })
@@ -57,8 +58,8 @@ test('ticket goes from idea to review with a question, a permission and a restar
     await page.getByLabel('In your words').fill('Add hello.txt')
     await page.getByRole('button', { name: 'Create' }).click()
 
-    // 2. Open it, send a first message. The scripted agent then waits for a second message, so
-    //    "Add hello file is implementing" holds steadily until we send it.
+    // 2. Open it, send a first message. The scripted Planner hands off on it; the Implementer then waits for a
+    //    second message, so "Add hello file is implementing" holds steadily until we send it.
     await page.getByRole('button', { name: /Add hello file/ }).click()
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
     await page.getByRole('button', { name: 'Send' }).click()
