@@ -309,6 +309,13 @@ describe('ROLE_PROTOCOL', () => {
     expect(ROLE_PROTOCOL).toContain('~/.claude')
     expect(ROLE_PROTOCOL).toMatch(/never push, merge or delete branches/i)
   })
+
+  test("tells the Implementer it is already in the ticket's folder and not to cd there", () => {
+    const prompt = buildRolePrompt(role, ticket, [])
+    expect(prompt).toMatch(/working directory is already the ticket's folder/i)
+    expect(prompt).toMatch(/without a cd to it/i)
+    expect(prompt).toMatch(/relative paths/i)
+  })
 })
 
 describe('TRUST_STATEMENT', () => {

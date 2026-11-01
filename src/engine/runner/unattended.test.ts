@@ -144,12 +144,12 @@ function started(h: Harness): number[] {
 }
 
 describe('unattended mode', () => {
-  it('is off at launch, works through Ready lowest number first, then turns itself off when Ready is empty', async () => {
+  it('is off at launch, works through Ready lowest number first, then stays on and waits when Ready is empty', async () => {
     const h = await harness(runtimeFor({}), ['ready', 'backlog', 'ready'])
     expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })
 
     await h.engine.invoke('unattended.set', true)
-    await waitForState(h, { on: false, status: { kind: 'stopped', reason: 'Ready is empty' } })
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
 
     expect(started(h)).toEqual([1, 3])
     expect(await columnOf(h, 1)).toBe('review')
@@ -159,9 +159,89 @@ describe('unattended mode', () => {
     const statuses = h.events.flatMap((e) => (e.type === 'unattended.changed' ? [e.state.status] : []))
     expect(statuses).toContainEqual({ kind: 'working', ticketNumber: 1 })
     expect(statuses).toContainEqual({ kind: 'working', ticketNumber: 3 })
-    // The machine was kept awake exactly while the mode was on.
+    // The machine was kept awake while tickets worked, and is let go while the mode waits.
     expect(h.awake).toMatchObject({ starts: 1, stops: 1 })
+
+    // A ticket moved to Ready is started at once.
+    await h.engine.invoke('ticket.move', h.tickets[1]!.id, 'ready')
+    await waitForColumn(h, 2, 'review')
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
+    expect(started(h)).toEqual([1, 3, 2])
+    expect(h.awake).toMatchObject({ starts: 2, stops: 2 })
   })
+
+  it('switched on with Ready empty, stays on and idle without holding the machine awake', async () => {
+    const h = await harness(runtimeFor({}), ['backlog'])
+    await h.engine.invoke('unattended.set', true)
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
+    await new Promise((r) => setTimeout(r, 200))
+    expect(h.awake).toMatchObject({ starts: 0, stops: 0 })
+    expect(started(h)).toEqual([])
+    // Switching off from idle has nothing to release.
+    await h.engine.invoke('unattended.set', false)
+    expect(h.awake).toMatchObject({ starts: 0, stops: 0 })
+  })
+
+  it('switched on while a hand-started ticket works, starts nothing until it settles, and allows its requests meanwhile', async () => {
+    const handStarted: FakeStep[] = [
+      { emit: { kind: 'session', sessionId: 's' } },
+      { waitForSend: true },
+      { requestPermission: { toolName: 'Bash', input: { command: 'npm install zod' }, toolUseId: 'tool-1' } },
+      ...handoff.slice(1)
+    ]
+    const h = await harness(runtimeFor({ 1: handStarted, 2: working }), ['ready', 'ready'])
+    await h.engine.invoke('agent.start', h.tickets[0]!.id)
+    await waitForColumn(h, 1, 'in_progress')
+
+    await h.engine.invoke('unattended.set', true)
+    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
+    await new Promise((r) => setTimeout(r, 200))
+    expect(started(h)).toEqual([1])
+    expect(await columnOf(h, 2)).toBe('ready')
+    expect(h.awake.held()).toBe(true)
+
+    // Ticket 1 asks for a permission: the mode allows it, then the ticket reaches Review and the mode starts ticket 2.
+    await h.engine.invoke('agent.send', h.tickets[0]!.id, 'go on')
+    await waitForColumn(h, 1, 'review')
+    expect((await h.engine.invoke('thread.get', h.tickets[0]!.id)).decisions).toEqual([])
+    expect(await threadOf(h, 1)).toContainEqual({
+      kind: 'notice',
+      text: 'Allowed by unattended mode: Implementer wants to run `npm install zod`'
+    })
+    await waitForColumn(h, 2, 'in_progress')
+    expect(started(h)).toEqual([1, 2])
+    expect(await h.engine.invoke('unattended.get')).toEqual({ on: true, status: { kind: 'working', ticketNumber: 2 } })
+  })
+
+  it('never starts a Ready ticket while any ticket is working, and Stop on a ticket it did not start leaves it on', async () => {
+    // Ticket 1 asks; answered, it goes on working alongside ticket 2.
+    const askThenWork: FakeStep[] = [...ask.slice(0, 4), { waitForSend: true }]
+    const h = await harness(runtimeFor({ 1: askThenWork, 2: handoff }), ['ready', 'ready', 'backlog'])
+    await h.engine.invoke('unattended.set', true)
+    await waitForColumn(h, 1, 'needs_you')
+    const { decisions } = await h.engine.invoke('thread.get', h.tickets[0]!.id)
+    await h.engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 })
+    await waitForColumn(h, 2, 'review')
+    await waitForColumn(h, 1, 'in_progress')
+    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
+
+    await h.engine.invoke('ticket.move', h.tickets[2]!.id, 'ready')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await columnOf(h, 3)).toBe('ready')
+    expect(started(h)).toEqual([1, 2])
+
+    // Stopping ticket 1, which the mode did not start, leaves the mode on and frees it to start ticket 3.
+    // Ticket 1 is back in Ready, but the user stopped it: the mode does not start it again.
+    await h.engine.invoke('agent.stop', h.tickets[0]!.id)
+    await waitForColumn(h, 3, 'review')
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
+    expect(await columnOf(h, 1)).toBe('ready')
+    expect(started(h)).toEqual([1, 2, 3])
+
+    // Moved to Ready by the user, it is started like any other.
+    await h.engine.invoke('ticket.move', h.tickets[0]!.id, 'ready')
+    await vi.waitFor(() => expect(started(h)).toEqual([1, 2, 3, 1]), { timeout: 10_000 })
+  }, 20_000)
 
   it('starts one ticket at a time: the next waits until the first settles', async () => {
     const h = await harness(runtimeFor({ 1: working }), ['ready', 'ready'])
@@ -248,7 +328,7 @@ describe('unattended mode', () => {
       ['ready', 'ready', 'ready', 'ready', 'ready', 'ready']
     )
     await h.engine.invoke('unattended.set', true)
-    await waitForState(h, { on: false, status: { kind: 'stopped', reason: 'Ready is empty' } })
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
     expect(started(h)).toEqual([1, 2, 3, 4, 5, 6])
   })
 
@@ -284,7 +364,7 @@ describe('unattended mode', () => {
     expect(await threadOf(h, 1)).toContainEqual({ kind: 'notice', text: expect.stringContaining('Paused by the usage limit') })
 
     // After the reset the same ticket is continued, and the queue goes on from there.
-    await waitForState(h, { on: false, status: { kind: 'stopped', reason: 'Ready is empty' } })
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
     expect(h.runtime.specs.filter((s) => s.resumeSessionId === 's1')).toHaveLength(1)
     expect(started(h)).toEqual([1, 2])
     expect(await columnOf(h, 1)).toBe('review')
@@ -346,7 +426,8 @@ describe('UnattendedMode timing', () => {
       }),
       continue: vi.fn(async () => {}),
       stateOf: vi.fn(async () => state()),
-      usageLimit: vi.fn(() => limit())
+      usageLimit: vi.fn(() => limit()),
+      isLaunching: vi.fn(() => false)
     }
     const emitted: UnattendedState[] = []
     const deps: UnattendedDeps = {
@@ -407,8 +488,8 @@ describe('UnattendedMode timing', () => {
     box.state = paused
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    // Ticket 7 is no longer Ready, so the queue finds nothing else.
-    expect(mode.get()).toEqual({ on: false, status: { kind: 'stopped', reason: 'Ready is empty' } })
+    // Ticket 7 is no longer Ready, so the queue finds nothing else and waits.
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'idle' } })
     expect(runner.continue).not.toHaveBeenCalled()
   })
 })

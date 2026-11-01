@@ -24,7 +24,12 @@ function show(state: UnattendedState): void {
 test('the status line says what the mode is doing', () => {
   expect(unattendedText({ kind: 'off' })).toBe('Off')
   expect(unattendedText({ kind: 'working', ticketNumber: 4 })).toBe('Working on #4')
-  expect(unattendedText({ kind: 'stopped', reason: 'Ready is empty' })).toBe('Stopped: Ready is empty')
+  expect(unattendedText({ kind: 'idle' })).toBe('Waiting for Ready tickets')
+  expect(unattendedText({ kind: 'idle', skipped: true })).toBe('No Ready ticket could be started; waiting for Ready tickets')
+  expect(unattendedText({ kind: 'other_working', ticketNumber: 5 })).toBe('Waiting for #5 to finish')
+  expect(unattendedText({ kind: 'stopped', reason: '3 tickets failed in a row: boom' })).toBe(
+    'Stopped: 3 tickets failed in a row: boom'
+  )
   const until = new Date(2026, 9, 31, 7, 5).toISOString()
   expect(unattendedText({ kind: 'waiting', ticketNumber: 4, until })).toBe('Waiting for the usage limit to reset at 07:05')
 })
@@ -38,6 +43,12 @@ test('the switch shows the state and asks the engine to switch on', async () => 
 
   await userEvent.click(toggle)
   expect(mockInvoke).toHaveBeenCalledWith('unattended.set', true)
+})
+
+test('an idle switch stays on and says it is waiting for Ready tickets', () => {
+  show({ on: true, status: { kind: 'idle' } })
+  expect(screen.getByRole('switch', { name: 'Unattended' })).toBeChecked()
+  expect(screen.getByTestId('unattended-status')).toHaveTextContent('Waiting for Ready tickets')
 })
 
 test('an on switch shows the ticket and switches off', async () => {

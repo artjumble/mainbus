@@ -141,7 +141,6 @@ describe('fail-closed policy', () => {
 
   test('pattern rules do not match commands with a redirect, $ or &', () => {
     expect(isAllowed(prefix('git status *'), bash('git status > C:\\Users\\u\\.gitconfig'))).toBe(false)
-    expect(isAllowed(prefix('git status *'), bash('git status 2>&1'))).toBe(false)
     expect(isAllowed(prefix('echo *'), bash('echo $HOME'))).toBe(false)
     expect(isAllowed(prefix('git status *'), bash('git status'))).toBe(true)
   })
@@ -312,5 +311,103 @@ describe('chains', () => {
     // The same rules still allow ordinary reads.
     expect(isAllowed([rule('Bash', 'cat *')], bash('cat .env.example'))).toBe(true)
     expect(isAllowed([rule('Read', null)], { toolName: 'Read', input: { file_path: 'src/a.ts' } })).toBe(true)
+  })
+})
+
+// Fake worktree paths only: nothing here touches the disk.
+describe('commands agents really run', () => {
+  const wt = 'C:\\Users\\u\\AppData\\Local\\Mainbus\\work\\repo\\4-ticket'
+  const folders = { worktree: wt, additionalDirectories: [] }
+  const prefix = (p: string) => [rule('Bash', p)]
+  const saved = (command: string) =>
+    rulesFromRequest('w1', bash(command), { folders }).map((r, i) => ({ ...r, id: `r${i}` }))
+  const patterns = (command: string) => saved(command).map((r) => r.pattern)
+
+  test('stream duplications and redirects to null neither stop nor take part in prefix rules', () => {
+    expect(patterns('npm test 2>&1 | tail -15')).toEqual(['npm test *', 'tail *'])
+    for (const c of [
+      'git status 2>&1',
+      'git status 1>&2',
+      'git status >&2',
+      'git status &>/dev/null',
+      'git status >/dev/null',
+      'git status 2>/dev/null',
+      'git status >nul',
+      'git status 2>NUL',
+      'git status >$null',
+      'git status 2>$null',
+      'git status 2>&1 >/dev/null',
+    ]) {
+      expect(patterns(c), c).toEqual(['git status *'])
+      expect(isAllowed(prefix('git status *'), bash(c)), c).toBe(true)
+    }
+    const pwsh = { toolName: 'PowerShell', input: { command: 'git status 2>$null' } }
+    expect(isAllowed([rule('PowerShell', 'git status *')], pwsh)).toBe(true)
+  })
+
+  test('redirects to files, a lone &, and $ anywhere but a null target still need an exact rule', () => {
+    const rules = [...prefix('git status *'), ...prefix('echo *'), ...prefix('ls *')]
+    for (const c of [
+      'git status 2>&1 > out.txt',
+      'git status 2> err.txt',
+      'git status >&out.txt',
+      'git status &> out.txt',
+      'git status 2>&1 & ls',
+      'echo $null',
+      'git status > $HOME',
+      'git status >"$nulls"',
+      'echo "a&b"',
+    ]) {
+      expect(patterns(c), c).toEqual([`=${c}`])
+      expect(isAllowed(rules, bash(c)), c).toBe(false)
+    }
+  })
+
+  test('after one Always allow, the next test run with a different tail raises no card', () => {
+    const rules = [...saved('npm test 2>&1 | tail -15'), rule('Bash', 'grep *'), rule('Bash', 'head *')]
+    expect(isAllowed(rules, bash(`cd "${wt}" && npm test 2>&1 | grep -E "FAIL|Error" | head -20`), folders)).toBe(true)
+    expect(isAllowed(rules, bash('npm test 2>&1 | tail -40'), folders)).toBe(true)
+  })
+
+  test('a cd into the ticket folder needs no rule and saves none', () => {
+    const fwd = wt.replace(/\\/g, '/')
+    const gitBash = `/c/${fwd.slice(3)}`
+    for (const c of [
+      `cd "${wt}" && npm test`,
+      `cd ${fwd} && npm test`,
+      `cd "${gitBash}" && npm test`,
+      `cd "${wt.toLowerCase()}" && npm test`,
+      `cd "${wt}\\src\\engine" && npm test`,
+      `cd src && npm test`,
+      `pushd "${wt}" && npm test`,
+      `chdir "${wt}" && npm test`,
+    ]) {
+      expect(isAllowed([rule('Bash', 'npm test *')], bash(c), folders), c).toBe(true)
+      expect(patterns(c), c).toEqual(['npm test *'])
+    }
+    for (const c of [`Set-Location "${wt}"; npm test`, `Set-Location -Path "${wt}"; npm test`, `sl ${wt}; npm test`]) {
+      const req = { toolName: 'PowerShell', input: { command: c } }
+      expect(isAllowed([rule('PowerShell', 'npm test *')], req, folders), c).toBe(true)
+      expect(rulesFromRequest('w1', req, { folders }).map((r) => r.pattern), c).toEqual(['npm test *'])
+    }
+    // Only a cd into the folder: allowed with no rule at all, and nothing to save.
+    expect(isAllowed([], bash(`cd "${wt}"`), folders)).toBe(true)
+    expect(patterns(`cd "${wt}"`)).toEqual([])
+  })
+
+  test('a cd anywhere else is part of the chain', () => {
+    const rules = [rule('Bash', 'npm test *')]
+    for (const c of [
+      'cd C:\\Users\\u\\other && npm test',
+      `cd "${wt}\\.." && npm test`,
+      'cd ~ && npm test',
+      'cd && npm test',
+      'cd .. && npm test',
+    ]) {
+      expect(isAllowed(rules, bash(c), folders), c).toBe(false)
+    }
+    expect(patterns('cd C:\\Users\\u\\other && npm test')).toEqual(['cd C:\\Users\\u\\other *', 'npm test *'])
+    // Without the ticket's folders (a guarded request), a cd is never transparent.
+    expect(isAllowed(rules, bash(`cd "${wt}" && npm test`))).toBe(false)
   })
 })

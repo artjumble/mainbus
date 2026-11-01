@@ -121,6 +121,11 @@ export class TicketRunner {
     return this.limited.get(ticketId)
   }
 
+  /** True while the ticket is being launched (worktree setup and process start), before or after its run exists. */
+  isLaunching(ticketId: string): boolean {
+    return this.launching.has(ticketId)
+  }
+
   private unattended(): boolean {
     return this.deps.unattended?.() ?? false
   }
@@ -406,7 +411,10 @@ export class TicketRunner {
     })
   }
 
-  /** Marks the ticket as launching for the whole of `fn` (worktree setup included), so stateOf shows it working. */
+  /**
+   * Marks the ticket as launching for the whole of `fn` (worktree setup included), so stateOf shows it working.
+   * The board changes once more when it ends, so a launch that failed before its process started is seen too.
+   */
   private async whileLaunching(ticketId: string, fn: () => Promise<void>): Promise<void> {
     this.limited.delete(ticketId)
     this.launching.add(ticketId)
@@ -414,6 +422,8 @@ export class TicketRunner {
       await fn()
     } finally {
       this.launching.delete(ticketId)
+      const ticket = await this.repos.tickets.get(ticketId).catch(() => null)
+      if (ticket) this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
     }
   }
 
@@ -641,11 +651,8 @@ export class TicketRunner {
     req: PermissionRequest
   ): Promise<PermissionVerdict> {
     if (!(await this.isOpen(target))) return { allow: false, message: RUN_ENDED }
-    const guard = guardReason(req.toolName, req.input, {
-      worktree: worktree.path,
-      additionalDirectories: [],
-      ownBranch: worktree.branch
-    })
+    const folders = { worktree: worktree.path, additionalDirectories: [] }
+    const guard = guardReason(req.toolName, req.input, { ...folders, ownBranch: worktree.branch })
     const guarded = guard !== null
     const shell = isShellTool(req.toolName)
     const command = shell ? commandOf(req.input) : null
@@ -660,8 +667,9 @@ export class TicketRunner {
     if (!forcePush && !secret) {
       const rules = await this.repos.allowRules.list(target.workspaceId)
       // A guarded action is only covered by a rule for exactly this command.
-      const usable = guarded ? rules.filter((r) => r.pattern?.startsWith('=')) : rules
-      if (isAllowed(usable, req)) return { allow: true }
+      if (guarded ? isAllowed(rules.filter((r) => r.pattern?.startsWith('=')), req) : isAllowed(rules, req, folders)) {
+        return { allow: true }
+      }
     }
 
     // Unattended mode answers every card but the hard stops, and never saves a rule for what it allowed.
@@ -696,7 +704,7 @@ export class TicketRunner {
     }
     if (a.choice === 'deny') return { allow: false, message: 'Denied by the user' + (a.note ? `: ${a.note}` : '') }
     if (a.choice === 'always_allow' && decision.allowAlways) {
-      for (const rule of rulesFromRequest(target.workspaceId, req, { exact: guarded })) await this.repos.allowRules.add(rule)
+      for (const rule of rulesFromRequest(target.workspaceId, req, { exact: guarded, folders })) await this.repos.allowRules.add(rule)
     }
     return { allow: true }
   }

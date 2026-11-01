@@ -17,6 +17,10 @@ export function unattendedText(status: UnattendedStatus): string {
       return 'Looking for a Ready ticket'
     case 'working':
       return `Working on #${status.ticketNumber}`
+    case 'idle':
+      return status.skipped ? 'No Ready ticket could be started; waiting for Ready tickets' : 'Waiting for Ready tickets'
+    case 'other_working':
+      return `Waiting for #${status.ticketNumber} to finish`
     case 'waiting':
       return `Waiting for the usage limit to reset at ${hhmm(status.until)}`
     case 'stopped':

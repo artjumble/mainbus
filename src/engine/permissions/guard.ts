@@ -3,11 +3,15 @@ import { credentialReason, NAMED_PATH, ntfsName, readArguments } from './credent
 import { type Download, DOWNLOAD_COMMANDS, readDownload } from './downloads'
 import { inPlaceFiles } from './interpreters'
 import { commandOf, isShellTool } from './policy'
-import { isDestructivePushArgs, parseGit, parseShell, type SimpleCommand } from './shell'
+import { commandName, isDestructivePushArgs, parseGit, parseShell, type SimpleCommand } from './shell'
 
-export interface GuardContext {
+/** The folders an agent may work in: the ticket's worktree and any extra ones. */
+export interface FolderContext {
   worktree: string
   additionalDirectories: string[]
+}
+
+export interface GuardContext extends FolderContext {
   ownBranch: string
 }
 
@@ -163,7 +167,7 @@ interface Located {
   segments: string[]
 }
 
-function locate(rawPath: string, ctx: GuardContext): Located {
+function locate(rawPath: string, ctx: FolderContext): Located {
   const p = rawPath.replace(FILESYSTEM_PROVIDER, '')
   if (HOME_OR_VARIABLE.test(p)) return { shown: p, inside: false, segments: [] }
   const resolved = win.resolve(ctx.worktree, fromGitBash(p))
@@ -173,6 +177,24 @@ function locate(rawPath: string, ctx: GuardContext): Located {
     inside: root !== undefined,
     segments: root === undefined ? [] : win.relative(root, resolved).split('\\'),
   }
+}
+
+/** The folder a cd-like command (argv[0] is cd, Set-Location, ...) names, if any. */
+function cdTarget(argv: string[]): string | undefined {
+  return argv
+    .slice(1)
+    .map((a) => NAMED_PATH.exec(a)?.[1] ?? a)
+    .find((a) => !isFlag(a))
+}
+
+/**
+ * True when `argv` is a cd (or chdir, pushd, Set-Location, ...) into the ticket's folder or a folder inside it,
+ * resolved as the guard resolves every path. A bare `cd`, which goes home, is not.
+ */
+export function isCdInside(argv: string[], context: FolderContext): boolean {
+  if (!CD_COMMANDS.has(commandName(argv[0] ?? ''))) return false
+  const target = cdTarget(argv)
+  return target !== undefined && locate(target, usable(context)).inside
 }
 
 /** Reason to ask before writing to this path, or null. */
@@ -352,10 +374,7 @@ function* commandReasons(cmd: SimpleCommand, ctx: GuardContext): Generator<strin
     return
   }
   if (CD_COMMANDS.has(cmd.name)) {
-    const target = cmd.argv
-      .slice(1)
-      .map((a) => NAMED_PATH.exec(a)?.[1] ?? a)
-      .find((a) => !isFlag(a))
+    const target = cdTarget(cmd.argv)
     if (target !== undefined && !locate(target, ctx).inside) yield `Leaves the ticket's folder: ${locate(target, ctx).shown}`
   }
   const written = isWriteCommand(cmd.name) ? pathArguments(cmd) : []
@@ -442,9 +461,12 @@ function toolReadReason(toolName: string, input: Record<string, unknown>, ctx: G
 
 /** Why Mainbus should ask first, and whether unattended mode may allow it anyway; null means no opinion. */
 export function guardReason(toolName: string, input: Record<string, unknown>, context: GuardContext): GuardReason | null {
-  // Relative or empty extra folders would resolve against the process cwd: drop them.
-  const ctx = { ...context, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
-  return pick(reasonsFor(toolName, input, ctx))
+  return pick(reasonsFor(toolName, input, usable(context)))
+}
+
+/** Relative or empty extra folders would resolve against the process cwd: drop them. */
+function usable<T extends FolderContext>(context: T): T {
+  return { ...context, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
 }
 
 function* reasonsFor(toolName: string, input: Record<string, unknown>, ctx: GuardContext): Generator<string> {

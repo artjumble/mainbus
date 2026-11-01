@@ -63,13 +63,22 @@ test('unattended mode works through Ready, allows what is not a hard stop, and i
     const status = page.getByTestId('unattended-status')
     await expect(status).toHaveText('Off')
 
-    // Switch it on: both tickets are worked through and land in Review, then the mode turns itself off.
+    // Switch it on: both tickets are worked through and land in Review, then the mode stays on and waits.
     await page.getByRole('switch', { name: 'Unattended' }).check()
     const review = page.getByRole('region', { name: 'Review' })
     await expect(review.getByText('First queued ticket')).toBeVisible()
     await expect(review.getByText('Second queued ticket')).toBeVisible()
-    await expect(status).toHaveText('Stopped: Ready is empty')
-    await expect(page.getByRole('switch', { name: 'Unattended' })).not.toBeChecked()
+    await expect(status).toHaveText('Waiting for Ready tickets')
+    await expect(page.getByRole('switch', { name: 'Unattended' })).toBeChecked()
+
+    // A ticket that arrives in Ready is started at once (too soon, perhaps, to be seen in Ready).
+    await page.getByRole('button', { name: 'New ticket' }).click()
+    await page.getByLabel('Title').fill('Third queued ticket')
+    await page.getByLabel('In your words').fill('Third queued ticket')
+    await page.getByLabel('Put it in Ready (otherwise Backlog)').check()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await expect(review.getByText('Third queued ticket')).toBeVisible()
+    await expect(status).toHaveText('Waiting for Ready tickets')
 
     // The install was allowed without a card, and the thread says so.
     await review.getByText('First queued ticket').click()

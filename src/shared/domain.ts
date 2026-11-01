@@ -155,6 +155,10 @@ export type UnattendedStatus =
   /** On, and about to pick the next Ready ticket. */
   | { kind: 'starting' }
   | { kind: 'working'; ticketNumber: number }
+  /** On, with nothing to start: Ready is empty, or (`skipped`) no Ready ticket could be started. */
+  | { kind: 'idle'; skipped?: true }
+  /** On, and waiting for a ticket it did not start (by hand, or resumed alongside) to stop working. */
+  | { kind: 'other_working'; ticketNumber: number }
   /** `until` is an ISO time. */
   | { kind: 'waiting'; ticketNumber: number; until: string }
   /** Turned itself off; `reason` says why. */
