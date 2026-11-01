@@ -1,23 +1,13 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AllowRule, Role } from '../../../shared/domain'
+import type { AllowRule } from '../../../shared/domain'
 import { invoke } from '../api'
-import { renderWithMantine } from '../test-utils'
-import { RoleSettings } from './RoleSettings'
+import { makeLineup, renderWithMantine } from '../test-utils'
+import { WorkspaceSettings } from './WorkspaceSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
-
-const role: Role = {
-  workspaceId: 'w1',
-  name: 'Implementer',
-  instructions: 'Be careful.',
-  activePhase: 'implementing',
-  toolProfile: 'edit',
-  model: null,
-  effort: null
-}
 
 function rule(id: string, toolName: string, pattern: string | null): AllowRule {
   return { id, workspaceId: 'w1', toolName, pattern }
@@ -28,63 +18,21 @@ let rules: AllowRule[]
 beforeEach(() => {
   mockInvoke.mockReset()
   rules = []
-  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
-    if (command === 'role.get') return role
-    if (command === 'role.update') return { ...role, ...(args[0] as object) }
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'lineup.get') return makeLineup()
     if (command === 'allowRules.list') return rules
     return undefined
   })
 })
 
-const save = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
-const optionLabels = (select: HTMLElement): string[] =>
-  within(select).getAllByRole('option').map((o) => o.textContent ?? '')
-
-test('edits Implementer instructions, model and effort', async () => {
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
-  const instructions = await screen.findByLabelText('Instructions')
-  await vi.waitFor(() => expect(instructions).toHaveValue('Be careful.'))
-  const model = screen.getByLabelText('Model')
-  const effort = screen.getByLabelText('Effort')
-  expect(optionLabels(model)).toEqual(['Orchestrator decides', 'Opus', 'Sonnet'])
-  expect(optionLabels(effort)).toEqual(['Orchestrator decides', 'Low', 'Medium', 'High'])
-  expect(screen.getByText(/Claude Code's default/)).toBeInTheDocument()
-  expect(save()).toBeDisabled()
-
-  await userEvent.clear(instructions)
-  await userEvent.type(instructions, 'Be bold.')
-  await userEvent.selectOptions(model, 'Opus')
-  await userEvent.selectOptions(effort, 'High')
-  expect(save()).toBeEnabled()
-  await userEvent.click(save())
-
-  await vi.waitFor(() =>
-    expect(mockInvoke).toHaveBeenCalledWith('role.update', { instructions: 'Be bold.', model: 'opus', effort: 'high' })
-  )
-  // The saved value stays on screen and Save goes back to disabled.
-  await vi.waitFor(() => expect(save()).toBeDisabled())
-  expect(instructions).toHaveValue('Be bold.')
-  expect(model).toHaveValue('opus')
-
-  // Choosing "Orchestrator decides" again saves null.
-  await userEvent.selectOptions(model, 'Orchestrator decides')
-  await userEvent.selectOptions(effort, 'Orchestrator decides')
-  await userEvent.click(save())
-  await vi.waitFor(() =>
-    expect(mockInvoke).toHaveBeenLastCalledWith('role.update', { instructions: 'Be bold.', model: null, effort: null })
-  )
-})
-
-test('a failed save shows the message and keeps the edits', async () => {
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
-  const instructions = await screen.findByLabelText('Instructions')
-  await vi.waitFor(() => expect(instructions).toHaveValue('Be careful.'))
-  mockInvoke.mockRejectedValue(new Error('Disk full'))
-  await userEvent.type(instructions, ' More.')
-  await userEvent.click(save())
-  expect(await screen.findByText('Disk full')).toBeInTheDocument()
-  expect(instructions).toHaveValue('Be careful. More.')
-  expect(save()).toBeEnabled()
+test('shows the lineup, the pull request switch, the allow list and Connect agents', async () => {
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
+  expect(await screen.findByRole('button', { name: 'Edit Planner' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Lineup' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeInTheDocument()
+  expect(await screen.findByRole('region', { name: 'Connect agents' })).toBeInTheDocument()
+  // Only the Change lineup for now: no Investigate tab.
+  expect(screen.queryByRole('tab')).not.toBeInTheDocument()
 })
 
 test('lists allow rules and removes one', async () => {
@@ -94,7 +42,7 @@ test('lists allow rules and removes one', async () => {
     rule('a3', 'WebFetch', null)
   ]
   mockInvoke.mockImplementation(async (command: string) => {
-    if (command === 'role.get') return role
+    if (command === 'lineup.get') return makeLineup()
     if (command === 'allowRules.list') return rules
     if (command === 'allowRules.remove') {
       rules = rules.filter((r) => r.id !== 'a1')
@@ -102,7 +50,7 @@ test('lists allow rules and removes one', async () => {
     }
     return undefined
   })
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
   expect(await screen.findByText('Bash: pnpm install *')).toBeInTheDocument()
   expect(screen.getByText('Bash: git status (exact)')).toBeInTheDocument()
   expect(screen.getByText('WebFetch: any use')).toBeInTheDocument()
@@ -114,12 +62,12 @@ test('lists allow rules and removes one', async () => {
 })
 
 test('says so when no commands are always allowed', async () => {
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
   expect(await screen.findByText(/Nothing is always allowed/)).toBeInTheDocument()
 })
 
 test('loads nothing while closed', () => {
-  renderWithMantine(<RoleSettings opened={false} onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened={false} onClose={() => {}} />)
   expect(mockInvoke).not.toHaveBeenCalled()
 })
 
@@ -129,7 +77,7 @@ test('Connect agents shows copyable setup lines built from the real launcher', a
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
     command === 'agents.launcher' ? { kind: 'stable', program: [launcher], env: {}, exists: true } : base(command, ...args)
   )
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
   const section = await screen.findByRole('region', { name: 'Connect agents' })
   expect(await within(section).findByText(`claude mcp add --scope user mainbus -- cmd /c ${launcher} mcp`)).toBeInTheDocument()
   expect(within(section).getByText(/\[mcp_servers\.mainbus\]/)).toBeInTheDocument()
@@ -145,7 +93,7 @@ test('Connect agents says when the stable launcher has not been written yet', as
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
     command === 'agents.launcher' ? { kind: 'stable', program: ['/x/bin/mainbus.cmd'], env: {}, exists: false } : base(command, ...args)
   )
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
   expect(await screen.findByText(/build-stable\.ps1/)).toBeInTheDocument()
 })
 
@@ -157,7 +105,7 @@ test("Connect agents shows why agents can't reach the board when the intake pipe
       ? { kind: 'stable', program: ['/x/bin/mainbus.cmd'], env: {}, exists: true, intakeError }
       : base(command, ...args)
   )
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
   const section = await screen.findByRole('region', { name: 'Connect agents' })
   expect(await within(section).findByText("Agents can't reach this board")).toBeInTheDocument()
   expect(within(section).getByText(/listen EADDRINUSE/)).toBeInTheDocument()
@@ -168,7 +116,7 @@ test('Connect agents shows no intake error while the pipe is open', async () => 
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
     command === 'agents.launcher' ? { kind: 'stable', program: ['/x/bin/mainbus.cmd'], env: {}, exists: true } : base(command, ...args)
   )
-  renderWithMantine(<RoleSettings opened onClose={() => {}} />)
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
   const section = await screen.findByRole('region', { name: 'Connect agents' })
   await within(section).findByText(/claude mcp add/)
   expect(within(section).queryByText("Agents can't reach this board")).not.toBeInTheDocument()

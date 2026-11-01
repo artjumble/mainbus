@@ -2,7 +2,7 @@ import { MantineProvider } from '@mantine/core'
 import { Notifications, notifications } from '@mantine/notifications'
 import { render, type RenderResult } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
-import type { Decision, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Decision, LineupRole, Ticket, TicketState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { BoardTicket } from './store'
 import { cssVariablesResolver, theme } from './theme'
@@ -92,4 +92,28 @@ export function makeDecision(overrides: Partial<Decision> = {}): Decision {
     answeredAt: null,
     ...overrides
   }
+}
+
+/** The default Change lineup, as `lineup.get` returns it for workspace w1. */
+export function makeLineup(): LineupRole[] {
+  const role = (id: string, position: number, name: string, extra: Partial<LineupRole>): LineupRole => ({
+    id,
+    workspaceId: 'w1',
+    lineup: 'change',
+    position,
+    name,
+    instructions: `Be the ${name}.`,
+    activePhase: 'implementing',
+    onProblem: 'hand_back',
+    handBackTo: null,
+    model: null,
+    effort: null,
+    toolProfile: 'read_only',
+    ...extra
+  })
+  return [
+    role('p', 1, 'Planner', { activePhase: 'planning', onProblem: 'ask_me' }),
+    role('i', 2, 'Implementer', { handBackTo: 'p', toolProfile: 'edit' }),
+    role('r', 3, 'Reviewer', { activePhase: 'reviewing', handBackTo: 'i' })
+  ]
 }

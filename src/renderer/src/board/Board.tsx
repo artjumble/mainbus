@@ -14,7 +14,7 @@ import type { Column } from '../../../shared/domain'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
-import { RoleSettings } from '../workspace/RoleSettings'
+import { WorkspaceSettings } from '../workspace/WorkspaceSettings'
 import { TicketCard } from './TicketCard'
 import { UnattendedSwitch } from './UnattendedSwitch'
 
@@ -123,7 +123,7 @@ export function Board(): ReactElement {
       </DndContext>
 
       <NewTicketModal opened={creating} onClose={() => setCreating(false)} />
-      <RoleSettings opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <WorkspaceSettings opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Stack>
   )
 }
