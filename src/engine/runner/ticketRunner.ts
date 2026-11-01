@@ -498,9 +498,11 @@ export class TicketRunner {
     const run = await this.repos.runs.latest(ticketId)
     const live = run && run.endReason === null ? this.live.get(run.id) : undefined
     if (!run || !live || live.ended) throw new Error(NOT_WORKING)
-    const ticket = await this.repos.tickets.get(ticketId)
-    // Recorded first, so the ticket shows Paused at once; a pause is never a usage-limit pause.
+    // From here the agent gets no nudge, and its process ending is neither reported nor a usage-limit pause.
+    live.ended = true
     this.limited.delete(ticketId)
+    const ticket = await this.repos.tickets.get(ticketId)
+    // Recorded before the process goes, so the ticket shows Paused at once.
     await this.record(this.target(run, ticket), { kind: 'paused' })
     // The run stays open with its session, as after a restart: Resume continues it by session id.
     await this.halt(live)
