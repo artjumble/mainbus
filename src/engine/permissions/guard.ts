@@ -331,6 +331,7 @@ function gitSubcommandReason(sub: string | undefined, rest: string[], ctx: Guard
     case 'reflog':
       return ['expire', 'delete'].includes(rest[0]) ? 'Deletes git reflog entries' : null
     case 'worktree':
+      return rest[0] === 'list' ? null : 'Changes repository internals with git worktree'
     case 'update-ref':
     case 'filter-branch':
     case 'filter-repo':

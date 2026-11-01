@@ -173,6 +173,16 @@ describe('guardReason: no opinion', () => {
     ['busybox ls', bash('busybox ls')],
     ['pipe into php with a script', bash('cat x | php x.php')],
     ['pipe into pypy3 with a script', bash('cat x | pypy3 x.py')],
+    // git worktree list only reads.
+    ['git worktree list', bash('git worktree list')],
+    ['git worktree list --porcelain', bash('git worktree list --porcelain')],
+    ['git worktree list -v', bash('git worktree list -v')],
+    ['git worktree list --verbose', bash('git worktree list --verbose')],
+    ['git worktree list --expire', bash('git worktree list --expire 2.weeks.ago')],
+    ['git worktree list --porcelain -z', bash('git worktree list --porcelain -z')],
+    ['git -C . worktree list', bash('git -C . worktree list')],
+    ['git -c k=v worktree list', bash('git -c color.ui=never worktree list')],
+    ['git worktree list in a chain', bash('ls; git worktree list; ls node_modules 2>&1 | head -3')],
   ]
   test.each(cases)('%s', (_name, [tool, input]) => {
     expect(messageOf(tool, input, ctx)).toBeNull()
@@ -252,6 +262,7 @@ describe('guardReason: guarded', () => {
     ['git stash clear', bash('git stash clear')],
     ['git stash drop', bash('git stash drop')],
     ['git worktree', bash('git worktree remove --force x')],
+    ['git worktree list, then add', bash('git worktree list && git worktree add ../y')],
     ['git update-ref', bash('git update-ref -d refs/heads/main')],
     ['git gc --prune', bash('git gc --prune=now')],
     ['git reflog expire', bash('git reflog expire --expire=now --all')],
@@ -881,6 +892,15 @@ describe('guardReason: kinds for unattended mode', () => {
     ["Deletes a branch other than the ticket's own", bash('git branch -D main')],
     ['Renames a branch', bash('git branch -M main')],
     ['Changes repository internals with git worktree', bash('git worktree remove x')],
+    ['Changes repository internals with git worktree', bash('git worktree add ../y')],
+    ['Changes repository internals with git worktree', bash('git worktree move x y')],
+    ['Changes repository internals with git worktree', bash('git worktree prune')],
+    ['Changes repository internals with git worktree', bash('git worktree lock x')],
+    ['Changes repository internals with git worktree', bash('git worktree unlock x')],
+    ['Changes repository internals with git worktree', bash('git worktree repair')],
+    ['Changes repository internals with git worktree', bash('git worktree frobnicate')],
+    ['Changes repository internals with git worktree', bash('git worktree')],
+    ['Changes repository internals with git worktree', bash('git -C . worktree prune')],
     ['Changes repository internals with git update-ref', bash('git update-ref -d refs/heads/main')],
     ['Deletes stashed work', bash('git stash drop')],
     ['Permanently prunes git objects', bash('git gc --prune=now')],
@@ -905,6 +925,11 @@ describe('guardReason: kinds for unattended mode', () => {
     ['Overrides git alias or core settings for one command', bash('git -c core.hooksPath=x status')],
     ["Reads outside the ticket's folder", ['Read', { file_path: 'C:\\Users\\u\\notes.txt' }]],
     ["Reads outside the ticket's folder", bash('cat C:\\Users\\u\\notes.txt')],
+    // git worktree list adds nothing: only the ls of the parent folder is judged.
+    [
+      "Reads outside the ticket's folder",
+      bash('ls; ls .. | head; git worktree list; ls node_modules 2>&1 | head -3'),
+    ],
   ]
   test.each(automatic)('automatic: %s', (sentence, [tool, input]) => {
     const reason = guardReason(tool, input, ctx)
