@@ -32,3 +32,13 @@ test.each([
   renderWithMantine(<Board />)
   expect(await dragBy(/Drag me/)).toMatch(/translate3d\(/)
 })
+
+test('a card whose move the engine has not answered cannot be picked up', async () => {
+  const ticket = makeTicket({ title: 'Drag me' }, { column: 'review', phase: 'ready_for_review' })
+  useMainbus.setState(
+    { ...initial, workspace, workspaceLoaded: true, tickets: [ticket], pendingMoves: { [ticket.id]: 'done' } },
+    true
+  )
+  renderWithMantine(<Board />)
+  expect(await dragBy(/Drag me/)).toBe('')
+})

@@ -117,6 +117,128 @@ test('a successful move refreshes the board', async () => {
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('board.get'))
 })
 
+describe('a move shows at once', () => {
+  /** A `ticket.move` that answers only when the test says so, like a worktree removal that takes seconds. */
+  function slowMove(board: () => ReturnType<typeof makeTicket>[]): {
+    settle: (answer: 'moved' | 'dirty' | Error) => Promise<void>
+  } {
+    let answer: (value: 'moved' | 'dirty' | Error) => void = () => {}
+    const pending = new Promise<'moved' | 'dirty' | Error>((resolve) => {
+      answer = resolve
+    })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command !== 'ticket.move') return { tickets: board() }
+      const value = await pending
+      if (value instanceof Error) throw value
+      return value
+    })
+    return {
+      settle: async (value) => {
+        await act(async () => {
+          answer(value)
+          await pending
+        })
+      }
+    }
+  }
+
+  const column = (name: string): HTMLElement => screen.getByRole('region', { name })
+
+  test('a Review card dropped on Done shows in Done, cleaning up, before the engine answers', async () => {
+    const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+    let engineBoard = [ticket]
+    showBoard(ticket)
+    const move = slowMove(() => engineBoard)
+    renderWithMantine(<Board />)
+
+    drag(ticket.id, 'done')
+    expect(within(column('Done')).getByText('Ship me')).toBeInTheDocument()
+    expect(within(column('Review')).queryByText('Ship me')).not.toBeInTheDocument()
+    expect(within(column('Done')).getByText('Cleaning up…')).toBeInTheDocument()
+
+    // A refresh while the engine still says Review (a board.changed, say) does not put the card back.
+    await act(() => useMainbus.getState().refreshBoard())
+    expect(within(column('Done')).getByText('Ship me')).toBeInTheDocument()
+
+    // Once the engine moved it, the board agrees and the marker goes.
+    engineBoard = [{ ...ticket, manualColumn: 'done', state: { ...ticket.state, column: 'done', phase: 'done' } }]
+    await move.settle('moved')
+    await vi.waitFor(() => expect(within(column('Done')).queryByText('Cleaning up…')).not.toBeInTheDocument())
+    expect(within(column('Done')).getByText('Ship me')).toBeInTheDocument()
+    expect(useMainbus.getState().pendingMoves).toEqual({})
+  })
+
+  test('a card being moved cannot be moved again until the engine answers', async () => {
+    const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(ticket)
+    slowMove(() => [ticket])
+    renderWithMantine(<Board />)
+
+    drag(ticket.id, 'done')
+    drag(ticket.id, 'backlog')
+    expect(mockInvoke).toHaveBeenCalledTimes(1)
+
+    screen.getByRole('button', { name: /Ship me/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+  })
+
+  test('a dirty worktree sends the card back to Review with the notice', async () => {
+    const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(ticket)
+    const move = slowMove(() => [ticket])
+    renderWithMantine(<Board />)
+
+    drag(ticket.id, 'done')
+    expect(within(column('Done')).getByText('Ship me')).toBeInTheDocument()
+    await move.settle('dirty')
+    expect(await screen.findByText("Can't move this ticket yet")).toBeInTheDocument()
+    expect(within(column('Review')).getByText('Ship me')).toBeInTheDocument()
+    expect(within(column('Done')).queryByText('Ship me')).not.toBeInTheDocument()
+  })
+
+  test('a refused move sends the card back with the engine message', async () => {
+    const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(ticket)
+    const move = slowMove(() => [ticket])
+    renderWithMantine(<Board />)
+
+    drag(ticket.id, 'done')
+    expect(within(column('Done')).getByText('Ship me')).toBeInTheDocument()
+    await move.settle(new Error("Error invoking remote method 'engine:invoke': Error: The agent is still working on this ticket; stop it first"))
+    expect(await screen.findByText('The agent is still working on this ticket; stop it first')).toBeInTheDocument()
+    expect(within(column('Review')).getByText('Ship me')).toBeInTheDocument()
+    expect(within(column('Done')).queryByText('Ship me')).not.toBeInTheDocument()
+  })
+
+  test.each([
+    ['backlog', 'Backlog', 'ready', 'Ready'],
+    ['ready', 'Ready', 'backlog', 'Backlog']
+  ] as const)('a move from %s to %s shows at once too, without the cleanup marker', async (from, fromTitle, to, toTitle) => {
+    const ticket = makeTicket({ title: 'Plan me' }, { column: from })
+    showBoard(ticket)
+    slowMove(() => [ticket])
+    renderWithMantine(<Board />)
+
+    drag(ticket.id, to)
+    expect(within(column(toTitle)).getByText('Plan me')).toBeInTheDocument()
+    expect(within(column(fromTitle)).queryByText('Plan me')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cleaning up…')).not.toBeInTheDocument()
+  })
+
+  test('the card menu moves optimistically too', async () => {
+    const ticket = makeTicket({ title: 'Menu me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(ticket)
+    slowMove(() => [ticket])
+    renderWithMantine(<Board />)
+    screen.getByRole('button', { name: /Menu me/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to Done' }))
+    expect(within(column('Done')).getByText('Menu me')).toBeInTheDocument()
+    expect(within(column('Done')).getByText('Cleaning up…')).toBeInTheDocument()
+  })
+})
+
 describe('moving a card without dragging', () => {
   test('Shift+F10 on a focused card opens a menu, and Done moves the ticket', async () => {
     const ticket = makeTicket({ title: 'Menu me' }, { column: 'review', phase: 'ready_for_review' })

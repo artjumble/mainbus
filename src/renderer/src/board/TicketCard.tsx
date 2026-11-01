@@ -1,4 +1,4 @@
-import { Badge, Group, Paper, Text } from '@mantine/core'
+import { Badge, Group, Loader, Paper, Text } from '@mantine/core'
 import { memo, type KeyboardEvent, type ReactElement } from 'react'
 import type { Phase, TicketState } from '../../../shared/domain'
 import type { BoardTicket } from '../store'
@@ -40,6 +40,8 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
 
 interface Props {
   ticket: BoardTicket
+  /** True while the card has been moved to Done and the engine is still removing its worktree. */
+  cleaningUp?: boolean
   onOpen: (id: string) => void
 }
 
@@ -47,7 +49,7 @@ interface Props {
  * A board card: number, title and phase chip, a badge when an agent filed the ticket, and a one-line summary
  * in Needs you. Nothing else, by design.
  */
-export const TicketCard = memo(function TicketCard({ ticket, onOpen }: Props): ReactElement {
+export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false, onOpen }: Props): ReactElement {
   const { state } = ticket
   const source = ticket.intent[0]?.source
 
@@ -79,6 +81,11 @@ export const TicketCard = memo(function TicketCard({ ticket, onOpen }: Props): R
       <Group gap="xs">
         <PhaseChip state={state} />
         {source && <AgentBadge source={source} />}
+        {cleaningUp && (
+          <Badge color="gray" variant="outline" size="sm" radius="sm" leftSection={<Loader size={8} color="gray" />}>
+            Cleaning up…
+          </Badge>
+        )}
       </Group>
       {state.column === 'needs_you' && state.summary && (
         <Text size="xs" c="dimmed" mt={6} lineClamp={1}>

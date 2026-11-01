@@ -57,6 +57,8 @@ export function TicketView(): ReactElement {
 
 function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const thread = useThread(ticket.id)
+  // A move the engine has not finished (a move to Done may remove the worktree): nothing may start meanwhile.
+  const moving = useMainbus((s) => ticket.id in s.pendingMoves)
   const [busy, setBusy] = useState(false)
   // Held in a ref as well: two clicks in the same tick must not both pass the guard.
   const working = useRef(false)
@@ -98,8 +100,8 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   }
 
   async function send(text: string): Promise<void> {
-    // Another command is in progress: keep the text, say nothing.
-    if (working.current) throw new Error('busy')
+    // Another command is in progress, or a move that would have to finish before a start: keep the text, say nothing.
+    if (working.current || (moving && canStart && !started.current)) throw new Error('busy')
     const delivered = await guarded(async () => {
       // A new run starts first, then gets the message.
       if (canStart && !started.current) {
@@ -139,7 +141,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
             </Button>
           )}
           {canStart && (
-            <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.start', 'Could not start')}>
+            <Button size="compact-sm" disabled={busy || moving} onClick={() => void control('agent.start', 'Could not start')}>
               {ended ? 'Start again' : 'Start'}
             </Button>
           )}
