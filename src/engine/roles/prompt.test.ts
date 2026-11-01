@@ -367,6 +367,16 @@ describe('ROLE_PROTOCOL', () => {
     expect(prompt).toMatch(/without a cd to it/i)
     expect(prompt).toMatch(/relative paths/i)
   })
+
+  test('tells agents to change files with Edit and Write, not shell writes, and says why', () => {
+    expect(ROLE_PROTOCOL).toMatch(/change files with your Edit and Write tools/i)
+    expect(ROLE_PROTOCOL).toMatch(/sed -i/)
+    expect(ROLE_PROTOCOL).toMatch(/redirected into a file/i)
+    expect(ROLE_PROTOCOL).toMatch(/loops over files/i)
+    expect(ROLE_PROTOCOL).toMatch(/inside the ticket's folder run without asking/i)
+    expect(ROLE_PROTOCOL).toMatch(/stops for the user's approval/i)
+    expect(ROLE_PROTOCOL).toMatch(/if your role can't edit files, don't change them/i)
+  })
 })
 
 describe('TRUST_STATEMENT', () => {
