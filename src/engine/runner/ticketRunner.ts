@@ -108,7 +108,8 @@ interface LiveRun extends ThreadTarget {
 interface Prepared {
   ticket: Ticket
   workspace: Workspace
-  worktree: { branch: string; path: string }
+  /** `scratch` is the ticket's scratch folder: its agents' temp folder, writable like the worktree. */
+  worktree: { branch: string; path: string; scratch: string }
 }
 
 interface Launch extends Prepared {
@@ -572,6 +573,7 @@ export class TicketRunner {
     const spec: RunSpec = {
       role: role.name,
       cwd: worktree.path,
+      tempDir: worktree.scratch,
       ownBranch: worktree.branch,
       prompt,
       appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs),
@@ -579,7 +581,8 @@ export class TicketRunner {
       ...(role.effort !== null ? { effort: role.effort } : {}),
       toolProfile: role.toolProfile,
       disallowedTools: DISALLOWED_TOOLS,
-      additionalDirectories: [],
+      // Edits and simple file commands in the scratch folder run without asking, as in the worktree.
+      additionalDirectories: [worktree.scratch],
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
       roleTools: this.roleTools(target, worktree.path),
       onPermission: (req) => this.onPermission(target, worktree, req)
@@ -807,11 +810,12 @@ export class TicketRunner {
 
   private async onPermission(
     target: ThreadTarget,
-    worktree: { branch: string; path: string },
+    worktree: Prepared['worktree'],
     req: PermissionRequest
   ): Promise<PermissionVerdict> {
     if (!(await this.isOpen(target))) return { allow: false, message: RUN_ENDED }
-    const folders = { worktree: worktree.path, additionalDirectories: [] }
+    // The same folders as the run's, so the guard and allow rules treat the scratch folder as inside.
+    const folders = { worktree: worktree.path, additionalDirectories: [worktree.scratch] }
     const guard = guardReason(req.toolName, req.input, { ...folders, ownBranch: worktree.branch })
     const guarded = guard !== null
     const shell = isShellTool(req.toolName)

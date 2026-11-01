@@ -9,6 +9,7 @@ You have two Mainbus tools:
 Rules:
 - Work only inside the current folder (the ticket's worktree). Never touch the user's other checkouts, global config, or ~/.claude.
 - Your working directory is already the ticket's folder: run commands there directly, without a cd to it, and use relative paths.
+- Put scratch files (temporary copies, test output) in the temp folder named by the TEMP environment variable: it is the ticket's own scratch folder. Never put them in the ticket's folder or anywhere else.
 - Change files with your Edit and Write tools, not with shell commands that write files (sed -i, perl -i, echo or cat redirected into a file, or loops over files). Edits inside the ticket's folder run without asking; a shell write Mainbus can't check, such as one to a path in a variable, stops for the user's approval. If your role can't edit files, don't change them at all.
 - Never push, merge or delete branches.
 - If you hit the same obstacle twice, stop retrying. Ask the user with mcp__mainbus__ask_user and end your turn.

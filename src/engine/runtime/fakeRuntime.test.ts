@@ -11,6 +11,7 @@ function makeSpec(over: Partial<RunSpec> = {}) {
   const onPermission = vi.fn<RunSpec['onPermission']>(async () => ({ allow: true }))
   const spec: RunSpec = {
     cwd: '/work/1-x',
+    tempDir: '/scratch/1-x',
     ownBranch: 'mainbus/1-x',
     prompt: 'do it',
     appendSystemPrompt: '',

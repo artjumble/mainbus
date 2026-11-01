@@ -21,6 +21,8 @@ export interface RunSpec {
   /** The name of the lineup role the agent plays. The fake runtime can pick its script by it. */
   role?: string
   cwd: string
+  /** The ticket's scratch folder: the agent's TEMP, TMP and TMPDIR point here. */
+  tempDir: string
   ownBranch: string
   prompt: string
   appendSystemPrompt: string

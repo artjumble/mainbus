@@ -18,13 +18,16 @@ function git(cwd: string, ...args: string[]): void {
 
 describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
   let repo = ''
+  let scratch = ''
   afterAll(() => {
-    if (!repo) return
-    try {
-      // stop() has already waited for the child to exit; the retries only cover antivirus scanners.
-      rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-    } catch {
-      // Leave the temp folder for the OS to clear.
+    for (const dir of [repo, scratch]) {
+      if (!dir) continue
+      try {
+        // stop() has already waited for the child to exit; the retries only cover antivirus scanners.
+        rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      } catch {
+        // Leave the temp folder for the OS to clear.
+      }
     }
   })
 
@@ -35,6 +38,7 @@ describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
       if (!setup.ok) throw new Error(`claude is not usable: ${setup.reason}: ${setup.detail}`)
 
       repo = mkdtempSync(join(tmpdir(), 'mainbus-live-'))
+      scratch = mkdtempSync(join(tmpdir(), 'mainbus-live-scratch-'))
       git(repo, 'init', '-q', '-b', 'main')
       git(repo, 'config', 'user.email', 'live@mainbus.test')
       git(repo, 'config', 'user.name', 'Mainbus Live')
@@ -64,6 +68,7 @@ describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
       const permissions: string[] = []
       const spec: RunSpec = {
         cwd: repo,
+        tempDir: scratch,
         ownBranch: 'main',
         prompt:
           'Create a file a.txt containing hi, then call handoff (the tool mcp__mainbus__handoff) with a one-line summary and notes_for_next "none". Do not do anything else.',
@@ -72,7 +77,7 @@ describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
         effort: 'low',
         toolProfile: 'edit',
         disallowedTools: ['AskUserQuestion', 'Agent', 'Task'],
-        additionalDirectories: [],
+        additionalDirectories: [scratch],
         roleTools: {
           askUser: async () => 'no one is available',
           handoff: async (a) => {
