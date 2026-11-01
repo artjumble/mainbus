@@ -14,6 +14,8 @@ export interface UnattendedDeps {
     continue(ticketId: string): Promise<void>
     stateOf(ticketId: string): Promise<TicketState>
     usageLimit(ticketId: string): UsageLimit | undefined
+    /** A launch is in flight, possibly before the ticket's run exists. */
+    isLaunching(ticketId: string): boolean
   }
   /** The open workspace's tickets; none without a workspace. */
   tickets: () => Promise<Ticket[]>
@@ -28,7 +30,6 @@ export interface UnattendedDeps {
 
 const RETRY_MS = 15 * 60 * 1000
 const MAX_FAILURES = 3
-const READY_EMPTY = 'Ready is empty'
 
 /** What became of the queue's ticket since it was started. */
 type Outcome =
@@ -42,12 +43,16 @@ type Outcome =
 
 /**
  * Unattended mode: starts the lowest-numbered Ready ticket, waits until it reaches Review or is blocked,
- * then starts the next, until Ready is empty. It starts one ticket at a time, through the runner's own
- * start and continue, and never merges, pushes or moves a ticket. It is driven by the engine's board events,
- * not polled, and holds the machine awake while it is on. Nothing about it persists across a restart.
+ * then starts the next. With Ready empty it stays on and waits for a ticket to arrive there. It starts a
+ * ticket only while no ticket in the workspace is working, its own or one started by hand, through the
+ * runner's own start and continue, and never merges, pushes or moves a ticket. It is driven by the engine's
+ * board events, not polled, and holds the machine awake only while a ticket is working or a usage limit is
+ * being waited out. Nothing about it persists across a restart.
  */
 export class UnattendedMode {
   private on = false
+  /** The keep-awake is held. */
+  private awake = false
   private status: UnattendedStatus = { kind: 'off' }
   /** The ticket the queue started and is waiting on. */
   private current: Ticket | null = null
@@ -55,6 +60,8 @@ export class UnattendedMode {
   private failures = 0
   /** Tickets that failed to start this session: they may still be in Ready, and are not tried again. */
   private readonly skipped = new Set<string>()
+  /** Tickets the user stopped (back in Ready): not started again until the user moves them to Ready. */
+  private readonly setAside = new Set<string>()
   private timer: NodeJS.Timeout | null = null
   /** A start or continue of the queue's ticket is under way. */
   private busy = false
@@ -84,16 +91,26 @@ export class UnattendedMode {
     this.on = true
     this.failures = 0
     this.skipped.clear()
+    this.setAside.clear()
     this.current = null
-    this.deps.keepAwake.start()
     this.setStatus({ kind: 'starting' })
     this.kick()
     return this.get()
   }
 
-  /** Called before the user's Stop reaches the runner: stopping the queue's ticket means the user is here. */
+  /**
+   * Called before the user's Stop reaches the runner: stopping the queue's ticket means the user is here.
+   * Any other stopped ticket goes back to Ready, where the queue must not pick it straight up again.
+   */
   userStopped(ticketId: string): void {
-    if (this.on && this.current?.id === ticketId) this.turnOff({ kind: 'off' })
+    if (!this.on) return
+    if (this.current?.id === ticketId) this.turnOff({ kind: 'off' })
+    else this.setAside.add(ticketId)
+  }
+
+  /** Called before the user's move reaches the runner: a ticket the user puts in Ready may be started again. */
+  userMoved(ticketId: string, column: string): void {
+    if (column === 'ready') this.setAside.delete(ticketId)
   }
 
   /** Sees every engine event; a board change is the cue to look at the queue's ticket again. */
@@ -137,9 +154,12 @@ export class UnattendedMode {
       if (!this.on || this.busy || this.current !== current) return
       switch (outcome.kind) {
         case 'working':
+          this.setStatus({ kind: 'working', ticketNumber: current.number })
+          this.keepAwake(true)
           return
         case 'limited':
           if (this.timer === null) this.waitForLimit(current, outcome.limit)
+          this.keepAwake(true)
           return
         case 'taken':
           this.turnOff({ kind: 'off' })
@@ -177,22 +197,32 @@ export class UnattendedMode {
     }
   }
 
+  /** Starts the lowest-numbered Ready ticket, unless some ticket is working; otherwise waits for the board to change. */
   private async startNext(): Promise<void> {
     const tickets = [...(await this.deps.tickets())].sort((a, b) => a.number - b.number)
+    let next: Ticket | null = null
     let skippedReady = false
     for (const ticket of tickets) {
       const state = await this.deps.runner.stateOf(ticket.id)
       if (!this.on || this.current !== null || this.busy) return
-      if (state.column !== 'ready') continue
-      if (this.skipped.has(ticket.id)) {
-        skippedReady = true
-        continue
+      if ((state.column === 'in_progress' && state.agentStatus === 'working') || this.deps.runner.isLaunching(ticket.id)) {
+        this.setStatus({ kind: 'other_working', ticketNumber: ticket.number })
+        this.keepAwake(true)
+        return
       }
-      this.current = ticket
-      await this.launch(ticket, () => this.deps.runner.start(ticket.id), true)
+      if (state.column !== 'ready') continue
+      if (this.setAside.has(ticket.id)) continue
+      if (this.skipped.has(ticket.id)) skippedReady = true
+      else next ??= ticket
+    }
+    if (next === null) {
+      this.setStatus(skippedReady ? { kind: 'idle', skipped: true } : { kind: 'idle' })
+      this.keepAwake(false)
       return
     }
-    this.turnOff({ kind: 'stopped', reason: skippedReady ? 'No Ready ticket could be started' : READY_EMPTY })
+    this.current = next
+    const ticket = next
+    await this.launch(ticket, () => this.deps.runner.start(ticket.id), true)
   }
 
   private waitForLimit(ticket: Ticket, limit: UsageLimit): void {
@@ -210,6 +240,7 @@ export class UnattendedMode {
   private async launch(ticket: Ticket, action: () => Promise<void>, starting: boolean): Promise<void> {
     this.busy = true
     this.setStatus({ kind: 'working', ticketNumber: ticket.number })
+    this.keepAwake(true)
     let error: string | null = null
     try {
       await action()
@@ -236,13 +267,20 @@ export class UnattendedMode {
   }
 
   private turnOff(status: UnattendedStatus): void {
-    const wasOn = this.on
     this.on = false
     this.current = null
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
-    if (wasOn) this.deps.keepAwake.stop()
+    this.keepAwake(false)
     this.setStatus(status)
+  }
+
+  /** Holds the machine awake while there is work, and lets it sleep while the mode is idle or off. */
+  private keepAwake(held: boolean): void {
+    if (held === this.awake) return
+    this.awake = held
+    if (held) this.deps.keepAwake.start()
+    else this.deps.keepAwake.stop()
   }
 
   private setStatus(status: UnattendedStatus): void {

@@ -30,7 +30,7 @@ function appUrl(): string {
   return process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(path.join(import.meta.dirname, '../renderer/index.html')).href
 }
 
-/** Keeps the machine from sleeping while unattended mode is on; the engine starts and stops it. */
+/** Keeps the machine from sleeping while unattended mode has work under way; the engine starts and stops it. */
 let blockerId: number | null = null
 const keepAwake = {
   start(): void {

@@ -37,11 +37,16 @@ interface Stage {
   stdin: boolean
 }
 
-type Scanned = { statements: Stage[][] } | { why: string }
+/**
+ * `special`: the command has a `$` (other than a `$null` redirect target) or an `&` that is not `&&`, `&>` or a
+ * fd duplication such as `2>&1`, quoted or not. Prefix rules don't cover such a command.
+ */
+type Scanned = { statements: Stage[][]; special: boolean } | { why: string }
 
 /** Splits on && || ; | and newlines outside quotes. Quotes are removed from tokens. */
 function scan(command: string): Scanned {
   const statements: Stage[][] = []
+  let special = false
   let pipeline: Stage[] = []
   let stage: Stage = { argv: [], redirects: [], inputs: [], stdin: false }
   let token = ''
@@ -51,6 +56,7 @@ function scan(command: string): Scanned {
 
   const endToken = (): void => {
     if (inToken) {
+      if (token.includes('$') && !(pending === 'out' && /^\$null$/i.test(token))) special = true
       if (pending === 'out') stage.redirects.push(token)
       else if (pending === 'in') stage.inputs.push(token)
       else if (pending === null) stage.argv.push(token)
@@ -77,7 +83,10 @@ function scan(command: string): Scanned {
     if (quote) {
       if (c === quote) quote = null
       else if (quote === '"' && (c === '`' || (c === '$' && next === '('))) return { why: 'command substitution' }
-      else token += c
+      else {
+        if (c === '&') special = true
+        token += c
+      }
       continue
     }
     switch (c) {
@@ -129,6 +138,7 @@ function scan(command: string): Scanned {
           pending = 'out'
         } else if (!inToken && stage.argv.length === 0 && /\s/.test(next ?? ' ')) {
           // PowerShell call operator at the start of a command.
+          special = true
         } else {
           return { why: 'a background or call operator (&)' }
         }
@@ -155,7 +165,7 @@ function scan(command: string): Scanned {
   }
   if (quote) return { why: 'an unbalanced quote' }
   endStatement()
-  return { statements }
+  return { statements, special }
 }
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
@@ -221,15 +231,19 @@ function readsStdinAsCode(c: SimpleCommand): boolean {
   return interpreterArgs(c.name, c.argv.slice(1))?.stdin ?? false
 }
 
+// Redirects that write nowhere. Fd duplications such as 2>&1 never reach a stage's redirects.
+const NULL_REDIRECT = /^(\/dev\/null|nul|\$null)$/i
+
 /**
  * Each command's words as typed (quotes removed, nothing peeled), when the command is only plain
- * commands joined by && || ; | or newlines. Null when any of them has a redirect or reads a < file.
+ * commands joined by && || ; | or newlines. Null when any of them has a `$`, an `&` of its own,
+ * reads a < file, or redirects to a file; fd duplications (2>&1) and redirects to null don't count.
  */
 export function plainStages(command: string): string[][] | null {
   const scanned = scan(command)
-  if ('why' in scanned) return null
+  if ('why' in scanned || scanned.special) return null
   const stages = scanned.statements.flat()
-  if (stages.some((s) => s.redirects.length > 0 || s.stdin)) return null
+  if (stages.some((s) => s.redirects.some((r) => !NULL_REDIRECT.test(r)) || s.stdin)) return null
   return stages.map((s) => s.argv).filter((argv) => argv.length > 0)
 }
 

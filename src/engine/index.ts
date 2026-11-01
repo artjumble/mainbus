@@ -39,7 +39,7 @@ export interface EngineConfig {
   launcher?: AgentLauncher | null
   /** Why the intake pipe couldn't be opened, if it couldn't; shown in the Connect agents settings. */
   intakeError?: () => string | null
-  /** Held exactly while unattended mode is on; the app passes Electron's powerSaveBlocker. */
+  /** Held while unattended mode is on and a ticket is working or a usage limit is waited out; the app passes Electron's powerSaveBlocker. */
   keepAwake?: KeepAwake
 }
 
@@ -218,6 +218,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return ticket
       },
       'ticket.move': async (id, column) => {
+        mode.userMoved(id, column)
         if (column === 'done') return (await runner.moveToDone(id)) === 'done' ? 'moved' : 'dirty'
         await runner.moveToColumn(id, column)
         return 'moved'

@@ -1,6 +1,7 @@
 import type { AllowRule } from '../../shared/domain'
 import type { PermissionRequest } from '../runtime/types'
 import { credentialReason } from './credentials'
+import { type FolderContext, isCdInside } from './guard'
 import { commandName, isDestructivePush, parseShell, plainStages } from './shell'
 
 export { isDestructivePush }
@@ -54,14 +55,16 @@ function normalize(command: string): string {
 }
 
 /**
- * The commands of a chain that prefix rules may cover: plain commands joined by && || ; or |,
- * with no redirect, variable, backtick or lone & anywhere. Null means only an exact rule fits.
+ * The commands of a chain that prefix rules must cover: plain commands joined by && || ; or |,
+ * with no redirect to a file, variable, backtick or lone & anywhere (2>&1 and >/dev/null are fine).
+ * A cd into the ticket's folder needs no rule and is left out, so the list can be empty.
+ * Null means only an exact rule fits.
  */
-function plainParts(command: string): string[][] | null {
-  if (/[$`]/.test(command) || command.replace(/&&/g, '').includes('&')) return null
+function plainParts(command: string, folders?: FolderContext): string[][] | null {
   if (parseShell(command).opaque) return null
   const parts = plainStages(command)
-  return parts !== null && parts.length > 0 ? parts : null
+  if (parts === null || parts.length === 0) return null
+  return folders ? parts.filter((words) => !isCdInside(words, folders)) : parts
 }
 
 /** The words a prefix rule for this command keeps, or null when it must get an exact rule. */
@@ -84,17 +87,18 @@ function prefixOf(tokens: string[]): string[] | null {
 /**
  * The rules "Always allow" saves: one prefix rule per command of a plain chain, so
  * `npm test && git commit -m x` saves `npm test *` and `git commit *`; otherwise one exact rule.
+ * With `opts.folders`, a cd into the ticket's folder saves nothing.
  */
 export function rulesFromRequest(
   workspaceId: string,
   r: Req,
-  opts: { exact?: boolean } = {},
+  opts: { exact?: boolean; folders?: FolderContext } = {},
 ): Array<Omit<AllowRule, 'id'>> {
   const command = isShellTool(r.toolName) ? commandOf(r.input) : null
   if (command === null) return [{ workspaceId, toolName: r.toolName, pattern: null }]
   const exact = [{ workspaceId, toolName: r.toolName, pattern: `=${normalize(command)}` }]
   if (opts.exact) return exact
-  const parts = plainParts(command)
+  const parts = plainParts(command, opts.folders)
   const prefixes = parts?.map(prefixOf)
   if (!prefixes || prefixes.some((p) => p === null)) return exact
   const patterns = [...new Set(prefixes.map((p) => `${(p as string[]).join(' ')} *`))]
@@ -107,7 +111,11 @@ function coveredBy(pattern: string, words: string[]): boolean {
   return prefix.length <= words.length && prefix.every((w, i) => w === words[i])
 }
 
-export function isAllowed(rules: AllowRule[], r: Req): boolean {
+/**
+ * True when a rule allows the request. With `folders` (the ticket's), a cd into that folder needs no rule;
+ * leave it out where only exact rules may match.
+ */
+export function isAllowed(rules: AllowRule[], r: Req, folders?: FolderContext): boolean {
   const own = rules.filter((rule) => rule.toolName === r.toolName)
   const command = isShellTool(r.toolName) ? commandOf(r.input) : null
   // No rule can allow these.
@@ -120,7 +128,7 @@ export function isAllowed(rules: AllowRule[], r: Req): boolean {
   // ends in ' *' cannot be mistaken for a prefix rule.
   if (own.some((rule) => rule.pattern?.startsWith('=') && normalize(rule.pattern.slice(1)) === cmd)) return true
   // A chain is allowed only when a prefix rule covers every command in it.
-  const parts = plainParts(command)
+  const parts = plainParts(command, folders)
   if (parts === null) return false
   return parts.every((words) => own.some((rule) => rule.pattern !== null && coveredBy(rule.pattern, words)))
 }
