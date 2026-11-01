@@ -1,0 +1,20 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "waitForSend": true },
+    { "callTool": "handoff", "args": { "summary": "Plan: add hello.txt", "notesForNext": "Ask where it goes" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "message", "text": "Looking at the repo before I add hello.txt." } },
+    { "waitForSend": true },
+    { "callTool": "askUser", "args": { "question": "Where should hello.txt go?", "options": ["Repo root", "docs folder"], "recommended": 0 } },
+    { "requestPermission": { "toolName": "Bash", "input": { "command": "npm install left-pad" }, "toolUseId": "e2e-tool-1" } },
+    { "callTool": "handoff", "args": { "summary": "Added hello.txt", "notesForNext": "none" } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "callTool": "handoff", "args": { "summary": "Reviewed: looks right", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ]
+}

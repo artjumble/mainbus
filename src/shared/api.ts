@@ -10,6 +10,7 @@ import type {
   LineupRole,
   LineupRoleInput,
   NewTicketInput,
+  StartOptions,
   Ticket,
   TicketPatch,
   TicketState,
@@ -48,7 +49,11 @@ export interface EngineCommands {
   /** Retry: pushes the branch of a ticket in Review again and opens its PR if it has none. Never forces. */
   'ticket.openPr'(id: string): void
   'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[] }
-  'agent.start'(ticketId: string): void
+  /**
+   * Runs the ticket through its lineup, as a new ticket run. `roleIds` picks the roles to run (in lineup order);
+   * without it every role runs. Rejects an empty list or an id that isn't in the lineup.
+   */
+  'agent.start'(ticketId: string, opts?: StartOptions): void
   'agent.send'(ticketId: string, text: string): void
   'agent.stop'(ticketId: string): void
   'agent.continue'(ticketId: string): void

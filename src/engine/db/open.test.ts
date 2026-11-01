@@ -5,7 +5,9 @@ import { count, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHome, type HomePaths } from '../home'
 import { openDb } from './open'
+import { createDecisionRepo } from '../store/decisions'
 import { createLineupRepo, defaultLineup } from '../store/lineups'
+import { createRunRepo } from '../store/runs'
 import { criteria, lineupRoles, tickets, workspaces } from './schema'
 
 const realMigrations = path.join(import.meta.dirname, 'migrations')
@@ -142,6 +144,75 @@ describe('openDb', () => {
     expect(new Set(roles.map((r) => r.id)).size).toBe(6)
     const tables = await db.values<[string]>(sql`select name from sqlite_master where type = 'table' and name = 'roles'`)
     expect(tables).toEqual([])
+  })
+
+  it('gives every existing agent run its own one-role ticket run, keeping its thread and decisions', async () => {
+    // The migrations as they were before ticket runs.
+    const first = await open(firstMigrations(3))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
+          values ('role-i', 'w1', 'change', 2, 'Implementer', 'My own words.', 'testing', 'hand_back', 'edit')`
+    )
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into agent_runs (id, ticket_id, role, session_id, model, effort, started_at, ended_at, end_reason)
+          values ('r1', 't1', 'Builder', null, null, null, '2026-10-30T01:00:00.000Z', '2026-10-30T02:00:00.000Z', 'handoff'),
+                 ('r2', 't1', 'Implementer', 'sess-2', 'opus', 'high', '2026-10-30T03:00:00.000Z', null, null)`
+    )
+    await first.db.run(
+      sql`insert into agent_events (run_id, seq, at, json) values ('r2', 1, '2026-10-30T03:00:01.000Z', '{"kind":"message","text":"hi"}')`
+    )
+    await first.db.run(
+      sql`insert into decisions (id, ticket_id, agent_run_id, kind, question, options, status, created_at)
+          values ('d1', 't1', 'r2', 'question', 'Q?', '["a"]', 'pending', '2026-10-30T03:00:02.000Z')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations)
+    const runs = createRunRepo(db, () => new Date())
+    const [old, paused] = await runs.listForTicket('t1')
+    expect(old).toMatchObject({ id: 'r1', ticketRunId: 'r1', roleId: 'r1', role: 'Builder', endReason: 'handoff' })
+    expect(paused).toMatchObject({ id: 'r2', ticketRunId: 'r2', roleId: 'role-i', role: 'Implementer', sessionId: 'sess-2' })
+    expect((await runs.latest('t1'))?.id).toBe('r2')
+
+    // A role still in the lineup is copied from it; one that isn't gets the Implementer's phase and tools.
+    expect(await runs.ticketRun('r2')).toMatchObject({
+      ticketId: 't1',
+      status: 'running',
+      startedAt: '2026-10-30T03:00:00.000Z',
+      endedAt: null,
+      roles: [
+        {
+          id: 'role-i',
+          workspaceId: 'w1',
+          lineup: 'change',
+          position: 1,
+          name: 'Implementer',
+          instructions: 'My own words.',
+          activePhase: 'testing',
+          onProblem: 'ask_me',
+          handBackTo: null,
+          model: 'opus',
+          effort: 'high',
+          toolProfile: 'edit'
+        }
+      ]
+    })
+    expect(await runs.ticketRun('r1')).toMatchObject({
+      status: 'done',
+      endedAt: '2026-10-30T02:00:00.000Z',
+      roles: [{ id: 'r1', name: 'Builder', activePhase: 'implementing', toolProfile: 'edit', model: null }]
+    })
+    expect((await runs.events('r2')).map((e) => e.event)).toEqual([{ kind: 'message', text: 'hi' }])
+    expect((await createDecisionRepo(db, () => new Date()).get('d1')).agentRunId).toBe('r2')
   })
 
   it('backs up an existing database before applying pending migrations', async () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../db/open'
 import { createDecisionRepo } from './decisions'
 import { createRunRepo } from './runs'
-import { FIXED_NOW, openTestDb } from './testDb'
+import { FIXED_NOW, openTestDb, testRole } from './testDb'
 import { createTicketRepo } from './tickets'
 import { createWorkspaceRepo } from './workspaces'
 
@@ -28,7 +28,7 @@ beforeEach(async () => {
       column: 'ready'
     })
   ).id
-  runId = await createRunRepo(db, now).create(ticketId, 'Implementer', null, null)
+  runId = await createRunRepo(db, now).create(ticketId, [testRole()])
 })
 afterEach(() => cleanup())
 

@@ -9,6 +9,7 @@ import { runGit } from '../git/git'
 import { resolveHome, type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
+import { defaultLineup } from '../store/lineups'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { RunSpec } from '../runtime/types'
 import { UnattendedMode, type UnattendedDeps } from './unattended'
@@ -104,6 +105,9 @@ async function harness(runtime: FakeRuntime, columns: ('ready' | 'backlog')[]): 
   const events: EngineEvent[] = []
   engine.on((e) => events.push(e))
   await engine.invoke('workspace.open', repoPath)
+  // One role per ticket, so a single handoff settles it; the lineup test below sets its own.
+  const implementer = (await engine.invoke('lineup.get')).find((r) => r.name === 'Implementer')!
+  await engine.invoke('lineup.save', [{ ...implementer, handBackTo: null }])
   const tickets: Ticket[] = []
   for (const [i, column] of columns.entries()) {
     tickets.push(
@@ -144,6 +148,30 @@ function started(h: Harness): number[] {
 }
 
 describe('unattended mode', () => {
+  // Six agents in real worktrees: slow on a busy machine.
+  it("runs each ticket through its whole lineup, and starts no other ticket between one ticket's roles", { timeout: 30_000 }, async () => {
+    const h = await harness(runtimeFor({}), ['ready', 'ready'])
+    await h.engine.invoke('lineup.save', defaultLineup())
+
+    await h.engine.invoke('unattended.set', true)
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
+
+    // Planner, Implementer and Reviewer of ticket 1, then the same of ticket 2.
+    expect(started(h)).toEqual([1, 1, 1, 2, 2, 2])
+    expect(h.runtime.specs.map((s) => /## Your role: (\w+)/.exec(s.appendSystemPrompt)?.[1])).toEqual([
+      'Planner',
+      'Implementer',
+      'Reviewer',
+      'Planner',
+      'Implementer',
+      'Reviewer'
+    ])
+    expect(await columnOf(h, 1)).toBe('review')
+    expect(await columnOf(h, 2)).toBe('review')
+    const statuses = h.events.flatMap((e) => (e.type === 'unattended.changed' ? [e.state.status] : []))
+    expect(statuses).not.toContainEqual(expect.objectContaining({ kind: 'stopped' }))
+  })
+
   it('is off at launch, works through Ready lowest number first, then stays on and waits when Ready is empty', async () => {
     const h = await harness(runtimeFor({}), ['ready', 'backlog', 'ready'])
     expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })

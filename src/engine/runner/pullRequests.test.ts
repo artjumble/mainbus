@@ -11,8 +11,9 @@ import { PullRequestPublisher } from '../git/pullRequests'
 import { WorktreeManager } from '../git/worktrees'
 import { resolveHome } from '../home'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
+import { defaultLineup } from '../store/lineups'
 import { createRepos, type Repos } from '../store'
-import { FIXED_NOW, openTestDb } from '../store/testDb'
+import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
 
 const BRANCH = 'mainbus/1-rate-limit-login'
@@ -62,6 +63,8 @@ beforeEach(async () => {
   repos = createRepos(testDb.db, () => FIXED_NOW)
   worktrees = new WorktreeManager(runGit, paths, repos.cleanups)
   const ws = await repos.workspaces.create(repoPath, 'main', 'repo', 'repo')
+  // Most tests here are about what one role does; the lineup tests set their own roles.
+  await implementerOnly(repos.lineups, ws.id)
   await repos.workspaces.setOpenPrOnReview(ws.id, true)
   ticket = await repos.tickets.create({
     workspaceId: ws.id,
@@ -153,6 +156,36 @@ describe('TicketRunner opening pull requests', () => {
     expect(gh.prs[0].body).toContain('- [ ] Six attempts are refused')
     expect(gh.prs[0].body).toContain('Mainbus ticket #1')
     expect(await thread()).toContainEqual({ kind: 'pull_request', branch: BRANCH, ...PR, opened: true })
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review', agentStatus: 'handed_off' })
+  })
+
+  it('through a three-role lineup, pushes and opens the PR once, after the last role hands off', async () => {
+    await repos.lineups.save(ticket.workspaceId, defaultLineup())
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+
+    for (const [i, role] of ['Planner', 'Implementer', 'Reviewer'].entries()) {
+      const spec = await vi.waitFor(() => {
+        expect(runtime.specs[i]).toBeDefined()
+        return runtime.specs[i]!
+      }, WAIT)
+      await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
+      expect(spec.appendSystemPrompt).toContain(`## Your role: ${role}\n`)
+      // Nothing is pushed while a role is still to come.
+      expect(publishes).toBe(0)
+      expect(await remoteBranch()).toBeNull()
+      expect(await spec.roleTools.handoff({ summary: `${role} is done`, notesForNext: '' })).toBe(
+        'Handed off. Your part is done; end your turn now.'
+      )
+    }
+
+    const t = await waitForOutcome()
+    expect(t).toMatchObject({ pr: PR, prError: null })
+    expect(publishes).toBe(1)
+    expect(gh.prs).toHaveLength(1)
+    // The PR describes the last role's handoff.
+    expect(gh.prs[0].body).toContain('Reviewer is done')
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review', agentStatus: 'handed_off' })
   })
 

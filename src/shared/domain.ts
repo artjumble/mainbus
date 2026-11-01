@@ -212,3 +212,9 @@ export type GhStatus = { ok: true } | { ok: false; reason: string }
 export type ClaudeSetup =
   | { ok: true; path: string; version: string }
   | { ok: false; reason: 'not_found' | 'not_logged_in' | 'restart_required'; detail: string }
+
+/** How a ticket is started. */
+export interface StartOptions {
+  /** The lineup roles to run, by id; they run in lineup order. Every role when absent. */
+  roleIds?: string[]
+}
