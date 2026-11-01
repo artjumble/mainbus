@@ -1,6 +1,8 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path, { resolve } from 'node:path'
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
 import { Normalizer } from './normalize'
 import { SdkRuntime, type SdkApi } from './sdkRuntime'
@@ -173,6 +175,18 @@ describe('SdkRuntime', () => {
     expect(outside.hookSpecificOutput?.permissionDecision).toBe('ask')
     const inside = await hook({ tool_name: 'Write', tool_input: { file_path: `${spec.cwd}\\x.txt` } }, 't', { signal })
     expect(inside).toEqual({})
+  })
+
+  test("the guard reads $TEMP as the run's scratch folder", async () => {
+    const f = fakeSdk()
+    const spec = makeSpec({ additionalDirectories: ['C:\\scratch\\ws\\1-fix'] })
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    const inside = await hook({ tool_name: 'Bash', tool_input: { command: 'echo hi > $TEMP/x' } }, 't', { signal })
+    expect(inside).toEqual({})
+    const out = await hook({ tool_name: 'Bash', tool_input: { command: 'echo hi > $TEMP/../x' } }, 't', { signal })
+    expect(out.hookSpecificOutput?.permissionDecision).toBe('ask')
   })
 
   test('never returns updatedPermissions (M0)', async () => {
@@ -501,5 +515,45 @@ describe('SdkRuntime', () => {
   test('methods on an unknown run throw', async () => {
     const runtime = new SdkRuntime(CLAUDE_PATH, fakeSdk().sdk)
     await expect(runtime.send({ id: 'nope' }, 'x')).rejects.toThrow(/Unknown run/)
+  })
+})
+
+/** Git Bash, as Claude Code finds it: CLAUDE_CODE_GIT_BASH_PATH, else beside the git on PATH. */
+function gitBashes(): string[] {
+  if (process.platform !== 'win32') return []
+  const configured = process.env.CLAUDE_CODE_GIT_BASH_PATH
+  if (configured && existsSync(configured)) return [configured]
+  const git = spawnSync('git', ['--exec-path'], { encoding: 'utf8' })
+  if (git.status !== 0) return []
+  // <Git>\mingw64\libexec\git-core
+  const root = path.win32.resolve(git.stdout.trim(), '..', '..', '..')
+  return ['bin\\bash.exe', 'usr\\bin\\bash.exe'].map((b) => path.win32.join(root, b)).filter((b) => existsSync(b))
+}
+
+const BASHES = gitBashes()
+
+// The guard reads $TEMP, $TMP and $TMPDIR in Bash commands as the scratch folder: check the agent's shell agrees.
+// Claude Code's Bash tool runs Git Bash with `-c`; a login shell (`-l`) is checked too, since its profile could
+// rewrite them. Git Bash may show TMPDIR as /tmp when its /tmp mount is the same folder; cygpath resolves it
+// through that same mount. /tmp itself is not checked: run under another Git Bash, it is that shell's temp folder.
+describe.skipIf(BASHES.length === 0)('TEMP, TMP and TMPDIR in Git Bash with the environment childEnv builds', () => {
+  let scratch = ''
+  beforeAll(() => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'scratch dir-'))
+  })
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+
+  test.each(BASHES.flatMap((bash) => [[bash, '-c'], [bash, '-l -c']]))('%s %s', async (bash, mode) => {
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec({ tempDir: scratch }))
+    const env = f.calls[0].options.env as NodeJS.ProcessEnv
+    // By full path: a non-login usr\bin\bash started outside Git Bash has no /usr/bin on PATH.
+    const script = 'for v in "$TEMP" "$TMP" "$TMPDIR"; do /usr/bin/cygpath -w "$v"; done'
+    const r = spawnSync(bash, [...mode.split(' '), script], { env, encoding: 'utf8', timeout: 30_000 })
+    expect(r.status, r.stderr).toBe(0)
+    const lines = r.stdout.trim().split(/\r?\n/)
+    expect(lines).toHaveLength(3)
+    const real = realpathSync.native(scratch)
+    for (const line of lines) expect(path.win32.relative(real, realpathSync.native(line)), line).toBe('')
   })
 })

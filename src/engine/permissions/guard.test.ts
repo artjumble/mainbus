@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { type GuardContext, guardReason, kindOf } from './guard'
+import { type GuardContext, guardReason, isCdInside, kindOf } from './guard'
 
 const ctx: GuardContext = {
   worktree: 'C:\\h\\work\\ws\\14-x',
@@ -670,6 +670,162 @@ describe('guardReason: context', () => {
     const other = { command: 'git branch -D mainbus/15-y' }
     expect(messageOf('Bash', other, ctx)).not.toBeNull()
     expect(messageOf('Bash', other, { ...ctx, ownBranch: 'mainbus/15-y' })).toBeNull()
+  })
+})
+
+describe('guardReason: TEMP, TMP and TMPDIR name the scratch folder', () => {
+  const S = 'C:\\h\\scratch\\ws\\14-x'
+  const sc: GuardContext = { ...ctx, scratch: S, additionalDirectories: [S] }
+  const outside = "Writes outside the ticket's folder"
+
+  const inside: Row[] = [
+    bash('echo hi > $TEMP/a'),
+    bash('echo hi > ${TEMP}/a'),
+    bash('echo hi > $TMP/a'),
+    bash('echo hi > ${TMP}/a'),
+    bash('echo hi > $TMPDIR/a'),
+    bash('echo hi > ${TMPDIR}/a'),
+    bash('echo hi > "$TEMP/a b"'),
+    bash('echo hi > $TEMP\\sub\\a'),
+    bash('echo hi > %TEMP%\\a'),
+    bash('echo hi > %tmp%/a'),
+    bash('rm $TEMP/x'),
+    bash('cp a.txt $TMP/copy.txt'),
+    bash('cat $TEMP/x'),
+    bash('mkdir $TEMP'),
+    pwsh('Set-Content $env:TEMP\\a hi'),
+    pwsh('Set-Content $ENV:tmp\\a hi'),
+    pwsh('Set-Content $env:TMPDIR/a hi'),
+    pwsh('Set-Content -Path:$env:TEMP\\a hi'),
+    pwsh('Set-Content %TEMP%\\a hi'),
+    pwsh('Get-Content $env:TEMP\\a'),
+  ]
+  test.each(inside)('%s %j writes to the scratch folder: no reason', (tool, input) => {
+    expect(messageOf(tool, input, sc)).toBeNull()
+  })
+
+  test("the Reviewer's command runs without a card", () => {
+    const command =
+      'npm run typecheck > "$TEMP/tc.txt" 2>&1; echo TC=$? >> "$TEMP/tc.txt"; npm test > "$TEMP/test.txt" 2>&1; echo T=$? >> "$TEMP/test.txt"'
+    expect(messageOf('Bash', { command }, sc)).toBeNull()
+  })
+
+  test('climbing out of the scratch folder is outside', () => {
+    expect(messageOf('Bash', { command: 'echo hi > $TEMP/../x' }, sc)).toBe(`${outside}: C:\\h\\scratch\\ws\\x`)
+    expect(messageOf('PowerShell', { command: 'Set-Content $env:TMP\\..\\..\\x hi' }, sc)).toBe(
+      `${outside}: C:\\h\\scratch\\x`,
+    )
+    expect(messageOf('Bash', { command: 'echo hi > %TEMP%/../x' }, sc)).toBe(`${outside}: C:\\h\\scratch\\ws\\x`)
+  })
+
+  test('a second variable after the scratch folder is outside', () => {
+    expect(messageOf('Bash', { command: 'rm $TEMP/$f' }, sc)).toBe(`${outside}: $TEMP/$f`)
+  })
+
+  test('the settings checks apply inside the scratch folder', () => {
+    expect(messageOf('Bash', { command: 'echo {} > $TEMP/.claude/settings.json' }, sc)).not.toBeNull()
+    expect(messageOf('Bash', { command: 'echo x > $TEMP/.claude/settings.json' }, sc)).toBe(
+      `Changes agent or git settings: ${S}\\.claude\\settings.json`,
+    )
+    expect(messageOf('Bash', { command: 'cat $TEMP/.npmrc' }, sc)).toBe(`Reads a credentials file: $TEMP/.npmrc`)
+  })
+
+  test("each shell's own forms only", () => {
+    expect(messageOf('PowerShell', { command: 'Set-Content $TEMP\\a hi' }, sc)).toBe(`${outside}: $TEMP\\a`)
+    expect(messageOf('PowerShell', { command: 'Set-Content ${TEMP}\\a hi' }, sc)).toBe(`${outside}: \${TEMP}\\a`)
+    expect(messageOf('Bash', { command: 'echo hi > $env:TEMP/a' }, sc)).toBe(`${outside}: $env:TEMP/a`)
+    // Bash names are case-sensitive.
+    expect(messageOf('Bash', { command: 'echo hi > $Temp/a' }, sc)).toBe(`${outside}: $Temp/a`)
+    expect(messageOf('Bash', { command: 'echo hi > $TEMPX/a' }, sc)).toBe(`${outside}: $TEMPX/a`)
+  })
+
+  test('other variables keep asking', () => {
+    for (const p of ['$HOME/x', '$f', '${HOME}/x', '%APPDATA%\\x']) {
+      expect(messageOf('Bash', { command: `echo hi > ${p}` }, sc)).not.toBeNull()
+    }
+    expect(messageOf('Bash', { command: 'echo hi > $HOME/x' }, sc)).toBe(`${outside}: $HOME/x`)
+    expect(messageOf('Bash', { command: 'echo hi > $f' }, sc)).toBe(`${outside}: $f`)
+    expect(messageOf('PowerShell', { command: 'Set-Content $env:USERPROFILE\\x hi' }, sc)).toBe(
+      `${outside}: $env:USERPROFILE\\x`,
+    )
+  })
+
+  // Each writes through $TEMP after (or while) changing what it names; alone, a reassignment raises nothing.
+  const reassigned: Row[] = [
+    bash('TEMP=/x; echo hi > $TEMP/a'),
+    bash('TEMP=/x echo hi > $TEMP/a'),
+    bash('export TMP=/x && echo hi > $TMP/a'),
+    bash('export TMP; echo hi > $TMP/a'),
+    bash('declare TEMP=/x; echo hi > $TEMP/a'),
+    bash('typeset -x TEMP=/x; echo hi > $TEMP/a'),
+    bash('local TEMP=/x; echo hi > $TEMP/a'),
+    bash('readonly TMPDIR=/x; echo hi > $TMPDIR/a'),
+    bash('unset TMPDIR; echo hi > $TMPDIR/a'),
+    bash('read TEMP; echo hi > $TEMP/a'),
+    bash('for TEMP in /x; do echo hi > $TEMP/a; done'),
+    bash('env TEMP=/x sh x.sh > $TEMP/a'),
+    bash('export TE""MP=/x; echo hi > $TEMP/a'),
+    bash("export TE'M'P=/x; echo hi > $TEMP/a"),
+    bash('export TE\\MP=/x; echo hi > $TEMP/a'),
+    bash('export "${n}MP=/x"; echo hi > $TEMP/a'),
+    bash('n=TEMP; printf -v "$n" /x; echo hi > $TEMP/a'),
+    bash('let x=1; echo hi > $TEMP/a'),
+    bash('IFS=/; rm $TEMP/a'),
+    pwsh('set TEMP=x; Set-Content $env:TEMP\\a hi'),
+    pwsh("$env:TEMP = 'C:\\'; Set-Content $env:TEMP\\a hi"),
+    pwsh("Set-Content $env:TEMP\\a hi; $env:TEMP += 'x'"),
+    pwsh('Set-Item env:TEMP C:\\; Set-Content $env:TEMP\\a hi'),
+    pwsh('Remove-Item env:TMP; Set-Content $env:TMP\\a hi'),
+    pwsh('Set-Location env:; Set-Item $n C:\\; Set-Content $env:TEMP\\a hi'),
+    pwsh("[Environment]::SetEnvironmentVariable('TEMP','C:\\'); Set-Content $env:TEMP\\a hi"),
+  ]
+  test.each(reassigned)('%s %j may change them: asks', (tool, input) => {
+    expect(messageOf(tool, input, sc)).not.toBeNull()
+  })
+
+  const runsCode: Row[] = [
+    bash('source ./x.sh; echo hi > $TEMP/a'),
+    bash('. ./x.sh; echo hi > $TEMP/a'),
+    bash('eval x; echo hi > $TEMP/a'),
+    bash("trap 'x' DEBUG; echo hi > $TEMP/a"),
+    pwsh('. .\\x.ps1; Set-Content $env:TEMP\\a hi'),
+    pwsh('.\\setup.ps1; Set-Content $env:TEMP\\a hi'),
+    pwsh('& .\\setup; Set-Content $env:TEMP\\a hi'),
+    pwsh('Import-Module .\\m.psm1; Set-Content $env:TEMP\\a hi'),
+    pwsh('iex $s; Set-Content $env:TEMP\\a hi'),
+    pwsh('Invoke-Expression $s; Set-Content $env:TEMP\\a hi'),
+  ]
+  test.each(runsCode)('%s %j runs code in the shell: asks', (tool, input) => {
+    expect(messageOf(tool, input, sc)).not.toBeNull()
+  })
+
+  test('a program run by path in PowerShell is a child process', () => {
+    expect(messageOf('PowerShell', { command: '.\\tools\\x.exe > $env:TEMP\\a' }, sc)).toBeNull()
+  })
+
+  test('without a scratch folder in the context, $TEMP still asks', () => {
+    const c = { ...ctx, additionalDirectories: [S] }
+    expect(messageOf('Bash', { command: 'echo hi > $TEMP/x' }, c)).toBe(`${outside}: $TEMP/x`)
+    expect(messageOf('Bash', { command: 'echo hi > $TEMP/x' }, { ...c, scratch: '' })).toBe(`${outside}: $TEMP/x`)
+    expect(messageOf('Bash', { command: 'echo hi > $TEMP/x' }, { ...c, scratch: 'rel' })).toBe(`${outside}: $TEMP/x`)
+  })
+
+  test('the scratch folder must also be one of the folders the agent may work in', () => {
+    expect(messageOf('Bash', { command: 'echo hi > $TEMP/x' }, { ...ctx, scratch: S })).toBe(`${outside}: ${S}\\x`)
+  })
+
+  test('a scratch folder Bash would split or glob keeps asking', () => {
+    const spaced = 'C:\\Users\\A B\\scratch\\14-x'
+    const c = { ...ctx, scratch: spaced, additionalDirectories: [spaced] }
+    expect(messageOf('Bash', { command: 'rm $TEMP/x' }, c)).toBe(`${outside}: $TEMP/x`)
+    expect(messageOf('PowerShell', { command: 'Remove-Item $env:TEMP\\x' }, c)).toBeNull()
+    const globbed = 'C:\\h\\[x]\\14-x'
+    const g = { ...ctx, scratch: globbed, additionalDirectories: [globbed] }
+    expect(messageOf('PowerShell', { command: 'Remove-Item $env:TEMP\\x' }, g)).not.toBeNull()
+  })
+
+  test('cd into the scratch folder through a variable is not an allow-rule cd', () => {
+    expect(isCdInside(['cd', '$TEMP'], sc)).toBe(false)
   })
 })
 

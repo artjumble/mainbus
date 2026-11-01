@@ -285,6 +285,8 @@ export class SdkRuntime implements AgentRuntime {
     const guardContext: GuardContext = {
       worktree: spec.cwd,
       additionalDirectories: spec.additionalDirectories,
+      // The guard reads $TEMP and the like in shell commands as this folder, since childEnv points them here.
+      scratch: spec.tempDir,
       ownBranch: spec.ownBranch
     }
     const guard: HookCallback = async (hookInput) => {
