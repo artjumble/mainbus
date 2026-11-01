@@ -25,9 +25,18 @@ describe('workspace repo', () => {
       name: 'my-app',
       repoPath: 'C:\\code\\my-app',
       baseBranch: 'main',
-      slug: 'my-app'
+      slug: 'my-app',
+      openPrOnReview: false
     })
     expect(await repo.get()).toEqual(created)
+  })
+
+  it('switches opening a PR on Review on and off', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const ws = await repo.create('/r', 'main', 'r', 'r')
+    expect((await repo.setOpenPrOnReview(ws.id, true)).openPrOnReview).toBe(true)
+    expect((await repo.get())?.openPrOnReview).toBe(true)
+    expect((await repo.setOpenPrOnReview(ws.id, false)).openPrOnReview).toBe(false)
   })
 
   it('creating a workspace creates its default Implementer role', async () => {

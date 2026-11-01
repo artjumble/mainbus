@@ -9,7 +9,9 @@ import {
 } from '../shared/api'
 import type { AgentLauncher, NewTicketInput, Ticket, Workspace } from '../shared/domain'
 import { openDb } from './db/open'
+import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
+import { PullRequestPublisher } from './git/pullRequests'
 import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
 import type { HomePaths } from './home'
@@ -35,6 +37,8 @@ export interface EngineConfig {
   runtime: AgentRuntime | null
   git: GitRunner
   exec: ExecFn
+  /** Runs `git push` and `gh` for pull requests; tests pass a fake gh. Defaults to running them for real. */
+  commands?: CommandRunner
   /** Shown in the Connect agents settings. */
   launcher?: AgentLauncher | null
   /** Why the intake pipe couldn't be opened, if it couldn't; shown in the Connect agents settings. */
@@ -93,13 +97,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     }
 
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
+    const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
     const runner = new TicketRunner({
       repos,
       worktrees,
       runtime: cfg.runtime ?? missingRuntime,
       now,
       emit,
-      unattended: () => unattended?.isOn() ?? false
+      unattended: () => unattended?.isOn() ?? false,
+      pullRequests
     })
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()
@@ -199,6 +205,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       'workspace.get': () => repos.workspaces.get(),
       'workspace.open': openWorkspace,
+      // Reached only through `invoke` (the renderer's IPC), like ticket.openPr and unattended.set.
+      'workspace.setOpenPrOnReview': async (on) => {
+        const ws = await repos.workspaces.setOpenPrOnReview((await requireWorkspace()).id, on === true)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return ws
+      },
+      'github.check': async () => pullRequests.checkGh((await requireWorkspace()).repoPath),
 
       'board.get': async () => {
         const ws = await repos.workspaces.get()
@@ -222,6 +235,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         await runner.moveToColumn(id, column)
         return 'moved'
       },
+      'ticket.openPr': (id) => runner.openPr(id),
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.
       'thread.get': async (ticketId) => {

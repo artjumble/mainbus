@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { asc, sql } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import type { Workspace } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { roles, workspaces } from '../db/schema'
@@ -10,16 +10,24 @@ export interface WorkspaceRepo {
   create(repoPath: string, baseBranch: string, name: string, slug: string): Promise<Workspace>
   /** The MVP has at most one workspace. */
   get(): Promise<Workspace | null>
+  setOpenPrOnReview(id: string, on: boolean): Promise<Workspace>
 }
 
 function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
-  return { id: row.id, name: row.name, repoPath: row.repoPath, baseBranch: row.baseBranch, slug: row.slug }
+  return {
+    id: row.id,
+    name: row.name,
+    repoPath: row.repoPath,
+    baseBranch: row.baseBranch,
+    slug: row.slug,
+    openPrOnReview: row.openPrOnReview
+  }
 }
 
 export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
   return {
     async create(repoPath, baseBranch, name, slug) {
-      const workspace: Workspace = { id: randomUUID(), name, repoPath, baseBranch, slug }
+      const workspace: Workspace = { id: randomUUID(), name, repoPath, baseBranch, slug, openPrOnReview: false }
       await db.insert(workspaces).values({ ...workspace, createdAt: now().toISOString() })
       await db.insert(roles).values(defaultRole(workspace.id))
       return workspace
@@ -32,6 +40,13 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         .orderBy(asc(workspaces.createdAt), asc(sql`rowid`))
         .limit(1)
       return row ? toWorkspace(row) : null
+    },
+
+    async setOpenPrOnReview(id, on) {
+      await db.update(workspaces).set({ openPrOnReview: on }).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
     }
   }
 }

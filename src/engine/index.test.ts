@@ -4,6 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../shared/api'
 import { openDb } from './db/open'
+import { runCommand } from './git/command'
+import { FakeGh } from './git/fakeGh'
 import { runGit } from './git/git'
 import { resolveHome, type HomePaths } from './home'
 import { createEngine, SetupRequiredError, type Engine } from './index'
@@ -404,5 +406,38 @@ describe('agents.launcher', () => {
     expect(await engine.invoke('agents.launcher')).toEqual(launcher)
     intakeError = "Mainbus couldn't open the pipe: EADDRINUSE"
     expect(await engine.invoke('agents.launcher')).toEqual({ ...launcher, intakeError })
+  })
+})
+
+describe('pull requests', () => {
+  it('are off for a new workspace; switched on, a handoff opens one, and Retry pushes again', { timeout: 60_000 }, async () => {
+    const gh = new FakeGh()
+    const runtime = new FakeRuntime([{ waitForSend: true }])
+    const engine = await createEngine({ paths, migrationsDir, runtime, git: runGit, exec, commands: gh.runner(runCommand) })
+    engines.push(engine)
+    const origin = path.join(tmp, 'origin.git')
+    await git(['init', '--bare', '-b', 'main', origin], tmp)
+    await git(['remote', 'add', 'origin', origin], repoPath)
+
+    expect((await engine.invoke('workspace.open', repoPath)).openPrOnReview).toBe(false)
+    expect(await engine.invoke('github.check')).toEqual({ ok: true })
+    gh.state = 'signed_out'
+    expect(await engine.invoke('github.check')).toEqual({ ok: false, reason: expect.stringMatching(/not signed in/) })
+    gh.state = 'ok'
+    expect((await engine.invoke('workspace.setOpenPrOnReview', true)).openPrOnReview).toBe(true)
+    expect((await engine.invoke('workspace.get'))?.openPrOnReview).toBe(true)
+
+    const ticket = await engine.invoke('ticket.create', newTicket)
+    await engine.invoke('agent.start', ticket.id)
+    await runtime.specs[0].roleTools.handoff({ summary: 'Done', notesForNext: '' })
+    const pr = { url: 'https://github.com/example/repo/pull/1', number: 1 }
+    await vi.waitFor(async () => expect((await engine.invoke('board.get')).tickets[0]).toMatchObject({ pr, prError: null }), {
+      timeout: 20_000,
+      interval: 50
+    })
+
+    await engine.invoke('ticket.openPr', ticket.id)
+    expect(gh.prs).toHaveLength(1)
+    expect((await engine.invoke('board.get')).tickets[0]).toMatchObject({ pr, state: { column: 'review' } })
   })
 })

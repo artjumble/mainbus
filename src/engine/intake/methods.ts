@@ -144,6 +144,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
           ...status(t.state),
           labels: t.labels,
           source: t.intent[0]?.source ?? null,
+          prUrl: t.pr?.url ?? null,
           createdAt: t.createdAt,
           updatedAt: t.updatedAt
         }))
@@ -161,6 +162,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
         spec: t.spec,
         criteria: t.criteria.map((c) => ({ text: c.text, checked: c.checked })),
         labels: t.labels,
+        prUrl: t.pr?.url ?? null,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt
       }

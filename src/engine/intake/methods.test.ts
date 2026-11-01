@@ -157,6 +157,7 @@ describe('intake list and get', () => {
         agentStatus: null,
         labels: ['ui'],
         source: null,
+        prUrl: null,
         createdAt: expect.any(String),
         updatedAt: expect.any(String)
       },
@@ -195,6 +196,7 @@ describe('intake list and get', () => {
         { text: 'B', checked: false }
       ],
       labels: ['ci'],
+      prUrl: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String)
     })
@@ -233,11 +235,44 @@ describe('intake list and get', () => {
     expect(tickets).not.toHaveBeenCalled()
   })
 
+  it('list and get return the pull request URL once there is one', async () => {
+    const ws = { id: 'w', name: 'repo', repoPath: '/r' } as Parameters<Parameters<typeof createIntakeHandler>[0]['ticket']>[0]
+    const state = { column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off', summary: null, canContinue: false } as const
+    const ticket = {
+      number: 4,
+      title: 'T',
+      intent: [],
+      spec: '',
+      criteria: [],
+      labels: [],
+      pr: { url: 'https://github.com/o/r/pull/9', number: 9 },
+      createdAt: 'c',
+      updatedAt: 'u',
+      state
+    } as unknown as Awaited<ReturnType<Parameters<typeof createIntakeHandler>[0]['ticket']>> & object
+    const handle = createIntakeHandler({
+      workspace: async () => ws,
+      createTicket: vi.fn(),
+      tickets: async () => [ticket],
+      ticket: async () => ticket
+    })
+    expect((await handle('list', {})).tickets[0]).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
+    expect(await handle('get', { number: 4 })).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
+  })
+
   it('rejects unknown methods', async () => {
     const { engine } = await board()
     const error = await failure(engine.intake('delete' as 'get', { number: 1 }))
     expect(error.code).toBe('unknown_method')
   })
+
+  it.each(['openPr', 'ticket.openPr', 'push', 'setOpenPrOnReview', 'workspace.setOpenPrOnReview'])(
+    'has no way to make Mainbus push: %s is unknown',
+    async (method) => {
+      const { engine } = await board()
+      expect((await failure(engine.intake(method as 'get', { number: 1 }))).code).toBe('unknown_method')
+    }
+  )
 })
 
 describe('isInside', () => {

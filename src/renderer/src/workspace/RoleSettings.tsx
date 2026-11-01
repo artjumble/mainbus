@@ -4,6 +4,7 @@ import type { AllowRule, Effort, Role } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { ConnectAgents } from './ConnectAgents'
+import { PullRequestSettings } from './PullRequestSettings'
 
 interface Props {
   opened: boolean
@@ -136,6 +137,8 @@ export function RoleSettings({ opened, onClose }: Props): ReactElement {
             </Button>
           </Group>
         </Stack>
+
+        <PullRequestSettings opened={opened} />
 
         <Stack gap="sm">
           <Title order={3} size="h4">

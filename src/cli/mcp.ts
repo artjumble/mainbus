@@ -85,7 +85,7 @@ export function createMcpServer(target: IntakeTarget, cwd: string): McpServer {
     {
       title: 'List Mainbus tickets',
       description:
-        "Lists the tickets on the user's Mainbus board (number, title, column, phase, labels, who filed it). " +
+        "Lists the tickets on the user's Mainbus board (number, title, column, phase, labels, who filed it, pull request). " +
         'Call it before create_ticket to avoid duplicates. Optionally filter by column.',
       inputSchema: { column: z.enum(COLUMNS).optional().describe('Only tickets in this column') }
     },
@@ -97,7 +97,7 @@ export function createMcpServer(target: IntakeTarget, cwd: string): McpServer {
     'get_ticket',
     {
       title: 'Read a Mainbus ticket',
-      description: "Reads one ticket on the user's Mainbus board by number: title, intent, spec, criteria, labels and status.",
+      description: "Reads one ticket on the user's Mainbus board by number: title, intent, spec, criteria, labels, status and pull request.",
       inputSchema: { number: z.number().int().describe('The ticket number, as in #12') }
     },
     ({ number }) => call(async () => JSON.stringify(await request(target, 'get', { number }), null, 2))

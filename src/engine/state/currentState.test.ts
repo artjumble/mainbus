@@ -16,6 +16,8 @@ const ticket: Ticket = {
   manualColumn: 'backlog',
   branch: null,
   worktreePath: null,
+  pr: null,
+  prError: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z'
 }

@@ -1,6 +1,6 @@
-import { Badge, Group, Paper, Text } from '@mantine/core'
+import { Anchor, Badge, Group, Paper, Text } from '@mantine/core'
 import { memo, type KeyboardEvent, type ReactElement } from 'react'
-import type { Phase, TicketState } from '../../../shared/domain'
+import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 
@@ -38,14 +38,31 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   )
 }
 
+/** "PR #N", opening the pull request in the user's browser (the main process sends new windows there). */
+export function PrLink({ pr, size = 'xs' }: { pr: PullRequest; size?: 'xs' | 'sm' }): ReactElement {
+  return (
+    <Anchor
+      href={pr.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      size={size}
+      // Inside a card, the link opens the PR, not the ticket.
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      PR #{pr.number}
+    </Anchor>
+  )
+}
+
 interface Props {
   ticket: BoardTicket
   onOpen: (id: string) => void
 }
 
 /**
- * A board card: number, title and phase chip, a badge when an agent filed the ticket, and a one-line summary
- * in Needs you. Nothing else, by design.
+ * A board card: number, title and phase chip, a badge when an agent filed the ticket, a link to its pull request
+ * once there is one, and a one-line summary in Needs you. Nothing else, by design.
  */
 export const TicketCard = memo(function TicketCard({ ticket, onOpen }: Props): ReactElement {
   const { state } = ticket
@@ -79,6 +96,7 @@ export const TicketCard = memo(function TicketCard({ ticket, onOpen }: Props): R
       <Group gap="xs">
         <PhaseChip state={state} />
         {source && <AgentBadge source={source} />}
+        {ticket.pr && <PrLink pr={ticket.pr} />}
       </Group>
       {state.column === 'needs_you' && state.summary && (
         <Text size="xs" c="dimmed" mt={6} lineClamp={1}>

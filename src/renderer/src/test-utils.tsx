@@ -31,7 +31,8 @@ export const workspace: Workspace = {
   name: 'mainbus',
   repoPath: 'C:\\repos\\mainbus',
   baseBranch: 'main',
-  slug: 'mainbus'
+  slug: 'mainbus',
+  openPrOnReview: false
 }
 
 let counter = 0
@@ -51,6 +52,8 @@ export function makeTicket(overrides: Partial<Ticket> = {}, state: Partial<Ticke
     manualColumn: 'backlog',
     branch: null,
     worktreePath: null,
+    pr: null,
+    prError: null,
     createdAt: '2026-10-30T00:00:00.000Z',
     updatedAt: '2026-10-30T00:00:00.000Z',
     ...overrides,

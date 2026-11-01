@@ -1,7 +1,8 @@
-import { Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
+import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { invoke } from '../api'
-import { PhaseChip } from '../board/TicketCard'
+import { PhaseChip, PrLink } from '../board/TicketCard'
+import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { showAgentError } from '../thread/agentError'
 import { Composer } from '../thread/Composer'
@@ -45,13 +46,43 @@ export function TicketView(): ReactElement {
           </Title>
           <Text>is</Text>
           <PhaseChip state={ticket.state} />
+          {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           <Text size="sm" c="dimmed" ml="auto">
             Source: Local
           </Text>
         </Group>
+        {ticket.prError !== null && ticket.state.column === 'review' && <PrFailure ticket={ticket} />}
       </Stack>
       <TicketBody key={ticket.id} ticket={ticket} />
     </Flex>
+  )
+}
+
+/** Why Mainbus couldn't push the branch or open the PR, with a Retry that runs the same steps again. */
+function PrFailure({ ticket }: { ticket: BoardTicket }): ReactElement {
+  const [retrying, setRetrying] = useState(false)
+
+  async function retry(): Promise<void> {
+    setRetrying(true)
+    try {
+      // A new failure comes back on the ticket, through the board; a refusal comes back here.
+      await invoke('ticket.openPr', ticket.id)
+    } catch (err) {
+      showError(err, "Couldn't open a PR")
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  return (
+    <Alert color="needs" variant="light" p="xs" mt={4}>
+      <Group gap="sm" wrap="nowrap" justify="space-between">
+        <Text size="sm">{`Couldn't open a PR: ${ticket.prError}`}</Text>
+        <Button size="compact-sm" variant="default" loading={retrying} onClick={() => void retry()}>
+          Retry
+        </Button>
+      </Group>
+    </Alert>
   )
 }
 

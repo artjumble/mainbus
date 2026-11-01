@@ -1,6 +1,7 @@
 import type { EngineEvent } from '../../shared/api'
 import type { Decision, DecisionAnswer, Role, Ticket, TicketState, Workspace } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent } from '../../shared/events'
+import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
 import { credentialReason } from '../permissions/credentials'
 import { guardReason } from '../permissions/guard'
@@ -34,6 +35,11 @@ export interface RunnerDeps {
    * and a run stopped by a usage limit is paused (its process stopped, the run kept open) rather than left idle.
    */
   unattended?: () => boolean
+  /**
+   * Pushes a handed-off ticket's branch and opens its pull request, when the workspace asks for that.
+   * Mainbus runs it itself, after the handoff: it never goes through the agent's permissions.
+   */
+  pullRequests?: { publish(input: PublishInput): Promise<PublishResult> }
 }
 
 export const NUDGE_TEXT =
@@ -55,6 +61,10 @@ const SHUTDOWN_SETTLE_MS = 5000
 const SHUTTING_DOWN = 'Mainbus is shutting down'
 const USAGE_LIMIT_PAUSE = 'Paused by the usage limit. Unattended mode continues this ticket when the limit resets.'
 const AUTO_ALLOWED = 'Allowed by unattended mode'
+const PR_FAILED = "Couldn't open a PR"
+const PR_SETTING_OFF = 'Turn on "Open a PR when a ticket reaches Review" in the workspace settings first'
+const PR_NOT_IN_REVIEW = 'Only a ticket in Review can be pushed'
+const PR_NO_BRANCH = 'This ticket has no branch to push'
 
 /** Where a thread event goes: the run's thread, announced for its ticket and workspace. */
 interface ThreadTarget {
@@ -146,6 +156,14 @@ export class TicketRunner {
 
   continue(ticketId: string): Promise<void> {
     return this.serial(ticketId, () => this.continueNow(ticketId))
+  }
+
+  /**
+   * Pushes the ticket's branch and opens its pull request again, after a failure. The user's Retry only:
+   * the agent intake has no way to it. It never forces the push.
+   */
+  openPr(ticketId: string): Promise<void> {
+    return this.serial(ticketId, () => this.publishNow(ticketId, true))
   }
 
   moveToDone(ticketId: string): Promise<'done' | 'dirty'> {
@@ -365,6 +383,43 @@ export class TicketRunner {
     await this.expirePending(where, () => true)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
     return 'done'
+  }
+
+  /**
+   * Pushes the branch of a ticket in Review and opens its PR, or only pushes when it has one. A failure is
+   * recorded on the ticket and in its thread, and the ticket stays in Review. `retry` is the user asking:
+   * then a ticket that can't be pushed is an error rather than nothing to do.
+   */
+  private async publishNow(ticketId: string, retry: boolean): Promise<void> {
+    let ticket = await this.repos.tickets.get(ticketId)
+    if (!retry && ticket.prError !== null) {
+      // A failure from an earlier round is out of date once the agent has handed off again.
+      ticket = await this.repos.tickets.setPrError(ticketId, null)
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    }
+    const workspace = await this.workspaceOf(ticket)
+    const run = await this.repos.runs.latest(ticketId)
+    const publisher = this.deps.pullRequests
+    const { branch, worktreePath } = ticket
+    if (!publisher || !workspace.openPrOnReview) return cannotPublish(retry, PR_SETTING_OFF)
+    if (!run || run.endReason !== 'handoff' || ticket.manualColumn === 'done') return cannotPublish(retry, PR_NOT_IN_REVIEW)
+    if (branch === null || worktreePath === null) return cannotPublish(retry, PR_NO_BRANCH)
+
+    const events = await this.repos.runs.events(run.id)
+    const handoff = events.findLast((e) => e.event.kind === 'handoff')?.event
+    const result = await publisher.publish({
+      ticket: { ...ticket, branch, worktreePath },
+      baseBranch: workspace.baseBranch,
+      handoffSummary: handoff?.kind === 'handoff' ? handoff.summary : null
+    })
+    const target = this.target(run, ticket)
+    if (result.ok) {
+      await this.repos.tickets.setPr(ticketId, result.pr)
+      await this.record(target, { kind: 'pull_request', branch, number: result.pr.number, url: result.pr.url, opened: result.opened })
+    } else {
+      await this.repos.tickets.setPrError(ticketId, result.reason)
+      await this.record(target, { kind: 'notice', text: `${PR_FAILED}: ${result.reason}` })
+    }
   }
 
   // --- launching (always inside a queued step) ---
@@ -628,6 +683,8 @@ export class TicketRunner {
         await this.record(target, { kind: 'handoff', summary, outcome: 'done' })
         // Nobody is left to receive an answer to this run's open questions.
         await this.expirePending(target, (d) => d.kind === 'question' && d.agentRunId === target.runId)
+        // The ticket is in Review now; the push and PR follow in its queue, without holding up this reply.
+        void this.serial(target.ticketId, () => this.publishNow(target.ticketId, false)).catch(() => {})
         return HANDED_OFF
       }
     }
@@ -766,6 +823,11 @@ export class TicketRunner {
     if (!workspace || workspace.id !== ticket.workspaceId) throw new Error(`No workspace for ticket ${ticket.id}`)
     return workspace
   }
+}
+
+/** There is nothing to push: an error when the user asked for it, nothing to do when it came after a handoff. */
+function cannotPublish(retry: boolean, why: string): void {
+  if (retry) throw new Error(why)
 }
 
 function checkAnswer(decision: Decision, a: DecisionAnswer): void {

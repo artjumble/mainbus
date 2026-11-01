@@ -9,6 +9,8 @@ export const workspaces = sqliteTable('workspaces', {
   repoPath: text('repo_path').notNull(),
   baseBranch: text('base_branch').notNull(),
   slug: text('slug').notNull(),
+  /** Push the branch and open a pull request when a ticket reaches Review. */
+  openPrOnReview: integer('open_pr_on_review', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull()
 })
 
@@ -41,6 +43,10 @@ export const tickets = sqliteTable(
     manualColumn: text('manual_column').notNull(),
     branch: text('branch'),
     worktreePath: text('worktree_path'),
+    prUrl: text('pr_url'),
+    prNumber: integer('pr_number'),
+    /** Why the last push or pull request failed; null once one succeeds. */
+    prError: text('pr_error'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },

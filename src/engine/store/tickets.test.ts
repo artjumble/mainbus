@@ -62,6 +62,8 @@ describe('ticket repo', () => {
       manualColumn: 'ready',
       branch: null,
       worktreePath: null,
+      pr: null,
+      prError: null,
       createdAt: FIXED_NOW.toISOString(),
       updatedAt: FIXED_NOW.toISOString()
     })
@@ -147,6 +149,18 @@ describe('ticket repo', () => {
     expect(set).toMatchObject({ branch: 'mainbus/1-add-login', worktreePath: 'C:\\home\\work\\r\\1-add-login' })
     const cleared = await repo.setWorktree(t.id, 'mainbus/1-add-login', null)
     expect(cleared).toMatchObject({ branch: 'mainbus/1-add-login', worktreePath: null })
+  })
+
+  it('records a pull request, and a failure until one succeeds', async () => {
+    const repo = createTicketRepo(db, now)
+    const t = await repo.create(input())
+    expect(await repo.setPrError(t.id, 'gh is not signed in')).toMatchObject({ pr: null, prError: 'gh is not signed in' })
+    const opened = await repo.setPr(t.id, { url: 'https://github.com/o/r/pull/7', number: 7 })
+    expect(opened).toMatchObject({ pr: { url: 'https://github.com/o/r/pull/7', number: 7 }, prError: null })
+    expect(await repo.setPrError(t.id, 'the push was rejected')).toMatchObject({
+      pr: { url: 'https://github.com/o/r/pull/7', number: 7 },
+      prError: 'the push was rejected'
+    })
   })
 
   it('throws for an unknown ticket', async () => {

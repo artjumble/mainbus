@@ -104,6 +104,23 @@ test('a notice from Mainbus is shown in the thread', () => {
   expect(container.querySelector('[data-event="notice"]')).toHaveTextContent(text)
 })
 
+test('a push says whether it opened the PR, and links to it', () => {
+  const pr = { branch: 'mainbus/5-x', number: 5, url: 'https://github.com/o/r/pull/5' }
+  const { container } = renderWithMantine(
+    <Thread
+      events={[ev({ kind: 'pull_request', ...pr, opened: true }), ev({ kind: 'pull_request', ...pr, opened: false })]}
+      decisions={[]}
+    />
+  )
+  const rows = container.querySelectorAll('[data-event="pull_request"]')
+  expect(rows[0]).toHaveTextContent('Pushed mainbus/5-x and opened PR #5')
+  expect(rows[1]).toHaveTextContent('Pushed mainbus/5-x to PR #5')
+  for (const link of screen.getAllByRole('link', { name: 'PR #5' })) {
+    expect(link).toHaveAttribute('href', pr.url)
+    expect(link).toHaveAttribute('target', '_blank')
+  }
+})
+
 test('partial messages are replaced by the final message, not duplicated', () => {
   const partial = (text: string): StoredEvent => makeEvent({ kind: 'message', text, partial: true }, { seq: 0 })
   const stream = [partial('Hel'), partial('Hello'), ev({ kind: 'message', text: 'Hello world' })]
