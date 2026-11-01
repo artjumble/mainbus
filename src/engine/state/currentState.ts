@@ -1,9 +1,14 @@
 import type { Decision, Phase, Ticket, TicketState } from '../../shared/domain'
 import type { StoredEvent } from '../../shared/events'
+import type { EndReason } from '../store/runs'
 
 export interface StateInput {
   ticket: Ticket
-  run: { endReason: 'handoff' | 'stopped' | 'failed' | null; events: StoredEvent[] } | null
+  /**
+   * A handed-back run is never the latest (the earlier role's run starts before it ends); if it were, the
+   * ticket would show as paused mid-lineup.
+   */
+  run: { endReason: EndReason | null; events: StoredEvent[] } | null
   /** Only pending decisions; the caller filters by status. */
   pendingDecisions: Decision[]
   processAlive: boolean
@@ -49,7 +54,7 @@ export function currentState(input: StateInput): TicketState {
     // Stopping puts the ticket back in Ready; the user may then move it to Backlog.
     return { column: ticket.manualColumn, phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
   }
-  if (!processAlive) {
+  if (!processAlive || run.endReason === 'handed_back') {
     return { column: 'in_progress', phase: activePhase, agentStatus: 'paused', summary: null, canContinue: true }
   }
   return { column: 'in_progress', phase: activePhase, agentStatus: 'working', summary: null, canContinue: false }

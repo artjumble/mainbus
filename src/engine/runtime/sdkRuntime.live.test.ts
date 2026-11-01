@@ -83,7 +83,9 @@ describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
           handoff: async (a) => {
             handoffs.push(a)
             return 'Recorded. End your turn now.'
-          }
+          },
+          reportProblem: async () => 'no one is available',
+          checkCriterion: async () => 'Checked'
         },
         onPermission: async (r) => {
           permissions.push(`${r.toolName}: ${r.reason ?? ''}`)

@@ -210,6 +210,54 @@ test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and
   }
 })
 
+test('the Reviewer ticks a criterion and hands a problem back once, and the ticket still reaches Review', async () => {
+  const { tmp, home, repo } = makeRepo()
+  let app: ElectronApplication | undefined
+  try {
+    let page: Page
+    // The Reviewer ticks criterion 0 and reports a problem; resumed, each role hands off.
+    ;({ app, page } = await launch(home, repo, true, 'e2e/fixtures/hand-back-by-role.json'))
+    await page.getByRole('button', { name: 'New ticket' }).click()
+    await page.getByLabel('Title').fill('Add hello file')
+    await page.getByLabel('In your words').fill('Add hello.txt')
+    await page.getByLabel('Acceptance criteria').fill('hello.txt exists\nIt ends with a newline')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.getByRole('button', { name: /Add hello file/ }).click()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
+
+    await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
+    const exists = page.getByRole('checkbox', { name: 'hello.txt exists' })
+    const newline = page.getByRole('checkbox', { name: 'It ends with a newline' })
+    await expect(exists).not.toBeChecked()
+    await page.getByLabel('Message the Reviewer').fill('Go on')
+    await page.getByRole('button', { name: 'Send' }).click()
+
+    // The checklist updates live, and the thread says who checked what.
+    await expect(exists).toBeChecked()
+    await expect(newline).not.toBeChecked()
+    await expect(page.getByText('Reviewer checked: hello.txt exists', { exact: true })).toBeVisible()
+
+    // The hand-back divider names both roles, with the problem collapsed under it.
+    const handBack = page.getByRole('group', { name: 'Reviewer handed back to Implementer' })
+    await expect(handBack.getByText('Reviewer handed back to Implementer', { exact: true })).toBeVisible()
+    await handBack.getByRole('button', { name: 'Show details' }).click()
+    await expect(handBack.getByText('hello.txt has no trailing newline', { exact: true })).toBeVisible()
+
+    // The Implementer resumes and hands off straight back to the Reviewer, which hands off: Review.
+    await expect(page.getByText('Implementer: adding the newline.')).toBeVisible()
+    await expect(page.getByText('Reviewer: looks right now.')).toBeVisible()
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+    await expectStrip(page, ['Planner Handed off', 'Implementer Handed off', 'Reviewer Handed off'])
+    // The Planner ran once.
+    await expect(page.getByText('Planner: reading the ticket.')).toHaveCount(1)
+    await page.getByRole('button', { name: /board/ }).click()
+    await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
+  } finally {
+    await app?.close()
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
+  }
+})
+
 test('Adjust before starting runs only the ticked roles, and Start again begins a new run', async () => {
   const { tmp, home, repo } = makeRepo()
   let app: ElectronApplication | undefined

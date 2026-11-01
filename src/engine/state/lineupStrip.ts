@@ -14,6 +14,8 @@ export interface StripInput {
 
 const ENDED: Record<NonNullable<AgentRunRow['endReason']>, RoleStatus> = {
   handoff: 'handed_off',
+  // Waiting for the earlier role it handed back to.
+  handed_back: 'handed_off',
   failed: 'failed',
   stopped: 'stopped'
 }

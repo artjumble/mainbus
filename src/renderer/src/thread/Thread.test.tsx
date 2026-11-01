@@ -131,6 +131,39 @@ test('each role tags its messages and tool groups, and a handoff divider names b
   expect(screen.getByText('plan').tagName).toBe('STRONG')
 })
 
+test('a hand-back is a divider naming both roles with its details collapsed, and a checked criterion a dimmed line', async () => {
+  const runs: Record<string, ThreadRun> = {
+    r: { id: 'r', ticketRunId: 'tr1', role: 'Reviewer' },
+    i: { id: 'i', ticketRunId: 'tr1', role: 'Implementer' }
+  }
+  const events = [
+    makeEvent({ kind: 'criterion_checked', index: 0, text: 'Six attempts are refused' }, { runId: 'r', seq: 1 }),
+    makeEvent(
+      {
+        kind: 'hand_back',
+        from: 'Reviewer',
+        to: 'Implementer',
+        fromRoleId: 'role-r',
+        toRoleId: 'role-i',
+        details: 'The **limiter** is never applied'
+      },
+      { runId: 'r', seq: 2 }
+    ),
+    makeEvent({ kind: 'role_hand_back', from: 'Reviewer', to: 'Implementer' }, { runId: 'i', seq: 1 })
+  ]
+  const { container } = renderWithMantine(<Thread events={events} decisions={[]} runs={runs} />)
+
+  expect(screen.getByText('Reviewer checked: Six attempts are refused').closest('[data-event="criterion_checked"]')).not.toBeNull()
+  const divider = screen.getByText('Reviewer handed back to Implementer')
+  expect(divider.closest('[data-event="hand_back"]')).not.toBeNull()
+  // The role hand-back after it shows nothing of its own.
+  expect(container.querySelectorAll('[data-event="hand_back"]')).toHaveLength(1)
+  expect(screen.queryByText('limiter')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Show details' }))
+  expect(screen.getByRole('button', { name: 'Hide details' })).toHaveAttribute('aria-expanded', 'true')
+  expect(screen.getByText('limiter').tagName).toBe('STRONG')
+})
+
 test('a handoff recorded without the next role takes it from the role handoff after it', () => {
   const runs: Record<string, ThreadRun> = {
     p: { id: 'p', ticketRunId: 'tr1', role: 'Planner' },

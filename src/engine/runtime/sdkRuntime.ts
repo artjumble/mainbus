@@ -23,6 +23,13 @@ export interface SdkApi {
 }
 
 const READ_ONLY_DISALLOWED = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
+/** Mainbus's own role tools: outside auto mode they would otherwise raise a permission card per call. */
+const ROLE_TOOLS = [
+  'mcp__mainbus__ask_user',
+  'mcp__mainbus__handoff',
+  'mcp__mainbus__report_problem',
+  'mcp__mainbus__check_criterion'
+]
 
 interface Run {
   q: Query
@@ -227,7 +234,7 @@ export class SdkRuntime implements AgentRuntime {
     const sdk = this.sdk
     const server = sdk.createSdkMcpServer({
       name: 'mainbus',
-      // M0 E4: otherwise the agent spends a step on ToolSearch to load these two tools.
+      // M0 E4: otherwise the agent spends a step on ToolSearch to load these tools.
       alwaysLoad: true,
       tools: [
         sdk.tool(
@@ -255,6 +262,22 @@ export class SdkRuntime implements AgentRuntime {
             notes_for_next: z.string().describe('What the next role needs to know')
           },
           async (a) => toolText(await spec.roleTools.handoff({ summary: a.summary, notesForNext: a.notes_for_next }))
+        ),
+        sdk.tool(
+          'report_problem',
+          'Report a problem that stops you, such as one an earlier role must fix. Call it, then end your turn.',
+          {
+            details: z.string().describe('What is wrong and what needs to change')
+          },
+          async (a) => toolText(await spec.roleTools.reportProblem({ details: a.details }))
+        ),
+        sdk.tool(
+          'check_criterion',
+          "Tick one of the ticket's acceptance criteria once you have verified it.",
+          {
+            index: z.number().int().describe('Zero-based index of the criterion, as numbered in your instructions')
+          },
+          async (a) => toolText(await spec.roleTools.checkCriterion({ index: a.index }))
         )
       ]
     })
@@ -301,8 +324,7 @@ export class SdkRuntime implements AgentRuntime {
       strictMcpConfig: true,
       includePartialMessages: true,
       disallowedTools,
-      // Mainbus's own role tools: outside auto mode they would otherwise raise a permission card per call.
-      allowedTools: ['mcp__mainbus__ask_user', 'mcp__mainbus__handoff'],
+      allowedTools: ROLE_TOOLS,
       additionalDirectories: spec.additionalDirectories,
       mcpServers: { mainbus: server },
       hooks: { PreToolUse: [{ hooks: [guard] }] },

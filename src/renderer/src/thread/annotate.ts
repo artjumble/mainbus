@@ -22,6 +22,7 @@ const HIDDEN = new Set<ThreadEvent['kind']>([
   'usage',
   'status',
   'role_handoff',
+  'role_hand_back',
   'rate_limit',
   'vcs_changed',
   'needs_input'

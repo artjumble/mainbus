@@ -50,6 +50,15 @@ test('a tool group starts at the first tool row of a run, after any other row, a
   expect(annotate(events, runs).map((a) => a.toolGroupStart)).toEqual([true, false, false, false, false, true, true, false])
 })
 
+test('a role hand-back is not shown, so a tool group after it still starts there', () => {
+  const events = [
+    call('i', 'a'),
+    e('r', { kind: 'role_hand_back', from: 'Reviewer', to: 'Implementer' }),
+    call('i', 'b')
+  ]
+  expect(annotate(events, runs).map((a) => a.toolGroupStart)).toEqual([true, false, false])
+})
+
 test('a handoff is labelled with the role it went to', () => {
   const events = [
     e('p', { kind: 'handoff', summary: 's', outcome: 'done', to: 'Implementer' }),

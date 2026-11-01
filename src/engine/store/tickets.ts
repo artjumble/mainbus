@@ -18,6 +18,11 @@ export interface TicketRepo {
   /** Records the ticket's pull request and clears any earlier failure. */
   setPr(id: string, pr: PullRequest): Promise<Ticket>
   setPrError(id: string, error: string | null): Promise<Ticket>
+  /**
+   * Ticks the criterion at `position` (never unticks). Returns it with `wasChecked` (whether it was already
+   * ticked), or null when the ticket has no criterion there.
+   */
+  checkCriterion(id: string, position: number): Promise<(Criterion & { wasChecked: boolean }) | null>
 }
 
 type TicketRow = typeof tickets.$inferSelect
@@ -174,6 +179,27 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     async setPrError(id, error) {
       await patchRow(id, { prError: error })
       return get(id)
+    },
+
+    async checkCriterion(id, position) {
+      const where = and(eq(criteria.ticketId, id), eq(criteria.position, position))
+      const [before] = await db.select({ checked: criteria.checked }).from(criteria).where(where)
+      if (!before) return null
+      // Only an unticked criterion changes, so two concurrent ticks record one tick between them.
+      const [ticked] = await db
+        .update(criteria)
+        .set({ checked: true })
+        .where(and(where, eq(criteria.checked, false)))
+        .returning({ position: criteria.position, text: criteria.text, checked: criteria.checked })
+      if (ticked) {
+        await patchRow(id, {})
+        return { ...ticked, wasChecked: false }
+      }
+      const [row] = await db
+        .select({ position: criteria.position, text: criteria.text, checked: criteria.checked })
+        .from(criteria)
+        .where(where)
+      return row ? { ...row, wasChecked: true } : null
     }
   }
 }

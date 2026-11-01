@@ -6,7 +6,9 @@ import { ResumeFailedError, type RoleToolHandlers, type RunSpec } from './types'
 function makeSpec(over: Partial<RunSpec> = {}) {
   const roleTools = {
     askUser: vi.fn(async () => 'answer'),
-    handoff: vi.fn(async () => 'recorded')
+    handoff: vi.fn(async () => 'recorded'),
+    reportProblem: vi.fn(async () => 'reported'),
+    checkCriterion: vi.fn(async () => 'checked')
   } satisfies RoleToolHandlers
   const onPermission = vi.fn<RunSpec['onPermission']>(async () => ({ allow: true }))
   const spec: RunSpec = {
@@ -40,6 +42,8 @@ describe('FakeRuntime', () => {
       { callTool: 'askUser', args: { question: 'Hi or Hello?', options: ['Hi', 'Hello'], recommended: 1 } },
       { waitForSend: true },
       { emit: { kind: 'message', text: 'second' } },
+      { callTool: 'checkCriterion', args: { index: 0 } },
+      { callTool: 'reportProblem', args: { details: 'broken' } },
       { callTool: 'handoff', args: { summary: 'done', notesForNext: 'none' } },
       { exit: 0 }
     ]
@@ -54,6 +58,8 @@ describe('FakeRuntime', () => {
 
     await rt.send(run, 'Hello')
     const events = await collected
+    expect(roleTools.checkCriterion).toHaveBeenCalledWith({ index: 0 })
+    expect(roleTools.reportProblem).toHaveBeenCalledWith({ details: 'broken' })
     expect(roleTools.handoff).toHaveBeenCalledWith({ summary: 'done', notesForNext: 'none' })
     expect(events).toEqual([
       { kind: 'message', text: 'first' },
@@ -173,5 +179,16 @@ describe('scriptFromFile', () => {
     expect(pick(makeSpec({ role: 'toString' }).spec)).toEqual(steps('other'))
     const only = scriptFromFile({ Planner: steps('plan') }) as (spec: RunSpec) => FakeStep[]
     expect(only(makeSpec({ role: 'Reviewer' }).spec)).toEqual([])
+  })
+
+  test('a resumed session plays "<Role> resumed" when the file has it', () => {
+    const pick = scriptFromFile({ Reviewer: steps('review'), 'Reviewer resumed': steps('again') }) as (
+      spec: RunSpec
+    ) => FakeStep[]
+    expect(pick(makeSpec({ role: 'Reviewer' }).spec)).toEqual(steps('review'))
+    expect(pick(makeSpec({ role: 'Reviewer', resumeSessionId: 's1' }).spec)).toEqual(steps('again'))
+    // A role with no resumed steps plays its own steps when resumed.
+    const only = scriptFromFile({ Reviewer: steps('review') }) as (spec: RunSpec) => FakeStep[]
+    expect(only(makeSpec({ role: 'Reviewer', resumeSessionId: 's1' }).spec)).toEqual(steps('review'))
   })
 })

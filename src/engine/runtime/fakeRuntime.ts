@@ -3,6 +3,7 @@ import {
   ResumeFailedError,
   type AgentRuntime,
   type PermissionRequest,
+  type RoleToolHandlers,
   type RunHandle,
   type RunSpec
 } from './types'
@@ -10,7 +11,7 @@ import {
 /** One scripted step. Plain data only, so a script can be loaded from a JSON file. */
 export type FakeStep =
   | { emit: AgentEvent }
-  | { callTool: 'askUser' | 'handoff'; args: unknown }
+  | { callTool: keyof RoleToolHandlers; args: unknown }
   | { requestPermission: Omit<PermissionRequest, 'signal'> }
   | { waitForSend: true }
   | { exit: number | null }
@@ -18,12 +19,18 @@ export type FakeStep =
 /**
  * A script as a JSON file holds it: the steps for every agent, or the steps for each role by name, with `*`
  * for any other role. A role with no script of its own and no `*` gets an empty script (its agent stays open).
+ * A resumed session of a role plays `<Role> resumed` when the file has it, so a role handed a problem back,
+ * or handed back to, can act differently the second time.
  */
 export type FakeScriptFile = FakeStep[] | Record<string, FakeStep[]>
 
 export function scriptFromFile(file: FakeScriptFile): FakeStep[] | ((spec: RunSpec) => FakeStep[]) {
   if (Array.isArray(file)) return file
-  return (spec) => (spec.role !== undefined && Object.hasOwn(file, spec.role) ? file[spec.role]! : (file['*'] ?? []))
+  return (spec) => {
+    const resumed = `${spec.role} resumed`
+    if (spec.role !== undefined && spec.resumeSessionId !== undefined && Object.hasOwn(file, resumed)) return file[resumed]!
+    return spec.role !== undefined && Object.hasOwn(file, spec.role) ? file[spec.role]! : (file['*'] ?? [])
+  }
 }
 
 /** An async queue that can be closed; the consumer side is an AsyncIterable. */
@@ -151,11 +158,8 @@ export class FakeRuntime implements AgentRuntime {
           run.queue.push(step.emit)
         } else if ('callTool' in step) {
           // The script file is trusted test data, so the args are passed through as-is.
-          if (step.callTool === 'askUser') {
-            await spec.roleTools.askUser(step.args as Parameters<typeof spec.roleTools.askUser>[0])
-          } else {
-            await spec.roleTools.handoff(step.args as Parameters<typeof spec.roleTools.handoff>[0])
-          }
+          const tool = spec.roleTools[step.callTool] as (args: unknown) => Promise<string>
+          await tool.call(spec.roleTools, step.args)
         } else if ('requestPermission' in step) {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })
         } else if ('waitForSend' in step) {

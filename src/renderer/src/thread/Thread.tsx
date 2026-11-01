@@ -141,7 +141,17 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
     case 'nudge':
       return <Divider text={event.text} />
     case 'handoff':
-      return <HandoffDivider label={lookup.handoffLabel ?? `${lookup.role} handed off`} summary={event.summary} />
+      return (
+        <HandoffDivider kind="handoff" label={lookup.handoffLabel ?? `${lookup.role} handed off`} what="summary" text={event.summary} />
+      )
+    case 'hand_back':
+      return <HandoffDivider kind="hand_back" label={`${event.from} handed back to ${event.to}`} what="details" text={event.details} />
+    case 'criterion_checked':
+      return (
+        <Text size="xs" c="dimmed" data-event="criterion_checked" style={{ whiteSpace: 'pre-wrap' }}>
+          {`${lookup.role} checked: ${event.text}`}
+        </Text>
+      )
     case 'stopped':
       return <Divider text="Stopped" />
     case 'process_exit':
@@ -173,8 +183,8 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return decision.kind === 'permission' ? <PermissionCard decision={decision} /> : <DecisionCard decision={decision} />
     }
     default:
-      // session, rate_limit, vcs_changed, turn_end, role_handoff (the handoff before it shows it) and the
-      // engine-only kinds are not for the person. annotate.ts keeps the same list.
+      // session, rate_limit, vcs_changed, turn_end, role_handoff and role_hand_back (the handoff or hand-back
+      // before it shows it) and the engine-only kinds are not for the person. annotate.ts keeps the same list.
       return null
   }
 }
@@ -206,12 +216,25 @@ function Divider({ text }: { text: string }): ReactElement {
   )
 }
 
-/** Where one role handed off to the next, with what it said collapsed under it. */
-function HandoffDivider({ label, summary }: { label: string; summary: string }): ReactElement {
+/**
+ * Where one role handed off to the next, or handed a problem back to an earlier one, with what it said
+ * (its summary, or the problem's details) collapsed under it.
+ */
+function HandoffDivider({
+  kind,
+  label,
+  what,
+  text
+}: {
+  kind: 'handoff' | 'hand_back'
+  label: string
+  what: 'summary' | 'details'
+  text: string
+}): ReactElement {
   const [open, setOpen] = useState(false)
   return (
     <Stack gap={4} role="group" aria-label={label}>
-      <div data-event="handoff" className={`${classes.divider} ${classes.handoff}`}>
+      <div data-event={kind} className={`${classes.divider} ${classes.handoff}`}>
         <span className={classes.label}>{label}</span>
       </div>
       <Button
@@ -221,11 +244,11 @@ function HandoffDivider({ label, summary }: { label: string; summary: string }):
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        {open ? 'Hide summary' : 'Show summary'}
+        {open ? `Hide ${what}` : `Show ${what}`}
       </Button>
       {open && (
         <Paper withBorder p="sm" radius="md">
-          <AgentText text={summary} />
+          <AgentText text={text} />
         </Paper>
       )}
     </Stack>

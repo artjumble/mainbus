@@ -49,6 +49,24 @@ export type ThreadEvent =
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
   /** The first event of a role's run when an earlier role of the same ticket run handed off to it. */
   | { kind: 'role_handoff'; from: string; to: string }
+  /**
+   * The last event of a role's run when it reported a problem and handed the ticket back to an earlier role.
+   * The role ids are those of the ticket run's snapshot, since names need not be unique. `byUser` when the
+   * user chose the hand-back (answering a decision); the round-trip cap counts from there.
+   */
+  | {
+      kind: 'hand_back'
+      from: string
+      to: string
+      fromRoleId: string
+      toRoleId: string
+      details: string
+      byUser?: boolean
+    }
+  /** The first event of a role's run when a later role handed the ticket back to it. */
+  | { kind: 'role_hand_back'; from: string; to: string }
+  /** The run's role ticked the ticket's acceptance criterion at zero-based `index`. */
+  | { kind: 'criterion_checked'; index: number; text: string }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 

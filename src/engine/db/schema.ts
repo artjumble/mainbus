@@ -111,7 +111,12 @@ export const agentRuns = sqliteTable(
     effort: text('effort'),
     startedAt: text('started_at').notNull(),
     endedAt: text('ended_at'),
-    endReason: text('end_reason', { enum: ['handoff', 'stopped', 'failed'] })
+    endReason: text('end_reason', { enum: ['handoff', 'handed_back', 'stopped', 'failed'] }),
+    /**
+     * The snapshot id of the role this run's handoff goes to instead of the next one: the role that reported
+     * a problem and is waiting for this one to deal with it. Null hands on to the next role.
+     */
+    returnTo: text('return_to')
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )
@@ -146,6 +151,8 @@ export const decisions = sqliteTable(
     status: text('status').notNull(),
     answer: text('answer'), // JSON: DecisionAnswer | null
     allowAlways: integer('allow_always', { mode: 'boolean' }).notNull().default(true),
+    /** JSON: DecisionAction | null. What Mainbus does with the answer itself, rather than passing it to the agent. */
+    action: text('action'),
     createdAt: text('created_at').notNull(),
     answeredAt: text('answered_at')
   },

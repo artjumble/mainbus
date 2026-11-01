@@ -4,8 +4,21 @@ import type { Decision, DecisionAnswer } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { decisions } from '../db/schema'
 
+/**
+ * What Mainbus itself does with the answer to a question it asked on a role's behalf. Role ids are those of the
+ * ticket run's snapshot; `fromRoleId` is the role that reported the problem.
+ * - problem: the role reported a problem; one option hands it back to `toRoleId` (null: no earlier role), the
+ *   other ("Keep going") reaches the agent as an answer.
+ * - round_trip: the pair has gone back and forth too often; "Keep going" does the hand-back, "Take over" stops.
+ */
+export type DecisionAction =
+  | { kind: 'problem'; fromRoleId: string; toRoleId: string | null; details: string }
+  | { kind: 'round_trip'; fromRoleId: string; toRoleId: string; details: string }
+
 export interface DecisionRepo {
-  open(d: Omit<Decision, 'id' | 'status' | 'answer' | 'createdAt' | 'answeredAt'>): Promise<Decision>
+  open(d: Omit<Decision, 'id' | 'status' | 'answer' | 'createdAt' | 'answeredAt'>, action?: DecisionAction): Promise<Decision>
+  /** What Mainbus does with the decision's answer itself, or null when the answer goes to the agent as it is. */
+  actionOf(id: string): Promise<DecisionAction | null>
   /** Throws unless the decision is still pending. */
   answer(id: string, a: DecisionAnswer): Promise<Decision>
   /** Throws unless the decision is still pending. */
@@ -57,7 +70,7 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
   }
 
   return {
-    async open(d) {
+    async open(d, action) {
       const id = randomUUID()
       await db.insert(decisions).values({
         id,
@@ -68,12 +81,19 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
         options: JSON.stringify(d.options),
         recommended: d.recommended,
         allowAlways: d.allowAlways,
+        action: action ? JSON.stringify(action) : null,
         status: 'pending',
         answer: null,
         createdAt: now().toISOString(),
         answeredAt: null
       })
       return get(id)
+    },
+
+    async actionOf(id) {
+      const [row] = await db.select({ action: decisions.action }).from(decisions).where(eq(decisions.id, id))
+      if (!row) throw new Error(`Decision not found: ${id}`)
+      return row.action === null ? null : (JSON.parse(row.action) as DecisionAction)
     },
 
     answer(id, a) {
