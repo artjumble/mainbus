@@ -5,11 +5,12 @@ import type {
   LineupRole,
   Phase,
   StartOptions,
+  StripRole,
   Ticket,
   TicketState,
   Workspace
 } from '../../shared/domain'
-import type { AgentEvent, StoredEvent, ThreadEvent } from '../../shared/events'
+import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shared/events'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
 import { credentialReason } from '../permissions/credentials'
@@ -28,6 +29,7 @@ import {
   type RunSpec
 } from '../runtime/types'
 import { currentState } from '../state/currentState'
+import { lineupStrip } from '../state/lineupStrip'
 import type { Repos } from '../store'
 import type { AgentRunRow } from '../store/runs'
 import { previousAttempt } from './digest'
@@ -79,6 +81,8 @@ const NO_ROLES = 'Tick at least one role to start'
 /** Where a thread event goes: the run's thread, announced for its ticket and workspace. */
 interface ThreadTarget {
   runId: string
+  /** The ticket run the run belongs to. */
+  ticketRunId: string
   ticketId: string
   workspaceId: string
   /** The name of the run's role. */
@@ -114,6 +118,8 @@ interface Prepared {
 
 interface Launch extends Prepared {
   role: LineupRole
+  /** The ticket run the launched run belongs to. */
+  ticketRunId: string
   /** What the earlier roles of the run's ticket run said when they handed off. */
   handoffs: EarlierHandoff[]
 }
@@ -208,21 +214,52 @@ export class TicketRunner {
 
   /** The ticket's state, from its latest agent run: mid-lineup, the active role's. */
   async stateOf(ticketId: string): Promise<TicketState> {
-    const ticket = await this.repos.tickets.get(ticketId)
-    if (ticket.manualColumn === 'done') {
-      // Done wins over everything else, so the runs and their events need not be loaded.
-      return currentState({ ticket, run: null, pendingDecisions: [], processAlive: false, activePhase: 'done' })
+    return (await this.inspect(ticketId, false)).state
+  }
+
+  /**
+   * The ticket's state and its lineup strip, as the board shows them. Before the first run the strip is the
+   * workspace lineup, which `workspaceLineup` reads (the board reads it once for all its tickets).
+   */
+  async boardView(
+    ticketId: string,
+    workspaceLineup: () => Promise<LineupRole[]>
+  ): Promise<{ state: TicketState; lineup: StripRole[] }> {
+    const { state, run, roles } = await this.inspect(ticketId, true)
+    if (!run || !roles) {
+      return { state, lineup: lineupStrip({ roles: await workspaceLineup(), runs: [], latestRunId: null, agentStatus: null }) }
     }
-    const run = await this.repos.runs.latest(ticketId)
+    const runs = await this.repos.runs.listForTicketRun(run.ticketRunId)
+    return { state, lineup: lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus }) }
+  }
+
+  /**
+   * The ticket's state, its latest run and that run's ticket-run roles (null with no run). For a Done ticket
+   * the run is loaded only when `doneRun` asks for it: Done wins over everything else in its state.
+   */
+  private async inspect(
+    ticketId: string,
+    doneRun: boolean
+  ): Promise<{ state: TicketState; run: AgentRunRow | null; roles: LineupRole[] | null }> {
+    const ticket = await this.repos.tickets.get(ticketId)
+    const done = ticket.manualColumn === 'done'
+    const run = !done || doneRun ? await this.repos.runs.latest(ticketId) : null
+    const roles = run ? (await this.repos.runs.ticketRun(run.ticketRunId)).roles : null
+    if (done) {
+      // The run's events and the decisions need not be loaded.
+      const state = currentState({ ticket, run: null, pendingDecisions: [], processAlive: false, activePhase: 'done' })
+      return { state, run, roles }
+    }
     const pending = (await this.repos.decisions.pending(ticketId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    const activePhase: Phase = run ? (await this.roleOf(run)).activePhase : 'not_started'
-    return currentState({
+    const activePhase: Phase = run && roles ? roleIn(roles, run).activePhase : 'not_started'
+    const state = currentState({
       ticket,
       run: run ? { endReason: run.endReason, events: await this.repos.runs.events(run.id) } : null,
       pendingDecisions: pending,
       processAlive: run ? this.live.has(run.id) || this.isLaunching(ticketId) : false,
       activePhase
     })
+    return { state, run, roles }
   }
 
   /**
@@ -293,7 +330,10 @@ export class TicketRunner {
         answered = decisions.filter((d) => d.status === 'answered')
       }
       const runId = await this.repos.runs.create(ticketId, roles)
-      await this.launch({ ...prepared, role: roles[0]!, handoffs: [] }, runId, prompt, answered)
+      // This step holds the ticket's queue and no agent of it is open, so the latest run is the one just created.
+      const created = await this.repos.runs.latest(ticketId)
+      if (!created || created.id !== runId) throw new Error(`Run ${runId} is not the ticket's latest`)
+      await this.launch({ ...prepared, role: roles[0]!, ticketRunId: created.ticketRunId, handoffs: [] }, runId, prompt, answered)
     })
   }
 
@@ -468,10 +508,7 @@ export class TicketRunner {
 
   /** The run's role, from its ticket run's snapshot. */
   private async roleOf(run: AgentRunRow): Promise<LineupRole> {
-    const { roles } = await this.repos.runs.ticketRun(run.ticketRunId)
-    const role = roles.find((r) => r.id === run.roleId)
-    if (!role) throw new Error(`The role of run ${run.id} is missing from its ticket run`)
-    return role
+    return roleIn((await this.repos.runs.ticketRun(run.ticketRunId)).roles, run)
   }
 
   /** The role after the run's own in its ticket run, or null when the run's role is the last. */
@@ -519,7 +556,7 @@ export class TicketRunner {
     await this.whileLaunching(run.ticketId, async () => {
       const prepared = await this.prepare(run.ticketId)
       const role = await this.roleOf(current)
-      const launch: Launch = { ...prepared, role, handoffs: await this.handoffsBefore(current) }
+      const launch: Launch = { ...prepared, role, ticketRunId: current.ticketRunId, handoffs: await this.handoffsBefore(current) }
       const events = await this.repos.runs.events(run.id)
       // The whole ticket's decisions, so a run made by Start again keeps the earlier runs' answers.
       const decisions = await this.repos.decisions.forTicket(run.ticketId)
@@ -569,7 +606,13 @@ export class TicketRunner {
   ): Promise<void> {
     const { ticket, role, worktree } = launch
     if (this.stopRequested.has(ticket.id) || this.shuttingDown) return
-    const target: ThreadTarget = { runId, ticketId: ticket.id, workspaceId: ticket.workspaceId, role: role.name }
+    const target: ThreadTarget = {
+      runId,
+      ticketRunId: launch.ticketRunId,
+      ticketId: ticket.id,
+      workspaceId: ticket.workspaceId,
+      role: role.name
+    }
     const spec: RunSpec = {
       role: role.name,
       cwd: worktree.path,
@@ -659,7 +702,7 @@ export class TicketRunner {
     if ((event.kind === 'message' || event.kind === 'thinking') && event.partial) {
       // Streaming previews are shown but never stored; the final event follows.
       const preview: StoredEvent = { runId: live.runId, seq: 0, at: this.deps.now().toISOString(), event }
-      this.deps.emit({ type: 'thread.appended', ticketId: live.ticketId, event: preview })
+      this.deps.emit({ type: 'thread.appended', ticketId: live.ticketId, event: preview, run: threadRun(live) })
       return
     }
     if (event.kind === 'session') await this.repos.runs.setSession(live.runId, event.sessionId)
@@ -787,7 +830,13 @@ export class TicketRunner {
         }
         const live = this.live.get(target.runId)
         if (live) live.ended = true
-        await this.record(target, { kind: 'handoff', summary, outcome: 'done', notesForNext })
+        await this.record(target, {
+          kind: 'handoff',
+          summary,
+          outcome: 'done',
+          notesForNext,
+          ...(next ? { to: next.name } : {})
+        })
         // Nobody is left to receive an answer to this run's open questions.
         await this.expirePending(target, (d) => d.kind === 'question' && d.agentRunId === target.runId)
         if (nextRun) {
@@ -918,7 +967,7 @@ export class TicketRunner {
 
   private async record(target: ThreadTarget, event: ThreadEvent): Promise<StoredEvent> {
     const stored = await this.repos.runs.append(target.runId, event)
-    this.deps.emit({ type: 'thread.appended', ticketId: target.ticketId, event: stored })
+    this.deps.emit({ type: 'thread.appended', ticketId: target.ticketId, event: stored, run: threadRun(target) })
     this.deps.emit({ type: 'board.changed', workspaceId: target.workspaceId })
     return stored
   }
@@ -930,7 +979,7 @@ export class TicketRunner {
   }
 
   private target(run: AgentRunRow, ticket: Ticket): ThreadTarget {
-    return { runId: run.id, ticketId: ticket.id, workspaceId: ticket.workspaceId, role: run.role }
+    return { runId: run.id, ticketRunId: run.ticketRunId, ticketId: ticket.id, workspaceId: ticket.workspaceId, role: run.role }
   }
 
   private async workspaceOf(ticket: Ticket): Promise<Workspace> {
@@ -938,6 +987,18 @@ export class TicketRunner {
     if (!workspace || workspace.id !== ticket.workspaceId) throw new Error(`No workspace for ticket ${ticket.id}`)
     return workspace
   }
+}
+
+/** The run's role in its ticket run's snapshot `roles`. */
+function roleIn(roles: LineupRole[], run: AgentRunRow): LineupRole {
+  const role = roles.find((r) => r.id === run.roleId)
+  if (!role) throw new Error(`The role of run ${run.id} is missing from its ticket run`)
+  return role
+}
+
+/** The run a thread event of `target` belongs to, as the renderer sees it. */
+function threadRun(target: ThreadTarget): ThreadRun {
+  return { id: target.runId, ticketRunId: target.ticketRunId, role: target.role }
 }
 
 /** What a role's thread can hold before its agent was ever launched: the handoff to it, and messages for it. */

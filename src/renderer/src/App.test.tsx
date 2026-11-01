@@ -20,7 +20,7 @@ function answer(setup: unknown, ws: unknown, tickets: unknown[] = []): void {
     if (command === 'setup.check') return setup
     if (command === 'workspace.get') return ws
     if (command === 'board.get') return { tickets }
-    if (command === 'thread.get') return { events: [], decisions: [] }
+    if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
     throw new Error(`unexpected ${command}`)
   })

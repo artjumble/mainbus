@@ -1,0 +1,83 @@
+import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
+
+/** What the thread shows around one event, beyond the event itself. */
+export interface Annotation {
+  /** The name of the role whose run the event belongs to. */
+  role: string
+  /** The event is the first of a later ticket run (Start again): a "New run" divider goes before it. */
+  newRun: boolean
+  /** A tool row that starts a group of tool rows of one agent run: it carries the role tag. */
+  toolGroupStart: boolean
+  /** For a handoff: who handed off to whom, such as "Planner → Implementer". */
+  handoffLabel: string | undefined
+}
+
+/** The role named for an event whose run is unknown. */
+export const UNKNOWN_ROLE = 'Agent'
+
+/** The kinds the thread never shows a row for (see Thread's renderEvent). A tool result joined to its call is another. */
+const HIDDEN = new Set<ThreadEvent['kind']>([
+  'turn_end',
+  'session',
+  'usage',
+  'status',
+  'role_handoff',
+  'rate_limit',
+  'vcs_changed',
+  'needs_input'
+])
+
+/**
+ * Annotates a ticket's thread (every run, oldest first) with each event's role, where a new ticket run begins,
+ * where a group of tool rows begins, and the handoff labels. An event whose run is not in `runs` counts as a
+ * ticket run of its own, of an unknown role.
+ */
+export function annotate(events: StoredEvent[], runs: Record<string, ThreadRun>): Annotation[] {
+  const called = new Set<string>()
+  for (const { event } of events) if (event.kind === 'tool_call') called.add(event.id)
+  const ticketRunOf = (e: StoredEvent): string => runs[e.runId]?.ticketRunId ?? e.runId
+  const roleOf = (e: StoredEvent): string => runs[e.runId]?.role ?? UNKNOWN_ROLE
+
+  const seen = new Set<string>()
+  // The agent run of the last row shown, when that row was a tool row.
+  let toolRun: string | null = null
+  return events.map((stored, i) => {
+    const { event } = stored
+    const role = roleOf(stored)
+    const ticketRun = ticketRunOf(stored)
+    // First sight of a ticket run, not every change: the previous role's last events can still arrive after the
+    // next role's first ones, and a run's trailing events after Start again.
+    const newRun = seen.size > 0 && !seen.has(ticketRun)
+    seen.add(ticketRun)
+
+    let toolGroupStart = false
+    const hidden = HIDDEN.has(event.kind) || (event.kind === 'tool_result' && called.has(event.id))
+    if (!hidden) {
+      const toolRow = event.kind === 'tool_call' || event.kind === 'tool_result'
+      toolGroupStart = toolRow && (newRun || toolRun !== stored.runId)
+      toolRun = toolRow ? stored.runId : null
+    }
+
+    let handoffLabel: string | undefined
+    if (event.kind === 'handoff') {
+      const to = event.to ?? handedTo(events, i, ticketRun, role, ticketRunOf)
+      handoffLabel = to === undefined ? `${role} handed off` : `${role} → ${to}`
+    }
+    return { role, newRun, toolGroupStart, handoffLabel }
+  })
+}
+
+/** For a handoff recorded without `to`: the role the next role's run says `from` handed to. */
+function handedTo(
+  events: StoredEvent[],
+  from: number,
+  ticketRun: string,
+  role: string,
+  ticketRunOf: (e: StoredEvent) => string
+): string | undefined {
+  for (let j = from + 1; j < events.length; j++) {
+    const e = events[j]!
+    if (e.event.kind === 'role_handoff' && e.event.from === role && ticketRunOf(e) === ticketRun) return e.event.to
+  }
+  return undefined
+}

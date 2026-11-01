@@ -2,7 +2,7 @@ import { MantineProvider } from '@mantine/core'
 import { Notifications, notifications } from '@mantine/notifications'
 import { render, type RenderResult } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
-import type { Decision, LineupRole, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Decision, LineupRole, TicketState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { BoardTicket } from './store'
 import { cssVariablesResolver, theme } from './theme'
@@ -37,7 +37,8 @@ export const workspace: Workspace = {
 
 let counter = 0
 
-export function makeTicket(overrides: Partial<Ticket> = {}, state: Partial<TicketState> = {}): BoardTicket {
+/** A ticket on the board; its lineup strip is the default lineup, not started, unless `overrides` sets one. */
+export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<TicketState> = {}): BoardTicket {
   counter += 1
   return {
     id: `t${counter}`,
@@ -56,6 +57,7 @@ export function makeTicket(overrides: Partial<Ticket> = {}, state: Partial<Ticke
     prError: null,
     createdAt: '2026-10-30T00:00:00.000Z',
     updatedAt: '2026-10-30T00:00:00.000Z',
+    lineup: makeLineup().map((r) => ({ id: r.id, name: r.name, status: 'not_started', active: false })),
     ...overrides,
     state: {
       column: 'backlog',

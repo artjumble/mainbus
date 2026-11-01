@@ -53,6 +53,11 @@ async function openSettings(page: Page): Promise<Locator> {
   return roles
 }
 
+/** Expects the ticket view's lineup strip to read `items`, one "Name Status" per role, in order. */
+async function expectStrip(page: Page, items: string[]): Promise<void> {
+  await expect(page.getByRole('list', { name: 'Lineup' }).getByRole('listitem')).toHaveText(items, { useInnerText: true })
+}
+
 async function roleNames(roles: Locator): Promise<string[]> {
   const labels = await roles.getByRole('button', { name: /^Edit / }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''))
   return labels.map((l) => l.replace(/^Edit /, ''))
@@ -155,30 +160,99 @@ test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and
     await page.getByLabel('In your words').fill('Add hello.txt')
     await page.getByRole('button', { name: 'Create' }).click()
     await page.getByRole('button', { name: /Add hello file/ }).click()
+
+    // Before the first run the strip shows the workspace lineup, none of it started.
+    await expectStrip(page, ['Planner Not started', 'Implementer Not started', 'Reviewer Not started'])
+    await expect(page.getByLabel('First message (starts the lineup)')).toBeVisible()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
 
-    const composer = page.getByLabel('Message the Implementer')
-    for (const [phase, said] of [
-      ['Planning', 'Planner: reading the ticket.'],
-      ['Implementing', 'Implementer: adding the file.'],
-      ['Reviewing', 'Reviewer: checking the change.']
-    ] as const) {
+    const steps = [
+      ['Planner', 'Planning', 'Planner: reading the ticket.'],
+      ['Implementer', 'Implementing', 'Implementer: adding the file.'],
+      ['Reviewer', 'Reviewing', 'Reviewer: checking the change.']
+    ] as const
+    for (const [i, [role, phase, said]] of steps.entries()) {
       await expect(page.getByText(said)).toBeVisible()
       await expect(page.getByText(phase, { exact: true })).toBeVisible()
+      // The strip: earlier roles handed off, this one working and current, later ones not started.
+      await expectStrip(
+        page,
+        steps.map(([name], j) => `${name} ${j < i ? 'Handed off' : j === i ? 'Working' : 'Not started'}`)
+      )
+      await expect(page.getByRole('list', { name: 'Lineup' }).locator('[aria-current="step"]')).toHaveText(new RegExp(role))
       // Between roles the ticket never shows as ready for review.
       await expect(page.getByText('Ready for review', { exact: true })).toHaveCount(0)
+
+      // The board card's chip follows the active role.
+      await page.getByRole('button', { name: /board/ }).click()
+      await expect(page.getByRole('region', { name: 'In progress' }).getByText(phase, { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: /Add hello file/ }).click()
+
+      const composer = page.getByLabel(`Message the ${role}`)
       await composer.fill(`Go on, ${phase}`)
       await page.getByRole('button', { name: 'Send' }).click()
-      // The composer clears once the message has gone through.
-      await expect(composer).toHaveValue('')
+      // The composer clears once the message has gone through (its label then names the next role).
+      await expect(page.getByRole('textbox', { name: /^Message/ })).toHaveValue('')
     }
 
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-    // The thread keeps every role's work.
+    await expectStrip(page, ['Planner Handed off', 'Implementer Handed off', 'Reviewer Handed off'])
+    // The thread keeps every role's work, each tagged with its role, and a divider at each handoff.
     await expect(page.getByText('Planner: reading the ticket.')).toBeVisible()
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
+    await expect(page.getByText('Planner → Implementer', { exact: true })).toBeVisible()
+    await expect(page.getByText('Implementer → Reviewer', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: /board/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
+  } finally {
+    await app?.close()
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
+  }
+})
+
+test('Adjust before starting runs only the ticked roles, and Start again begins a new run', async () => {
+  const { tmp, home, repo } = makeRepo()
+  let app: ElectronApplication | undefined
+  try {
+    let page: Page
+    ;({ app, page } = await launch(home, repo, true, 'e2e/fixtures/lineup-by-role.json'))
+    await page.getByRole('button', { name: 'New ticket' }).click()
+    await page.getByLabel('Title').fill('Add hello file')
+    await page.getByLabel('In your words').fill('Add hello.txt')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.getByRole('button', { name: /Add hello file/ }).click()
+
+    await page.getByRole('button', { name: 'Adjust before starting' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Adjust before starting' })
+    for (const name of ['Planner', 'Implementer', 'Reviewer']) await expect(dialog.getByRole('checkbox', { name })).toBeChecked()
+    await dialog.getByRole('checkbox', { name: 'Planner' }).uncheck()
+    await dialog.getByRole('button', { name: 'Start', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+
+    // Only the ticked roles are in the strip, and the Implementer goes first.
+    await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
+    await expectStrip(page, ['Implementer Working', 'Reviewer Not started'])
+    await expect(page.getByText('IMPLEMENTER', { exact: true })).toBeVisible()
+    await page.getByLabel('Message the Implementer').fill('Go on')
+    await page.getByRole('button', { name: 'Send' }).click()
+
+    // The handoff divider names both roles, with the summary collapsed under it.
+    const handoff = page.getByRole('group', { name: 'Implementer → Reviewer' })
+    await expect(handoff.getByText('Implementer → Reviewer', { exact: true })).toBeVisible()
+    await expect(handoff.getByText('Added hello.txt', { exact: true })).toHaveCount(0)
+    await handoff.getByRole('button', { name: 'Show summary' }).click()
+    await expect(handoff.getByText('Added hello.txt', { exact: true })).toBeVisible()
+
+    await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
+    await page.getByLabel('Message the Reviewer').fill('Go on')
+    await page.getByRole('button', { name: 'Send' }).click()
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+
+    // Start again runs the whole lineup as a new run, with a divider where it begins.
+    await expect(page.getByText('New run', { exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Start again' }).click()
+    await expect(page.getByText('New run', { exact: true })).toBeVisible()
+    await expectStrip(page, ['Planner Working', 'Implementer Not started', 'Reviewer Not started'])
   } finally {
     await app?.close()
     fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })

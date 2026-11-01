@@ -1462,6 +1462,45 @@ describe('TicketRunner through a lineup', () => {
     expect((await repos.runs.events(runs[2]!.id))[0]?.event).toEqual({ kind: 'role_handoff', from: 'Implementer', to: 'Reviewer' })
   })
 
+  it('announces each thread event with its run, names the next role in each handoff, and Start again is a new ticket run', async () => {
+    await threeRoles()
+    const runtime = new FakeRuntime(lineupScript)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    for (let i = 0; i < 3; i++) {
+      await active(runner, runtime, i)
+      await runner.send(ticket.id, 'go')
+    }
+    await vi.waitFor(async () => expect((await runner.stateOf(ticket.id)).agentStatus).toBe('handed_off'))
+
+    const appended = emitted.flatMap((e) => (e.type === 'thread.appended' ? [e] : []))
+    const runs = await repos.runs.listForTicket(ticket.id)
+    // Every event comes with its own run: the same ids, role and ticket run as stored.
+    for (const e of appended) {
+      const run = runs.find((r) => r.id === e.event.runId)!
+      expect(e.run).toEqual({ id: run.id, ticketRunId: run.ticketRunId, role: run.role })
+    }
+    expect([...new Set(appended.map((e) => e.run.role))]).toEqual(['Planner', 'Implementer', 'Reviewer'])
+    expect(new Set(appended.map((e) => e.run.ticketRunId)).size).toBe(1)
+
+    const handoffs = appended.flatMap((e) => (e.event.event.kind === 'handoff' ? [[e.run.role, e.event.event.to]] : []))
+    // The last role hands off to nobody.
+    expect(handoffs).toEqual([
+      ['Planner', 'Implementer'],
+      ['Implementer', 'Reviewer'],
+      ['Reviewer', undefined]
+    ])
+
+    emitted = []
+    await runner.start(ticket.id)
+    await active(runner, runtime, 3)
+    // The Reviewer's last turn may still end meanwhile; its events keep their own run.
+    const fresh = () => emitted.flatMap((e) => (e.type === 'thread.appended' && !runs.some((r) => r.id === e.run.id) ? [e.run] : []))
+    await vi.waitFor(() => expect(fresh().length).toBeGreaterThan(0))
+    const again = fresh()
+    expect(again.every((r) => r.role === 'Planner' && r.ticketRunId !== runs[0]!.ticketRunId)).toBe(true)
+  })
+
   it('with roleIds runs only those roles, in lineup order, and rejects an empty list or an unknown id', async () => {
     const [planner, , reviewer] = await threeRoles()
     const runtime = new FakeRuntime(lineupScript)

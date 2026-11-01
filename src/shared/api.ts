@@ -11,18 +11,28 @@ import type {
   LineupRoleInput,
   NewTicketInput,
   StartOptions,
+  StripRole,
   Ticket,
   TicketPatch,
   TicketState,
   UnattendedState,
   Workspace
 } from './domain'
-import type { StoredEvent } from './events'
+import type { StoredEvent, ThreadRun } from './events'
 
-/** What the engine pushes to the renderer. Partial (streaming) thread events carry seq 0: they are never stored. */
+/**
+ * A ticket as the board shows it: its state, and its lineup strip (the latest ticket run's roles, or the
+ * workspace lineup before the first run).
+ */
+export type BoardTicket = Ticket & { state: TicketState; lineup: StripRole[] }
+
+/**
+ * What the engine pushes to the renderer. Partial (streaming) thread events carry seq 0: they are never stored.
+ * A thread event comes with the run it belongs to.
+ */
 export type EngineEvent =
   | { type: 'board.changed'; workspaceId: string }
-  | { type: 'thread.appended'; ticketId: string; event: StoredEvent }
+  | { type: 'thread.appended'; ticketId: string; event: StoredEvent; run: ThreadRun }
   | { type: 'decision.changed'; decision: Decision }
   | { type: 'unattended.changed'; state: UnattendedState }
 
@@ -39,7 +49,7 @@ export interface EngineCommands {
   'workspace.setOpenPrOnReview'(on: boolean): Workspace
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
   'github.check'(): GhStatus
-  'board.get'(): { tickets: (Ticket & { state: TicketState })[] }
+  'board.get'(): { tickets: BoardTicket[] }
   /** The user's own ticket: a source can only come in through agent intake. */
   'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source'>): Ticket
   'ticket.update'(id: string, p: TicketPatch): Ticket
@@ -48,7 +58,8 @@ export interface EngineCommands {
   'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done'): 'moved' | 'dirty'
   /** Retry: pushes the branch of a ticket in Review again and opens its PR if it has none. Never forces. */
   'ticket.openPr'(id: string): void
-  'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[] }
+  /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */
+  'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[]; runs: ThreadRun[] }
   /**
    * Runs the ticket through its lineup, as a new ticket run. `roleIds` picks the roles to run (in lineup order);
    * without it every role runs. Rejects an empty list or an id that isn't in the lineup.

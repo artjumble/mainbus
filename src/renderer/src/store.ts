@@ -1,9 +1,10 @@
 import { create } from 'zustand'
-import type { ClaudeSetup, Ticket, TicketState, UnattendedState, Workspace } from '../../shared/domain'
+import type { BoardTicket } from '../../shared/api'
+import type { ClaudeSetup, Ticket, UnattendedState, Workspace } from '../../shared/domain'
 import { invoke, onEngineEvent } from './api'
 import { errorMessage } from './notify'
 
-export type BoardTicket = Ticket & { state: TicketState }
+export type { BoardTicket }
 
 /** The columns a person can place a card in by hand; the rest follow the agent's work. */
 export type ManualColumn = Ticket['manualColumn']

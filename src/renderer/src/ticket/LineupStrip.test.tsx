@@ -1,0 +1,37 @@
+import { screen, within } from '@testing-library/react'
+import type { RoleStatus, StripRole } from '../../../shared/domain'
+import { renderWithMantine } from '../test-utils'
+import { LineupStrip } from './LineupStrip'
+
+const role = (id: string, name: string, status: RoleStatus, active = false): StripRole => ({ id, name, status, active })
+
+test('shows each role in order with its status, and marks the active one as the current step', () => {
+  renderWithMantine(
+    <LineupStrip
+      roles={[role('p', 'Planner', 'handed_off'), role('i', 'Implementer', 'waiting_on_you', true), role('r', 'Reviewer', 'not_started')]}
+    />
+  )
+  const list = screen.getByRole('list', { name: 'Lineup' })
+  const items = within(list).getAllByRole('listitem')
+  expect(items).toHaveLength(3)
+  expect(items.map((li) => li.textContent)).toEqual(['PlannerHanded off', 'ImplementerWaiting on you', 'ReviewerNot started'])
+  expect(within(list).getByRole('listitem', { current: 'step' })).toHaveTextContent('Implementer')
+})
+
+test.each<[RoleStatus, string]>([
+  ['not_started', 'Not started'],
+  ['working', 'Working'],
+  ['waiting_on_you', 'Waiting on you'],
+  ['handed_off', 'Handed off'],
+  ['paused', 'Paused'],
+  ['failed', 'Failed'],
+  ['stopped', 'Stopped']
+])('the %s status reads "%s"', (status, label) => {
+  renderWithMantine(<LineupStrip roles={[role('i', 'Implementer', status)]} />)
+  expect(within(screen.getByRole('listitem')).getByText(label)).toBeInTheDocument()
+})
+
+test('with no active role, no step is current', () => {
+  renderWithMantine(<LineupStrip roles={[role('p', 'Planner', 'not_started'), role('i', 'Implementer', 'not_started')]} />)
+  expect(screen.queryByRole('listitem', { current: 'step' })).not.toBeInTheDocument()
+})

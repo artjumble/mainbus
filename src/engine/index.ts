@@ -7,7 +7,7 @@ import {
   type CommandResult,
   type EngineEvent
 } from '../shared/api'
-import type { AgentLauncher, NewTicketInput, Ticket, Workspace } from '../shared/domain'
+import type { AgentLauncher, LineupRole, NewTicketInput, Ticket, Workspace } from '../shared/domain'
 import { openDb } from './db/open'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
@@ -185,6 +185,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return ticket
     }
 
+    // The intake's tickets need only their state; the board's carry their lineup strip as well.
     const boardTickets = async (ws: Workspace) => {
       const tickets = await repos.tickets.list(ws.id)
       return Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) })))
@@ -215,7 +216,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'board.get': async () => {
         const ws = await repos.workspaces.get()
-        return { tickets: ws ? await boardTickets(ws) : [] }
+        if (!ws) return { tickets: [] }
+        const tickets = await repos.tickets.list(ws.id)
+        // Read once, for every ticket that hasn't run yet.
+        let lineup: Promise<LineupRole[]> | undefined
+        const workspaceLineup = () => (lineup ??= repos.lineups.get(ws.id))
+        return {
+          tickets: await Promise.all(tickets.map(async (t) => ({ ...t, ...(await runner.boardView(t.id, workspaceLineup)) })))
+        }
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
@@ -242,7 +250,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'thread.get': async (ticketId) => {
         const runs = await repos.runs.listForTicket(ticketId)
         const events = (await Promise.all(runs.map((run) => repos.runs.events(run.id)))).flat()
-        return { events, decisions: await repos.decisions.forTicket(ticketId) }
+        return {
+          events,
+          decisions: await repos.decisions.forTicket(ticketId),
+          runs: runs.map((run) => ({ id: run.id, ticketRunId: run.ticketRunId, role: run.role }))
+        }
       },
 
       'agent.start': (ticketId, opts) => {
@@ -269,7 +281,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       'lineup.get': async () => repos.lineups.get((await requireWorkspace()).id),
-      'lineup.save': async (roles) => repos.lineups.save((await requireWorkspace()).id, roles),
+      // The board changes too: before a ticket's first run, its lineup strip is the workspace lineup.
+      'lineup.save': async (roles) => {
+        const ws = await requireWorkspace()
+        const saved = await repos.lineups.save(ws.id, roles)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return saved
+      },
 
       'allowRules.list': async () => {
         const ws = await repos.workspaces.get()

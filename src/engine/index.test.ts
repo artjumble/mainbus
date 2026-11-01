@@ -9,7 +9,7 @@ import { FakeGh } from './git/fakeGh'
 import { runGit } from './git/git'
 import { resolveHome, type HomePaths } from './home'
 import { createEngine, SetupRequiredError, type Engine } from './index'
-import { FakeRuntime } from './runtime/fakeRuntime'
+import { FakeRuntime, scriptFromFile } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
 import { createRepos } from './store'
@@ -168,7 +168,91 @@ describe('createEngine', () => {
     const engine = await makeEngine(new FakeRuntime([]))
     await engine.invoke('workspace.open', repoPath)
     const t = await engine.invoke('ticket.create', newTicket)
-    expect(await engine.invoke('thread.get', t.id)).toEqual({ events: [], decisions: [] })
+    expect(await engine.invoke('thread.get', t.id)).toEqual({ events: [], decisions: [], runs: [] })
+  })
+
+  describe('the lineup strip', () => {
+    const planThenWait = () =>
+      new FakeRuntime(
+        scriptFromFile({
+          Planner: [{ callTool: 'handoff', args: { summary: 'Planned', notesForNext: '' } }, { emit: { kind: 'turn_end', ok: true } }],
+          '*': [{ waitForSend: true }]
+        })
+      )
+    const stripOf = async (engine: Engine) =>
+      (await engine.invoke('board.get')).tickets[0]!.lineup.map((r) => [r.name, r.status, r.active])
+
+    it('board.get shows the workspace lineup before the first run, then the run’s roles as they work', async () => {
+      const engine = await makeEngine(planThenWait())
+      await engine.invoke('workspace.open', repoPath)
+      const t = await engine.invoke('ticket.create', newTicket)
+      expect(await stripOf(engine)).toEqual([
+        ['Planner', 'not_started', false],
+        ['Implementer', 'not_started', false],
+        ['Reviewer', 'not_started', false]
+      ])
+
+      await engine.invoke('agent.start', t.id)
+      await vi.waitFor(async () =>
+        expect(await stripOf(engine)).toEqual([
+          ['Planner', 'handed_off', false],
+          ['Implementer', 'working', true],
+          ['Reviewer', 'not_started', false]
+        ])
+      )
+      // The card's phase follows the active role.
+      expect((await engine.invoke('board.get')).tickets[0]!.state.phase).toBe('implementing')
+
+      // thread.get names each event's run: its role and ticket run.
+      const { events, runs } = await engine.invoke('thread.get', t.id)
+      expect(runs.map((r) => r.role)).toEqual(['Planner', 'Implementer'])
+      expect(new Set(runs.map((r) => r.ticketRunId)).size).toBe(1)
+      expect(events.every((e) => runs.some((r) => r.id === e.runId))).toBe(true)
+    })
+
+    it('shows only the roles ticked at start', async () => {
+      const engine = await makeEngine(planThenWait())
+      await engine.invoke('workspace.open', repoPath)
+      const t = await engine.invoke('ticket.create', newTicket)
+      const lineup = await engine.invoke('lineup.get')
+      await engine.invoke('agent.start', t.id, { roleIds: [lineup[1]!.id, lineup[2]!.id] })
+      await vi.waitFor(async () =>
+        expect(await stripOf(engine)).toEqual([
+          ['Implementer', 'working', true],
+          ['Reviewer', 'not_started', false]
+        ])
+      )
+    })
+
+    it('a Done ticket keeps its last run’s strip', async () => {
+      const engine = await makeEngine(planThenWait())
+      await engine.invoke('workspace.open', repoPath)
+      const t = await engine.invoke('ticket.create', newTicket)
+      await engine.invoke('agent.start', t.id)
+      await vi.waitFor(async () => expect((await stripOf(engine))[1]).toEqual(['Implementer', 'working', true]))
+      await engine.invoke('agent.stop', t.id)
+      expect(await engine.invoke('ticket.move', t.id, 'done')).toBe('moved')
+      expect(await stripOf(engine)).toEqual([
+        ['Planner', 'handed_off', false],
+        ['Implementer', 'stopped', false],
+        ['Reviewer', 'not_started', false]
+      ])
+    })
+
+    it('lineup.save announces a board change, so a strip before the first run follows the lineup', async () => {
+      const engine = await makeEngine(new FakeRuntime([]))
+      await engine.invoke('workspace.open', repoPath)
+      await engine.invoke('ticket.create', newTicket)
+      const events: EngineEvent[] = []
+      engine.on((e) => events.push(e))
+      const lineup = await engine.invoke('lineup.get')
+      await engine.invoke('lineup.save', [lineup[1]!, { ...lineup[2]!, name: 'Checker' }])
+      expect(events.some((e) => e.type === 'board.changed')).toBe(true)
+      expect(await stripOf(engine)).toEqual([
+        ['Implementer', 'not_started', false],
+        ['Checker', 'not_started', false]
+      ])
+    })
   })
 
   it('agent commands throw SetupRequiredError when runtime is null', async () => {
