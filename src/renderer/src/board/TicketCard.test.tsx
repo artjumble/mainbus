@@ -19,10 +19,22 @@ test.each([
   ['ready_for_review', 'Ready for review'],
   ['done', 'Done'],
   ['planning', 'Planning'],
-  ['testing', 'Testing']
+  ['testing', 'Testing'],
+  ['reviewing', 'Reviewing']
 ] as const)('the %s phase reads "%s"', (phase, label) => {
   renderWithMantine(<TicketCard ticket={makeTicket({}, { phase })} onOpen={() => {}} />)
   expect(screen.getByText(label)).toBeInTheDocument()
+})
+
+test('a Reviewer at work shows the blue working chip', () => {
+  const working = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'working' })
+  const reviewing = makeTicket({}, { column: 'in_progress', phase: 'reviewing', agentStatus: 'working' })
+  const { unmount } = renderWithMantine(<TicketCard ticket={working} onOpen={() => {}} />)
+  const workingColor = screen.getByText('Implementing').closest('.mantine-Badge-root')?.getAttribute('style')
+  expect(workingColor).toMatch(/--badge-bg/)
+  unmount()
+  renderWithMantine(<TicketCard ticket={reviewing} onOpen={() => {}} />)
+  expect(screen.getByText('Reviewing').closest('.mantine-Badge-root')?.getAttribute('style')).toBe(workingColor)
 })
 
 test('the summary shows only for a Needs you card', () => {

@@ -14,18 +14,28 @@ export const workspaces = sqliteTable('workspaces', {
   createdAt: text('created_at').notNull()
 })
 
-// One row per workspace in the MVP.
-export const roles = sqliteTable('roles', {
-  workspaceId: text('workspace_id')
-    .primaryKey()
-    .references(() => workspaces.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  instructions: text('instructions').notNull(),
-  activePhase: text('active_phase').notNull(),
-  toolProfile: text('tool_profile').notNull(),
-  model: text('model'),
-  effort: text('effort')
-})
+/** A workspace's lineups: the roles that work a ticket in turn, ordered by position. */
+export const lineupRoles = sqliteTable(
+  'lineup_roles',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    lineup: text('lineup').notNull(),
+    position: integer('position').notNull(),
+    name: text('name').notNull(),
+    instructions: text('instructions').notNull(),
+    activePhase: text('active_phase').notNull(),
+    onProblem: text('on_problem').notNull(),
+    /** The id of an earlier role in the same lineup; null hands back to the previous role. */
+    handBackTo: text('hand_back_to'),
+    model: text('model'),
+    effort: text('effort'),
+    toolProfile: text('tool_profile').notNull()
+  },
+  (t) => [uniqueIndex('lineup_roles_position_uq').on(t.workspaceId, t.lineup, t.position)]
+)
 
 export const tickets = sqliteTable(
   'tickets',

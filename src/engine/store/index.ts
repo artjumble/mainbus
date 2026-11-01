@@ -2,14 +2,14 @@ import type { Db } from '../db/open'
 import { createAllowRuleRepo, type AllowRuleRepo } from './allowRules'
 import { createCleanupRepo, type PendingCleanupRepo } from './cleanups'
 import { createDecisionRepo, type DecisionRepo } from './decisions'
-import { createRoleRepo, type RoleRepo } from './roles'
+import { createLineupRepo, type LineupRepo } from './lineups'
 import { createRunRepo, type RunRepo } from './runs'
 import { createTicketRepo, type TicketRepo } from './tickets'
 import { createWorkspaceRepo, type WorkspaceRepo } from './workspaces'
 
 export interface Repos {
   workspaces: WorkspaceRepo
-  roles: RoleRepo
+  lineups: LineupRepo
   tickets: TicketRepo
   allowRules: AllowRuleRepo
   runs: RunRepo
@@ -20,7 +20,7 @@ export interface Repos {
 export function createRepos(db: Db, now: () => Date): Repos {
   return {
     workspaces: createWorkspaceRepo(db, now),
-    roles: createRoleRepo(db),
+    lineups: createLineupRepo(db),
     tickets: createTicketRepo(db, now),
     allowRules: createAllowRuleRepo(db),
     runs: createRunRepo(db, now),

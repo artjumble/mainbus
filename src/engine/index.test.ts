@@ -91,9 +91,11 @@ describe('createEngine', () => {
     expect(await engine.invoke('ticket.move', created.id, 'done')).toBe('moved')
     expect((await engine.invoke('board.get')).tickets[0]!.state.column).toBe('done')
 
-    expect((await engine.invoke('role.get')).name).toBe('Implementer')
-    const role = await engine.invoke('role.update', { instructions: 'Be careful.' })
-    expect(role.instructions).toBe('Be careful.')
+    const lineup = await engine.invoke('lineup.get')
+    expect(lineup.map((r) => r.name)).toEqual(['Planner', 'Implementer', 'Reviewer'])
+    const saved = await engine.invoke('lineup.save', [{ ...lineup[1]!, instructions: 'Be careful.' }])
+    expect(saved).toMatchObject([{ id: lineup[1]!.id, name: 'Implementer', instructions: 'Be careful.', position: 1 }])
+    await expect(engine.invoke('lineup.save', [])).rejects.toThrow('A lineup needs at least one role.')
     expect(await engine.invoke('allowRules.list')).toEqual([])
   })
 
@@ -310,7 +312,7 @@ describe('workspace.open', () => {
   it('commands that need a workspace say so', async () => {
     const engine = await makeEngine(new FakeRuntime([]))
     await expect(engine.invoke('ticket.create', newTicket)).rejects.toThrow('Open a workspace first')
-    await expect(engine.invoke('role.get')).rejects.toThrow('Open a workspace first')
+    await expect(engine.invoke('lineup.get')).rejects.toThrow('Open a workspace first')
     expect(await engine.invoke('board.get')).toEqual({ tickets: [] })
     expect(await engine.invoke('allowRules.list')).toEqual([])
   })

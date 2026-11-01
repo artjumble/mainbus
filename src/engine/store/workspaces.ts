@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { asc, eq, sql } from 'drizzle-orm'
 import type { Workspace } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { roles, workspaces } from '../db/schema'
-import { defaultRole } from './roles'
+import { workspaces } from '../db/schema'
+import { insertDefaultLineup } from './lineups'
 
 export interface WorkspaceRepo {
-  /** Creates the workspace and its default role. `name` is basename(repoPath) and `slug` is slugify(name). */
+  /** Creates the workspace and its default lineup. `name` is basename(repoPath) and `slug` is slugify(name). */
   create(repoPath: string, baseBranch: string, name: string, slug: string): Promise<Workspace>
   /** The MVP has at most one workspace. */
   get(): Promise<Workspace | null>
@@ -29,7 +29,7 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
     async create(repoPath, baseBranch, name, slug) {
       const workspace: Workspace = { id: randomUUID(), name, repoPath, baseBranch, slug, openPrOnReview: false }
       await db.insert(workspaces).values({ ...workspace, createdAt: now().toISOString() })
-      await db.insert(roles).values(defaultRole(workspace.id))
+      await insertDefaultLineup(db, workspace.id)
       return workspace
     },
 

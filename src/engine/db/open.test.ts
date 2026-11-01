@@ -5,7 +5,8 @@ import { count, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHome, type HomePaths } from '../home'
 import { openDb } from './open'
-import { criteria, tickets, workspaces } from './schema'
+import { createLineupRepo, defaultLineup } from '../store/lineups'
+import { criteria, lineupRoles, tickets, workspaces } from './schema'
 
 const realMigrations = path.join(import.meta.dirname, 'migrations')
 
@@ -34,6 +35,17 @@ function backupFiles(): string[] {
   return fs.existsSync(paths.backups)
     ? fs.readdirSync(paths.backups).filter((f) => /^mainbus-.*\.db$/.test(f))
     : []
+}
+
+/** Copies the real migrations, keeping only the first `count`: the database as an older Mainbus left it. */
+function firstMigrations(count: number): string {
+  const dir = path.join(tmp, `migrations-first-${count}`)
+  fs.cpSync(realMigrations, dir, { recursive: true })
+  const journalPath = path.join(dir, 'meta', '_journal.json')
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
+  journal.entries = journal.entries.slice(0, count)
+  fs.writeFileSync(journalPath, JSON.stringify(journal, null, 2))
+  return dir
 }
 
 /** Copies the real migrations and appends one migration (a no-op by default) that is newer than all of them. */
@@ -65,14 +77,7 @@ describe('openDb', () => {
 
   it('migrates an existing workspace with opening PRs off, and its tickets with no PR', async () => {
     // The migrations as they were before pull requests: the first one only.
-    const dir = path.join(tmp, 'migrations-first')
-    fs.cpSync(realMigrations, dir, { recursive: true })
-    const journalPath = path.join(dir, 'meta', '_journal.json')
-    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
-    journal.entries = journal.entries.slice(0, 1)
-    fs.writeFileSync(journalPath, JSON.stringify(journal, null, 2))
-
-    const first = await open(dir)
+    const first = await open(firstMigrations(1))
     await first.db.run(
       sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
           values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
@@ -89,6 +94,54 @@ describe('openDb', () => {
     expect(ws.openPrOnReview).toBe(false)
     const [ticket] = await db.select().from(tickets)
     expect(ticket).toMatchObject({ prUrl: null, prNumber: null, prError: null })
+  })
+
+  it("turns each workspace's role into its lineup's Implementer, between the default Planner and Reviewer", async () => {
+    // The migrations as they were before lineups: one role per workspace.
+    const first = await open(firstMigrations(2))
+    for (const id of ['w1', 'w2']) {
+      await first.db.run(
+        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+            values (${id}, 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    await first.db.run(
+      sql`insert into roles (workspace_id, name, instructions, active_phase, tool_profile, model, effort)
+          values ('w1', 'Implementer', 'My own words.', 'implementing', 'edit', 'opus', 'high'),
+                 ('w2', 'Implementer', 'Defaults.', 'implementing', 'edit', null, null)`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 9, 31, 9, 0, 0))
+    expect(backupFiles()).toEqual(['mainbus-20261031-090000.db'])
+    const roles = await db.select().from(lineupRoles).orderBy(lineupRoles.workspaceId, lineupRoles.position)
+    const lineups = createLineupRepo(db)
+    const defaults = defaultLineup()
+    for (const [workspaceId, instructions, model, effort] of [
+      ['w1', 'My own words.', 'opus', 'high'],
+      ['w2', 'Defaults.', null, null]
+    ] as const) {
+      const lineup = await lineups.get(workspaceId)
+      const [planner, implementer, reviewer] = lineup
+      expect(lineup.map((r) => r.position)).toEqual([1, 2, 3])
+      expect(planner).toMatchObject({ ...defaults[0], id: planner!.id })
+      expect(implementer).toMatchObject({
+        name: 'Implementer',
+        instructions,
+        model,
+        effort,
+        activePhase: 'implementing',
+        toolProfile: 'edit',
+        onProblem: 'hand_back',
+        handBackTo: planner!.id
+      })
+      expect(reviewer).toMatchObject({ ...defaults[2], id: reviewer!.id, handBackTo: implementer!.id })
+      for (const role of lineup) expect(role.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    }
+    expect(new Set(roles.map((r) => r.id)).size).toBe(6)
+    const tables = await db.values<[string]>(sql`select name from sqlite_master where type = 'table' and name = 'roles'`)
+    expect(tables).toEqual([])
   })
 
   it('backs up an existing database before applying pending migrations', async () => {

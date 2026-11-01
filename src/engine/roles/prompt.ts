@@ -1,4 +1,4 @@
-import type { Decision, DecisionAnswer, Role, Ticket } from '../../shared/domain'
+import type { Decision, DecisionAnswer, LineupRole, Ticket } from '../../shared/domain'
 import { TRUST_STATEMENT } from './hardening'
 
 export const ROLE_PROTOCOL = `## How you work with Mainbus
@@ -87,7 +87,7 @@ function intentSections(ticket: Ticket): string[] {
   return sections
 }
 
-export function buildRolePrompt(role: Role, ticket: Ticket, answered: Decision[]): string {
+export function buildRolePrompt(role: LineupRole, ticket: Ticket, answered: Decision[]): string {
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.text}`).join('\n')
   const decisions = answered
     .filter((d) => d.status === 'answered' && d.answer)

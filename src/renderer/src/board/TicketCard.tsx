@@ -7,6 +7,7 @@ import { AgentBadge } from './AgentBadge'
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
   not_started: 'Not started',
   implementing: 'Implementing',
+  reviewing: 'Reviewing',
   waiting_on_you: 'Waiting on you',
   ready_for_review: 'Ready for review',
   done: 'Done'
@@ -25,7 +26,7 @@ export function phaseLabel(phase: Phase): string {
 
 function chipColor({ phase, agentStatus }: TicketState): string {
   if (phase === 'waiting_on_you' || agentStatus === 'failed') return 'needs'
-  if (phase === 'planning' || phase === 'implementing' || phase === 'testing') return 'working'
+  if (phase === 'planning' || phase === 'implementing' || phase === 'testing' || phase === 'reviewing') return 'working'
   return 'gray'
 }
 
