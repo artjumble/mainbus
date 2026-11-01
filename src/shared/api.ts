@@ -6,6 +6,7 @@ import type {
   ClaudeSetup,
   Decision,
   DecisionAnswer,
+  GhStatus,
   NewTicketInput,
   Role,
   Ticket,
@@ -29,6 +30,13 @@ export interface EngineCommands {
   'workspace.get'(): Workspace | null
   /** Detects the base branch with `git symbolic-ref --short HEAD`. The MVP supports one workspace. */
   'workspace.open'(repoPath: string): Workspace
+  /**
+   * The switch "Open a PR when a ticket reaches Review". Like Retry below, only the renderer can reach it:
+   * the agent intake (pipe, CLI, MCP) has no way to make Mainbus push.
+   */
+  'workspace.setOpenPrOnReview'(on: boolean): Workspace
+  /** Whether the GitHub CLI is installed and signed in; never any of its output. */
+  'github.check'(): GhStatus
   'board.get'(): { tickets: (Ticket & { state: TicketState })[] }
   /** The user's own ticket: a source can only come in through agent intake. */
   'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source'>): Ticket
@@ -36,6 +44,8 @@ export interface EngineCommands {
   'ticket.appendIntent'(id: string, text: string): Ticket
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
   'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done'): 'moved' | 'dirty'
+  /** Retry: pushes the branch of a ticket in Review again and opens its PR if it has none. Never forces. */
+  'ticket.openPr'(id: string): void
   'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[] }
   'agent.start'(ticketId: string): void
   'agent.send'(ticketId: string, text: string): void

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
-import type { Criterion, IntentEntry, NewTicketInput, Ticket, TicketPatch } from '../../shared/domain'
+import type { Criterion, IntentEntry, NewTicketInput, PullRequest, Ticket, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
 
@@ -15,6 +15,9 @@ export interface TicketRepo {
   appendIntent(id: string, text: string): Promise<Ticket>
   setManualColumn(id: string, column: 'backlog' | 'ready' | 'done'): Promise<Ticket>
   setWorktree(id: string, branch: string, path: string | null): Promise<Ticket>
+  /** Records the ticket's pull request and clears any earlier failure. */
+  setPr(id: string, pr: PullRequest): Promise<Ticket>
+  setPrError(id: string, error: string | null): Promise<Ticket>
 }
 
 type TicketRow = typeof tickets.$inferSelect
@@ -33,6 +36,8 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     manualColumn: row.manualColumn as Ticket['manualColumn'],
     branch: row.branch,
     worktreePath: row.worktreePath,
+    pr: row.prUrl !== null && row.prNumber !== null ? { url: row.prUrl, number: row.prNumber } : null,
+    prError: row.prError,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -158,6 +163,16 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
 
     async setWorktree(id, branch, path) {
       await patchRow(id, { branch, worktreePath: path })
+      return get(id)
+    },
+
+    async setPr(id, pr) {
+      await patchRow(id, { prUrl: pr.url, prNumber: pr.number, prError: null })
+      return get(id)
+    },
+
+    async setPrError(id, error) {
+      await patchRow(id, { prError: error })
       return get(id)
     }
   }

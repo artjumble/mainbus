@@ -40,6 +40,8 @@ const ticket: Ticket = {
   manualColumn: 'ready',
   branch: 'mainbus/14-rate-limit-login',
   worktreePath: 'C:/work/14-rate-limit-login',
+  pr: null,
+  prError: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z',
 }

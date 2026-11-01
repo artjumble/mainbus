@@ -1,4 +1,4 @@
-import { Box, Paper, Stack, Text, Typography } from '@mantine/core'
+import { Anchor, Box, Paper, Stack, Text, Typography } from '@mantine/core'
 import { Fragment, memo, useEffect, useRef, type ReactElement } from 'react'
 import Markdown from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
@@ -135,6 +135,15 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return (
         <Text size="xs" c="dimmed" data-event="notice" style={{ whiteSpace: 'pre-wrap' }}>
           {event.text}
+        </Text>
+      )
+    case 'pull_request':
+      return (
+        <Text size="xs" c="dimmed" data-event="pull_request">
+          {`Pushed ${event.branch} ${event.opened ? 'and opened' : 'to'} `}
+          <Anchor href={event.url} target="_blank" rel="noopener noreferrer" size="xs">
+            PR #{event.number}
+          </Anchor>
         </Text>
       )
     case 'error':

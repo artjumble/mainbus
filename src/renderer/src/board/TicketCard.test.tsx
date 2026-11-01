@@ -62,3 +62,20 @@ test("the user's own tickets show no agent badge", () => {
   renderWithMantine(<TicketCard ticket={makeTicket({ title: 'Mine' })} onOpen={() => {}} />)
   expect(screen.queryByText(/\(reported\)/)).not.toBeInTheDocument()
 })
+
+test('a ticket with a pull request links to it, and clicking the link does not open the ticket', async () => {
+  const onOpen = vi.fn()
+  const ticket = makeTicket({ pr: { url: 'https://github.com/o/r/pull/12', number: 12 } }, { column: 'review' })
+  renderWithMantine(<TicketCard ticket={ticket} onOpen={onOpen} />)
+  const link = screen.getByRole('link', { name: 'PR #12' })
+  expect(link).toHaveAttribute('href', 'https://github.com/o/r/pull/12')
+  expect(link).toHaveAttribute('target', '_blank')
+  link.addEventListener('click', (e) => e.preventDefault())
+  await userEvent.click(link)
+  expect(onOpen).not.toHaveBeenCalled()
+})
+
+test('a ticket with no pull request shows no PR link', () => {
+  renderWithMantine(<TicketCard ticket={makeTicket()} onOpen={() => {}} />)
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+})

@@ -41,5 +41,7 @@ export type ThreadEvent =
   | { kind: 'stopped' }
   /** Something Mainbus did on its own, such as unattended mode allowing a request. */
   | { kind: 'notice'; text: string }
+  /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
+  | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }

@@ -260,3 +260,43 @@ test('Start and the first-message send share one busy flag, so the agent starts 
   expect(agentCalls().filter(([cmd]) => cmd === 'agent.start')).toEqual([['agent.start', ticket.id]])
   expect(agentCalls().filter(([cmd]) => cmd === 'agent.send')).toEqual([])
 })
+
+test('the header links to the pull request once there is one', () => {
+  const ticket = makeTicket({ title: 'Add dark mode', pr: { url: 'https://github.com/o/r/pull/3', number: 3 } }, { column: 'review' })
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  renderWithMantine(<TicketView />)
+  expect(screen.getByRole('link', { name: 'PR #3' })).toHaveAttribute('href', 'https://github.com/o/r/pull/3')
+})
+
+test("a PR failure shows the reason in Review, and Retry runs it again", async () => {
+  const ticket = makeTicket({ prError: 'the repository has no origin remote' }, {
+    column: 'review',
+    phase: 'ready_for_review',
+    agentStatus: 'handed_off'
+  })
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  renderWithMantine(<TicketView />)
+  expect(screen.getByText("Couldn't open a PR: the repository has no origin remote")).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(mockInvoke).toHaveBeenCalledWith('ticket.openPr', ticket.id)
+})
+
+test('a refused Retry says why', async () => {
+  const ticket = makeTicket({ prError: 'gh is not signed in' }, { column: 'review', agentStatus: 'handed_off' })
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'thread.get') return thread
+    if (command === 'ticket.openPr') throw new Error('Only a ticket in Review can be pushed')
+    return undefined
+  })
+  renderWithMantine(<TicketView />)
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByText('Only a ticket in Review can be pushed')).toBeInTheDocument()
+})
+
+test('a PR failure is not shown once the ticket has left Review', () => {
+  const ticket = makeTicket({ prError: 'old failure' }, { column: 'in_progress', agentStatus: 'working' })
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  renderWithMantine(<TicketView />)
+  expect(screen.queryByText(/Couldn't open a PR/)).not.toBeInTheDocument()
+})

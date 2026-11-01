@@ -63,6 +63,34 @@ describe('openDb', () => {
     expect(rows[0].n).toBe(0)
   })
 
+  it('migrates an existing workspace with opening PRs off, and its tickets with no PR', async () => {
+    // The migrations as they were before pull requests: the first one only.
+    const dir = path.join(tmp, 'migrations-first')
+    fs.cpSync(realMigrations, dir, { recursive: true })
+    const journalPath = path.join(dir, 'meta', '_journal.json')
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
+    journal.entries = journal.entries.slice(0, 1)
+    fs.writeFileSync(journalPath, JSON.stringify(journal, null, 2))
+
+    const first = await open(dir)
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    const [ws] = await db.select().from(workspaces)
+    expect(ws.openPrOnReview).toBe(false)
+    const [ticket] = await db.select().from(tickets)
+    expect(ticket).toMatchObject({ prUrl: null, prNumber: null, prError: null })
+  })
+
   it('backs up an existing database before applying pending migrations', async () => {
     const first = await open()
     await first.db.run(

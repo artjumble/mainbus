@@ -77,6 +77,8 @@ export interface IntakeTicketSummary extends IntakeStatus {
   labels: string[]
   /** Who filed the ticket, when an agent did; null for the user's own tickets. */
   source: IntentSource | null
+  /** The ticket's pull request, once Mainbus has opened one. */
+  prUrl: string | null
   createdAt: string
   updatedAt: string
 }
@@ -88,6 +90,8 @@ export interface IntakeTicketDetail extends IntakeStatus {
   spec: string
   criteria: { text: string; checked: boolean }[]
   labels: string[]
+  /** The ticket's pull request, once Mainbus has opened one. */
+  prUrl: string | null
   createdAt: string
   updatedAt: string
 }

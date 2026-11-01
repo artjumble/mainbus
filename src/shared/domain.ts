@@ -28,6 +28,8 @@ export interface Workspace {
   repoPath: string
   baseBranch: string
   slug: string
+  /** Push the ticket's branch and open a pull request when it reaches Review. Off unless the user turns it on. */
+  openPrOnReview: boolean
 }
 
 export interface Role {
@@ -74,8 +76,17 @@ export interface Ticket {
   manualColumn: 'backlog' | 'ready' | 'done'
   branch: string | null
   worktreePath: string | null
+  /** The pull request Mainbus opened (or adopted) for the ticket's branch. */
+  pr: PullRequest | null
+  /** Why the last push or pull request failed; null once one succeeds. */
+  prError: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface PullRequest {
+  url: string
+  number: number
 }
 
 export type DecisionAnswer =
@@ -168,6 +179,9 @@ export interface UnattendedState {
   on: boolean
   status: UnattendedStatus
 }
+
+/** Whether the GitHub CLI can open pull requests; `reason` says why not, without any of gh's own output. */
+export type GhStatus = { ok: true } | { ok: false; reason: string }
 
 export type ClaudeSetup =
   | { ok: true; path: string; version: string }

@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url'
 import * as sdk from '@anthropic-ai/claude-agent-sdk'
 import { app, BrowserWindow, dialog, powerSaveBlocker, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
+import { runCommand, type CommandRunner } from '../engine/git/command'
+import { FakeGh } from '../engine/git/fakeGh'
 import { runGit } from '../engine/git/git'
 import { invocationDir, resolveHome } from '../engine/home'
 import { intakeEndpoint } from '../engine/intake/endpoint'
@@ -95,17 +97,22 @@ function createWindow(): BrowserWindow {
 /**
  * `MAINBUS_RUNTIME=fake:<script.json>` plays a scripted agent for tests. It is honored only when
  * MAINBUS_HOME is set, so a stray variable can never replace the real agent in a normal install.
- * A fake run also fakes the `claude` probes, so setup is ok without Claude Code installed.
+ * A fake run also fakes the `claude` probes, so setup is ok without Claude Code installed, and the GitHub CLI, so
+ * opening a pull request never reaches GitHub (git itself still runs, against the test's own repositories).
  * Otherwise the user's own `claude` drives the agents; with no usable `claude`, there is no runtime.
  */
-async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: ExecFn }> {
+async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: ExecFn; commands: CommandRunner }> {
   const fake = process.env['MAINBUS_RUNTIME']
   if (fake?.startsWith('fake:') && process.env['MAINBUS_HOME']) {
     const script = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), fake.slice('fake:'.length)), 'utf8')) as FakeStep[]
-    return { runtime: new FakeRuntime(script), exec: fakeClaudeExec }
+    return { runtime: new FakeRuntime(script), exec: fakeClaudeExec, commands: new FakeGh().runner(runCommand) }
   }
   const setup = await resolveClaude(execFileNode)
-  return { runtime: setup.ok ? new SdkRuntime(setup.path, sdk, { agentHome: home.root }) : null, exec: execFileNode }
+  return {
+    runtime: setup.ok ? new SdkRuntime(setup.path, sdk, { agentHome: home.root }) : null,
+    exec: execFileNode,
+    commands: runCommand
+  }
 }
 
 // The data home comes first: the lock lives in userData, so stable, dev and test runs each get their own.
@@ -130,7 +137,7 @@ if (!app.requestSingleInstanceLock()) {
   void app
     .whenReady()
     .then(async () => {
-      const { runtime, exec } = await chooseRuntime()
+      const { runtime, exec, commands } = await chooseRuntime()
       engine = await createEngine({
         paths: home,
         migrationsDir: app.isPackaged
@@ -139,6 +146,7 @@ if (!app.requestSingleInstanceLock()) {
         runtime,
         git: runGit,
         exec,
+        commands,
         launcher: agentLauncher({
           packaged: app.isPackaged,
           execPath: process.execPath,

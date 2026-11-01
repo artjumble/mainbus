@@ -123,7 +123,8 @@ function formatList(tickets: IntakeTicketSummary[]): string {
     .map((t) => {
       const labels = t.labels.length ? `  [${t.labels.join(', ')}]` : ''
       const source = t.source ? `  ${from(t.source)}` : ''
-      return `#${t.number}  ${t.column.padEnd(11)} ${status(t).padEnd(16)} ${t.title}${labels}${source}`
+      const pr = t.prUrl ? `  ${t.prUrl}` : ''
+      return `#${t.number}  ${t.column.padEnd(11)} ${status(t).padEnd(16)} ${t.title}${labels}${source}${pr}`
     })
     .join('\n')
 }
@@ -131,6 +132,7 @@ function formatList(tickets: IntakeTicketSummary[]): string {
 function formatTicket(t: IntakeTicketDetail): string {
   const lines = [`#${t.number} ${t.title}`, `Column: ${t.column}   Status: ${status(t)}`]
   if (t.labels.length) lines.push(`Labels: ${t.labels.join(', ')}`)
+  if (t.prUrl) lines.push(`Pull request: ${t.prUrl}`)
   for (const [i, entry] of t.intent.entries()) {
     const who = entry.source ? `${from(entry.source)}, in ${entry.source.cwd}` : "the user's words"
     lines.push('', `Intent${i === 0 ? '' : ` (added ${entry.at})`}, ${who}:`, entry.text)
