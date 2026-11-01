@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { Decision, Role, Ticket } from '../../shared/domain'
+import type { Decision, LineupRole, Ticket } from '../../shared/domain'
 import { DISALLOWED_TOOLS, TRUST_STATEMENT } from './hardening'
 import {
   AGENT_FILED_SUFFIX,
@@ -11,11 +11,16 @@ import {
   firstMessage,
 } from './prompt'
 
-const role: Role = {
+const role: LineupRole = {
+  id: 'r1',
   workspaceId: 'w1',
+  lineup: 'change',
+  position: 1,
   name: 'Implementer',
   instructions: 'Implement the ticket with small, tested commits.',
   activePhase: 'implementing',
+  onProblem: 'hand_back',
+  handBackTo: null,
   toolProfile: 'edit',
   model: null,
   effort: null,

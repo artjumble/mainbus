@@ -1,5 +1,5 @@
 import type { EngineEvent } from '../../shared/api'
-import type { Decision, DecisionAnswer, Role, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Decision, DecisionAnswer, LineupRole, Ticket, TicketState, Workspace } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
@@ -20,6 +20,7 @@ import {
 } from '../runtime/types'
 import { currentState } from '../state/currentState'
 import type { Repos } from '../store'
+import { soloRole } from '../store/lineups'
 import type { AgentRunRow } from '../store/runs'
 import { previousAttempt } from './digest'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
@@ -95,7 +96,7 @@ interface LiveRun extends ThreadTarget {
 interface Launch {
   ticket: Ticket
   workspace: Workspace
-  role: Role
+  role: LineupRole
   worktree: { branch: string; path: string }
 }
 
@@ -182,7 +183,7 @@ export class TicketRunner {
 
   async stateOf(ticketId: string): Promise<TicketState> {
     const ticket = await this.repos.tickets.get(ticketId)
-    const role = await this.repos.roles.get(ticket.workspaceId)
+    const role = soloRole(await this.repos.lineups.get(ticket.workspaceId))
     if (ticket.manualColumn === 'done') {
       // Done wins over everything else, so the runs and their events need not be loaded.
       return currentState({ ticket, run: null, pendingDecisions: [], processAlive: false, activePhase: role.activePhase })
@@ -432,7 +433,7 @@ export class TicketRunner {
   private async prepare(ticketId: string): Promise<Launch> {
     let ticket = await this.repos.tickets.get(ticketId)
     const workspace = await this.workspaceOf(ticket)
-    const role = await this.repos.roles.get(workspace.id)
+    const role = soloRole(await this.repos.lineups.get(workspace.id))
     const worktree = await this.deps.worktrees.ensure(workspace, ticket)
     ticket = await this.repos.tickets.setWorktree(ticket.id, worktree.branch, worktree.path)
     return { ticket, workspace, role, worktree }

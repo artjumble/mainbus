@@ -3,7 +3,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { makeLineup, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { Board } from './Board'
 
 // Capture the drag handler so a test can call it the way dnd-kit would.
@@ -287,7 +287,7 @@ describe('moving a card without dragging', () => {
 
 test('the settings button in the header opens the workspace settings', async () => {
   mockInvoke.mockImplementation(async (command: string) => {
-    if (command === 'role.get') return { instructions: 'Be careful.', model: null, effort: null }
+    if (command === 'lineup.get') return makeLineup()
     if (command === 'allowRules.list') return []
     if (command === 'agents.launcher') return null
     return { tickets: [] }
@@ -295,5 +295,5 @@ test('the settings button in the header opens the workspace settings', async () 
   showBoard()
   renderWithMantine(<Board />)
   await userEvent.click(screen.getByRole('button', { name: 'Workspace settings' }))
-  expect(await screen.findByLabelText('Instructions')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Edit Implementer' })).toBeInTheDocument()
 })

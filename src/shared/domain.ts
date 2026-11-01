@@ -1,4 +1,4 @@
-// Shared by the engine and the renderer: types only, no Node imports.
+// Shared by the engine and the renderer: types and a few constants, no Node imports.
 
 export type Column = 'backlog' | 'ready' | 'in_progress' | 'needs_you' | 'review' | 'done'
 
@@ -7,6 +7,7 @@ export type Phase =
   | 'planning'
   | 'implementing'
   | 'testing'
+  | 'reviewing'
   | 'waiting_on_you'
   | 'ready_for_review'
   | 'done'
@@ -32,15 +33,40 @@ export interface Workspace {
   openPrOnReview: boolean
 }
 
-export interface Role {
+/** A workspace's lineups. Only Change for now; M7 adds Investigate. */
+export type Lineup = 'change'
+
+/** The phases a role can put its ticket in while it is active. */
+export const ROLE_PHASES = ['planning', 'implementing', 'testing', 'reviewing'] as const
+export type RolePhase = (typeof ROLE_PHASES)[number]
+
+export type ToolProfile = 'read_only' | 'edit'
+
+/** What `report_problem` does: hand back to an earlier role, or ask the user. */
+export type OnProblem = 'hand_back' | 'ask_me'
+
+/** One role in a lineup; the roles work a ticket in turn, by position (1 first). */
+export interface LineupRole {
+  id: string
   workspaceId: string
+  lineup: Lineup
+  position: number
   name: string
   instructions: string
-  activePhase: Phase
-  toolProfile: 'read_only' | 'edit'
+  activePhase: RolePhase
+  onProblem: OnProblem
+  /** The id of an earlier role in the same lineup to hand back to; null means the previous role. */
+  handBackTo: string | null
   model: string | null
   effort: Effort | null
+  toolProfile: ToolProfile
 }
+
+/**
+ * A role as the lineup settings save it, in lineup order. An id from `lineup.get` keeps that role's identity;
+ * any other id stands for a new role (which gets a fresh id), so `handBackTo` can point at it.
+ */
+export type LineupRoleInput = Omit<LineupRole, 'workspaceId' | 'lineup' | 'position'>
 
 /** Who wrote an intent entry when it was not the user: a local agent, by the name it reported (not verified). */
 export interface IntentSource {

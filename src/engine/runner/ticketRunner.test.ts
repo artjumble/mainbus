@@ -212,6 +212,38 @@ describe('TicketRunner', () => {
     })
   })
 
+  it("until runs go through the lineup, a ticket runs with the lineup's first role that edits", async () => {
+    const lineup = await repos.lineups.get(ticket.workspaceId)
+    const strip = ({ workspaceId: _w, lineup: _l, position: _p, ...rest }: (typeof lineup)[number]) => rest
+    await repos.lineups.save(ticket.workspaceId, [
+      { ...strip(lineup[2]!), handBackTo: null }, // Reviewer: read only
+      { ...strip(lineup[1]!), name: 'Fixer', instructions: 'Fix it with care.', model: 'opus', effort: 'high', activePhase: 'testing', handBackTo: null },
+      { id: 'new', name: 'Second fixer', instructions: 'Not me.', activePhase: 'implementing', onProblem: 'ask_me', handBackTo: null, model: null, effort: null, toolProfile: 'edit' }
+    ])
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+
+    await runner.start(ticket.id)
+
+    expect(await repos.runs.latest(ticket.id)).toMatchObject({ role: 'Fixer' })
+    const spec = runtime.specs[0]!
+    expect(spec.appendSystemPrompt).toContain('## Your role: Fixer\nFix it with care.')
+    expect(spec).toMatchObject({ toolProfile: 'edit', model: 'opus', effort: 'high' })
+    expect((await runner.stateOf(ticket.id)).phase).toBe('testing')
+  })
+
+  it('with no role that edits, a ticket runs with the first role', async () => {
+    const lineup = await repos.lineups.get(ticket.workspaceId)
+    const strip = ({ workspaceId: _w, lineup: _l, position: _p, ...rest }: (typeof lineup)[number]) => rest
+    await repos.lineups.save(ticket.workspaceId, [{ ...strip(lineup[2]!), handBackTo: null }, strip(lineup[0]!)])
+    const runtime = new FakeRuntime(keepAlive)
+
+    await makeRunner(runtime).start(ticket.id)
+
+    expect(await repos.runs.latest(ticket.id)).toMatchObject({ role: 'Reviewer' })
+    expect(runtime.specs[0]).toMatchObject({ toolProfile: 'read_only' })
+  })
+
   it('ask_user opens a question decision and moves the ticket to Needs you', async () => {
     const runtime = new FakeRuntime([
       { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'], recommended: 1 } },

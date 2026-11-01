@@ -268,8 +268,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return runner.answer(id, answer)
       },
 
-      'role.get': async () => repos.roles.get((await requireWorkspace()).id),
-      'role.update': async (patch) => repos.roles.update((await requireWorkspace()).id, patch),
+      'lineup.get': async () => repos.lineups.get((await requireWorkspace()).id),
+      'lineup.save': async (roles) => repos.lineups.save((await requireWorkspace()).id, roles),
 
       'allowRules.list': async () => {
         const ws = await repos.workspaces.get()

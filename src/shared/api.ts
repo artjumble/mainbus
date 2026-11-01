@@ -7,8 +7,9 @@ import type {
   Decision,
   DecisionAnswer,
   GhStatus,
+  LineupRole,
+  LineupRoleInput,
   NewTicketInput,
-  Role,
   Ticket,
   TicketPatch,
   TicketState,
@@ -52,8 +53,13 @@ export interface EngineCommands {
   'agent.stop'(ticketId: string): void
   'agent.continue'(ticketId: string): void
   'decision.answer'(id: string, a: DecisionAnswer): void
-  'role.get'(): Role
-  'role.update'(p: Partial<Pick<Role, 'instructions' | 'model' | 'effort'>>): Role
+  /** The workspace's Change lineup, first role first. */
+  'lineup.get'(): LineupRole[]
+  /**
+   * Replaces the whole Change lineup, in order. Rejects, with a message for the settings screen, a lineup with no
+   * roles, an empty or duplicate name, or a hand-back to a role that isn't earlier in the lineup.
+   */
+  'lineup.save'(roles: LineupRoleInput[]): LineupRole[]
   'allowRules.list'(): AllowRule[]
   'allowRules.remove'(id: string): void
   /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */
