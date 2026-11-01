@@ -5,7 +5,10 @@ import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { Db } from '../db/open'
 import { agentEvents, agentRuns, ticketRuns } from '../db/schema'
 
-export type EndReason = 'handoff' | 'stopped' | 'failed'
+/** `handed_back`: the run's role reported a problem and handed the ticket back to an earlier role. */
+export type EndReason = 'handoff' | 'handed_back' | 'stopped' | 'failed'
+/** The reasons `end` takes: a hand-back only ends a run through `handBack`, which never ends the ticket run. */
+export type EndingReason = Exclude<EndReason, 'handed_back'>
 export type TicketRunStatus = 'running' | 'done' | 'stopped' | 'failed'
 
 export type AgentRunRow = {
@@ -19,6 +22,8 @@ export type AgentRunRow = {
   endReason: EndReason | null
   startedAt: string
   endedAt: string | null
+  /** The snapshot id of the role this run's handoff returns to instead of the next role; null for the next role. */
+  returnToRoleId: string | null
 }
 
 export type TicketRunRow = {
@@ -35,12 +40,19 @@ export interface RunRepo {
   /** Starts a ticket run of `roles` (in order, at least one) and its first role's agent run; returns that run's id. */
   create(ticketId: string, roles: LineupRole[]): Promise<string>
   /**
-   * Hands `prevRunId` on to `next`, a later role of the same ticket run: starts its agent run, then ends the
-   * previous one as handed off. Returns the new run's id, or null, changing nothing, if the previous run had
-   * already ended or its ticket run is no longer running. The new run exists before the old one ends, so the
-   * ticket's latest run is never a handed-off one mid-lineup.
+   * Hands `prevRunId` on to `next`, a role of the same ticket run: starts its agent run, then ends the previous
+   * one as handed off. Returns the new run, or null, changing nothing, if the previous run had already ended or
+   * its ticket run is no longer running. The new run exists before the old one ends, so the ticket's latest run
+   * is never a handed-off one mid-lineup. When `next` already ran in this ticket run, the new run carries on
+   * its latest run's session and return role.
    */
-  handOn(prevRunId: string, next: LineupRole): Promise<string | null>
+  handOn(prevRunId: string, next: LineupRole): Promise<AgentRunRow | null>
+  /**
+   * Hands `prevRunId` back to `to`, an earlier role of the same ticket run, as `handOn` does, but ends the
+   * previous run as handed back. The new run carries on `to`'s latest session, and its handoff returns to
+   * `returnToRoleId`.
+   */
+  handBack(prevRunId: string, to: LineupRole, returnToRoleId: string): Promise<AgentRunRow | null>
   latest(ticketId: string): Promise<AgentRunRow | null>
   /** Every run of the ticket, oldest first. */
   listForTicket(ticketId: string): Promise<AgentRunRow[]>
@@ -52,7 +64,7 @@ export interface RunRepo {
    * Ends an open run, and its ticket run with it: a handoff ends the ticket run as done (it was the last role),
    * a stop or failure as stopped or failed. Returns false, changing nothing, if the run had already ended.
    */
-  end(runId: string, reason: EndReason): Promise<boolean>
+  end(runId: string, reason: EndingReason): Promise<boolean>
   /** Appends to the run's thread; seq numbers start at 1 and are consecutive per run. */
   append(runId: string, event: ThreadEvent): Promise<StoredEvent>
   events(runId: string): Promise<StoredEvent[]>
@@ -67,10 +79,11 @@ const runColumns = {
   sessionId: agentRuns.sessionId,
   endReason: agentRuns.endReason,
   startedAt: agentRuns.startedAt,
-  endedAt: agentRuns.endedAt
+  endedAt: agentRuns.endedAt,
+  returnToRoleId: agentRuns.returnTo
 }
 
-const TICKET_RUN_END: Record<EndReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
+const TICKET_RUN_END: Record<EndingReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
 
 export function createRunRepo(db: Db, now: () => Date): RunRepo {
   function agentRunValues(ticketId: string, ticketRunId: string, role: LineupRole) {
@@ -84,6 +97,45 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       effort: role.effort,
       startedAt: now().toISOString()
     }
+  }
+
+  async function get(runId: string): Promise<AgentRunRow | null> {
+    const [row] = await db.select(runColumns).from(agentRuns).where(eq(agentRuns.id, runId))
+    return row ?? null
+  }
+
+  /**
+   * Starts `role`'s run after `prevRunId`, then ends `prevRunId` with `reason`; see handOn. `returnTo` is the
+   * new run's return role: a role id, or 'inherit' for that of the role's latest run in the ticket run.
+   */
+  async function passTo(
+    prevRunId: string,
+    role: LineupRole,
+    returnTo: string | 'inherit',
+    reason: 'handoff' | 'handed_back'
+  ): Promise<AgentRunRow | null> {
+    const prev = await get(prevRunId)
+    if (!prev) return null
+    const v = agentRunValues(prev.ticketId, prev.ticketRunId, role)
+    const latestOfRole = (column: string) => sql`(
+      select ${sql.raw(column)} from ${agentRuns}
+      where ticket_run_id = ${v.ticketRunId} and role_id = ${v.roleId}
+      order by started_at desc, rowid desc limit 1)`
+    const returnToValue = returnTo === 'inherit' ? latestOfRole('return_to') : sql`${returnTo}`
+    // One statement, so the checks and the insert can't be split by a concurrent stop or failure.
+    const inserted = await db.all<unknown>(sql`
+      insert into ${agentRuns} (id, ticket_id, ticket_run_id, role_id, role, model, effort, started_at, session_id, return_to)
+      select ${v.id}, ${v.ticketId}, ${v.ticketRunId}, ${v.roleId}, ${v.role}, ${v.model}, ${v.effort}, ${v.startedAt},
+        ${latestOfRole('session_id')}, ${returnToValue}
+      where exists (select 1 from ${agentRuns} where id = ${prevRunId} and end_reason is null)
+        and exists (select 1 from ${ticketRuns} where id = ${prev.ticketRunId} and status = 'running')
+      returning id`)
+    if (inserted.length === 0) return null
+    await db
+      .update(agentRuns)
+      .set({ endReason: reason, endedAt: now().toISOString() })
+      .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
+    return get(v.id)
   }
 
   return {
@@ -101,23 +153,12 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       return run.id
     },
 
-    async handOn(prevRunId, next) {
-      const [prev] = await db.select(runColumns).from(agentRuns).where(eq(agentRuns.id, prevRunId))
-      if (!prev) return null
-      const v = agentRunValues(prev.ticketId, prev.ticketRunId, next)
-      // One statement, so the checks and the insert can't be split by a concurrent stop or failure.
-      const inserted = await db.all<unknown>(sql`
-        insert into ${agentRuns} (id, ticket_id, ticket_run_id, role_id, role, model, effort, started_at)
-        select ${v.id}, ${v.ticketId}, ${v.ticketRunId}, ${v.roleId}, ${v.role}, ${v.model}, ${v.effort}, ${v.startedAt}
-        where exists (select 1 from ${agentRuns} where id = ${prevRunId} and end_reason is null)
-          and exists (select 1 from ${ticketRuns} where id = ${prev.ticketRunId} and status = 'running')
-        returning id`)
-      if (inserted.length === 0) return null
-      await db
-        .update(agentRuns)
-        .set({ endReason: 'handoff', endedAt: now().toISOString() })
-        .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
-      return v.id
+    handOn(prevRunId, next) {
+      return passTo(prevRunId, next, 'inherit', 'handoff')
+    },
+
+    handBack(prevRunId, to, returnToRoleId) {
+      return passTo(prevRunId, to, returnToRoleId, 'handed_back')
     },
 
     async latest(ticketId) {

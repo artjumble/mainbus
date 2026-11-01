@@ -37,6 +37,12 @@ function describe(event: ThreadEvent, decisions: Map<string, Decision>, roleName
       return `Mainbus: ${event.text}`
     case 'handoff':
       return `Handoff: ${event.summary}`
+    case 'hand_back':
+      return `${event.from} handed back to ${event.to}: ${event.details}`
+    case 'role_hand_back':
+      return `${event.from} handed the ticket back to ${event.to}`
+    case 'criterion_checked':
+      return `${roleName} checked: ${event.text}`
     case 'error':
       return `Error: ${event.message}`
     case 'turn_end':

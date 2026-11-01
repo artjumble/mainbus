@@ -177,6 +177,12 @@ const cases: Array<{ name: string; input: StateInput; expected: TicketState }> =
     expected: { column: 'in_progress', phase: 'testing', agentStatus: 'paused', summary: null, canContinue: true }
   },
   {
+    // Never the latest in practice: the earlier role's run starts first. It must not read as Review or working.
+    name: 'run handed back is paused mid-lineup',
+    input: { ...base, run: { endReason: 'handed_back', events: [] }, processAlive: true },
+    expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', summary: null, canContinue: true }
+  },
+  {
     name: 'run not ended, process alive takes phase from activePhase',
     input: { ...base, activePhase: 'testing', run: { endReason: null, events: [] }, processAlive: true },
     expected: { column: 'in_progress', phase: 'testing', agentStatus: 'working', summary: null, canContinue: false }

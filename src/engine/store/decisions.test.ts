@@ -57,6 +57,16 @@ describe('decision repo', () => {
       answeredAt: null
     })
     expect(await repo.get(d.id)).toEqual(d)
+    expect(await repo.actionOf(d.id)).toBeNull()
+  })
+
+  it('keeps the action Mainbus takes on the answer, apart from the decision', async () => {
+    const repo = createDecisionRepo(db, now)
+    const action = { kind: 'problem', fromRoleId: 'r', toRoleId: 'i', details: 'Tests fail' } as const
+    const d = await repo.open({ ...question(), options: ['Hand back to Implementer', 'Keep going'] }, action)
+    expect(await repo.actionOf(d.id)).toEqual(action)
+    expect(d).not.toHaveProperty('action')
+    await expect(repo.actionOf('missing')).rejects.toThrow(/not found/)
   })
 
   it('stores a null recommendation and allowAlways false', async () => {

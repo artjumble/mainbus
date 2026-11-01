@@ -18,7 +18,7 @@ import { guardReason } from '../permissions/guard'
 import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
-import { buildRolePrompt, firstMessage, type EarlierHandoff } from '../roles/prompt'
+import { buildRolePrompt, data, firstMessage, type EarlierHandoff } from '../roles/prompt'
 import {
   ResumeFailedError,
   type AgentRuntime,
@@ -31,6 +31,7 @@ import {
 import { currentState } from '../state/currentState'
 import { lineupStrip } from '../state/lineupStrip'
 import type { Repos } from '../store'
+import type { DecisionAction } from '../store/decisions'
 import type { AgentRunRow } from '../store/runs'
 import { previousAttempt } from './digest'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
@@ -77,6 +78,10 @@ const PR_SETTING_OFF = 'Turn on "Open a PR when a ticket reaches Review" in the 
 const PR_NOT_IN_REVIEW = 'Only a ticket in Review can be pushed'
 const PR_NO_BRANCH = 'This ticket has no branch to push'
 const NO_ROLES = 'Tick at least one role to start'
+const KEEP_GOING = 'Keep going'
+const TAKE_OVER = 'Take over'
+/** Hand-backs between the same two roles before the user is asked whether to keep going. */
+const ROUND_TRIP_CAP = 3
 
 /** Where a thread event goes: the run's thread, announced for its ticket and workspace. */
 interface ThreadTarget {
@@ -371,7 +376,10 @@ export class TicketRunner {
     }
 
     // From here on the answer is recorded; if the run has ended, it simply stays recorded.
-    const text = answerText(decision, a as Extract<DecisionAnswer, { kind: 'option' }>)
+    const option = a as Extract<DecisionAnswer, { kind: 'option' }>
+    const action = await this.repos.decisions.actionOf(decisionId)
+    if (action && (await this.actOnAnswer(decision, action, option))) return
+    const text = answerText(decision, option)
     const live = this.live.get(decision.agentRunId)
     if (live) {
       live.silentTurns = 0
@@ -381,6 +389,42 @@ export class TicketRunner {
     // The agent's process is gone (for example after a restart): resume with the answer.
     const run = await this.repos.runs.latest(decision.ticketId)
     if (run && run.id === decision.agentRunId && run.endReason === null) await this.resume(run, text)
+  }
+
+  /**
+   * Does what the answer to a decision Mainbus asked on a role's behalf calls for: a hand-back, or Take over.
+   * Returns false when the answer is for the agent instead ("Keep going" on a reported problem). Runs inside
+   * the ticket's queue, so it calls stopNow and handOnNow directly.
+   */
+  private async actOnAnswer(
+    decision: Decision,
+    action: DecisionAction,
+    a: Extract<DecisionAnswer, { kind: 'option' }>
+  ): Promise<boolean> {
+    const chosen = decision.options[a.index]
+    if (action.kind === 'round_trip' && chosen === TAKE_OVER) {
+      await this.stopNow(decision.ticketId)
+      return true
+    }
+    const handBack = action.kind === 'round_trip' ? chosen === KEEP_GOING : action.toRoleId !== null && chosen !== KEEP_GOING
+    if (!handBack || action.toRoleId === null) return false
+
+    const run = await this.repos.runs.latest(decision.ticketId)
+    // The reporter has ended meanwhile (stopped, say): the answer stays recorded and nothing else happens.
+    if (!run || run.id !== decision.agentRunId || run.endReason !== null) return true
+    const { roles } = await this.repos.runs.ticketRun(run.ticketRunId)
+    const from = roles.find((r) => r.id === action.fromRoleId)
+    const to = roles.find((r) => r.id === action.toRoleId)
+    if (!from || !to) return true
+    const ticket = await this.repos.tickets.get(decision.ticketId)
+    const note = a.note ? `\n\nThe user's note:\n${data('note', a.note)}` : ''
+    const back = await this.handBack(this.target(run, ticket), from, to, action.details, true)
+    if (!back) return true
+    // The reporter's turn is over (it asked and ended it), so its process can go now.
+    const live = this.live.get(run.id)
+    if (live) void this.stopProcess(live)
+    await this.handOnNow(back, problemText(from, action.details) + note)
+    return true
   }
 
   private async stopNow(ticketId: string): Promise<void> {
@@ -511,19 +555,26 @@ export class TicketRunner {
     return roleIn((await this.repos.runs.ticketRun(run.ticketRunId)).roles, run)
   }
 
-  /** The role after the run's own in its ticket run, or null when the run's role is the last. */
+  /**
+   * The role the run's handoff goes to: the role waiting on it after reporting a problem, else the role after
+   * the run's own in its ticket run, or null when the run's role is the last.
+   */
   private async nextRole(run: AgentRunRow): Promise<LineupRole | null> {
     const { roles } = await this.repos.runs.ticketRun(run.ticketRunId)
+    if (run.returnToRoleId !== null) {
+      const waiting = roles.find((r) => r.id === run.returnToRoleId)
+      if (waiting) return waiting
+    }
     const i = roles.findIndex((r) => r.id === run.roleId)
     return i >= 0 ? (roles[i + 1] ?? null) : null
   }
 
-  /** The handoffs of the roles before `run` in its ticket run, in order. */
+  /** The handoffs of the other roles before `run` in its ticket run, in order (its own role's are its own). */
   private async handoffsBefore(run: AgentRunRow): Promise<EarlierHandoff[]> {
     const handoffs: EarlierHandoff[] = []
     for (const earlier of await this.repos.runs.listForTicketRun(run.ticketRunId)) {
       if (earlier.id === run.id) break
-      if (earlier.endReason !== 'handoff') continue
+      if (earlier.endReason !== 'handoff' || earlier.roleId === run.roleId) continue
       const event = (await this.repos.runs.events(earlier.id)).findLast((e) => e.event.kind === 'handoff')?.event
       if (event?.kind !== 'handoff') continue
       handoffs.push({
@@ -535,10 +586,13 @@ export class TicketRunner {
     return handoffs
   }
 
-  /** Launches the role a handoff just started; the ticket counts as launching until this is over. */
-  private async handOnNow(run: AgentRunRow): Promise<void> {
+  /**
+   * Launches the role a handoff or hand-back just started, with `prompt` as its next message; the ticket
+   * counts as launching until this is over.
+   */
+  private async handOnNow(run: AgentRunRow, prompt: string): Promise<void> {
     try {
-      await this.resume(run, CONTINUE_TEXT)
+      await this.resume(run, prompt)
     } finally {
       this.handingOn.delete(run.ticketId)
     }
@@ -546,8 +600,9 @@ export class TicketRunner {
 
   /**
    * Resumes the run's session with `prompt`; if that fails, starts a fresh agent with a digest of the
-   * thread (events from seq `digestBefore` on are left out of the digest). A role that was handed the
-   * ticket but never launched gets a fresh session with its first message instead.
+   * thread (events from seq `digestBefore` on are left out of the digest), including the role's earlier
+   * runs in this ticket run. A role that was handed the ticket but never launched gets a fresh session with
+   * its first message instead.
    */
   private async resume(run: AgentRunRow, prompt: string, digestBefore?: number): Promise<void> {
     if (this.shuttingDown) return
@@ -558,9 +613,16 @@ export class TicketRunner {
       const role = await this.roleOf(current)
       const launch: Launch = { ...prepared, role, ticketRunId: current.ticketRunId, handoffs: await this.handoffsBefore(current) }
       const events = await this.repos.runs.events(run.id)
+      // A role handed a problem back, or returned to, worked in its earlier runs of this ticket run too.
+      const before: StoredEvent[] = []
+      for (const earlier of await this.repos.runs.listForTicketRun(current.ticketRunId)) {
+        if (earlier.id === current.id) break
+        if (earlier.roleId === current.roleId) before.push(...(await this.repos.runs.events(earlier.id)))
+      }
       // The whole ticket's decisions, so a run made by Start again keeps the earlier runs' answers.
       const decisions = await this.repos.decisions.forTicket(run.ticketId)
-      if (current.sessionId === null && events.every((e) => NOT_LAUNCHED_KINDS.has(e.event.kind))) {
+      const neverLaunched = [...before, ...events].every((e) => NOT_LAUNCHED_KINDS.has(e.event.kind))
+      if (current.sessionId === null && neverLaunched) {
         const handedBy = events.find((e) => e.event.kind === 'role_handoff')?.event
         const first = firstMessage(launch.ticket, handedBy?.kind === 'role_handoff' ? handedBy.from : undefined)
         await this.launch(launch, run.id, prompt === CONTINUE_TEXT ? first : `${first}\n\n${prompt}`, decisions)
@@ -575,8 +637,8 @@ export class TicketRunner {
         }
       }
       // launch() checks stopRequested first, so a stop queued meanwhile prevents the fresh agent.
-      const earlier = digestBefore === undefined ? events : events.filter((e) => e.seq < digestBefore)
-      const digest = previousAttempt(earlier, decisions, launch.role.name)
+      const own = digestBefore === undefined ? events : events.filter((e) => e.seq < digestBefore)
+      const digest = previousAttempt([...before, ...own], decisions, launch.role.name)
       await this.launch(launch, run.id, `${digest}\n\n${prompt}`, decisions)
     })
   }
@@ -784,28 +846,8 @@ export class TicketRunner {
     return {
       askUser: async ({ question, options, recommended }) => {
         if (options.length === 0) return 'Not asked: give the user at least one option to choose from.'
-        const live = this.live.get(target.runId)
-        if (live) live.askedThisTurn = true
-        if (!(await this.isOpen(target))) return RUN_ENDED
-        const decision = await this.repos.decisions.open({
-          ticketId: target.ticketId,
-          agentRunId: target.runId,
-          kind: 'question',
-          question,
-          options,
-          recommended:
-            recommended !== undefined && Number.isInteger(recommended) && recommended >= 0 && recommended < options.length
-              ? recommended
-              : null,
-          allowAlways: false
-        })
-        if (!(await this.isOpen(target))) {
-          await this.expireIfPending(decision.id, target.workspaceId)
-          return RUN_ENDED
-        }
-        await this.record(target, { kind: 'decision', decisionId: decision.id })
-        this.announceDecision(decision, target.workspaceId)
-        return ASK_RECORDED
+        const valid = recommended !== undefined && Number.isInteger(recommended) && recommended >= 0 && recommended < options.length
+        return this.ask(target, question, options, valid ? recommended : null)
       },
 
       handoff: async ({ summary, notesForNext }) => {
@@ -819,12 +861,11 @@ export class TicketRunner {
           // so it never shows in Review between roles.
           const wasHandingOn = this.handingOn.has(target.ticketId)
           this.handingOn.add(target.ticketId)
-          const nextRunId = await this.repos.runs.handOn(target.runId, next)
-          if (nextRunId === null) {
+          nextRun = await this.repos.runs.handOn(target.runId, next)
+          if (nextRun === null) {
             if (!wasHandingOn) this.handingOn.delete(target.ticketId)
             return RUN_ENDED
           }
-          nextRun = { ...run, id: nextRunId, roleId: next.id, role: next.name, sessionId: null, endReason: null, endedAt: null }
         } else if (!(await this.repos.runs.end(target.runId, 'handoff'))) {
           return RUN_ENDED
         }
@@ -843,16 +884,144 @@ export class TicketRunner {
           const handedTo = nextRun
           const ticket = await this.repos.tickets.get(target.ticketId)
           await this.record(this.target(handedTo, ticket), { kind: 'role_handoff', from: target.role, to: handedTo.role })
+          // A role that reported a problem and is waiting on this one resumes with this handoff as its message.
+          const prompt = run.returnToRoleId === null ? CONTINUE_TEXT : returnText(target.role, summary, notesForNext)
           // The next role starts in the ticket's queue, without holding up this reply. Only the last role's
           // handoff pushes.
-          void this.serial(target.ticketId, () => this.handOnNow(handedTo)).catch(() => {})
+          void this.serial(target.ticketId, () => this.handOnNow(handedTo, prompt)).catch(() => {})
         } else {
           // The ticket is in Review now; the push and PR follow in its queue, without holding up this reply.
           void this.serial(target.ticketId, () => this.publishNow(target.ticketId, false)).catch(() => {})
         }
         return HANDED_OFF
+      },
+
+      reportProblem: async ({ details }) => {
+        const run = await this.repos.runs.latest(target.ticketId)
+        if (!run || run.id !== target.runId || run.endReason !== null) return RUN_ENDED
+        const { roles } = await this.repos.runs.ticketRun(run.ticketRunId)
+        const from = roleIn(roles, run)
+        const earlier = roles.slice(0, roles.indexOf(from))
+        // The role set up to take problems back, if it is in this run; null hands back to the previous role.
+        const configured = from.handBackTo === null ? earlier.at(-1) : earlier.find((r) => r.id === from.handBackTo)
+        if (from.onProblem === 'hand_back' && configured) {
+          if ((await this.roundTrips(run.ticketRunId, from.id, configured.id)) >= ROUND_TRIP_CAP) {
+            return this.ask(
+              target,
+              `${from.name} and ${configured.name} have gone back and forth ${ROUND_TRIP_CAP} times: keep going, or take over?`,
+              [KEEP_GOING, TAKE_OVER],
+              null,
+              { kind: 'round_trip', fromRoleId: from.id, toRoleId: configured.id, details }
+            )
+          }
+          const back = await this.handBack(target, from, configured, details, false)
+          if (!back) return RUN_ENDED
+          // The earlier role starts in the ticket's queue, without holding up this reply; this agent's process
+          // goes when its turn ends.
+          void this.serial(target.ticketId, () => this.handOnNow(back, problemText(from, details))).catch(() => {})
+          return `Handed back to ${configured.name}. End your turn now; when ${configured.name} hands off, its summary arrives as your next message.`
+        }
+        // Ask the user: on ask_me, or when the role to hand back to is not in this run.
+        const to = configured ?? earlier.at(-1) ?? null
+        return this.ask(
+          target,
+          `${from.name} reports a problem: ${details}`,
+          to ? [`Hand back to ${to.name}`, KEEP_GOING] : [KEEP_GOING],
+          null,
+          { kind: 'problem', fromRoleId: from.id, toRoleId: to?.id ?? null, details }
+        )
+      },
+
+      checkCriterion: async ({ index }) => {
+        if (!(await this.isOpen(target))) return RUN_ENDED
+        const { criteria } = await this.repos.tickets.get(target.ticketId)
+        if (criteria.length === 0) return 'Not checked: this ticket has no acceptance criteria.'
+        const checked = Number.isInteger(index) ? await this.repos.tickets.checkCriterion(target.ticketId, index) : null
+        if (!checked) return `Not checked: there is no criterion ${index}. This ticket's criteria are numbered 0 to ${criteria.length - 1}.`
+        if (checked.wasChecked) return `Criterion ${index} was already checked.`
+        await this.record(target, { kind: 'criterion_checked', index, text: checked.text })
+        return `Checked ${index}: ${checked.text}`
       }
     }
+  }
+
+  /**
+   * Opens a question to the user for the target's run. With an `action`, Mainbus asks on the role's behalf and
+   * acts on the answer itself (see actOnAnswer). Returns what the agent is told.
+   */
+  private async ask(
+    target: ThreadTarget,
+    question: string,
+    options: string[],
+    recommended: number | null,
+    action?: DecisionAction
+  ): Promise<string> {
+    const live = this.live.get(target.runId)
+    if (live) live.askedThisTurn = true
+    if (!(await this.isOpen(target))) return RUN_ENDED
+    const decision = await this.repos.decisions.open(
+      { ticketId: target.ticketId, agentRunId: target.runId, kind: 'question', question, options, recommended, allowAlways: false },
+      action
+    )
+    if (!(await this.isOpen(target))) {
+      await this.expireIfPending(decision.id, target.workspaceId)
+      return RUN_ENDED
+    }
+    await this.record(target, { kind: 'decision', decisionId: decision.id })
+    this.announceDecision(decision, target.workspaceId)
+    return ASK_RECORDED
+  }
+
+  /**
+   * Hand-backs from `fromRoleId` to `toRoleId` in the ticket run since the user last chose one: the user
+   * choosing a hand-back (Keep going, or Hand back on a reported problem) starts the count again.
+   */
+  private async roundTrips(ticketRunId: string, fromRoleId: string, toRoleId: string): Promise<number> {
+    let count = 0
+    for (const run of await this.repos.runs.listForTicketRun(ticketRunId)) {
+      if (run.endReason !== 'handed_back' || run.roleId !== fromRoleId) continue
+      for (const { event } of await this.repos.runs.events(run.id)) {
+        if (event.kind === 'hand_back' && event.toRoleId === toRoleId) count = event.byUser ? 0 : count + 1
+      }
+    }
+    return count
+  }
+
+  /**
+   * Hands the target's run (role `from`) back to `to`: starts `to`'s run, which carries on its session and
+   * returns to `from` when it hands off, and ends the target's run as handed back. Returns `to`'s new run,
+   * with the ticket marked as handing on until handOnNow launches it, or null when the run had already ended.
+   */
+  private async handBack(
+    target: ThreadTarget,
+    from: LineupRole,
+    to: LineupRole,
+    details: string,
+    byUser: boolean
+  ): Promise<AgentRunRow | null> {
+    const wasHandingOn = this.handingOn.has(target.ticketId)
+    this.handingOn.add(target.ticketId)
+    const back = await this.repos.runs.handBack(target.runId, to, from.id)
+    if (back === null) {
+      if (!wasHandingOn) this.handingOn.delete(target.ticketId)
+      return null
+    }
+    const live = this.live.get(target.runId)
+    if (live) live.ended = true
+    await this.record(target, {
+      kind: 'hand_back',
+      from: from.name,
+      to: to.name,
+      fromRoleId: from.id,
+      toRoleId: to.id,
+      details,
+      ...(byUser ? { byUser: true } : {})
+    })
+    // Nobody is left to receive an answer to this run's open questions.
+    await this.expirePending(target, (d) => d.kind === 'question' && d.agentRunId === target.runId)
+    const ticket = await this.repos.tickets.get(target.ticketId)
+    await this.record(this.target(back, ticket), { kind: 'role_hand_back', from: from.name, to: to.name })
+    return back
   }
 
   // --- permissions ---
@@ -1002,7 +1171,18 @@ function threadRun(target: ThreadTarget): ThreadRun {
 }
 
 /** What a role's thread can hold before its agent was ever launched: the handoff to it, and messages for it. */
-const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'user_message'])
+const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message'])
+
+/** The message a role gets when a later role hands a problem back to it. */
+function problemText(from: LineupRole, details: string): string {
+  return `${from.name} reports a problem:\n${data('problem', details)}`
+}
+
+/** The message a role waiting on an earlier one gets when that role hands off. */
+function returnText(from: string, summary: string, notesForNext: string): string {
+  const notes = notesForNext ? `\n${data('notes-for-next', notesForNext)}` : ''
+  return `${from} handed the ticket back to you after your report. Its summary:\n${data('handoff-summary', summary)}${notes}`
+}
 
 /** The lineup roles to run, in lineup order: those in `roleIds`, or every one. */
 function pickRoles(lineup: LineupRole[], roleIds: string[] | undefined): LineupRole[] {

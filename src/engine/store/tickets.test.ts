@@ -163,6 +163,22 @@ describe('ticket repo', () => {
     })
   })
 
+  it('checkCriterion ticks the criterion at a position, never unticks, and is null out of range', async () => {
+    const repo = createTicketRepo(db, now)
+    const t = await repo.create(input())
+    clock = new Date('2026-10-30T12:30:00.000Z')
+    expect(await repo.checkCriterion(t.id, 1)).toEqual({ position: 1, text: 'bad password rejected', checked: true, wasChecked: false })
+    const after = await repo.get(t.id)
+    expect(after.criteria.map((c) => c.checked)).toEqual([false, true])
+    expect(after.updatedAt).toBe('2026-10-30T12:30:00.000Z')
+    // Ticking it again changes nothing and says it was already ticked.
+    expect(await repo.checkCriterion(t.id, 1)).toEqual({ position: 1, text: 'bad password rejected', checked: true, wasChecked: true })
+    expect((await repo.get(t.id)).criteria.map((c) => c.checked)).toEqual([false, true])
+    expect(await repo.checkCriterion(t.id, 2)).toBeNull()
+    expect(await repo.checkCriterion(t.id, -1)).toBeNull()
+    expect(await repo.checkCriterion('missing', 0)).toBeNull()
+  })
+
   it('throws for an unknown ticket', async () => {
     const repo = createTicketRepo(db, now)
     await expect(repo.get('missing')).rejects.toThrow(/ticket/i)

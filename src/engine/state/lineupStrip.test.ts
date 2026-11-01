@@ -19,6 +19,15 @@ function strip(input: Partial<StripInput>): [string, RoleStatus, boolean][] {
 }
 
 describe('lineupStrip', () => {
+  test('after a hand-back the reporter counts as handed off and the earlier role, working again, is active', () => {
+    const runs = [run('a', 'p', 'handoff'), run('b', 'i', 'handoff'), run('c', 'r', 'handed_back'), run('d', 'i')]
+    expect(strip({ runs, latestRunId: 'd', agentStatus: 'working' })).toEqual([
+      ['Planner', 'handed_off', false],
+      ['Implementer', 'working', true],
+      ['Reviewer', 'handed_off', false]
+    ])
+  })
+
   test('before the first run every role is not started and none is active', () => {
     expect(strip({})).toEqual([
       ['Planner', 'not_started', false],
@@ -49,7 +58,8 @@ describe('lineupStrip', () => {
   test.each<[EndReason, RoleStatus]>([
     ['failed', 'failed'],
     ['stopped', 'stopped'],
-    ['handoff', 'handed_off']
+    ['handoff', 'handed_off'],
+    ['handed_back', 'handed_off']
   ])('a role whose run ended by %s is %s, and nothing is active', (endReason, status) => {
     const runs = [run('a', 'p', 'handoff'), run('b', 'i', endReason)]
     // The ticket's status (null after a stop) does not change an ended run's role.

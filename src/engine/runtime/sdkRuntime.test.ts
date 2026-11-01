@@ -74,7 +74,9 @@ function fakeSdk(
 function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
   const roleTools: RoleToolHandlers = {
     askUser: vi.fn(async () => 'asked'),
-    handoff: vi.fn(async () => 'handed off')
+    handoff: vi.fn(async () => 'handed off'),
+    reportProblem: vi.fn(async () => 'reported'),
+    checkCriterion: vi.fn(async () => 'checked')
   }
   return {
     cwd: 'C:\\work\\ws\\1-fix',
@@ -115,7 +117,12 @@ describe('SdkRuntime', () => {
     expect(o.model).toBe('sonnet')
     expect(o.effort).toBe('high')
     expect(o.permissionMode).toBe('acceptEdits')
-    expect(o.allowedTools).toEqual(['mcp__mainbus__ask_user', 'mcp__mainbus__handoff'])
+    expect(o.allowedTools).toEqual([
+      'mcp__mainbus__ask_user',
+      'mcp__mainbus__handoff',
+      'mcp__mainbus__report_problem',
+      'mcp__mainbus__check_criterion'
+    ])
     expect(o.disallowedTools).toEqual(spec.disallowedTools)
     expect(o.additionalDirectories).toEqual(spec.additionalDirectories)
     expect(o.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: spec.appendSystemPrompt })
@@ -347,15 +354,17 @@ describe('SdkRuntime', () => {
     expect(events.at(-1)).toEqual({ kind: 'turn_end', ok: true })
   })
 
-  test('registers the mainbus MCP server with ask_user and handoff, always loaded', async () => {
+  test('registers the mainbus MCP server with its four role tools, always loaded', async () => {
     const f = fakeSdk()
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec())
     expect(f.servers).toHaveLength(1)
     expect(f.servers[0].name).toBe('mainbus')
     expect(f.servers[0].alwaysLoad).toBe(true)
-    expect(f.tools.map((t) => t.name)).toEqual(['ask_user', 'handoff'])
+    expect(f.tools.map((t) => t.name)).toEqual(['ask_user', 'handoff', 'report_problem', 'check_criterion'])
     expect(Object.keys(f.tools[0].shape)).toEqual(['question', 'options', 'recommended'])
     expect(Object.keys(f.tools[1].shape)).toEqual(['summary', 'notes_for_next'])
+    expect(Object.keys(f.tools[2].shape)).toEqual(['details'])
+    expect(Object.keys(f.tools[3].shape)).toEqual(['index'])
     expect(Object.keys(f.calls[0].options.mcpServers)).toEqual(['mainbus'])
     expect(f.calls[0].options.mcpServers.mainbus.name).toBe('mainbus')
   })
@@ -379,6 +388,26 @@ describe('SdkRuntime', () => {
     const result = await askUser.handler(args, {})
     expect(spec.roleTools.askUser).toHaveBeenCalledWith(args)
     expect(result).toEqual({ content: [{ type: 'text', text: 'asked' }] })
+  })
+
+  test('the report_problem tool passes its details through', async () => {
+    const f = fakeSdk()
+    const spec = makeSpec()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const reportProblem = f.tools.find((t) => t.name === 'report_problem')!
+    const result = await reportProblem.handler({ details: 'tests fail' }, {})
+    expect(spec.roleTools.reportProblem).toHaveBeenCalledWith({ details: 'tests fail' })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'reported' }] })
+  })
+
+  test('the check_criterion tool passes its index through', async () => {
+    const f = fakeSdk()
+    const spec = makeSpec()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const checkCriterion = f.tools.find((t) => t.name === 'check_criterion')!
+    const result = await checkCriterion.handler({ index: 2 }, {})
+    expect(spec.roleTools.checkCriterion).toHaveBeenCalledWith({ index: 2 })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'checked' }] })
   })
 
   test('strips ANTHROPIC_API_KEY and every other credential or endpoint override from the child environment', async () => {

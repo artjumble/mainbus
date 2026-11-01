@@ -83,12 +83,11 @@ describe('buildRolePrompt', () => {
     )
   })
 
-  test('includes spec, criteria as a checklist, labels and answered decisions', () => {
+  test('includes spec, criteria as a checklist numbered from 0, labels and answered decisions', () => {
     const prompt = buildRolePrompt(role, ticket, [decision({})])
     expect(prompt).toContain('#14 <ticket-data field="title">Rate-limit login</ticket-data>')
     expect(prompt).toContain('Add a limiter in front of the login route.')
-    expect(prompt).toContain('- [ ] Test passes')
-    expect(prompt).toContain('- [x] Docs updated')
+    expect(prompt).toContain('- [ ] 0: Test passes\n- [x] 1: Docs updated')
     expect(prompt).toContain('security, backend')
     expect(prompt).toContain('Q: Which store? → A: In memory')
   })
@@ -339,14 +338,26 @@ describe('earlier handoffs in the role prompt', () => {
 })
 
 describe('ROLE_PROTOCOL', () => {
-  test('tells the agent to stop after the same obstacle twice', () => {
-    expect(ROLE_PROTOCOL).toMatch(/same obstacle twice/i)
+  test('tells the agent to stop after the same obstacle twice and report it', () => {
+    expect(ROLE_PROTOCOL).toMatch(/same obstacle twice[^\n]*mcp__mainbus__report_problem/i)
   })
 
   test('names the exact tool ids and forbids asking in plain text', () => {
+    expect(ROLE_PROTOCOL).toContain('You have four Mainbus tools')
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__ask_user')
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__handoff')
+    expect(ROLE_PROTOCOL).toContain('mcp__mainbus__report_problem(details)')
+    expect(ROLE_PROTOCOL).toContain('mcp__mainbus__check_criterion(index)')
     expect(ROLE_PROTOCOL).toMatch(/never ask[^.]*plain text/i)
+  })
+
+  test('says check_criterion takes a zero-based index and cannot untick', () => {
+    expect(ROLE_PROTOCOL).toMatch(/check_criterion[^\n]*zero-based index/)
+    expect(ROLE_PROTOCOL).toMatch(/cannot untick/i)
+  })
+
+  test('says report_problem hands back or asks, and to end the turn after it', () => {
+    expect(ROLE_PROTOCOL).toMatch(/report_problem[^\n]*hands the ticket back to an earlier role or asks the user[^\n]*end your turn/)
   })
 
   test('puts scratch files in the temp folder, the ticket\'s own scratch folder', () => {
