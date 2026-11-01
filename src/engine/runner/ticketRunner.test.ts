@@ -7,7 +7,7 @@ import type { Decision, LineupRole, Ticket } from '../../shared/domain'
 import type { AgentEvent, ThreadEvent } from '../../shared/events'
 import { runGit } from '../git/git'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome, type HomePaths } from '../home'
+import { resolveHome, scratchPathFor, type HomePaths } from '../home'
 import { describeRequest } from '../permissions/policy'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
 import { firstMessage, HANDOFFS_HEADING } from '../roles/prompt'
@@ -213,6 +213,42 @@ describe('TicketRunner', () => {
       phase: 'implementing',
       agentStatus: 'working'
     })
+  })
+
+  it("runs the agent with the ticket's scratch folder as its temp folder and an additional directory", async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+
+    await runner.start(ticket.id)
+
+    const t = await repos.tickets.get(ticket.id)
+    const scratch = scratchPathFor(paths, t.worktreePath as string)
+    expect(scratch).toBe(path.join(paths.scratch, 'repo', '1-rate-limit-login'))
+    expect(await exists(scratch)).toBe(true)
+    expect(runtime.specs[0].tempDir).toBe(scratch)
+    expect(runtime.specs[0].additionalDirectories).toEqual([scratch])
+  })
+
+  it('a write in the scratch folder is inside the ticket for allow rules; one in another ticket\'s scratch is not', async () => {
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'rm *' })
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const scratch = scratchPathFor(paths, (await repos.tickets.get(ticket.id)).worktreePath as string)
+
+    // Unguarded, so the broad rule covers it and no card is raised.
+    expect(await runtime.specs[0].onPermission(permission(`rm ${scratch}\\out.txt`))).toEqual({ allow: true })
+    // A cd into the scratch folder needs no rule, as a cd into the worktree doesn't.
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'npm test *' })
+    expect(await runtime.specs[0].onPermission(permission(`cd ${scratch} && npm test -- x`))).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+
+    // Another ticket's scratch folder is outside: guarded, so only an exact rule would cover it.
+    const other = path.join(paths.scratch, 'repo', '99-other', 'out.txt')
+    void runtime.specs[0].onPermission(permission(`rm ${other}`))
+    const decision = await waitForPending()
+    expect(decision).toMatchObject({ kind: 'permission', allowAlways: true })
+    expect(decision.question).toContain(other)
   })
 
   it('ask_user opens a question decision and moves the ticket to Needs you', async () => {
@@ -726,10 +762,15 @@ describe('TicketRunner', () => {
     expect(await repos.tickets.get(ticket.id)).toMatchObject({ manualColumn: 'ready', worktreePath, branch })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' })
 
+    const scratch = scratchPathFor(paths, worktreePath as string)
+    // The dirty worktree keeps its scratch folder too: the ticket isn't Done.
+    expect(await exists(scratch)).toBe(true)
+
     await fs.rm(stray)
     expect(await runner.moveToDone(ticket.id)).toBe('done')
 
     expect(await exists(worktreePath as string)).toBe(false)
+    expect(await exists(scratch)).toBe(false)
     expect(await git(['branch', '--list', branch as string])).toContain(branch)
     expect(await repos.tickets.get(ticket.id)).toMatchObject({ manualColumn: 'done', worktreePath: null, branch })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'done', phase: 'done' })

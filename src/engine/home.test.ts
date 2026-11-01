@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { invocationDir, resolveHome } from './home'
+import { invocationDir, resolveHome, scratchPathFor } from './home'
 
 // Expectations are built with the same flavour of path module the code runs under.
 const p = process.platform === 'win32' ? path.win32 : path.posix
@@ -12,6 +12,7 @@ describe('resolveHome', () => {
     expect(home.root).toBe(mb)
     expect(home.db).toBe(p.join(mb, 'mainbus.db'))
     expect(home.worktrees).toBe(p.join(mb, 'work'))
+    expect(home.scratch).toBe(p.join(mb, 'scratch'))
     expect(home.backups).toBe(p.join(mb, 'backups'))
   })
 
@@ -37,6 +38,16 @@ describe('resolveHome', () => {
     const dev = resolveHome({}, 'dev', p.join(p.sep, 'home', 'x'))
     expect(stable.root).toBe(p.join(p.sep, 'home', 'x', '.mainbus'))
     expect(dev.root).toBe(p.join(p.sep, 'home', 'x', '.mainbus-dev'))
+  })
+})
+
+describe('scratchPathFor', () => {
+  it("is the worktree's workspace slug and folder name under scratch, outside every worktree", () => {
+    const home = resolveHome({ MAINBUS_HOME: p.resolve(p.sep, 'mb') }, 'stable', 'unused')
+    const wt = p.join(home.worktrees, 'my-repo', '8-run-a-ticket')
+    const scratch = scratchPathFor(home, wt)
+    expect(scratch).toBe(p.join(home.root, 'scratch', 'my-repo', '8-run-a-ticket'))
+    expect(p.relative(home.worktrees, scratch).startsWith('..')).toBe(true)
   })
 })
 

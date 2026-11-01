@@ -165,6 +165,71 @@ describe('WorktreeManager', () => {
     expect(await cleanups.list()).toEqual([])
   })
 
+  describe('the scratch folder', () => {
+    it('is created beside the worktree, under the data home, on ensure', async () => {
+      const result = await manager.ensure(ws, ticket)
+
+      expect(result.scratch).toBe(path.join(paths.scratch, 'my-repo', '14-rate-limit-login'))
+      expect(await exists(result.scratch)).toBe(true)
+      expect(path.relative(result.path, result.scratch).startsWith('..')).toBe(true)
+    })
+
+    it('comes back on a later ensure when it was deleted', async () => {
+      const first = await manager.ensure(ws, ticket)
+      await fs.rm(first.scratch, { recursive: true, force: true })
+
+      expect(await manager.ensure(ws, { ...ticket, branch: first.branch, worktreePath: first.path })).toEqual(first)
+      expect(await exists(first.scratch)).toBe(true)
+    })
+
+    it('is removed with the worktree, files and all', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      await fs.writeFile(path.join(scratch, 'out.txt'), 'x')
+
+      expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+      expect(await exists(scratch)).toBe(false)
+    })
+
+    it('stays while the worktree is dirty', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      await fs.writeFile(path.join(wt, 'untracked.txt'), 'x')
+
+      expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('dirty')
+      expect(await exists(scratch)).toBe(true)
+    })
+
+    it('is removed when an interrupted removal is recovered', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      await cleanups.add(ticket.id, repoPath, wt, branch)
+
+      expect(await manager.recoverPendingCleanups()).toEqual([ticket.id])
+      expect(await exists(wt)).toBe(false)
+      expect(await exists(scratch)).toBe(false)
+    })
+
+    it('that cannot be removed is a warning and never keeps the worktree removal from finishing', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      const warnings: string[] = []
+      const failRm = async () => {
+        throw new Error('EBUSY: resource busy or locked')
+      }
+      const failing = new WorktreeManager(runGit, paths, cleanups, (m) => warnings.push(m), failRm)
+
+      expect(await failing.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+      expect(await exists(wt)).toBe(false)
+      expect(await cleanups.list()).toEqual([])
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain(scratch)
+      expect(warnings[0]).toContain('EBUSY')
+
+      // The same in recovery: the row is finished all the same.
+      await cleanups.add(ticket.id, repoPath, wt, branch)
+      expect(await failing.recoverPendingCleanups()).toEqual([ticket.id])
+      expect(await cleanups.list()).toEqual([])
+      expect(warnings).toHaveLength(2)
+    })
+  })
+
   it('sees untracked files even when git is configured to hide them', async () => {
     const { path: wt, branch } = await manager.ensure(ws, ticket)
     await git(['config', 'status.showUntrackedFiles', 'no'])

@@ -78,6 +78,7 @@ function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
   }
   return {
     cwd: 'C:\\work\\ws\\1-fix',
+    tempDir: 'C:\\scratch\\ws\\1-fix',
     ownBranch: 'mainbus/1-fix',
     prompt: 'Do the thing',
     appendSystemPrompt: 'You are the Implementer.',
@@ -418,6 +419,25 @@ describe('SdkRuntime', () => {
     const g = fakeSdk()
     await new SdkRuntime(CLAUDE_PATH, g.sdk).start(makeSpec())
     expect('MAINBUS_AGENT_HOME' in g.calls[0].options.env).toBe(false)
+  })
+
+  test("points TEMP, TMP and TMPDIR at the run's scratch folder, never an inherited one", async () => {
+    vi.stubEnv('TEMP', 'C:\\inherited\\temp')
+    vi.stubEnv('TMP', 'C:\\inherited\\tmp')
+    vi.stubEnv('TMPDIR', '/inherited/tmpdir')
+    // A separate key off Windows; on Windows the same variable as TMP.
+    vi.stubEnv('Tmp', 'C:\\inherited\\Tmp')
+    const f = fakeSdk()
+    const spec = makeSpec()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const env = f.calls[0].options.env as Record<string, string | undefined>
+    expect(env.TEMP).toBe(spec.tempDir)
+    expect(env.TMP).toBe(spec.tempDir)
+    expect(env.TMPDIR).toBe(spec.tempDir)
+    // No other spelling is left beside them: Windows names are case-insensitive, so one would be ambiguous.
+    const tempKeys = Object.keys(env).filter((k) => ['TEMP', 'TMP', 'TMPDIR'].includes(k.toUpperCase()))
+    expect(tempKeys.sort()).toEqual(['TEMP', 'TMP', 'TMPDIR'])
+    expect(process.env.TMPDIR).toBe('/inherited/tmpdir') // the parent is untouched
   })
 
   test('read_only adds the edit tools to disallowedTools', async () => {

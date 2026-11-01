@@ -52,19 +52,24 @@ const AUTH_ENV_VARS = new Set([
   'CLAUDE_CODE_USE_FOUNDRY'
 ])
 
+const TEMP_ENV_VARS = new Set(['TEMP', 'TMP', 'TMPDIR'])
+
 /**
  * The agent's environment: ours, minus credential and endpoint overrides, so the binary uses its own
  * subscription login. MAINBUS_AGENT marks the agent's process tree; the stable-build scripts refuse to
  * run under it, so an agent can't replace the user's stable build. MAINBUS_AGENT_HOME names the data
- * home of the app running the agent; the `mainbus` CLI refuses to file tickets there.
+ * home of the app running the agent; the `mainbus` CLI refuses to file tickets there. TEMP, TMP and TMPDIR
+ * name the ticket's scratch folder; ours are dropped in every spelling, since Windows names are case-insensitive.
  */
-function childEnv(agentHome: string | null): Record<string, string | undefined> {
+function childEnv(agentHome: string | null, tempDir: string): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {}
   for (const [k, v] of Object.entries(process.env)) {
-    if (!AUTH_ENV_VARS.has(k.toUpperCase()) && k.toUpperCase() !== 'MAINBUS_AGENT_HOME') env[k] = v
+    const key = k.toUpperCase()
+    if (!AUTH_ENV_VARS.has(key) && key !== 'MAINBUS_AGENT_HOME' && !TEMP_ENV_VARS.has(key)) env[k] = v
   }
   env.MAINBUS_AGENT = '1'
   if (agentHome !== null) env.MAINBUS_AGENT_HOME = agentHome
+  env.TEMP = env.TMP = env.TMPDIR = tempDir
   return env
 }
 
@@ -320,7 +325,7 @@ export class SdkRuntime implements AgentRuntime {
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: verdict.message }
       },
-      env: childEnv(this.agentHome),
+      env: childEnv(this.agentHome, spec.tempDir),
       abortController
     }
   }

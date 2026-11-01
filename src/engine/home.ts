@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-export type HomePaths = { root: string; db: string; worktrees: string; backups: string }
+export type HomePaths = { root: string; db: string; worktrees: string; scratch: string; backups: string }
 
 /**
  * The directory a command was run from. npm runs a package script in the package root, and records the
@@ -35,6 +35,16 @@ export function resolveHome(
     root,
     db: path.join(root, 'mainbus.db'),
     worktrees: path.join(root, 'work'),
+    scratch: path.join(root, 'scratch'),
     backups: path.join(root, 'backups')
   }
+}
+
+/**
+ * The ticket's scratch folder, its agents' temp folder: `scratch\<workspace slug>\<worktree folder name>`,
+ * beside its worktree (`work\<workspace slug>\<folder name>`) and never inside it. Worked out from the worktree
+ * path alone, so a pending cleanup that only knows the worktree path can find it.
+ */
+export function scratchPathFor(paths: HomePaths, worktreePath: string): string {
+  return path.join(paths.scratch, path.basename(path.dirname(worktreePath)), path.basename(worktreePath))
 }

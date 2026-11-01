@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Ticket, Workspace } from '../../shared/domain'
-import type { HomePaths } from '../home'
+import { scratchPathFor, type HomePaths } from '../home'
 import type { PendingCleanupRepo } from '../store/cleanups'
 import type { GitRunner } from './git'
 import { branchName, slugify } from './slug'
@@ -19,23 +19,33 @@ async function canonical(p: string): Promise<string> {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
+/** Removes a folder and everything in it; the default is fs.rm with a few retries for Windows file locks. */
+export type RemoveDir = (dir: string) => Promise<void>
+
+const removeDir: RemoveDir = (dir) => fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
+
 export class WorktreeManager {
   constructor(
     private readonly git: GitRunner,
     private readonly paths: HomePaths,
-    private readonly cleanups: PendingCleanupRepo
+    private readonly cleanups: PendingCleanupRepo,
+    private readonly warn: (message: string) => void = (m) => console.warn(m),
+    private readonly rmDir: RemoveDir = removeDir
   ) {}
 
   /**
    * Creates the ticket's branch and worktree, or returns the existing ones. Once the ticket has a stored
    * branch and worktree path they are reused, so renaming the ticket never moves its work.
+   * The ticket's scratch folder is created too, every time, so one deleted since the last run comes back.
    */
-  async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string }> {
+  async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string }> {
     const branch = t.branch ?? branchName(t.number, t.title)
     const wtPath = t.worktreePath ?? path.join(this.paths.worktrees, ws.slug, `${t.number}-${slugify(t.title)}`)
+    const scratch = scratchPathFor(this.paths, wtPath)
+    await fs.mkdir(scratch, { recursive: true })
 
     if (await this.isRegistered(ws.repoPath, wtPath)) {
-      if (await exists(wtPath)) return { branch, path: wtPath }
+      if (await exists(wtPath)) return { branch, path: wtPath, scratch }
       // Registered but the folder was deleted behind git's back.
       await this.run(['worktree', 'prune'], ws.repoPath)
     }
@@ -52,7 +62,7 @@ export class WorktreeManager {
       added = await this.git(addArgs, ws.repoPath)
     }
     if (added.code !== 0) throw new Error(`git ${addArgs.join(' ')} failed: ${added.stderr.trim()}`)
-    return { branch, path: wtPath }
+    return { branch, path: wtPath, scratch }
   }
 
   /** Untracked files count; the flag keeps a user's status.showUntrackedFiles=no from hiding them. */
@@ -62,8 +72,9 @@ export class WorktreeManager {
   }
 
   /**
-   * Removes the worktree folder; the branch is always kept. Without `discard`, a worktree
-   * with uncommitted work is left untouched and 'dirty' is returned.
+   * Removes the worktree folder, then the ticket's scratch folder; the branch is always kept. Without
+   * `discard`, a worktree with uncommitted work is left untouched and 'dirty' is returned. A scratch folder
+   * that can't be removed is only a warning: it holds nothing the user needs.
    */
   async remove(
     ticketId: string,
@@ -90,6 +101,7 @@ export class WorktreeManager {
       }
     }
     await this.run(['worktree', 'prune'], repoPath)
+    await this.removeScratch(wtPath)
     await this.cleanups.done(ticketId)
     return 'removed'
   }
@@ -103,6 +115,7 @@ export class WorktreeManager {
         if (await exists(row.path)) await this.git(['worktree', 'remove', '--force', row.path], row.repoPath)
         if (await exists(row.path)) continue
         await this.git(['worktree', 'prune'], row.repoPath)
+        await this.removeScratch(row.path)
         await this.cleanups.done(row.ticketId)
         completed.push(row.ticketId)
       } catch {
@@ -110,6 +123,16 @@ export class WorktreeManager {
       }
     }
     return completed
+  }
+
+  /** Removes the scratch folder of the worktree at `wtPath`. Never throws: a failure is a warning. */
+  private async removeScratch(wtPath: string): Promise<void> {
+    const scratch = scratchPathFor(this.paths, wtPath)
+    try {
+      await this.rmDir(scratch)
+    } catch (err) {
+      this.warn(`Mainbus could not remove the scratch folder ${scratch}: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   private async isRegistered(repoPath: string, wtPath: string): Promise<boolean> {

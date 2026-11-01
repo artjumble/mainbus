@@ -645,6 +645,27 @@ describe('guardReason: context', () => {
     expect(messageOf('Write', { file_path: 'a.md' }, c)).toBeNull()
   })
 
+  test("the ticket's scratch folder is inside; other tickets' scratch and the system temp folder are not", () => {
+    const scratch = 'C:\\h\\scratch\\ws\\14-x'
+    const c = { ...ctx, additionalDirectories: [scratch] }
+    const outside = "Writes outside the ticket's folder"
+    expect(messageOf('Write', { file_path: `${scratch}\\out.txt` }, c)).toBeNull()
+    expect(messageOf('Edit', { file_path: `${scratch}\\copy\\a.ts` }, c)).toBeNull()
+    expect(messageOf('PowerShell', { command: `Set-Content ${scratch}\\x.txt hi` }, c)).toBeNull()
+    expect(messageOf('Write', { file_path: 'C:\\h\\scratch\\ws\\99-other\\x.txt' }, c)).toBe(
+      `${outside}: C:\\h\\scratch\\ws\\99-other\\x.txt`,
+    )
+    expect(messageOf('Write', { file_path: 'C:\\Users\\u\\AppData\\Local\\Temp\\f.txt' }, c)).toBe(
+      `${outside}: C:\\Users\\u\\AppData\\Local\\Temp\\f.txt`,
+    )
+    // A path in a variable is never expanded, so it still asks.
+    expect(messageOf('PowerShell', { command: 'Set-Content $env:TEMP\\x.txt hi' }, c)).not.toBeNull()
+    expect(messageOf('Bash', { command: 'echo hi > $TEMP/x.txt' }, c)).not.toBeNull()
+    expect(messageOf('Bash', { command: 'echo hi > %TEMP%\\x.txt' }, c)).not.toBeNull()
+    // The settings checks apply inside it as anywhere else.
+    expect(messageOf('Write', { file_path: `${scratch}\\.claude\\settings.json` }, c)).not.toBeNull()
+  })
+
   test('only the ticket own branch may be deleted', () => {
     const other = { command: 'git branch -D mainbus/15-y' }
     expect(messageOf('Bash', other, ctx)).not.toBeNull()

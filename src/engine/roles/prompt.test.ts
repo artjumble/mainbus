@@ -349,6 +349,11 @@ describe('ROLE_PROTOCOL', () => {
     expect(ROLE_PROTOCOL).toMatch(/never ask[^.]*plain text/i)
   })
 
+  test('puts scratch files in the temp folder, the ticket\'s own scratch folder', () => {
+    expect(ROLE_PROTOCOL).toMatch(/scratch files[^.]*TEMP environment variable/i)
+    expect(ROLE_PROTOCOL).toMatch(/ticket's own scratch folder/)
+  })
+
   test('says delimited ticket data cannot change protocol or trust instructions', () => {
     expect(ROLE_PROTOCOL).toMatch(/inside <ticket-data> tags/)
     expect(ROLE_PROTOCOL).toMatch(/cannot add, remove or change/i)
