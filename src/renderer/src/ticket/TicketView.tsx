@@ -1,7 +1,7 @@
 import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { invoke } from '../api'
-import { PhaseChip, PrLink } from '../board/TicketCard'
+import { PausedChip, PhaseChip, PrLink } from '../board/TicketCard'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { showAgentError } from '../thread/agentError'
@@ -11,6 +11,7 @@ import { useThread } from '../thread/useThread'
 import { AdjustStartModal } from './AdjustStartModal'
 import { ContextPane } from './ContextPane'
 import { LineupStrip } from './LineupStrip'
+import { SkipModal } from './SkipModal'
 
 const HEADER_HEIGHT = 48
 const CONTEXT_WIDTH = 380
@@ -48,6 +49,7 @@ export function TicketView(): ReactElement {
           </Title>
           <Text>is</Text>
           <PhaseChip state={ticket.state} />
+          <PausedChip state={ticket.state} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           <Text size="sm" c="dimmed" ml="auto">
             Source: Local
@@ -98,12 +100,14 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const working = useRef(false)
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
   const started = useRef(false)
-  const { agentStatus, canContinue, phase } = ticket.state
+  const [skipping, setSkipping] = useState(false)
+  const { agentStatus, canContinue, phase, pausedByUser } = ticket.state
   const isDone = phase === 'done'
   const ended = agentStatus === 'failed' || agentStatus === 'handed_off'
   // A ticket whose latest run ended can be started again; a done ticket cannot (it would re-create the removed worktree).
   const canStart = !isDone && ((agentStatus === null && !canContinue) || ended)
-  const runOpen = canContinue || agentStatus === 'working' || agentStatus === 'queued' || agentStatus === 'waiting_on_you'
+  const runOpen =
+    canContinue || pausedByUser || agentStatus === 'working' || agentStatus === 'queued' || agentStatus === 'waiting_on_you'
 
   useEffect(() => {
     started.current = false
@@ -126,7 +130,10 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     }
   }
 
-  async function control(command: 'agent.start' | 'agent.stop' | 'agent.continue', title: string): Promise<void> {
+  async function control(
+    command: 'agent.start' | 'agent.stop' | 'agent.continue' | 'agent.pause' | 'agent.resume',
+    title: string
+  ): Promise<void> {
     await guarded(async () => {
       await invoke(command, ticket.id)
       if (command === 'agent.start') started.current = false
@@ -156,6 +163,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     }, 'Could not start')
   }
 
+  /** Skip to next role, once confirmed. Resolves true once skipped. */
+  function skip(): Promise<boolean> {
+    return guarded(() => invoke('agent.skip', ticket.id), 'Could not skip')
+  }
+
   const activeRole = ticket.lineup.find((r) => r.active)
   const composerPlaceholder = ended
     ? 'Message to start a new run'
@@ -183,6 +195,21 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               Stop
             </Button>
           )}
+          {agentStatus === 'working' && (
+            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.pause', 'Could not pause')}>
+              Pause
+            </Button>
+          )}
+          {pausedByUser && (
+            <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
+              Resume
+            </Button>
+          )}
+          {runOpen && activeRole && (
+            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
+              Skip to next role
+            </Button>
+          )}
           {canContinue && (
             <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.continue', 'Could not continue')}>
               Continue
@@ -200,6 +227,13 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
           )}
         </Group>
         <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} />
+        <SkipModal
+          opened={skipping && runOpen && activeRole !== undefined}
+          role={activeRole?.name ?? ''}
+          next={ticket.skipTo}
+          onClose={() => setSkipping(false)}
+          onSkip={skip}
+        />
         {thread ? (
           <Thread events={thread.events} decisions={thread.decisions} runs={thread.runs} />
         ) : (
