@@ -22,6 +22,17 @@ if (-not $name) {
 $exe = Join-Path (Join-Path $appRoot $name) 'Mainbus.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw "$exe does not exist" }
 
+# A build folder newer than current.txt means a build-stable.ps1 run stopped before it moved the pointer.
+if (-not $Previous) {
+    $newest = Get-ChildItem -LiteralPath $appRoot -Directory |
+        Where-Object { $_.Name -match '^\d{8}-\d{4}-' -and $_.Name -notlike '*.tmp' } |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+    if ($newest -and $newest.Name -gt $name) {
+        Write-Warning "current.txt names $name, but $($newest.Name) is newer: an earlier build-stable.ps1 run did not finish. Starting $name; run scripts\build-stable.ps1 again to make the newest build current."
+    }
+}
+
 foreach ($variable in 'MAINBUS_HOME', 'MAINBUS_RUNTIME', 'MAINBUS_TEST_REPO', 'ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL') {
     Remove-Item -LiteralPath "Env:$variable" -ErrorAction SilentlyContinue
 }

@@ -25,8 +25,26 @@ function Read-Name([string]$Path) {
 }
 
 function Write-Name([string]$Path, [string]$Name) {
-    # UTF-8 without a BOM, so the name reads back clean.
-    [System.IO.File]::WriteAllText($Path, $Name, (New-Object System.Text.UTF8Encoding($false)))
+    # UTF-8 without a BOM, so the name reads back clean. Written beside the pointer and swapped in, and
+    # retried for a few seconds: the agent launcher (bin\mainbus.cmd) reads current.txt on every call, so
+    # the file can be open for a moment. Then read back, because a pointer that quietly keeps its old
+    # name starts the wrong build.
+    $temp = "$Path.tmp"
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            [System.IO.File]::WriteAllText($temp, $Name, (New-Object System.Text.UTF8Encoding($false)))
+            # [NullString]: PowerShell would pass $null as '', which Replace rejects as a backup path.
+            if (Test-Path -LiteralPath $Path) { [System.IO.File]::Replace($temp, $Path, [NullString]::Value) }
+            else { [System.IO.File]::Move($temp, $Path) }
+            break
+        }
+        catch {
+            if ($attempt -ge 15) { throw "Could not write ${Path}: $($_.Exception.Message)" }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    $written = Read-Name $Path
+    if ($written -ne $Name) { throw "$Path reads '$written' after writing '$Name'" }
 }
 
 # The short commit id, with -dirty when the working tree has uncommitted changes; 'nogit' without git.
@@ -81,10 +99,15 @@ try {
     Rename-Item -LiteralPath $staging -NewName $name
 
     # Roll the pointers: what was current becomes previous, if that build is still on disk.
-    if ($old -and $old -ne $name -and (Test-Path -LiteralPath (Join-Path $appRoot $old))) {
-        Write-Name $previousFile $old
+    try {
+        if ($old -and $old -ne $name -and (Test-Path -LiteralPath (Join-Path $appRoot $old))) {
+            Write-Name $previousFile $old
+        }
+        Write-Name $currentFile $name
     }
-    Write-Name $currentFile $name
+    catch {
+        throw "Copied the build to $target, but could not make it current, so run-stable.ps1 still starts '$old'. Run the build again. $($_.Exception.Message)"
+    }
 
     # The mainbus launcher for agents (bin\mainbus.cmd) runs whatever current.txt names, so it only needs
     # writing when its text changes. cmd reads a running batch file as it goes, and an MCP server started
@@ -118,6 +141,7 @@ try {
     }
 
     Write-Host "Stable build installed: $target"
+    Write-Host "current.txt: $(Read-Name $currentFile)   previous.txt: $(Read-Name $previousFile)"
 }
 finally {
     Pop-Location
