@@ -8,7 +8,9 @@ import { showAgentError } from '../thread/agentError'
 import { Composer } from '../thread/Composer'
 import { Thread } from '../thread/Thread'
 import { useThread } from '../thread/useThread'
+import { AdjustStartModal } from './AdjustStartModal'
 import { ContextPane } from './ContextPane'
+import { LineupStrip } from './LineupStrip'
 
 const HEADER_HEIGHT = 48
 const CONTEXT_WIDTH = 380
@@ -91,6 +93,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // A move the engine has not finished (a move to Done may remove the worktree): nothing may start meanwhile.
   const moving = useMainbus((s) => ticket.id in s.pendingMoves)
   const [busy, setBusy] = useState(false)
+  const [adjusting, setAdjusting] = useState(false)
   // Held in a ref as well: two clicks in the same tick must not both pass the guard.
   const working = useRef(false)
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
@@ -145,11 +148,22 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     if (!delivered) throw new Error('not sent')
   }
 
+  /** Adjust before starting: runs only the ticked roles. Resolves true once started. */
+  function startRoles(roleIds: string[]): Promise<boolean> {
+    return guarded(async () => {
+      await invoke('agent.start', ticket.id, { roleIds })
+      started.current = false
+    }, 'Could not start')
+  }
+
+  const activeRole = ticket.lineup.find((r) => r.active)
   const composerPlaceholder = ended
     ? 'Message to start a new run'
     : canStart
       ? 'First message (starts the lineup)'
-      : 'Message the Implementer'
+      : activeRole
+        ? `Message the ${activeRole.name}`
+        : 'Message the agent'
 
   return (
     <Flex flex={1} mih={0}>
@@ -157,10 +171,13 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
         <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} />
       </Box>
       <Flex direction="column" flex={1} miw={0}>
+        <LineupStrip roles={ticket.lineup} />
         <Group px="md" py="xs" gap="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
-          <Text size="sm" fw={600}>
-            Implementer
-          </Text>
+          {activeRole && (
+            <Text size="sm" fw={600}>
+              {activeRole.name}
+            </Text>
+          )}
           {runOpen && (
             <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
               Stop
@@ -176,9 +193,15 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               {ended ? 'Start again' : 'Start'}
             </Button>
           )}
+          {canStart && (
+            <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
+              Adjust before starting
+            </Button>
+          )}
         </Group>
+        <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} />
         {thread ? (
-          <Thread events={thread.events} decisions={thread.decisions} />
+          <Thread events={thread.events} decisions={thread.decisions} runs={thread.runs} />
         ) : (
           <Center flex={1}>
             <Loader />

@@ -1,13 +1,20 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { StoredEvent, ThreadEvent } from '../../../shared/events'
+import type { ComponentProps } from 'react'
+import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import { makeDecision, makeEvent, renderWithMantine } from '../test-utils'
 import { mergeEvent } from './merge'
-import { Thread } from './Thread'
+import { Thread as ThreadView } from './Thread'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
 
 const ev = (event: ThreadEvent): StoredEvent => makeEvent(event)
+
+/** Run r1 is the Implementer's, unless a test gives the runs. */
+const IMPLEMENTER_RUN: Record<string, ThreadRun> = { r1: { id: 'r1', ticketRunId: 'tr1', role: 'Implementer' } }
+function Thread({ runs = IMPLEMENTER_RUN, ...props }: Omit<ComponentProps<typeof ThreadView>, 'runs'> & { runs?: Record<string, ThreadRun> }) {
+  return <ThreadView runs={runs} {...props} />
+}
 
 test('Thread renders each event kind', () => {
   const events = [
@@ -47,7 +54,9 @@ test('Thread renders each event kind', () => {
   expect(screen.getByRole('button', { name: /Thinking/ })).toBeInTheDocument()
 
   expect(screen.getByText('You ended your turn without asking').closest('[data-event="divider"]')).not.toBeNull()
-  expect(screen.getByText('Dark mode is done').closest('[data-event="divider"]')).not.toBeNull()
+  // The last role's handoff names no next role; its summary is collapsed under it.
+  expect(screen.getByText('Implementer handed off').closest('[data-event="handoff"]')).not.toBeNull()
+  expect(screen.queryByText('Dark mode is done')).not.toBeInTheDocument()
   expect(screen.getByText('Stopped').closest('[data-event="divider"]')).not.toBeNull()
 
   expect(screen.getByText('Which palette?')).toBeInTheDocument()
@@ -56,7 +65,12 @@ test('Thread renders each event kind', () => {
   expect(screen.getByText('Something broke')).toBeInTheDocument()
 })
 
-test('a thread with several runs shows them in order, with a New run divider where each later run starts', () => {
+test('a thread with several ticket runs shows them in order, with a New run divider where each later one starts', () => {
+  const runs: Record<string, ThreadRun> = {
+    r1: { id: 'r1', ticketRunId: 'tr1', role: 'Implementer' },
+    r2: { id: 'r2', ticketRunId: 'tr2', role: 'Implementer' },
+    r3: { id: 'r3', ticketRunId: 'tr3', role: 'Implementer' }
+  }
   const history = [
     makeEvent({ kind: 'message', text: 'First attempt' }, { runId: 'r1', seq: 1 }),
     makeEvent({ kind: 'handoff', summary: 'Done once', outcome: 'done' }, { runId: 'r1', seq: 2 }),
@@ -68,18 +82,66 @@ test('a thread with several runs shows them in order, with a New run divider whe
   const merged = [...history, makeEvent({ kind: 'message', text: 'Second attempt' }, { runId: 'r2', seq: 1 })].reduce<
     StoredEvent[]
   >(mergeEvent, [])
-  const { container } = renderWithMantine(<Thread events={merged} decisions={[]} />)
+  const { container } = renderWithMantine(<Thread events={merged} decisions={[]} runs={runs} />)
 
   const rows = [...container.querySelectorAll('[data-event]')].map((el) => el.textContent)
   expect(rows).toEqual([
     'IMPLEMENTERFirst attempt',
-    'Done once',
+    'Implementer handed off',
     'New run',
     'IMPLEMENTERSecond attempt',
     'Stopped',
     'New run',
     'IMPLEMENTERThird attempt'
   ])
+})
+
+test('each role tags its messages and tool groups, and a handoff divider names both roles with the summary collapsed', async () => {
+  const runs: Record<string, ThreadRun> = {
+    p: { id: 'p', ticketRunId: 'tr1', role: 'Planner' },
+    i: { id: 'i', ticketRunId: 'tr1', role: 'Implementer' }
+  }
+  const events = [
+    makeEvent({ kind: 'message', text: 'Reading the ticket.' }, { runId: 'p', seq: 1 }),
+    makeEvent({ kind: 'tool_call', id: 'c1', name: 'Read', input: { file_path: 'a.ts' } }, { runId: 'p', seq: 2 }),
+    makeEvent({ kind: 'tool_result', id: 'c1', ok: true, summary: 'read' }, { runId: 'p', seq: 3 }),
+    makeEvent({ kind: 'tool_call', id: 'c2', name: 'Grep', input: { pattern: 'x' } }, { runId: 'p', seq: 4 }),
+    makeEvent({ kind: 'handoff', summary: 'The **plan**: add a.ts', outcome: 'done', to: 'Implementer' }, { runId: 'p', seq: 5 }),
+    makeEvent({ kind: 'role_handoff', from: 'Planner', to: 'Implementer' }, { runId: 'i', seq: 1 }),
+    makeEvent({ kind: 'tool_call', id: 'c3', name: 'Edit', input: { file_path: 'a.ts' } }, { runId: 'i', seq: 2 }),
+    // The Planner's last turn ends after the Implementer has begun: no divider for it.
+    makeEvent({ kind: 'turn_end', ok: true }, { runId: 'p', seq: 6 }),
+    makeEvent({ kind: 'message', text: 'Added it.' }, { runId: 'i', seq: 3 })
+  ]
+  const { container } = renderWithMantine(<Thread events={events} decisions={[]} runs={runs} />)
+
+  const tags = [...container.querySelectorAll('[data-role-tag]')].map((el) => el.textContent)
+  // One tag per message and per group of tool rows (Read and Grep are one group).
+  expect(tags).toEqual(['PLANNER', 'PLANNER', 'IMPLEMENTER', 'IMPLEMENTER'])
+  expect(screen.queryByText('New run')).not.toBeInTheDocument()
+
+  const divider = screen.getByText('Planner → Implementer')
+  expect(divider.closest('[data-event="handoff"]')).not.toBeNull()
+  expect(screen.queryByText('plan')).not.toBeInTheDocument()
+  const toggle = screen.getByRole('button', { name: 'Show summary' })
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await userEvent.click(toggle)
+  expect(screen.getByRole('button', { name: 'Hide summary' })).toHaveAttribute('aria-expanded', 'true')
+  // Agent text: markdown, sanitized.
+  expect(screen.getByText('plan').tagName).toBe('STRONG')
+})
+
+test('a handoff recorded without the next role takes it from the role handoff after it', () => {
+  const runs: Record<string, ThreadRun> = {
+    p: { id: 'p', ticketRunId: 'tr1', role: 'Planner' },
+    i: { id: 'i', ticketRunId: 'tr1', role: 'Implementer' }
+  }
+  const events = [
+    makeEvent({ kind: 'handoff', summary: 'Planned', outcome: 'done' }, { runId: 'p', seq: 1 }),
+    makeEvent({ kind: 'role_handoff', from: 'Planner', to: 'Implementer' }, { runId: 'i', seq: 1 })
+  ]
+  renderWithMantine(<Thread events={events} decisions={[]} runs={runs} />)
+  expect(screen.getByText('Planner → Implementer')).toBeInTheDocument()
 })
 
 test('a partial thinking event is a live indicator', () => {

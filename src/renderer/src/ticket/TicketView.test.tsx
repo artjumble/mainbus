@@ -1,11 +1,11 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { EngineEvent } from '../../../shared/api'
-import type { Decision, TicketState } from '../../../shared/domain'
-import type { StoredEvent } from '../../../shared/events'
+import type { Decision, RoleStatus, StripRole, TicketState } from '../../../shared/domain'
+import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
-import { makeDecision, makeEvent, makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { makeDecision, makeEvent, makeLineup, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { TicketView } from './TicketView'
 
 vi.mock('../api', () => ({
@@ -17,10 +17,24 @@ const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 const initial = useMainbus.getState()
 
 let emit: (e: EngineEvent) => void = () => {}
-let thread: { events: StoredEvent[]; decisions: Decision[] } = { events: [], decisions: [] }
+let thread: { events: StoredEvent[]; decisions: Decision[]; runs: ThreadRun[] } = { events: [], decisions: [], runs: [] }
+/** The run of the live events these tests emit. */
+const run: ThreadRun = { id: 'r1', ticketRunId: 'tr1', role: 'Implementer' }
 
-function show(state: Partial<TicketState>): ReturnType<typeof makeTicket> {
-  const ticket = makeTicket({ title: 'Add dark mode', number: 12 }, state)
+/** The default lineup's strip, with `active` (by id) open in `status` and the roles before it handed off. */
+function strip(active: string | null, status: RoleStatus = 'working'): StripRole[] {
+  const ids = makeLineup().map((r) => r.id)
+  const at = active === null ? -1 : ids.indexOf(active)
+  return makeLineup().map((r, i) => ({
+    id: r.id,
+    name: r.name,
+    status: i === at ? status : i < at ? 'handed_off' : 'not_started',
+    active: i === at
+  }))
+}
+
+function show(state: Partial<TicketState>, lineup?: StripRole[]): ReturnType<typeof makeTicket> {
+  const ticket = makeTicket({ title: 'Add dark mode', number: 12, ...(lineup ? { lineup } : {}) }, state)
   useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
   return ticket
 }
@@ -28,7 +42,7 @@ function show(state: Partial<TicketState>): ReturnType<typeof makeTicket> {
 beforeEach(() => {
   useMainbus.setState(initial, true)
   mockInvoke.mockReset()
-  thread = { events: [], decisions: [] }
+  thread = { events: [], decisions: [], runs: [] }
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'thread.get') return thread
     if (command === 'board.get') return { tickets: useMainbus.getState().tickets }
@@ -92,7 +106,7 @@ test('Start alone starts the agent', async () => {
 })
 
 test('while an agent exists the composer sends a message to it', async () => {
-  const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' })
+  const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
   renderWithMantine(<TicketView />)
   await userEvent.type(await screen.findByPlaceholderText('Message the Implementer'), 'Use tabs')
   await userEvent.click(screen.getByRole('button', { name: 'Send' }))
@@ -113,27 +127,27 @@ test('a failed command is reported', async () => {
 
 test('the thread loads, then follows live events: partials are replaced by the final message', async () => {
   const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' })
-  thread = { events: [makeEvent({ kind: 'user_message', text: 'Earlier words' })], decisions: [] }
+  thread = { events: [makeEvent({ kind: 'user_message', text: 'Earlier words' })], decisions: [], runs: [run] }
   renderWithMantine(<TicketView />)
   expect(await screen.findByText('Earlier words')).toBeInTheDocument()
 
   const partial = (text: string): StoredEvent => makeEvent({ kind: 'message', text, partial: true }, { seq: 0 })
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: partial('Working on') }))
+  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: partial('Working on'), run }))
   expect(screen.getByText('Working on')).toBeInTheDocument()
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: partial('Working on it') }))
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: makeEvent({ kind: 'message', text: 'Working on it now.' }) }))
+  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: partial('Working on it'), run }))
+  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: makeEvent({ kind: 'message', text: 'Working on it now.' }), run }))
   expect(screen.getByText('Working on it now.')).toBeInTheDocument()
   expect(screen.queryByText('Working on it')).not.toBeInTheDocument()
 
   // Another ticket's events are ignored.
-  act(() => emit({ type: 'thread.appended', ticketId: 'other', event: makeEvent({ kind: 'message', text: 'Not mine' }) }))
+  act(() => emit({ type: 'thread.appended', ticketId: 'other', event: makeEvent({ kind: 'message', text: 'Not mine' }), run }))
   expect(screen.queryByText('Not mine')).not.toBeInTheDocument()
 })
 
 test('a decision card appears from the thread and updates when decision.changed arrives', async () => {
   const ticket = show({ phase: 'waiting_on_you', agentStatus: 'waiting_on_you', column: 'needs_you' })
   const decision = makeDecision({ ticketId: ticket.id })
-  thread = { events: [makeEvent({ kind: 'decision', decisionId: decision.id })], decisions: [decision] }
+  thread = { events: [makeEvent({ kind: 'decision', decisionId: decision.id })], decisions: [decision], runs: [run] }
   renderWithMantine(<TicketView />)
   expect(await screen.findByText('Which database?')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Answer' })).toBeInTheDocument()
@@ -152,7 +166,7 @@ test('a decision announced live shows its card', async () => {
   renderWithMantine(<TicketView />)
   await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('thread.get', ticket.id))
   const decision = makeDecision({ ticketId: ticket.id, id: 'live', question: 'Live question?' })
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: makeEvent({ kind: 'decision', decisionId: 'live' }) }))
+  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: makeEvent({ kind: 'decision', decisionId: 'live' }), run }))
   act(() => emit({ type: 'decision.changed', decision }))
   expect(await screen.findByText('Live question?')).toBeInTheDocument()
 })
@@ -165,8 +179,8 @@ test('events that arrive while the thread loads are not lost', async () => {
   )
   renderWithMantine(<TicketView />)
   const early = makeEvent({ kind: 'message', text: 'Arrived early' })
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: early }))
-  await act(async () => release({ events: [early, makeEvent({ kind: 'message', text: 'From storage' })], decisions: [] }))
+  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: early, run }))
+  await act(async () => release({ events: [early, makeEvent({ kind: 'message', text: 'From storage' })], decisions: [], runs: [run] }))
   expect(screen.getAllByText('Arrived early')).toHaveLength(1)
   expect(screen.getByText('From storage')).toBeInTheDocument()
 })
@@ -292,6 +306,97 @@ test('a refused Retry says why', async () => {
   renderWithMantine(<TicketView />)
   await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
   expect(await screen.findByText('Only a ticket in Review can be pushed')).toBeInTheDocument()
+})
+
+test('the lineup strip shows the run’s roles in order with their status, the active one current', () => {
+  show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+  renderWithMantine(<TicketView />)
+  const items = within(screen.getByRole('list', { name: 'Lineup' })).getAllByRole('listitem')
+  expect(items.map((li) => li.textContent)).toEqual(['PlannerHanded off', 'ImplementerWorking', 'ReviewerNot started'])
+  expect(items.map((li) => li.getAttribute('aria-current'))).toEqual([null, 'step', null])
+})
+
+test('the composer and the controls name the active role', async () => {
+  show({ phase: 'reviewing', agentStatus: 'waiting_on_you', column: 'needs_you' }, strip('r', 'waiting_on_you'))
+  renderWithMantine(<TicketView />)
+  expect(await screen.findByPlaceholderText('Message the Reviewer')).toBeInTheDocument()
+  const lineup = screen.getByRole('list', { name: 'Lineup' })
+  expect(within(lineup).getByText('Waiting on you')).toBeInTheDocument()
+})
+
+test('with no active role the controls row names none', async () => {
+  show({ column: 'ready' }, strip(null))
+  renderWithMantine(<TicketView />)
+  await screen.findByRole('button', { name: 'Start' })
+  const lineup = screen.getByRole('list', { name: 'Lineup' })
+  expect(within(lineup).getAllByText('Not started')).toHaveLength(3)
+  expect(within(lineup).queryByRole('listitem', { current: 'step' })).not.toBeInTheDocument()
+  // Only the strip names the roles.
+  expect(screen.getAllByText('Implementer')).toHaveLength(1)
+})
+
+describe('Adjust before starting', () => {
+  beforeEach(() => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'lineup.get') return makeLineup()
+      return undefined
+    })
+  })
+
+  test('lists the lineup roles all ticked, and starts only the ticked ones', async () => {
+    const ticket = show({ column: 'ready' })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    expect(await within(dialog).findAllByRole('checkbox')).toHaveLength(3)
+    for (const name of ['Planner', 'Implementer', 'Reviewer']) expect(within(dialog).getByRole('checkbox', { name })).toBeChecked()
+
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Planner' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
+    expect(agentCalls()).toEqual([['agent.start', ticket.id, { roleIds: ['i', 'r'] }]])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  test('Start is disabled with no role ticked, and Cancel starts nothing', async () => {
+    show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
+    renderWithMantine(<TicketView />)
+    // It sits next to Start again too.
+    expect(await screen.findByRole('button', { name: 'Start again' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Adjust before starting' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    for (const name of ['Planner', 'Implementer', 'Reviewer']) {
+      await userEvent.click(await within(dialog).findByRole('checkbox', { name }))
+    }
+    expect(within(dialog).getByRole('button', { name: 'Start' })).toBeDisabled()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(agentCalls()).toEqual([])
+  })
+
+  test('a failed start is reported and keeps the dialog open', async () => {
+    show({ column: 'ready' })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'lineup.get') return makeLineup()
+      if (command === 'agent.start') throw new Error('Tick at least one role to start')
+      return undefined
+    })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    await within(dialog).findByRole('checkbox', { name: 'Planner' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
+    expect(await screen.findByText('Tick at least one role to start')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Adjust before starting' })).toBeInTheDocument()
+  })
+
+  test('is not offered while an agent works the ticket', async () => {
+    show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    renderWithMantine(<TicketView />)
+    await screen.findByRole('button', { name: 'Stop' })
+    expect(screen.queryByRole('button', { name: 'Adjust before starting' })).not.toBeInTheDocument()
+  })
 })
 
 test('a PR failure is not shown once the ticket has left Review', () => {

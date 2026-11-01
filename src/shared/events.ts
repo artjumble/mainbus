@@ -16,8 +16,11 @@ export type AgentEvent =
   | { kind: 'tool_result'; id: string; ok: boolean; summary: string }
   | { kind: 'status'; status: AgentStatus; detail?: string }
   | { kind: 'needs_input'; decision: DecisionDraft }
-  /** `notesForNext` is absent on handoffs recorded before lineups ran role after role. */
-  | { kind: 'handoff'; summary: string; outcome: 'done' | 'hand_back' | 'ask'; notesForNext?: string }
+  /**
+   * `notesForNext` is absent on handoffs recorded before lineups ran role after role. `to` names the role handed
+   * to; it is absent when the last role hands off, and on handoffs recorded before it was kept.
+   */
+  | { kind: 'handoff'; summary: string; outcome: 'done' | 'hand_back' | 'ask'; notesForNext?: string; to?: string }
   | { kind: 'usage'; inputTokens: number; outputTokens: number } // stored, never shown on cards
   | { kind: 'error'; message: string }
   | { kind: 'turn_end'; ok: boolean; interrupted?: boolean; error?: string }
@@ -48,3 +51,10 @@ export type ThreadEvent =
   | { kind: 'role_handoff'; from: string; to: string }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
+
+/** The agent run a thread event belongs to: its ticket run and its role's name. */
+export interface ThreadRun {
+  id: string
+  ticketRunId: string
+  role: string
+}

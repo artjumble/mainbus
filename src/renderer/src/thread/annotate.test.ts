@@ -1,0 +1,72 @@
+import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
+import { annotate } from './annotate'
+
+const runs: Record<string, ThreadRun> = {
+  p: { id: 'p', ticketRunId: 'tr1', role: 'Planner' },
+  i: { id: 'i', ticketRunId: 'tr1', role: 'Implementer' },
+  r: { id: 'r', ticketRunId: 'tr1', role: 'Reviewer' },
+  i2: { id: 'i2', ticketRunId: 'tr2', role: 'Implementer' }
+}
+
+let seq = 0
+const e = (runId: string, event: ThreadEvent): StoredEvent => ({ runId, seq: ++seq, at: '2026-11-01T00:00:00.000Z', event })
+const message = (runId: string): StoredEvent => e(runId, { kind: 'message', text: 'hi' })
+const call = (runId: string, id: string): StoredEvent => e(runId, { kind: 'tool_call', id, name: 'Read', input: {} })
+const result = (runId: string, id: string): StoredEvent => e(runId, { kind: 'tool_result', id, ok: true, summary: 'ok' })
+
+test('each event takes its run’s role, and an unknown run is the agent’s', () => {
+  expect(annotate([message('p'), message('i'), message('gone')], runs).map((a) => a.role)).toEqual([
+    'Planner',
+    'Implementer',
+    'Agent'
+  ])
+})
+
+test('a new run begins at the first event of a later ticket run only, not at each role', () => {
+  const events = [message('p'), message('i'), message('i2'), message('i2')]
+  expect(annotate(events, runs).map((a) => a.newRun)).toEqual([false, false, true, false])
+})
+
+test('a trailing event of an earlier role or ticket run does not begin a new run again', () => {
+  const events = [message('i'), message('i2'), e('r', { kind: 'turn_end', ok: true }), message('i2')]
+  expect(annotate(events, runs).map((a) => a.newRun)).toEqual([false, true, false, false])
+})
+
+test('without run info, each agent run counts as a ticket run of its own', () => {
+  expect(annotate([message('x'), message('y')], {}).map((a) => a.newRun)).toEqual([false, true])
+})
+
+test('a tool group starts at the first tool row of a run, after any other row, and skips rows not shown', () => {
+  const events = [
+    call('p', 'a'),
+    result('p', 'a'), // joined to its call: not shown
+    e('p', { kind: 'usage', inputTokens: 1, outputTokens: 1 }), // not shown
+    call('p', 'b'),
+    message('p'),
+    call('p', 'c'),
+    call('i', 'd'),
+    result('i', 'orphan') // no call: shown, and part of the group
+  ]
+  expect(annotate(events, runs).map((a) => a.toolGroupStart)).toEqual([true, false, false, false, false, true, true, false])
+})
+
+test('a handoff is labelled with the role it went to', () => {
+  const events = [
+    e('p', { kind: 'handoff', summary: 's', outcome: 'done', to: 'Implementer' }),
+    e('i', { kind: 'handoff', summary: 's', outcome: 'done' }),
+    e('r', { kind: 'role_handoff', from: 'Implementer', to: 'Reviewer' }),
+    e('r', { kind: 'handoff', summary: 's', outcome: 'done' })
+  ]
+  expect(annotate(events, runs).map((a) => a.handoffLabel)).toEqual([
+    'Planner → Implementer',
+    // Recorded without `to`: the next role's role_handoff says.
+    'Implementer → Reviewer',
+    undefined,
+    'Reviewer handed off'
+  ])
+})
+
+test('a role handoff in another ticket run does not name the next role', () => {
+  const events = [e('i', { kind: 'handoff', summary: 's', outcome: 'done' }), e('i2', { kind: 'role_handoff', from: 'Implementer', to: 'Reviewer' })]
+  expect(annotate(events, runs)[0]!.handoffLabel).toBe('Implementer handed off')
+})

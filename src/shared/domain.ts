@@ -152,6 +152,19 @@ export interface TicketState {
   canContinue: boolean
 }
 
+/** Where one role of a ticket run stands. `stopped` is a role whose run the user stopped. */
+export type RoleStatus = 'not_started' | 'working' | 'waiting_on_you' | 'handed_off' | 'paused' | 'failed' | 'stopped'
+
+/** One role in the ticket view's lineup strip. */
+export interface StripRole {
+  /** The role's id in its ticket run's snapshot (before the first run, in the workspace lineup). */
+  id: string
+  name: string
+  status: RoleStatus
+  /** True for the role whose agent run is open: at most one. */
+  active: boolean
+}
+
 export type NewTicketInput = {
   workspaceId: string
   title: string

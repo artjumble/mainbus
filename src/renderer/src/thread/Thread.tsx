@@ -1,8 +1,9 @@
-import { Anchor, Box, Paper, Stack, Text, Typography } from '@mantine/core'
-import { Fragment, memo, useEffect, useRef, type ReactElement } from 'react'
+import { Anchor, Box, Button, Paper, Stack, Text, Typography } from '@mantine/core'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import Markdown from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
-import type { StoredEvent, ThreadEvent } from '../../../shared/events'
+import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
+import { annotate } from './annotate'
 import { DecisionCard } from './DecisionCard'
 import { PermissionCard } from './PermissionCard'
 import { ThinkingBlock } from './ThinkingBlock'
@@ -12,14 +13,17 @@ import { ToolRow } from './ToolRow'
 interface Props {
   events: StoredEvent[]
   decisions: Decision[]
-  /** The role speaking in the agent's messages. */
-  roleName?: string
+  /** The agent runs the events belong to, by id: they name each event's role and ticket run. */
+  runs: Record<string, ThreadRun>
 }
 
 const NEAR_BOTTOM_PX = 48
 
-/** The ticket thread: agent messages, tool rows, thinking, dividers and inline decision cards. Follows new events while scrolled to the bottom. */
-export function Thread({ events, decisions, roleName = 'Implementer' }: Props): ReactElement {
+/**
+ * The ticket thread: agent messages and tool rows tagged with their role, thinking, dividers (handoffs between
+ * roles, new runs) and inline decision cards. Follows new events while scrolled to the bottom.
+ */
+export function Thread({ events, decisions, runs }: Props): ReactElement {
   const scroller = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
@@ -40,20 +44,23 @@ export function Thread({ events, decisions, roleName = 'Implementer' }: Props): 
     else if (event.kind === 'tool_call') called.add(event.id)
   }
   const decisionById = new Map(decisions.map((d) => [d.id, d]))
+  const notes = useMemo(() => annotate(events, runs), [events, runs])
 
   return (
     <Box ref={scroller} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
       <Stack gap="sm" p="md">
         {events.map((stored, i) => {
           const { event } = stored
-          // The thread holds every run of the ticket, oldest first; mark where each later one starts.
-          const newRun = i > 0 && events[i - 1].runId !== stored.runId
+          // The thread holds every ticket run of the ticket, oldest first; mark where each later one starts.
+          const note = notes[i]!
           return (
             <Fragment key={`${stored.runId}:${stored.seq}:${event.kind}`}>
-              {newRun && <Divider text="New run" />}
+              {note.newRun && <Divider text="New run" />}
               <EventRow
                 event={event}
-                roleName={roleName}
+                role={note.role}
+                toolGroupStart={note.toolGroupStart}
+                handoffLabel={note.handoffLabel}
                 result={event.kind === 'tool_call' ? results.get(event.id) : undefined}
                 joined={event.kind === 'tool_result' && called.has(event.id)}
                 decision={event.kind === 'decision' ? decisionById.get(event.decisionId) : undefined}
@@ -68,9 +75,24 @@ export function Thread({ events, decisions, roleName = 'Implementer' }: Props): 
 
 type ToolResult = { ok: boolean; summary: string }
 
-interface RowProps {
+interface RowProps extends Lookup {
   event: ThreadEvent
-  roleName: string
+}
+
+// Memoized: with a long thread, an event that arrives must not re-render (and re-parse the markdown of) every row.
+// Its props are the event, plain values and stable objects, so an unchanged row is skipped.
+const EventRow = memo(function EventRow({ event, ...lookup }: RowProps): ReactElement | null {
+  const row = renderEvent(event, lookup)
+  return row === null ? null : <Box style={{ display: 'flex', flexDirection: 'column' }}>{row}</Box>
+})
+
+interface Lookup {
+  /** The name of the role whose run the event belongs to. */
+  role: string
+  /** For a tool row: it starts a group of tool rows, so it carries the role tag. */
+  toolGroupStart: boolean
+  /** For a handoff: "Planner → Implementer". */
+  handoffLabel: string | undefined
   /** For a tool call: its result, once it has arrived. */
   result: ToolResult | undefined
   /** For a tool result: true when its call is in the thread, so the call's row already shows it. */
@@ -79,27 +101,12 @@ interface RowProps {
   decision: Decision | undefined
 }
 
-// Memoized: with a long thread, an event that arrives must not re-render (and re-parse the markdown of) every row.
-const EventRow = memo(function EventRow({ event, roleName, result, joined, decision }: RowProps): ReactElement | null {
-  const row = renderEvent(event, { roleName, result, joined, decision })
-  return row === null ? null : <Box style={{ display: 'flex', flexDirection: 'column' }}>{row}</Box>
-})
-
-interface Lookup {
-  roleName: string
-  result: ToolResult | undefined
-  joined: boolean
-  decision: Decision | undefined
-}
-
 function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
   switch (event.kind) {
     case 'message':
       return (
         <Stack gap={2} data-event="message" data-partial={event.partial ? 'true' : undefined}>
-          <Text size="xs" fw={700} c="dimmed" style={{ letterSpacing: '0.04em' }}>
-            {lookup.roleName.toUpperCase()}
-          </Text>
+          <RoleTag role={lookup.role} />
           <AgentText text={event.text} />
         </Stack>
       )
@@ -119,14 +126,22 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
     case 'thinking':
       return <ThinkingBlock text={event.text} durationMs={event.durationMs} partial={event.partial} />
     case 'tool_call':
-      return <ToolRow name={event.name} input={event.input} result={lookup.result} />
+      return (
+        <ToolGroupRow role={lookup.role} tagged={lookup.toolGroupStart}>
+          <ToolRow name={event.name} input={event.input} result={lookup.result} />
+        </ToolGroupRow>
+      )
     case 'tool_result':
       // Joined to its call; a result that arrives without one is still worth showing.
-      return lookup.joined ? null : <ToolRow name="Tool" input={undefined} result={event} />
+      return lookup.joined ? null : (
+        <ToolGroupRow role={lookup.role} tagged={lookup.toolGroupStart}>
+          <ToolRow name="Tool" input={undefined} result={event} />
+        </ToolGroupRow>
+      )
     case 'nudge':
       return <Divider text={event.text} />
     case 'handoff':
-      return <Divider text={event.summary} handoff />
+      return <HandoffDivider label={lookup.handoffLabel ?? `${lookup.role} handed off`} summary={event.summary} />
     case 'stopped':
       return <Divider text="Stopped" />
     case 'process_exit':
@@ -158,16 +173,62 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return decision.kind === 'permission' ? <PermissionCard decision={decision} /> : <DecisionCard decision={decision} />
     }
     default:
-      // session, rate_limit, vcs_changed, turn_end and the engine-only kinds are not for the person.
+      // session, rate_limit, vcs_changed, turn_end, role_handoff (the handoff before it shows it) and the
+      // engine-only kinds are not for the person. annotate.ts keeps the same list.
       return null
   }
 }
 
-function Divider({ text, handoff = false }: { text: string; handoff?: boolean }): ReactElement {
+/** The name of the role speaking, above its message or its group of tool rows. */
+function RoleTag({ role }: { role: string }): ReactElement {
   return (
-    <div data-event="divider" className={handoff ? `${classes.divider} ${classes.handoff}` : classes.divider}>
+    <Text size="xs" fw={700} c="dimmed" data-role-tag style={{ letterSpacing: '0.04em' }}>
+      {role.toUpperCase()}
+    </Text>
+  )
+}
+
+function ToolGroupRow({ role, tagged, children }: { role: string; tagged: boolean; children: ReactElement }): ReactElement {
+  if (!tagged) return children
+  return (
+    <Stack gap={2}>
+      <RoleTag role={role} />
+      {children}
+    </Stack>
+  )
+}
+
+function Divider({ text }: { text: string }): ReactElement {
+  return (
+    <div data-event="divider" className={classes.divider}>
       <span className={classes.label}>{text}</span>
     </div>
+  )
+}
+
+/** Where one role handed off to the next, with what it said collapsed under it. */
+function HandoffDivider({ label, summary }: { label: string; summary: string }): ReactElement {
+  const [open, setOpen] = useState(false)
+  return (
+    <Stack gap={4} role="group" aria-label={label}>
+      <div data-event="handoff" className={`${classes.divider} ${classes.handoff}`}>
+        <span className={classes.label}>{label}</span>
+      </div>
+      <Button
+        variant="subtle"
+        size="compact-xs"
+        style={{ alignSelf: 'center' }}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? 'Hide summary' : 'Show summary'}
+      </Button>
+      {open && (
+        <Paper withBorder p="sm" radius="md">
+          <AgentText text={summary} />
+        </Paper>
+      )}
+    </Stack>
   )
 }
 
