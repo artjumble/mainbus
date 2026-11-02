@@ -99,7 +99,7 @@ Mainbus is an experiment in building software with AI agents. That includes usin
 
 ## Status
 
-Mainbus is a personal tool: one user, one machine, Windows first. It runs on your own Claude subscription through the official CLI. Offering it to other people would need an API-key runtime instead.
+Mainbus is a personal tool: one user, one machine, Windows first. It runs on your own Claude subscription through the official CLI.
 
 | Milestone | Scope | Built | State |
 |---|---|---|---|
@@ -116,7 +116,7 @@ Mainbus is a personal tool: one user, one machine, Windows first. It runs on you
 
 ### Requirements
 
-- Windows 11. macOS and Linux aren't designed out, but they aren't tested.
+- Windows 11. Mainbus has only been built and run on Windows, and the stable build and the `mainbus` CLI launcher are PowerShell and `.cmd` scripts.
 - Node.js 24 and Git.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) on your PATH and signed in. Mainbus checks this at startup and never runs the login itself.
 - Optional: the [GitHub CLI](https://cli.github.com/), signed in, to open pull requests at Review.
