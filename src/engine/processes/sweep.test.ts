@@ -115,7 +115,9 @@ async function runScenario(
   try {
     const pid = child.pid!
     let found: number | undefined
-    for (let i = 0; i < 100 && found === undefined; i++) {
+    // Give up well inside the test's own limit, so this `finally` always runs before Vitest times the test out.
+    const deadline = Date.now() + 30_000
+    while (found === undefined && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 200))
       startedAt = await lookup.startTime(pid)
       if (startedAt !== null && started.grandchild !== undefined) {
