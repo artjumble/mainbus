@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Ticket, Workspace } from '../../shared/domain'
-import { scratchPathFor, type HomePaths } from '../home'
+import { scratchPathFor, ticketFoldersFor, type HomePaths } from '../home'
 import type { PendingCleanupRepo } from '../store/cleanups'
 import type { GitRunner } from './git'
 import { branchName, slugify } from './slug'
@@ -40,7 +40,7 @@ export class WorktreeManager {
    */
   async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string }> {
     const branch = t.branch ?? branchName(t.number, t.title)
-    const wtPath = t.worktreePath ?? path.join(this.paths.worktrees, ws.slug, `${t.number}-${slugify(t.title)}`)
+    const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(this.paths, ws.slug), `${t.number}-${slugify(t.title)}`)
     const scratch = scratchPathFor(this.paths, wtPath)
     await fs.mkdir(scratch, { recursive: true })
 

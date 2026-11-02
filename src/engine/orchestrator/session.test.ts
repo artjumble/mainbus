@@ -82,11 +82,13 @@ describe('orchestrator.send', () => {
     }
 
     const folder = path.join(paths.root, 'orchestrator')
+    const ticketFolders = path.join(paths.worktrees, 'repo')
+    expect((await fs.stat(ticketFolders)).isDirectory()).toBe(true)
     expect((await fs.stat(folder)).isDirectory()).toBe(true)
     expect(runtime.specs).toHaveLength(0)
     expect(runtime.orchestratorSpecs).toHaveLength(1)
     const spec = runtime.orchestratorSpecs[0]!
-    expect(spec).toMatchObject({ kind: 'orchestrator', cwd: folder, additionalDirectories: [repoPath], model: 'opus', effort: 'medium' })
+    expect(spec).toMatchObject({ kind: 'orchestrator', cwd: folder, additionalDirectories: [repoPath, ticketFolders], model: 'opus', effort: 'medium' })
     expect(spec.resumeSessionId).toBeUndefined()
     expect(spec.prompt).toBe(`[Mainbus] Workspace: repo (${repoPath}) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?`)
     expect(spec.appendSystemPrompt).toContain('Mainbus orchestrator')
@@ -99,6 +101,13 @@ describe('orchestrator.send', () => {
     expect(await ask('Read', { file_path: path.join(repoPath, 'README.md') })).toEqual({ allow: true })
     expect((await ask('Read', { file_path: path.join(repoPath, '.env') })).allow).toBe(false)
     expect((await ask('Bash', { command: 'ls' })).allow).toBe(false)
+    // So are reads in the ticket folders, including one made after the session started; never the scratch folders.
+    const later = path.join(ticketFolders, '2-later')
+    await fs.mkdir(later, { recursive: true })
+    expect(await ask('Read', { file_path: path.join(later, 'a.ts') })).toEqual({ allow: true })
+    expect((await ask('Write', { file_path: path.join(later, 'a.ts'), content: '' })).allow).toBe(false)
+    expect((await ask('Read', { file_path: path.join(paths.scratch, 'repo', '2-later', 'a.txt') })).allow).toBe(false)
+    expect(spec.appendSystemPrompt).toContain(`ticket folders are all under ${ticketFolders}`)
     // Its read tools answer from this board.
     expect(await spec.tools.listWorkspaces()).toContain(`- repo: repo ${repoPath}, base branch main`)
   })

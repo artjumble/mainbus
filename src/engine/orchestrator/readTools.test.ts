@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
 import type { Hold, StripRole, Ticket, TicketState, Workspace } from '../../shared/domain'
@@ -171,6 +174,19 @@ describe('get_ticket', () => {
     await ticket()
     expect(await tools.getTicket({ number: 1 })).toContain('## Latest run\nNot started.')
     expect(await tools.getTicket({ number: 9 })).toBe('No ticket #9 in shop.')
+  })
+
+  test("shows the ticket's folder, none before it starts and a note once it is gone", async () => {
+    const t = await ticket()
+    expect(await tools.getTicket({ number: 1 })).toContain('## Folder\nNone yet: Mainbus makes it when the ticket first starts.')
+    const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-get-ticket-'))
+    try {
+      await repos.tickets.setWorktree(t.id, 'mainbus/1-rate-limit-login', folder)
+      expect(await tools.getTicket({ number: 1 })).toContain(`## Folder\n${folder}\n`)
+    } finally {
+      await fs.rm(folder, { recursive: true, force: true })
+    }
+    expect(await tools.getTicket({ number: 1 })).toContain(`## Folder\n${folder} (no longer there)\n`)
   })
 })
 

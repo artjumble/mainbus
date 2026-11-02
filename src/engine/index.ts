@@ -313,6 +313,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       repo: repos.orchestrator,
       runtime: cfg.runtime ?? missingRuntime,
       homeRoot: cfg.paths.root,
+      paths: cfg.paths,
       now,
       emit,
       workspace: () => repos.workspaces.get(),
