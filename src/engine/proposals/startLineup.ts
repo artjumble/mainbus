@@ -50,6 +50,7 @@ function rolesText(roles: { name: string; model: string; effort: Effort }[]): st
  */
 export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = {
   label: 'start a ticket',
+  atomicWithResult: false,
   evidenceKey: 'reason',
 
   async propose(input, turn, ctx) {

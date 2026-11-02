@@ -173,7 +173,7 @@ describe('orchestrator.send', () => {
 
 describe('orchestrator.stop', () => {
   test('interrupts the turn under way and keeps the session', async () => {
-    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }, say('Later'), turnEnd()] })
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }, say('Later'), turnEnd()], endTurnOnInterrupt: true })
     const { engine } = await makeEngine(runtime)
     // Nothing to stop yet.
     await engine.invoke('orchestrator.stop')
@@ -183,6 +183,7 @@ describe('orchestrator.stop', () => {
     expect(await status(engine)).toBe('working')
     await engine.invoke('orchestrator.stop')
     expect(runtime.interrupted).toHaveLength(1)
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
 
     await engine.invoke('orchestrator.send', 'Never mind')
     await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
@@ -382,29 +383,60 @@ describe('proposals', () => {
     expect(runtime.sent[0]).toContain(`- Proposal ${proposal!.id} (create tickets): rejected by the user.`)
   })
 
-  test('a message sent mid-turn does not become the intent of that turn’s proposals', async () => {
+  test('a message sent while a turn is running is refused, and nothing is recorded or sent', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'First ask')
+    expect(await status(engine)).toBe('working')
+    const before = (await engine.invoke('orchestrator.get')).events.length
+
+    await expect(engine.invoke('orchestrator.send', 'Second ask')).rejects.toThrow(
+      'The orchestrator is still working: wait for it, or Stop it first'
+    )
+    expect(runtime.sent).toEqual([])
+    const thread = await engine.invoke('orchestrator.get')
+    expect(thread.events.filter((e) => e.event.kind === 'user_message').map((e) => (e.event as { text: string }).text)).toEqual(['First ask'])
+    expect(thread.events.length).toBeGreaterThanOrEqual(before)
+    expect(thread.status).toBe('working')
+
+    await (await liveTools(runtime)).proposeCreateTickets({ tickets: [{ title: 'From the first' }] })
+    expect((await engine.invoke('orchestrator.get')).proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual(['First ask'])
+  })
+
+  test('two turns in a row each propose with their own message', async () => {
     const runtime = new FakeRuntime([], {
       orchestrator: [
         { emit: { kind: 'session', sessionId: 'sess-1' } },
-        // The second message arrives while the first turn is still under way, and is queued as its own turn.
-        { waitForSend: true },
-        { callTool: 'proposeCreateTickets', args: { tickets: [{ title: 'From the first' }] } },
+        { callTool: 'proposeCreateTickets', args: { tickets: [{ title: 'One' }] } },
         turnEnd(),
-        { waitForSend: true }
+        { waitForSend: true },
+        { callTool: 'proposeCreateTickets', args: { tickets: [{ title: 'Two' }] } },
+        turnEnd()
       ]
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'First ask')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Second ask')
-    await vi.waitFor(async () => {
-      const kinds = (await engine.invoke('orchestrator.get')).events.map((e) => e.event.kind)
-      expect(kinds).toContain('turn_end')
-    })
-    // The second turn is now the current one.
-    await (await liveTools(runtime)).proposeCreateTickets({ tickets: [{ title: 'From the second' }] })
+    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(2))
+    expect((await engine.invoke('orchestrator.get')).proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual([
+      'First ask',
+      'Second ask'
+    ])
+  })
 
-    const proposals = (await engine.invoke('orchestrator.get')).proposals
-    expect(proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual(['First ask', 'Second ask'])
+  test('after Stop, the next message is the intent of the next proposal', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { waitForSend: true }],
+      endTurnOnInterrupt: true
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'First ask')
+    await engine.invoke('orchestrator.stop')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'Second ask')
+    await (await liveTools(runtime)).proposeCreateTickets({ tickets: [{ title: 'After stop' }] })
+    expect((await engine.invoke('orchestrator.get')).proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual(['Second ask'])
   })
 
   test('a start proposal, confirmed, starts a Backlog ticket with its roles, models and instructions', async () => {

@@ -7,8 +7,11 @@ import { criteria, tickets } from '../db/schema'
 
 export interface TicketRepo {
   create(input: NewTicketInput): Promise<Ticket>
-  /** Creates the tickets in order, in one batch: all of them, or none if one insert fails. */
-  createMany(inputs: NewTicketInput[]): Promise<Ticket[]>
+  /**
+   * Creates the tickets in order, in one batch: all of them, or none if one insert fails. `alsoInBatch` gets
+   * their ids and returns more statements for the same batch, which then succeed or fail with the tickets.
+   */
+  createMany(inputs: NewTicketInput[], alsoInBatch?: (ids: string[]) => BatchItem<'sqlite'>[]): Promise<Ticket[]>
   get(id: string): Promise<Ticket>
   /** The ticket with this number in the workspace, or null. */
   byNumber(workspaceId: string, number: number): Promise<Ticket | null>
@@ -98,10 +101,10 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     return [ticket, db.insert(criteria).values(input.criteria.map((text, position) => ({ ticketId: id, position, text, checked: false })))]
   }
 
-  async function createMany(inputs: NewTicketInput[]): Promise<Ticket[]> {
+  async function createMany(inputs: NewTicketInput[], alsoInBatch?: (ids: string[]) => BatchItem<'sqlite'>[]): Promise<Ticket[]> {
     if (inputs.length === 0) return []
     const ids = inputs.map(() => randomUUID())
-    const [first, ...rest] = inputs.flatMap((input, i) => inserts(ids[i]!, input))
+    const [first, ...rest] = [...inputs.flatMap((input, i) => inserts(ids[i]!, input)), ...(alsoInBatch?.(ids) ?? [])]
     // One batch: every insert or none, with nothing else run in between.
     await db.batch([first!, ...rest])
     return Promise.all(ids.map(get))

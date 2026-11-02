@@ -8,6 +8,7 @@ import {
   type CommandResult,
   type EngineEvent
 } from '../shared/api'
+import type { DraftColumn } from '../shared/proposals'
 import type { AgentLauncher, LineupRole, NewTicketInput, Ticket, Workspace } from '../shared/domain'
 import { openDb } from './db/open'
 import { runCommand, type CommandRunner } from './git/command'
@@ -187,8 +188,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      * The one way tickets are created: by the user (ticket.create), by an agent (intake), or from a proposal the
      * user confirmed. In order, all of them or none.
      */
-    async function createTickets(ws: Workspace, inputs: Omit<NewTicketInput, 'workspaceId'>[]): Promise<Ticket[]> {
-      const tickets = await repos.tickets.createMany(inputs.map((input) => ({ ...input, workspaceId: ws.id })))
+    async function createTickets(
+      ws: Workspace,
+      inputs: Omit<NewTicketInput, 'workspaceId'>[],
+      record?: { proposalId: string; column: DraftColumn }
+    ): Promise<Ticket[]> {
+      const tickets = await repos.tickets.createMany(
+        inputs.map((input) => ({ ...input, workspaceId: ws.id })),
+        record && ((ids) => [repos.proposals.ticketsResultStatement(record.proposalId, ids, record.column)])
+      )
       emit({ type: 'board.changed', workspaceId: ws.id })
       return tickets
     }
@@ -220,6 +228,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         }
       }
     })
+
+    // Before the orchestrator panel or the outcome block can read proposals.
+    await proposals.failUnfinished()
 
     // The intake's tickets need only their state; the board's carry their lineup strip as well.
     const boardTickets = async (ws: Workspace) => {

@@ -1,15 +1,19 @@
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { EngineEvent } from '../../shared/api'
 import type { Workspace } from '../../shared/domain'
 import type { Proposal } from '../../shared/proposals'
+import { KINDS } from './registry'
+import type { Db } from '../db/open'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, openTestDb } from '../store/testDb'
 import type { ExecContext } from './kind'
-import { createProposalService, OUTCOME_HEADING, type ProposalService } from './service'
+import { createProposalService, OUTCOME_HEADING, QUIT_ATOMIC_ERROR, QUIT_PARTIAL_ERROR, type ProposalService } from './service'
 
 const MESSAGE = 'Please add login and logout tickets.'
 
 let cleanup: () => void
+let db: Db
 let repos: Repos
 let ws: Workspace
 let runId: string
@@ -23,6 +27,7 @@ const at = (minutes: number) => new Date(FIXED_NOW.getTime() + minutes * 60_000)
 beforeEach(async () => {
   const testDb = await openTestDb()
   cleanup = testDb.cleanup
+  db = testDb.db
   clock = FIXED_NOW
   repos = createRepos(testDb.db, () => clock)
   ws = await repos.workspaces.create('/repo', 'main', 'repo', 'repo')
@@ -30,7 +35,12 @@ beforeEach(async () => {
   events = []
   exec = {
     workspace: () => repos.workspaces.get(),
-    createTickets: (w, inputs) => repos.tickets.createMany(inputs.map((i) => ({ ...i, workspaceId: w.id }))),
+    // Like the engine's: the result is recorded in the same batch as the tickets.
+    createTickets: (w, inputs, record) =>
+      repos.tickets.createMany(
+        inputs.map((i) => ({ ...i, workspaceId: w.id })),
+        record && ((ids) => [repos.proposals.ticketsResultStatement(record.proposalId, ids, record.column)])
+      ),
     lineup: (workspaceId) => repos.lineups.get(workspaceId),
     ticketByNumber: (workspaceId, n) => repos.tickets.byNumber(workspaceId, n),
     whyNotStartable: async () => null,
@@ -157,6 +167,75 @@ describe('proposal service', () => {
       throw new Error('disk full')
     })
     expect(await service.confirm(p.id)).toMatchObject({ status: 'failed', result: { error: 'disk full' } })
+  })
+
+  test('the result is recorded in the same transaction as the tickets: both exist, or neither', async () => {
+    const p = await proposeTwo()
+    const claimed = await repos.proposals.claim(p.id, 'confirmed')
+    expect(claimed.result).toBeNull()
+    const made = await exec.createTickets(ws, [{ title: 'A', intent: 'x', spec: '', criteria: [], labels: [], column: 'ready' }], {
+      proposalId: p.id,
+      column: 'ready'
+    })
+    // Recorded by the batch itself, before anything else writes it.
+    expect((await repos.proposals.get(p.id)).result).toEqual({ tickets: [{ id: made[0]!.id, number: 1, title: 'A' }], column: 'ready' })
+  })
+
+  test('when the result write fails after the tickets went in, no ticket is left', async () => {
+    const p = await proposeTwo()
+    // The proposal's result can't be written: the tickets' inserts, earlier in the batch, are undone.
+    await db.run(sql.raw(`create trigger no_result before update of result on proposals when new.status <> 'failed' begin select raise(abort, 'disk full'); end`))
+    const done = await service.confirm(p.id)
+    expect(done).toMatchObject({ status: 'failed', result: { error: expect.stringContaining('disk full') } })
+    expect(await repos.tickets.list(ws.id)).toEqual([])
+  })
+
+  describe('failUnfinished (at startup)', () => {
+    test('fails a claimed proposal with no result: nothing was created, for an atomic kind', async () => {
+      const confirmed = await proposeTwo()
+      const overridden = await proposeTwo()
+      await repos.proposals.claim(confirmed.id, 'confirmed')
+      await repos.proposals.claim(overridden.id, 'overridden')
+      await service.failUnfinished()
+      expect(await repos.proposals.get(confirmed.id)).toMatchObject({ status: 'failed', result: { error: QUIT_ATOMIC_ERROR } })
+      expect(await repos.proposals.get(overridden.id)).toMatchObject({ status: 'failed', result: { error: QUIT_ATOMIC_ERROR } })
+      expect(QUIT_ATOMIC_ERROR).toBe('Mainbus quit before carrying this out; nothing was created.')
+    })
+
+    test('leaves pending, rejected, failed and finished proposals alone', async () => {
+      const pending = await proposeTwo()
+      const rejected = await proposeTwo()
+      const failed = await proposeTwo()
+      const finished = await proposeTwo()
+      await service.reject(rejected.id)
+      await repos.proposals.claim(failed.id, 'confirmed')
+      await repos.proposals.fail(failed.id, 'it broke')
+      await service.confirm(finished.id)
+      const before = await service.list()
+      await service.failUnfinished()
+      expect(await service.list()).toEqual(before)
+      expect((await repos.proposals.get(pending.id)).status).toBe('pending')
+    })
+
+    test('a kind that is not atomic gets the may-have-partly-happened error', async () => {
+      const kinds = { ...KINDS, create_tickets: { ...KINDS.create_tickets, atomicWithResult: false } }
+      const loose = createProposalService({ repo: repos.proposals, emit: () => {}, exec, kinds })
+      const p = await proposeTwo()
+      await repos.proposals.claim(p.id, 'confirmed')
+      await loose.failUnfinished()
+      expect(await repos.proposals.get(p.id)).toMatchObject({ status: 'failed', result: { error: QUIT_PARTIAL_ERROR } })
+      expect(QUIT_PARTIAL_ERROR).toBe('Mainbus quit while carrying this out; it may have partly happened. Check the board.')
+    })
+
+    test('the outcome block then reports it as failed, not as still being carried out', async () => {
+      const p = await proposeTwo()
+      await repos.proposals.claim(p.id, 'confirmed')
+      expect(await service.outcomeBlock(null)).toContain('Mainbus is still carrying it out.')
+      await service.failUnfinished()
+      const block = await service.outcomeBlock(null)
+      expect(block).toContain(`the user confirmed it, but it failed: ${QUIT_ATOMIC_ERROR}`)
+      expect(block).not.toContain('still carrying')
+    })
   })
 
   describe('outcomeBlock', () => {

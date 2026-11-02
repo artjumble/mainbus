@@ -129,6 +129,8 @@ export class FakeRuntime implements AgentRuntime {
       summary?: FakeSummary
       /** The orchestrator's steps; without them it stays open and says nothing. */
       orchestrator?: FakeStep[] | ((spec: OrchestratorRunSpec) => FakeStep[])
+      /** interrupt() ends the turn under way with an interrupted turn_end, as the real runtime does. */
+      endTurnOnInterrupt?: boolean
     } = {}
   ) {}
 
@@ -170,8 +172,9 @@ export class FakeRuntime implements AgentRuntime {
   }
 
   async interrupt(handle: RunHandle): Promise<void> {
-    this.get(handle) // the script is not affected; it has no turns to cut short
+    const run = this.get(handle) // the script is not affected; it has no turns to cut short
     this.interrupted.push(handle.id)
+    if (this.opts.endTurnOnInterrupt) run.queue.push({ kind: 'turn_end', ok: false, interrupted: true })
   }
 
   async stop(handle: RunHandle): Promise<void> {
