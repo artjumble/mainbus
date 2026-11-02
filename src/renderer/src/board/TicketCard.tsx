@@ -3,6 +3,7 @@ import { memo, type KeyboardEvent, type ReactElement } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
+import { BoardAnswer } from './BoardAnswer'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
   not_started: 'Not started',
@@ -75,7 +76,7 @@ interface Props {
 
 /**
  * A board card: number, title and phase chip, a badge when an agent filed the ticket, a link to its pull request
- * once there is one, and a one-line summary in Needs you. Nothing else, by design.
+ * once there is one, and in Needs you a one-line summary and an Answer control for a pending decision.
  */
 export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false, onOpen }: Props): ReactElement {
   const { state } = ticket
@@ -122,6 +123,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
           {state.summary}
         </Text>
       )}
+      {state.column === 'needs_you' && <BoardAnswer decisions={ticket.pendingDecisions} />}
     </Paper>
   )
 })

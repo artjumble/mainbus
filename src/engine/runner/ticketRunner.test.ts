@@ -278,12 +278,69 @@ describe('TicketRunner', () => {
     })
     expect(runtime.sent).toEqual([]) // a turn that asked is not silent: no nudge
 
-    await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep API' })
+    await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep API' }, 'thread')
 
     expect(runtime.sent).toEqual(['Answer: New API\nNote: keep API'])
     expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'answered' })
     expect(emitted).toContainEqual({ type: 'decision.changed', decision: expect.objectContaining({ id: decision.id, status: 'answered' }) })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
+  })
+
+  it('records where an answer came from, and a second answer from another place is refused and delivers nothing', async () => {
+    const runtime = new FakeRuntime([
+      { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'] } },
+      { emit: { kind: 'turn_end', ok: true } },
+      { waitForSend: true }
+    ])
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await waitForThread((e) => e.kind === 'turn_end')
+    const [decision] = await repos.decisions.pending(ticket.id)
+
+    await runner.answer(decision.id, { kind: 'option', index: 0 }, 'board')
+    await expect(runner.answer(decision.id, { kind: 'option', index: 1 }, 'thread')).rejects.toThrow('Already answered from the board')
+    await expect(runner.answer(decision.id, { kind: 'option', index: 1 }, 'orchestrator')).rejects.toThrow(
+      'Already answered from the board'
+    )
+
+    expect(runtime.sent).toEqual(['Answer: Old API'])
+    expect(await repos.decisions.get(decision.id)).toMatchObject({
+      answer: { kind: 'option', index: 0 },
+      answeredBy: 'user',
+      answeredVia: 'board'
+    })
+  })
+
+  it('refuses an answer that does not say where it came from', async () => {
+    const runtime = new FakeRuntime([
+      { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'] } },
+      { emit: { kind: 'turn_end', ok: true } },
+      { waitForSend: true }
+    ])
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await waitForThread((e) => e.kind === 'turn_end')
+    const [decision] = await repos.decisions.pending(ticket.id)
+
+    await expect(runner.answer(decision.id, { kind: 'option', index: 0 }, 'somewhere' as never)).rejects.toThrow(/where it came from/)
+    expect(runtime.sent).toEqual([])
+    expect((await repos.decisions.get(decision.id)).status).toBe('pending')
+  })
+
+  it('a permission answered from the board is recorded as such and resolves the waiting request', async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const verdict = runtime.specs[0].onPermission(permission('npm install left-pad'))
+    const decision = await waitForPending()
+
+    await runner.answer(decision.id, { kind: 'permission', choice: 'allow_once' }, 'board')
+
+    expect(await verdict).toEqual({ allow: true })
+    expect(await repos.decisions.get(decision.id)).toMatchObject({ answeredVia: 'board' })
+    await expect(runner.answer(decision.id, { kind: 'permission', choice: 'deny' }, 'thread')).rejects.toThrow(
+      'Already answered from the board'
+    )
   })
 
   it('permission request already covered by an allow rule is allowed without a decision', async () => {
@@ -315,7 +372,7 @@ describe('TicketRunner', () => {
     })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'needs_you', agentStatus: 'waiting_on_you' })
 
-    await runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' })
+    await runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' }, 'thread')
 
     expect(await verdict).toEqual({ allow: true })
     expect(await repos.allowRules.list(ticket.workspaceId)).toMatchObject([{ toolName: 'Bash', pattern: 'npm run *' }])
@@ -332,7 +389,7 @@ describe('TicketRunner', () => {
 
     const verdict = spec.onPermission(permission('git add -A && git commit -m "first"'))
     const decision = await waitForPending()
-    await runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' })
+    await runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' }, 'thread')
 
     expect(await verdict).toEqual({ allow: true })
     expect((await repos.allowRules.list(ticket.workspaceId)).map((r) => r.pattern)).toEqual(['git add *', 'git commit *'])
@@ -359,7 +416,7 @@ describe('TicketRunner', () => {
 
     const verdict = runtime.specs[0].onPermission(permission('npm run build'))
     const decision = await waitForPending()
-    await runner.answer(decision.id, { kind: 'permission', choice: 'deny', note: 'use the test script' })
+    await runner.answer(decision.id, { kind: 'permission', choice: 'deny', note: 'use the test script' }, 'thread')
 
     expect(await verdict).toEqual({ allow: false, message: 'Denied by the user: use the test script' })
     expect(await repos.allowRules.list(ticket.workspaceId)).toEqual([])
@@ -520,7 +577,7 @@ describe('TicketRunner', () => {
     const decision = await waitForPending() // questions survive a restart
     expect(decision.kind).toBe('question')
 
-    await after.answer(decision.id, { kind: 'option', index: 0 })
+    await after.answer(decision.id, { kind: 'option', index: 0 }, 'thread')
 
     const spec = runtime.specs.at(-1) as RunSpec
     expect(spec.resumeSessionId).toBe('session-1')
@@ -540,10 +597,10 @@ describe('TicketRunner', () => {
     const decision = await waitForPending()
 
     expect(decision).toMatchObject({ kind: 'permission', allowAlways: false })
-    await expect(runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' })).rejects.toThrow(
+    await expect(runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' }, 'thread')).rejects.toThrow(
       /Always allow/
     )
-    await runner.answer(decision.id, { kind: 'permission', choice: 'allow_once' })
+    await runner.answer(decision.id, { kind: 'permission', choice: 'allow_once' }, 'thread')
     expect(await verdict).toEqual({ allow: true })
     expect(await repos.allowRules.list(ticket.workspaceId)).toMatchObject([{ pattern: 'git push *' }])
   })
@@ -563,16 +620,16 @@ describe('TicketRunner', () => {
     const shellVerdict = spec.onPermission(permission(command))
     const shellDecision = await waitForPending()
     expect(shellDecision).toMatchObject({ kind: 'permission', allowAlways: false })
-    await expect(runner.answer(shellDecision.id, { kind: 'permission', choice: 'always_allow' })).rejects.toThrow(
+    await expect(runner.answer(shellDecision.id, { kind: 'permission', choice: 'always_allow' }, 'thread')).rejects.toThrow(
       /Always allow/
     )
-    await runner.answer(shellDecision.id, { kind: 'permission', choice: 'allow_once' })
+    await runner.answer(shellDecision.id, { kind: 'permission', choice: 'allow_once' }, 'thread')
     expect(await shellVerdict).toEqual({ allow: true })
 
     const readVerdict = spec.onPermission({ ...permission(''), toolName: 'Read', input: { file_path: '.env' } })
     const readDecision = await waitForPending()
     expect(readDecision).toMatchObject({ kind: 'permission', allowAlways: false })
-    await runner.answer(readDecision.id, { kind: 'permission', choice: 'deny' })
+    await runner.answer(readDecision.id, { kind: 'permission', choice: 'deny' }, 'thread')
     expect(await readVerdict).toMatchObject({ allow: false })
     expect(await repos.allowRules.list(ticket.workspaceId)).toHaveLength(4)
   })
@@ -674,7 +731,7 @@ describe('TicketRunner', () => {
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
     const decision = await waitForPending()
-    await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep it small' })
+    await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep it small' }, 'thread')
     await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
     const earlier = await repos.runs.latest(ticket.id)
 
@@ -818,7 +875,7 @@ describe('TicketRunner', () => {
 
       const resuming = runner.continue(ticket.id)
       await vi.waitFor(() => expect(slow.startCalls).toBe(1))
-      const answering = runner.answer(decision.id, { kind: 'option', index: 1 })
+      const answering = runner.answer(decision.id, { kind: 'option', index: 1 }, 'thread')
       // Long enough for an unserialized answer to be saved and its delivery attempted mid-launch.
       await new Promise((resolve) => setTimeout(resolve, 100))
       slow.open()
@@ -1156,12 +1213,12 @@ describe('TicketRunner', () => {
       const decision = await waitForPending()
 
       expect(decision).toMatchObject({ kind: 'permission', allowAlways: false })
-      await expect(runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' })).rejects.toThrow(
+      await expect(runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' }, 'thread')).rejects.toThrow(
         /Always allow/
       )
       expect(await repos.allowRules.list(ticket.workspaceId)).toEqual([])
       expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'pending' })
-      await runner.answer(decision.id, { kind: 'permission', choice: 'allow_once' })
+      await runner.answer(decision.id, { kind: 'permission', choice: 'allow_once' }, 'thread')
       expect(await verdict).toEqual({ allow: true })
       expect(await repos.allowRules.list(ticket.workspaceId)).toEqual([])
     })
@@ -1233,7 +1290,7 @@ describe('TicketRunner', () => {
       await runner.start(ticket.id)
       const decision = await waitForPending()
 
-      await runner.answer(decision.id, { kind: 'option', index: 0 })
+      await runner.answer(decision.id, { kind: 'option', index: 0 }, 'thread')
       await waitForThread((e) => e.kind === 'message' && e.text === 'after')
 
       expect(runtime.sent).toEqual(['Answer: Old API'])
@@ -1259,7 +1316,7 @@ describe('TicketRunner', () => {
       const fresh = new FakeRuntime(keepAlive, { rejectResume: true })
       const runner = makeRunner(fresh)
 
-      await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep it small' })
+      await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep it small' }, 'thread')
 
       expect(fresh.specs[1].prompt).toContain('Asked the user: Which API? → New API (note: keep it small)')
       expect(fresh.specs[1].prompt.endsWith('\n\nAnswer: New API\nNote: keep it small')).toBe(true)
@@ -2001,7 +2058,7 @@ describe('TicketRunner hand-backs', () => {
     })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'needs_you' })
 
-    await runner.answer(decision.id, { kind: 'option', index: 0, note: 'Plan the build too' })
+    await runner.answer(decision.id, { kind: 'option', index: 0, note: 'Plan the build too' }, 'thread')
     const replanned = await nth(runner, runtime, 3)
     expect(roleOf(replanned)).toBe('Planner')
     expect(replanned.resumeSessionId).toBe('session-Planner')
@@ -2029,9 +2086,29 @@ describe('TicketRunner hand-backs', () => {
     await planner.roleTools.reportProblem({ details: 'The spec is unclear' })
     const decision = await waitForPending()
     expect(decision).toMatchObject({ question: 'Planner reports a problem: The spec is unclear', options: ['Keep going'] })
-    await runner.answer(decision.id, { kind: 'option', index: 0 })
+    await runner.answer(decision.id, { kind: 'option', index: 0 }, 'thread')
     expect(runtime.sent).toEqual(['Answer: Keep going'])
     expect(await runsOfTicket()).toEqual([['Planner', null]])
+  })
+
+  it('an action decision answered from the board runs its hand-back like one answered in the thread', async () => {
+    await threeRoles((r) => (r.name === 'Reviewer' ? { ...r, onProblem: 'ask_me' } : r))
+    const runtime = new FakeRuntime(script)
+    const runner = makeRunner(runtime)
+    const reviewer = await upToReviewer(runner, runtime)
+
+    await reviewer.roleTools.reportProblem({ details: 'A test is flaky' })
+    const decision = await waitForPending()
+    expect(decision.options).toEqual(['Hand back to Implementer', 'Keep going'])
+    await runner.answer(decision.id, { kind: 'option', index: 0 }, 'board')
+
+    const implementer = await nth(runner, runtime, 4)
+    expect(roleOf(implementer)).toBe('Implementer')
+    expect(implementer.prompt).toContain('A test is flaky')
+    expect(await repos.decisions.get(decision.id)).toMatchObject({ answeredVia: 'board' })
+    // The hand-back ran once: a second answer from the thread changes nothing.
+    await expect(runner.answer(decision.id, { kind: 'option', index: 1 }, 'thread')).rejects.toThrow('Already answered from the board')
+    expect(runtime.specs).toHaveLength(4)
   })
 
   it('with ask_me, Keep going reaches the agent and Hand back hands back', async () => {
@@ -2043,7 +2120,7 @@ describe('TicketRunner hand-backs', () => {
     await reviewer.roleTools.reportProblem({ details: 'A test is flaky' })
     const first = await waitForPending()
     expect(first.options).toEqual(['Hand back to Implementer', 'Keep going'])
-    await runner.answer(first.id, { kind: 'option', index: 1, note: 'Ignore it' })
+    await runner.answer(first.id, { kind: 'option', index: 1, note: 'Ignore it' }, 'thread')
     expect(runtime.sent).toEqual(['Answer: Keep going\nNote: Ignore it'])
     expect(await runsOfTicket()).toEqual([
       ['Planner', 'handoff'],
@@ -2053,7 +2130,7 @@ describe('TicketRunner hand-backs', () => {
 
     await reviewer.roleTools.reportProblem({ details: 'Still flaky' })
     const second = await waitForPending()
-    await runner.answer(second.id, { kind: 'option', index: 0 })
+    await runner.answer(second.id, { kind: 'option', index: 0 }, 'thread')
     const implementer = await nth(runner, runtime, 4)
     expect(roleOf(implementer)).toBe('Implementer')
     expect(implementer.prompt).toContain('Still flaky')
@@ -2083,7 +2160,7 @@ describe('TicketRunner hand-backs', () => {
       options: ['Keep going', 'Take over']
     })
     const specs = runtime.specs.length
-    await runner.answer(cap.id, { kind: 'option', index: 0 })
+    await runner.answer(cap.id, { kind: 'option', index: 0 }, 'thread')
     const implementer = await nth(runner, runtime, specs + 1)
     expect(roleOf(implementer)).toBe('Implementer')
     expect(implementer.prompt).toContain('Again')
@@ -2096,7 +2173,7 @@ describe('TicketRunner hand-backs', () => {
     const capAgain = await waitForPending()
     expect(capAgain.question).toContain('gone back and forth 3 times')
 
-    await runner.answer(capAgain.id, { kind: 'option', index: 1 })
+    await runner.answer(capAgain.id, { kind: 'option', index: 1 }, 'thread')
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'ready', phase: 'not_started', agentStatus: null })
     const latest = (await repos.runs.latest(ticket.id))!
     expect(latest).toMatchObject({ role: 'Reviewer', endReason: 'stopped' })

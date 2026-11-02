@@ -158,7 +158,10 @@ export const decisions = sqliteTable(
     /** JSON: DecisionAction | null. What Mainbus does with the answer itself, rather than passing it to the agent. */
     action: text('action'),
     createdAt: text('created_at').notNull(),
-    answeredAt: text('answered_at')
+    answeredAt: text('answered_at'),
+    /** Who answered ('user'), and from where ('board' | 'orchestrator' | 'thread'); null until answered. */
+    answeredBy: text('answered_by'),
+    answeredVia: text('answered_via')
   },
   (t) => [index('decisions_ticket_idx').on(t.ticketId)]
 )

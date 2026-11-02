@@ -361,9 +361,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return runner.resumePaused(ticketId)
       },
       'agent.skip': (ticketId) => skipTicket(ticketId),
-      'decision.answer': (id, answer) => {
+      'decision.answer': (id, answer, via) => {
         requireRuntime()
-        return runner.answer(id, answer)
+        return runner.answer(id, answer, via)
       },
 
       'lineup.get': async () => repos.lineups.get((await requireWorkspace()).id),

@@ -28,7 +28,7 @@ const STATE: TicketState = {
 
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
-  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null }
+  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [] }
 }
 
 beforeEach(async () => {

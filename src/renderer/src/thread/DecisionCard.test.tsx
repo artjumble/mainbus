@@ -24,14 +24,14 @@ test('DecisionCard answers with the chosen option and note', async () => {
   await userEvent.click(screen.getByRole('radio', { name: 'Postgres' }))
   await userEvent.type(screen.getByRole('textbox', { name: /Note/ }), 'because scale')
   await userEvent.click(answer)
-  expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'd1', { kind: 'option', index: 1, note: 'because scale' })
+  expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'd1', { kind: 'option', index: 1, note: 'because scale' }, 'thread')
 })
 
 test('a note is optional and omitted when blank', async () => {
   renderWithMantine(<DecisionCard decision={makeDecision()} />)
   await userEvent.click(screen.getByRole('radio', { name: 'SQLite' }))
   await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
-  expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'd1', { kind: 'option', index: 0 })
+  expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'd1', { kind: 'option', index: 0 }, 'thread')
 })
 
 test('the recommended option is marked', () => {

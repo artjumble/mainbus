@@ -1,6 +1,6 @@
 import { Badge, Box, Button, Checkbox, Code, Group, Stack, Text, Textarea, Timeline, Title } from '@mantine/core'
 import { useState, type ReactElement, type ReactNode } from 'react'
-import type { Criterion, Decision } from '../../../shared/domain'
+import { ANSWERED_VIA_LABELS, type Criterion, type Decision } from '../../../shared/domain'
 import type { StoredEvent } from '../../../shared/events'
 import { invoke } from '../api'
 import { AgentBadge } from '../board/AgentBadge'
@@ -243,7 +243,12 @@ function activityEntries(events: StoredEvent[], decisions: Decision[]): Entry[] 
       d.answer.kind === 'option'
         ? (d.options[d.answer.index] ?? `option ${d.answer.index + 1}`)
         : PERMISSION_ANSWERS[d.answer.choice]
-    entries.push({ at: d.answeredAt, title: `Answered: ${clip(d.question)}`, detail: answer })
+    const from = d.answeredVia ? `you, from ${ANSWERED_VIA_LABELS[d.answeredVia]}` : 'you'
+    entries.push({
+      at: d.answeredAt,
+      title: `Decision: ${clip(d.question)} → ${answer} (${from})`,
+      ...(d.answer.note ? { detail: d.answer.note } : {})
+    })
   }
   // Array sort is stable, so entries with the same time keep the order above.
   return entries.sort((a, b) => a.at.localeCompare(b.at))

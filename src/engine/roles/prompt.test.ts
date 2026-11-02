@@ -66,6 +66,8 @@ const decision = (over: Partial<Decision>): Decision => ({
   answer: { kind: 'option', index: 1 },
   createdAt: '2026-10-30T10:00:00.000Z',
   answeredAt: '2026-10-30T10:05:00.000Z',
+  answeredBy: 'user',
+  answeredVia: 'thread',
   ...over,
 })
 

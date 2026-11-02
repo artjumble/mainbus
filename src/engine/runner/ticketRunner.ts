@@ -1,15 +1,17 @@
 import type { EngineEvent } from '../../shared/api'
-import type {
-  Decision,
-  DecisionAnswer,
-  Effort,
-  LineupRole,
-  Phase,
-  StartOptions,
-  StripRole,
-  Ticket,
-  TicketState,
-  Workspace
+import {
+  ANSWERED_VIA,
+  type AnsweredVia,
+  type Decision,
+  type DecisionAnswer,
+  type Effort,
+  type LineupRole,
+  type Phase,
+  type StartOptions,
+  type StripRole,
+  type Ticket,
+  type TicketState,
+  type Workspace
 } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shared/events'
 import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
@@ -204,9 +206,11 @@ export class TicketRunner {
     return this.serial(ticketId, () => this.sendNow(ticketId, text))
   }
 
-  async answer(decisionId: string, a: DecisionAnswer): Promise<void> {
+  /** The one path every answer takes, whichever place (`via`) the user answered from. */
+  async answer(decisionId: string, a: DecisionAnswer, via: AnsweredVia): Promise<void> {
+    if (!ANSWERED_VIA.includes(via)) throw new Error('An answer must say where it came from: the board, the orchestrator or the thread')
     const { ticketId } = await this.repos.decisions.get(decisionId)
-    return this.serial(ticketId, () => this.answerNow(decisionId, a))
+    return this.serial(ticketId, () => this.answerNow(decisionId, a, via))
   }
 
   /** Takes effect on an in-flight launch as soon as its process starts; the rest waits its turn. */
@@ -283,16 +287,17 @@ export class TicketRunner {
   async boardView(
     ticketId: string,
     workspaceLineup: () => Promise<LineupRole[]>
-  ): Promise<{ state: TicketState; lineup: StripRole[]; skipTo: string | null }> {
-    const { state, run, roles } = await this.inspect(ticketId, true)
+  ): Promise<{ state: TicketState; lineup: StripRole[]; skipTo: string | null; pendingDecisions: Decision[] }> {
+    const { state, run, roles, pending } = await this.inspect(ticketId, true)
     if (!run || !roles) {
       const lineup = lineupStrip({ roles: await workspaceLineup(), runs: [], latestRunId: null, agentStatus: null })
-      return { state, lineup, skipTo: null }
+      return { state, lineup, skipTo: null, pendingDecisions: pending }
     }
     const runs = await this.repos.runs.listForTicketRun(run.ticketRunId)
     // The role Skip would start, named in its confirmation.
     const skipTo = run.endReason === null && state.column !== 'done' ? ((await this.nextRole(run))?.name ?? null) : null
-    return { state, lineup: lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus }), skipTo }
+    const lineup = lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus })
+    return { state, lineup, skipTo, pendingDecisions: pending }
   }
 
   /**
@@ -302,7 +307,7 @@ export class TicketRunner {
   private async inspect(
     ticketId: string,
     doneRun: boolean
-  ): Promise<{ state: TicketState; run: AgentRunRow | null; roles: LineupRole[] | null }> {
+  ): Promise<{ state: TicketState; run: AgentRunRow | null; roles: LineupRole[] | null; pending: Decision[] }> {
     const ticket = await this.repos.tickets.get(ticketId)
     const done = ticket.manualColumn === 'done'
     const run = !done || doneRun ? await this.repos.runs.latest(ticketId) : null
@@ -310,7 +315,7 @@ export class TicketRunner {
     if (done) {
       // The run's events and the decisions need not be loaded.
       const state = currentState({ ticket, run: null, pendingDecisions: [], processAlive: false, activePhase: 'done' })
-      return { state, run, roles }
+      return { state, run, roles, pending: [] }
     }
     const pending = (await this.repos.decisions.pending(ticketId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     const activePhase: Phase = run && roles ? roleIn(roles, run).activePhase : 'not_started'
@@ -321,7 +326,7 @@ export class TicketRunner {
       processAlive: run ? this.live.has(run.id) || this.isLaunching(ticketId) : false,
       activePhase
     })
-    return { state, run, roles }
+    return { state, run, roles, pending }
   }
 
   /**
@@ -431,10 +436,10 @@ export class TicketRunner {
     await this.resume(run, text, logged.seq)
   }
 
-  private async answerNow(decisionId: string, a: DecisionAnswer): Promise<void> {
+  private async answerNow(decisionId: string, a: DecisionAnswer, via: AnsweredVia): Promise<void> {
     const decision = await this.repos.decisions.get(decisionId)
     checkAnswer(decision, a)
-    const answered = await this.repos.decisions.answer(decisionId, a)
+    const answered = await this.repos.decisions.answer(decisionId, a, via)
     const ticket = await this.repos.tickets.get(decision.ticketId)
     this.announceDecision(answered, ticket.workspaceId)
 

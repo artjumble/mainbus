@@ -248,7 +248,7 @@ describe('unattended mode', () => {
     await h.engine.invoke('unattended.set', true)
     await waitForColumn(h, 1, 'needs_you')
     const { decisions } = await h.engine.invoke('thread.get', h.tickets[0]!.id)
-    await h.engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 })
+    await h.engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 }, 'thread')
     await waitForColumn(h, 2, 'review')
     await waitForColumn(h, 1, 'in_progress')
     await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
@@ -291,7 +291,7 @@ describe('unattended mode', () => {
     await waitForColumn(h, 2, 'in_progress')
 
     const { decisions } = await h.engine.invoke('thread.get', h.tickets[0]!.id)
-    await h.engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 })
+    await h.engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 }, 'thread')
     // Ticket 1 goes on at once, while the queue's ticket 2 is still working.
     await waitForColumn(h, 1, 'review')
     expect(await columnOf(h, 2)).toBe('in_progress')

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import type { Decision, DecisionAnswer } from '../../shared/domain'
+import { ANSWERED_VIA_LABELS, type AnsweredVia, type Decision, type DecisionAnswer } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { decisions } from '../db/schema'
 
@@ -16,11 +16,11 @@ export type DecisionAction =
   | { kind: 'round_trip'; fromRoleId: string; toRoleId: string; details: string }
 
 export interface DecisionRepo {
-  open(d: Omit<Decision, 'id' | 'status' | 'answer' | 'createdAt' | 'answeredAt'>, action?: DecisionAction): Promise<Decision>
+  open(d: Omit<Decision, 'id' | 'status' | 'answer' | 'createdAt' | 'answeredAt' | 'answeredBy' | 'answeredVia'>, action?: DecisionAction): Promise<Decision>
   /** What Mainbus does with the decision's answer itself, or null when the answer goes to the agent as it is. */
   actionOf(id: string): Promise<DecisionAction | null>
-  /** Throws unless the decision is still pending. */
-  answer(id: string, a: DecisionAnswer): Promise<Decision>
+  /** Throws unless the decision is still pending; for one already answered, says where from ("Already answered from the board"). */
+  answer(id: string, a: DecisionAnswer, via: AnsweredVia): Promise<Decision>
   /** Throws unless the decision is still pending. */
   expire(id: string): Promise<Decision>
   pending(ticketId: string): Promise<Decision[]>
@@ -42,8 +42,16 @@ function toDecision(row: typeof decisions.$inferSelect): Decision {
     status: row.status as Decision['status'],
     answer: row.answer === null ? null : (JSON.parse(row.answer) as DecisionAnswer),
     createdAt: row.createdAt,
-    answeredAt: row.answeredAt
+    answeredAt: row.answeredAt,
+    answeredBy: row.answeredBy as Decision['answeredBy'],
+    answeredVia: row.answeredVia as Decision['answeredVia']
   }
+}
+
+/** Why a decision can't be settled again: someone answered it (and from where), or it expired or was cancelled. */
+function notPending(d: Decision): Error {
+  if (d.status === 'answered' && d.answeredVia) return new Error(`Already answered from ${ANSWERED_VIA_LABELS[d.answeredVia]}`)
+  return new Error(`Decision ${d.id} is ${d.status}, not pending`)
 }
 
 export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
@@ -56,16 +64,14 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
   /** Moves a pending decision to a new state; the status check is part of the UPDATE, so only one caller wins. */
   async function settle(id: string, set: Partial<typeof decisions.$inferInsert>): Promise<Decision> {
     const current = await get(id)
-    if (current.status !== 'pending') {
-      throw new Error(`Decision ${id} is ${current.status}, not pending`)
-    }
+    if (current.status !== 'pending') throw notPending(current)
     const changed = await db
       .update(decisions)
       .set(set)
       .where(and(eq(decisions.id, id), eq(decisions.status, 'pending')))
       .returning({ id: decisions.id })
     // Someone else settled it between our check and our update.
-    if (changed.length === 0) throw new Error(`Decision ${id} is no longer pending`)
+    if (changed.length === 0) throw notPending(await get(id))
     return get(id)
   }
 
@@ -96,8 +102,14 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
       return row.action === null ? null : (JSON.parse(row.action) as DecisionAction)
     },
 
-    answer(id, a) {
-      return settle(id, { status: 'answered', answer: JSON.stringify(a), answeredAt: now().toISOString() })
+    answer(id, a, via) {
+      return settle(id, {
+        status: 'answered',
+        answer: JSON.stringify(a),
+        answeredAt: now().toISOString(),
+        answeredBy: 'user',
+        answeredVia: via
+      })
     },
 
     expire(id) {

@@ -3,6 +3,7 @@
 import type {
   AgentLauncher,
   AllowRule,
+  AnsweredVia,
   ClaudeSetup,
   Decision,
   DecisionAnswer,
@@ -26,7 +27,13 @@ import type { Proposal } from './proposals'
  * workspace lineup before the first run). `skipTo` names the role Skip to next role would start: null when no
  * role is active, or when the active role is the last.
  */
-export type BoardTicket = Ticket & { state: TicketState; lineup: StripRole[]; skipTo: string | null }
+export type BoardTicket = Ticket & {
+  state: TicketState
+  lineup: StripRole[]
+  skipTo: string | null
+  /** The ticket's open decisions, oldest first: the card's Answer control answers the first. */
+  pendingDecisions: Decision[]
+}
 
 /**
  * What the engine pushes to the renderer. Partial (streaming) thread events carry seq 0: they are never stored.
@@ -84,7 +91,8 @@ export interface EngineCommands {
    * next ticked role; on the last role the ticket goes to Review. Like Pause and Resume, only the renderer can reach it.
    */
   'agent.skip'(ticketId: string): void
-  'decision.answer'(id: string, a: DecisionAnswer): void
+  /** Answers a pending decision from `via`; a decision already answered (from anywhere) is refused and nothing is delivered. */
+  'decision.answer'(id: string, a: DecisionAnswer, via: AnsweredVia): void
   /** The workspace's Change lineup, first role first. */
   'lineup.get'(): LineupRole[]
   /**
