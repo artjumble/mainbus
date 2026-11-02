@@ -22,6 +22,11 @@ export type FakeStep =
   | { emit: AgentEvent }
   /** A role tool in a role's run, a read or propose tool in the orchestrator's. */
   | { callTool: keyof RoleToolHandlers | keyof OrchestratorToolHandlers; args: unknown }
+  /**
+   * Calls a read tool and keeps what the first group of `pattern` matches in its text as `as`; a later step's args
+   * use it wherever a string is exactly `$as`. For ids a script can't know in advance.
+   */
+  | { capture: { tool: keyof OrchestratorToolHandlers; args?: unknown; pattern: string; as: string } }
   | { requestPermission: Omit<PermissionRequest, 'signal'> }
   | { waitForSend: true }
   | { exit: number | null }
@@ -53,6 +58,14 @@ export function orchestratorScriptFromFile(file: FakeScriptFile): (spec: Orchest
     if (spec.resumeSessionId !== undefined && Object.hasOwn(file, 'Orchestrator resumed')) return file['Orchestrator resumed']!
     return Object.hasOwn(file, 'Orchestrator') ? file['Orchestrator']! : []
   }
+}
+
+/** `args` with each string that is exactly `$name` replaced by what was captured as `name`. */
+function fill(args: unknown, captured: Record<string, string>): unknown {
+  if (typeof args === 'string') return args.startsWith('$') && Object.hasOwn(captured, args.slice(1)) ? captured[args.slice(1)] : args
+  if (Array.isArray(args)) return args.map((a) => fill(a, captured))
+  if (typeof args === 'object' && args !== null) return Object.fromEntries(Object.entries(args).map(([k, v]) => [k, fill(v, captured)]))
+  return args
 }
 
 /** An async queue that can be closed; the consumer side is an AsyncIterable. */
@@ -208,6 +221,7 @@ export class FakeRuntime implements AgentRuntime {
   private async play(spec: AnyRunSpec, run: Run): Promise<void> {
     // Yield first so nothing fires until the caller has the handle, as with a real runtime.
     await new Promise<void>((resolve) => setImmediate(resolve))
+    const captured: Record<string, string> = {}
     try {
       for (const step of this.steps(spec)) {
         if (run.stopped) return
@@ -218,7 +232,15 @@ export class FakeRuntime implements AgentRuntime {
           const tools: object = spec.kind === 'orchestrator' ? spec.tools : spec.roleTools
           const tool = (tools as Record<string, unknown>)[step.callTool]
           if (typeof tool !== 'function') throw new Error(`No tool ${step.callTool} in this run`)
-          await (tool as (args: unknown) => Promise<string>).call(tools, step.args)
+          await (tool as (args: unknown) => Promise<string>).call(tools, fill(step.args, captured))
+        } else if ('capture' in step) {
+          const c = step.capture
+          const tool = (spec.kind === 'orchestrator' ? (spec.tools as unknown as Record<string, unknown>) : {})[c.tool]
+          if (typeof tool !== 'function') throw new Error(`No tool ${c.tool} in this run`)
+          const out = await (tool as (args: unknown) => Promise<string>).call(spec.kind === 'orchestrator' ? spec.tools : {}, c.args ?? {})
+          const m = new RegExp(c.pattern).exec(out)
+          if (!m?.[1]) throw new Error(`capture ${c.as}: ${c.pattern} did not match the tool's text`)
+          captured[c.as] = m[1]
         } else if ('requestPermission' in step) {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })
         } else if ('waitForSend' in step) {

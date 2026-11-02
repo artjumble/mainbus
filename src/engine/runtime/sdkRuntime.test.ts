@@ -619,7 +619,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       proposePause: vi.fn(async () => 'Proposed p3.'),
       proposeStop: vi.fn(async () => 'Proposed p4.'),
       proposeSkip: vi.fn(async () => 'Proposed p5.'),
-      proposeHold: vi.fn(async () => 'Proposed p6.')
+      proposeHold: vi.fn(async () => 'Proposed p6.'),
+      proposeAnswer: vi.fn(async () => 'Proposed p7.')
     }
     return {
       kind: 'orchestrator',
@@ -656,7 +657,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__propose_pause',
       'mcp__mainbus__propose_stop',
       'mcp__mainbus__propose_skip',
-      'mcp__mainbus__propose_hold'
+      'mcp__mainbus__propose_hold',
+      'mcp__mainbus__propose_answer'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -690,7 +692,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'propose_pause',
       'propose_stop',
       'propose_skip',
-      'propose_hold'
+      'propose_hold',
+      'propose_answer'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
@@ -728,6 +731,11 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(Object.keys(hold.shape)).toEqual(['ticket', 'until', 'reason'])
     expect(await hold.handler(holdArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p6.' }] })
     expect(spec.tools.proposeHold).toHaveBeenCalledWith(holdArgs)
+    const answer = byName.get('propose_answer')!
+    const answerArgs = { decision: 'd1', choice: 2, reasoning: 'You said so' }
+    expect(Object.keys(answer.shape)).toEqual(['decision', 'choice', 'note', 'reasoning', 'judgement'])
+    expect(await answer.handler(answerArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p7.' }] })
+    expect(spec.tools.proposeAnswer).toHaveBeenCalledWith(answerArgs)
     const roles = start.shape.roles as z.ZodType
     expect(roles.safeParse([{ role: 'Planner', model: 'haiku', effort: 'max' }]).success).toBe(true)
     expect(roles.safeParse([{ role: 'Planner', model: 'gpt' }]).success).toBe(false)

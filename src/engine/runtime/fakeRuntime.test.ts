@@ -216,7 +216,8 @@ describe('FakeRuntime: the orchestrator', () => {
         proposePause: vi.fn(async () => 'proposed'),
         proposeStop: vi.fn(async () => 'proposed'),
         proposeSkip: vi.fn(async () => 'proposed'),
-        proposeHold: vi.fn(async () => 'proposed')
+        proposeHold: vi.fn(async () => 'proposed'),
+        proposeAnswer: vi.fn(async () => 'proposed')
       },
       onPermission: async () => ({ allow: true }),
       ...over
@@ -233,6 +234,20 @@ describe('FakeRuntime: the orchestrator', () => {
     expect(spec.tools.getTicket).toHaveBeenCalledWith({ number: 2 })
     expect(rt.orchestratorSpecs).toEqual([spec])
     expect(rt.specs).toEqual([])
+  })
+
+  test('a captured value from a read tool fills a later step', async () => {
+    const rt = new FakeRuntime([], {
+      orchestrator: [
+        { capture: { tool: 'listPendingDecisions', pattern: 'id ([a-z0-9]+)', as: 'id' } },
+        { callTool: 'proposeAnswer', args: { decision: '$id', nested: ['$id', '$other'] } },
+        { exit: 0 }
+      ]
+    })
+    const spec = orchestratorSpec()
+    vi.mocked(spec.tools.listPendingDecisions).mockResolvedValue('(id abc123)')
+    await collect(rt.events(await rt.start(spec)))
+    expect(spec.tools.proposeAnswer).toHaveBeenCalledWith({ decision: 'abc123', nested: ['abc123', '$other'] })
   })
 
   test('without a script it stays open and silent; a role tool is not one of its tools', async () => {

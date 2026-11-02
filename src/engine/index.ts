@@ -24,7 +24,7 @@ import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import { OrchestratorSession } from './orchestrator/session'
-import { createProposalService } from './proposals/service'
+import { createProposalService, type ProposalService } from './proposals/service'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -98,8 +98,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const listeners = new Set<(e: EngineEvent) => void>()
     // Created below, once the runner it drives exists; it sees every event before the listeners do.
     let unattended: UnattendedMode | null = null
+    let proposalService: ProposalService | null = null
     const emit = (e: EngineEvent): void => {
       unattended?.observe(e)
+      // A decision answered elsewhere or deferred ends the answer proposals still waiting on it.
+      if (e.type === 'decision.changed' && e.decision.status !== 'pending') {
+        void proposalService?.decisionSettled(e.decision).catch(() => {})
+      }
       for (const listener of [...listeners]) {
         try {
           listener(e)
@@ -234,7 +239,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     }
 
     // Confirmed proposals are carried out here, by engine code, never by the orchestrator.
-    const proposals = createProposalService({
+    const proposals = (proposalService = createProposalService({
       repo: repos.proposals,
       emit,
       exec: {
@@ -268,9 +273,18 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         stopTicket,
         skipTicket,
         now,
-        holdTicket: (ticketId, opts) => holds.hold(ticketId, opts)
+        holdTicket: (ticketId, opts) => holds.hold(ticketId, opts),
+        async decision(id) {
+          const decision = await repos.decisions.get(id).catch(() => null)
+          const ticket = decision && (await repos.tickets.get(decision.ticketId).catch(() => null))
+          return decision && ticket ? { decision, ticket } : null
+        },
+        answerDecision: (id, a) => {
+          requireRuntime()
+          return runner.answer(id, a, 'orchestrator')
+        }
       }
-    })
+    }))
 
     // Before the orchestrator panel or the outcome block can read proposals.
     await proposals.failUnfinished()

@@ -1,0 +1,33 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "waitForSend": true },
+    { "callTool": "askUser", "args": { "question": "Where should hello.txt go?", "options": ["Repo root", "docs folder"], "recommended": 0 } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Got your answer, planning it." } },
+    { "callTool": "handoff", "args": { "summary": "Plan: add hello.txt", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "waitForSend": true }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "waitForSend": true }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-answer" } },
+    { "capture": { "tool": "listPendingDecisions", "pattern": "[(]decision ([0-9a-f-]+)[)]", "as": "decision" } },
+    { "emit": { "kind": "tool_call", "id": "a1", "name": "mcp__mainbus__propose_answer", "input": {} } },
+    {
+      "callTool": "proposeAnswer",
+      "args": { "decision": "$decision", "choice": 2, "reasoning": "You said hello.txt belongs in the docs folder." }
+    },
+    { "emit": { "kind": "tool_result", "id": "a1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "I've recommended the docs folder." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

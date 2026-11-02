@@ -206,7 +206,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
             : d.options.map((o, i) => `${i + 1}. ${data('option', oneLine(o), true)}`).join(' ')
         const recommended = d.recommended !== null && d.options[d.recommended] !== undefined ? ` · recommended: ${d.recommended + 1}` : ''
         const kind = d.kind === 'permission' ? 'permission request' : 'question'
-        return `- ${title(t)}: ${kind} from the ${who} (agent-written): ${data('question', clip(oneLine(d.question), MESSAGE_MAX), true)} · options: ${options}${recommended}`
+        return `- ${title(t)}: ${kind} (decision ${d.id}) from the ${who} (agent-written): ${data('question', clip(oneLine(d.question), MESSAGE_MAX), true)} · options: ${options}${recommended}`
       })
   }
 

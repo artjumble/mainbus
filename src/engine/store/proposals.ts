@@ -35,6 +35,8 @@ export interface ProposalRepo {
   unfinished(): Promise<Proposal[]>
   /** Carrying out a claimed proposal threw: it is failed, with the error as its result. */
   fail(id: string, error: string): Promise<Proposal>
+  /** A pending proposal that can no longer be carried out: it is failed with `error`, decided now. Null when it isn't pending. */
+  failPending(id: string, error: string): Promise<Proposal | null>
   /** The proposals decided at or after `since` (every decided one when null), oldest decision first. */
   decidedSince(since: string | null): Promise<Proposal[]>
 }
@@ -136,6 +138,15 @@ export function createProposalRepo(db: Db, now: () => Date): ProposalRepo {
         .set({ status: 'failed', result: JSON.stringify({ error }) })
         .where(eq(proposals.id, id))
       return get(id)
+    },
+
+    async failPending(id, error) {
+      const changed = await db
+        .update(proposals)
+        .set({ status: 'failed', result: JSON.stringify({ error }), decidedAt: now().toISOString() })
+        .where(and(eq(proposals.id, id), eq(proposals.status, 'pending')))
+        .returning({ id: proposals.id })
+      return changed.length === 0 ? null : get(id)
     },
 
     async decidedSince(since) {

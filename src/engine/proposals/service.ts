@@ -1,7 +1,9 @@
 import type { EngineEvent } from '../../shared/api'
-import type { Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
+import type { Decision } from '../../shared/domain'
+import type { AnswerPayload, Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
 import { oneLine } from '../roles/prompt'
 import type { ProposalRepo } from '../store/proposals'
+import { whyNotPending } from './answer'
 import { ProposalInvalid, type ExecContext, type ProposalKind } from './kind'
 import { KINDS } from './registry'
 
@@ -40,6 +42,11 @@ export interface ProposalService {
   /** Throws unless the proposal is still pending. */
   reject(id: string): Promise<Proposal>
   list(): Promise<Proposal[]>
+  /**
+   * A decision left pending (answered elsewhere, or deferred): every answer proposal still waiting on it fails
+   * with why, so its card becomes a receipt rather than a live one that could answer twice.
+   */
+  decisionSettled(decision: Decision): Promise<void>
   /**
    * At startup: fails every proposal claimed with no result, since Mainbus quit while carrying it out. The error
    * says nothing was created for a kind whose result is recorded atomically, else that it may have partly happened.
@@ -149,6 +156,16 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
     },
 
     list: () => deps.repo.list(),
+
+    async decisionSettled(decision) {
+      const why = whyNotPending(decision, deps.exec.now())
+      if (why === null) return
+      for (const p of await deps.repo.list()) {
+        if (p.kind !== 'answer' || p.status !== 'pending' || (p.payload as AnswerPayload).decisionId !== decision.id) continue
+        const failed = await deps.repo.failPending(p.id, why)
+        if (failed) changed(failed)
+      }
+    },
 
     async failUnfinished() {
       for (const p of await deps.repo.unfinished()) {
