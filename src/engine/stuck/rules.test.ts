@@ -102,6 +102,18 @@ describe('silence', () => {
     })
   })
 
+  test('does not fire while a command waits for its result within its timeout, and fires after it', () => {
+    const call = (extra: object) => [at(T0, { kind: 'tool_call', id: 'long', name: 'Bash', input: { command: 'npm test', ...extra } })]
+    const events = call({ timeout: 25 * MIN })
+    expect(silence(input({ events, lastActivityAt: T0, now: T0 + 25 * MIN - 1 }))).toBeNull()
+    expect(silence(input({ events, lastActivityAt: T0, now: T0 + 25 * MIN }))?.rule).toBe('silence')
+    // The default timeout is two minutes, so the usual ten minutes of silence still counts.
+    expect(silence(input({ events: call({}), lastActivityAt: T0, now: T0 + 10 * MIN }))?.rule).toBe('silence')
+    // A call that has its result is not waiting.
+    const done = [...events, at(T0, { kind: 'tool_result', id: 'long', ok: true, summary: '' })]
+    expect(silence(input({ events: done, lastActivityAt: T0, now: T0 + 10 * MIN }))?.rule).toBe('silence')
+  })
+
   test('counts from the end of a declared wait that has passed', () => {
     const base = { lastActivityAt: T0, waitEndedAt: T0 + 30 * MIN }
     expect(silence(input({ ...base, now: T0 + 39 * MIN }))).toBeNull()

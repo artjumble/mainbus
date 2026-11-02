@@ -321,6 +321,20 @@ describe('unattended mode', () => {
     expect(await h.engine.invoke('allowRules.list')).toEqual([])
   })
 
+  it('denies a background command even in unattended mode, with no card and no notice', async () => {
+    const script: FakeStep[] = [
+      { emit: { kind: 'session', sessionId: 's' } },
+      { requestPermission: { toolName: 'Bash', input: { command: 'npm test', run_in_background: true }, toolUseId: 'tool-1' } },
+      ...handoff.slice(1)
+    ]
+    const h = await harness(runtimeFor({ 1: script }), ['ready'])
+    await h.engine.invoke('unattended.set', true)
+    await waitForColumn(h, 1, 'review')
+    expect((await h.engine.invoke('thread.get', h.tickets[0]!.id)).decisions).toEqual([])
+    const thread = await threadOf(h, 1)
+    expect(thread.some((e) => e.kind === 'notice' && e.text.startsWith('Allowed by unattended mode'))).toBe(false)
+  })
+
   it('allows an automatic guard reason without a card', async () => {
     const h = await harness(runtimeFor({ 1: permission('git reset --hard', handoff.slice(1)) }), ['ready'])
     await h.engine.invoke('unattended.set', true)

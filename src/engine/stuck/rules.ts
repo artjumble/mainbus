@@ -78,8 +78,27 @@ export function noProgress(i: RuleInput): StuckHit | null {
   }
 }
 
-/** No events at all for `silenceMs`. */
+const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
+const MAX_COMMAND_TIMEOUT_MS = 1_800_000
+
+/** True while a shell call is still waiting for its result and its timeout has not run out. */
+function commandRunning(i: RuleInput): boolean {
+  const open = new Map<string, number>()
+  for (const { at, event } of i.events) {
+    if (event.kind === 'tool_call' && (event.name === 'Bash' || event.name === 'PowerShell')) {
+      const given = (event.input as { timeout?: unknown } | null)?.timeout
+      const timeout = typeof given === 'number' && given > 0 ? Math.min(given, MAX_COMMAND_TIMEOUT_MS) : DEFAULT_COMMAND_TIMEOUT_MS
+      open.set(event.id, Date.parse(at) + timeout)
+    } else if (event.kind === 'tool_result') {
+      open.delete(event.id)
+    }
+  }
+  return [...open.values()].some((deadline) => i.now < deadline)
+}
+
+/** No events at all for `silenceMs`, unless a command is still running within its timeout. */
 export function silence(i: RuleInput): StuckHit | null {
+  if (commandRunning(i)) return null
   const since = Math.max(i.lastActivityAt, i.waitEndedAt ?? 0)
   if (i.now - since < STUCK.silenceMs) return null
   return { rule: 'silence', evidence: [`No events from the agent for ${minutes(i.now - since)} minutes`] }

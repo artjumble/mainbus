@@ -22,7 +22,7 @@ import type { WorktreeManager } from '../git/worktrees'
 import { endedNotice, type ProcessRef, type ProcessSweeper } from '../processes/sweep'
 import { credentialReason } from '../permissions/credentials'
 import { guardReason } from '../permissions/guard'
-import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
+import { BACKGROUND_DENIED, commandOf, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
 import { buildRolePrompt, data, firstMessage, oneLine, type EarlierHandoff } from '../roles/prompt'
@@ -1529,6 +1529,8 @@ export class TicketRunner {
     req: PermissionRequest
   ): Promise<PermissionVerdict> {
     if (!(await this.isOpen(target))) return { allow: false, message: RUN_ENDED }
+    // Before allow rules and unattended mode, so neither can let it through.
+    if (isBackgroundShell(req.toolName, req.input)) return { allow: false, message: BACKGROUND_DENIED }
     // The same folders as the run's, so the guard and allow rules treat the scratch folder as inside.
     const folders = { worktree: worktree.path, additionalDirectories: [worktree.scratch], scratch: worktree.scratch }
     const guard = guardReason(req.toolName, req.input, { ...folders, ownBranch: worktree.branch })

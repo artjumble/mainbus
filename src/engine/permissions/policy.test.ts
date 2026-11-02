@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { AllowRule } from '../../shared/domain'
-import { describeRequest, isAllowed, isDestructivePush, rulesFromRequest } from './policy'
+import { BACKGROUND_DENIED, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, rulesFromRequest } from './policy'
 
 const rule = (toolName: string, pattern: string | null): AllowRule => ({
   id: 'r1',
@@ -409,5 +409,19 @@ describe('commands agents really run', () => {
     expect(patterns('cd C:\\Users\\u\\other && npm test')).toEqual(['cd C:\\Users\\u\\other *', 'npm test *'])
     // Without the ticket's folders (a guarded request), a cd is never transparent.
     expect(isAllowed(rules, bash(`cd "${wt}" && npm test`))).toBe(false)
+  })
+})
+
+describe('isBackgroundShell', () => {
+  test('is true only for a Bash or PowerShell call with run_in_background: true', () => {
+    expect(isBackgroundShell('Bash', { command: 'npm test', run_in_background: true })).toBe(true)
+    expect(isBackgroundShell('PowerShell', { command: 'npm test', run_in_background: true })).toBe(true)
+    expect(isBackgroundShell('Bash', { command: 'npm test' })).toBe(false)
+    expect(isBackgroundShell('Bash', { command: 'npm test', run_in_background: false })).toBe(false)
+    expect(isBackgroundShell('Read', { run_in_background: true })).toBe(false)
+  })
+
+  test('its message tells the agent to use the foreground', () => {
+    expect(BACKGROUND_DENIED).toMatch(/^Run this in the foreground instead/)
   })
 })

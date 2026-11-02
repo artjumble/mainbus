@@ -11,6 +11,7 @@ export const DISALLOWED_TOOLS: string[] = [
   'ScheduleWakeup',
   'ListAgents',
   'TaskStop',
+  'Monitor',
 ]
 
 export const TRUST_STATEMENT = `## Who to trust
