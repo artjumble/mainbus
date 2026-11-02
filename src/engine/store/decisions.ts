@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, isNotNull, sql } from 'drizzle-orm'
 import { ANSWERED_VIA_LABELS, type AnsweredVia, type Decision, type DecisionAnswer } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { decisions } from '../db/schema'
+import { decisions, tickets } from '../db/schema'
 
 /**
  * What Mainbus itself does with the answer to a question it asked on a role's behalf. Role ids are those of the
@@ -27,6 +27,8 @@ export interface DecisionRepo {
   /** Every decision of the ticket, whatever its status, in the order they were opened. */
   forTicket(ticketId: string): Promise<Decision[]>
   get(id: string): Promise<Decision>
+  /** The workspace's decisions answered at or after `since` (every answered one when null), oldest answer first, with their ticket's number and title. */
+  answeredSince(workspaceId: string, since: string | null): Promise<{ number: number; title: string; decision: Decision }[]>
 }
 
 function toDecision(row: typeof decisions.$inferSelect): Decision {
@@ -128,6 +130,24 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
     async forTicket(ticketId) {
       const rows = await db.select().from(decisions).where(eq(decisions.ticketId, ticketId)).orderBy(asc(sql`rowid`))
       return rows.map(toDecision)
+    },
+
+    async answeredSince(workspaceId, since) {
+      const rows = await db
+        .select({ decision: decisions, number: tickets.number, title: tickets.title })
+        .from(decisions)
+        .innerJoin(tickets, eq(decisions.ticketId, tickets.id))
+        .where(
+          and(
+            eq(tickets.workspaceId, workspaceId),
+            eq(decisions.status, 'answered'),
+            isNotNull(decisions.answeredAt),
+            // At or after: one answered in the same millisecond is told twice rather than never.
+            since === null ? undefined : gte(decisions.answeredAt, since)
+          )
+        )
+        .orderBy(asc(decisions.answeredAt), asc(sql`${decisions}.rowid`))
+      return rows.map((r) => ({ number: r.number, title: r.title, decision: toDecision(r.decision) }))
     },
 
     get

@@ -167,4 +167,22 @@ describe('decision repo', () => {
   it('throws for an unknown decision', async () => {
     await expect(createDecisionRepo(db, now).get('missing')).rejects.toThrow(/decision/i)
   })
+
+  it('lists the decisions answered since a time, with their ticket', async () => {
+    const repo = createDecisionRepo(db, now)
+    const a = await repo.open({ ...question(), options: ['SQLite', 'Postgres'] })
+    const b = await repo.open({ ...question(), options: ['SQLite', 'Postgres'] })
+    await repo.open({ ...question(), options: ['SQLite', 'Postgres'] })
+    const ws = (await createWorkspaceRepo(db, now).get())!
+    await repo.answer(a.id, { kind: 'option', index: 0 }, 'board')
+    clock = new Date(FIXED_NOW.getTime() + 1000)
+    await repo.answer(b.id, { kind: 'option', index: 1 }, 'orchestrator')
+    const all = await repo.answeredSince(ws.id, null)
+    expect(all.map((x) => [x.number, x.title, x.decision.answeredVia])).toEqual([
+      [1, 'T', 'board'],
+      [1, 'T', 'orchestrator']
+    ])
+    expect((await repo.answeredSince(ws.id, clock.toISOString())).map((x) => x.decision.id)).toEqual([b.id])
+    expect(await repo.answeredSince('other', null)).toEqual([])
+  })
 })

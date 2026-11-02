@@ -284,7 +284,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       workspace: () => repos.workspaces.get(),
       workspaceRequired: WORKSPACE_REQUIRED,
       readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView }),
-      proposals
+      proposals,
+      answeredSince: (workspaceId, since) => repos.decisions.answeredSince(workspaceId, since)
     })
 
     const handlers: Handlers = {

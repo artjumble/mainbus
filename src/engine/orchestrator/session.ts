@@ -5,6 +5,7 @@ import type { Proposal } from '../../shared/proposals'
 import type { Ticket, Workspace } from '../../shared/domain'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
+import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
@@ -47,6 +48,8 @@ export interface OrchestratorDeps {
   workspaceRequired: string
   readTools: OrchestratorReadToolHandlers
   proposals: ProposalService
+  /** The decisions the user answered since `since` in the open workspace, for the start of a message. */
+  answeredSince: (workspaceId: string, since: string | null) => Promise<AnsweredDecision[]>
 }
 
 interface Live {
@@ -132,7 +135,12 @@ export class OrchestratorSession {
     const ws = await this.deps.workspace()
     if (!ws) throw new Error(this.deps.workspaceRequired)
     // The proposals decided since the user's last message open this one; read before it is recorded.
-    const outcomes = await this.deps.proposals.outcomeBlock(await this.deps.repo.lastUserMessageAt())
+    const since = await this.deps.repo.lastUserMessageAt()
+    const blocks = [
+      await this.deps.proposals.outcomeBlock(since),
+      answeredBlock(await this.deps.answeredSince(ws.id, since))
+    ].filter((b) => b !== null)
+    const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
     const prompt = withHeader(ws, this.deps.now(), text)
 

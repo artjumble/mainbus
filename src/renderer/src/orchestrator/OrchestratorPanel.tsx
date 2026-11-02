@@ -7,6 +7,7 @@ import { useMainbus } from '../store'
 import { Composer } from '../thread/Composer'
 import { Thread } from '../thread/Thread'
 import { useOrchestratorThread } from './useOrchestratorThread'
+import { WaitingOnYou } from './WaitingOnYou'
 
 /** The aside's width open, and collapsed to its strip. */
 export const PANEL_WIDTH = 380
@@ -14,7 +15,7 @@ export const STRIP_WIDTH = 44
 
 export const EMPTY_TEXT = "Ask me to draft tickets, or about what's happening on the board."
 
-/** The orchestrator's thread has no decision cards. */
+/** The orchestrator's thread has no decision cards of its own: the pending ones are pinned above it. */
 const NO_DECISIONS: Decision[] = []
 
 interface Props {
@@ -87,6 +88,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           <span aria-hidden>»</span>
         </ActionIcon>
       </Group>
+      <WaitingOnYou />
       {thread === null ? (
         <Center flex={1}>
           <Loader size="sm" />
