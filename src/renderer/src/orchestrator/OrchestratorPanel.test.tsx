@@ -1,11 +1,12 @@
-import { act, screen } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactElement } from 'react'
 import type { EngineEvent } from '../../../shared/api'
+import type { Decision } from '../../../shared/domain'
 import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
-import { useMainbus } from '../store'
+import { useMainbus, type BoardTicket } from '../store'
 import { makeTicket, renderWithMantine } from '../test-utils'
 import { EMPTY_TEXT, OrchestratorPanel } from './OrchestratorPanel'
 import { readPanelOpen, writePanelOpen } from './panelState'
@@ -225,4 +226,74 @@ test('a revealed proposal is scrolled into view once, as its card arrives', asyn
   expect(scrollIntoView).toHaveBeenCalledTimes(1)
   act(() => useMainbus.getState().revealProposal('p1'))
   await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2))
+})
+
+describe('Waiting on you', () => {
+  const decision = (id: string, createdAt: string, over: Partial<Decision> = {}): Decision => ({
+    id,
+    ticketId: 't',
+    agentRunId: 'r',
+    kind: 'question',
+    question: `Question ${id}?`,
+    options: ['Yes', 'No'],
+    recommended: null,
+    allowAlways: true,
+    status: 'pending',
+    answer: null,
+    createdAt,
+    answeredAt: null,
+    answeredBy: null,
+    answeredVia: null,
+    ...over
+  })
+
+  function board(): { a: BoardTicket; b: BoardTicket } {
+    const a = makeTicket(
+      { title: 'Login', pendingDecisions: [decision('late', '2026-11-01T12:00:00.000Z')] },
+      { column: 'needs_you' }
+    )
+    const b = makeTicket(
+      {
+        title: 'Logout',
+        pendingDecisions: [decision('early', '2026-11-01T11:00:00.000Z', { kind: 'permission', options: [] })],
+        lineup: [{ id: 'r1', name: 'Reviewer', status: 'working', active: true }]
+      },
+      { column: 'needs_you' }
+    )
+    useMainbus.setState({ tickets: [a, b] })
+    return { a, b }
+  }
+
+  test('lists every pending decision oldest first, each linking to its ticket', async () => {
+    history()
+    const { a, b } = board()
+    renderWithMantine(<Panel />)
+    const group = await screen.findByRole('region', { name: 'Waiting on you' })
+    const cards = within(group).getAllByText(/^Question /)
+    expect(cards.map((c) => c.textContent)).toEqual(['Question early?', 'Question late?'])
+    expect(within(group).getByText(/Reviewer/)).toBeInTheDocument()
+    await userEvent.click(within(group).getByRole('button', { name: `#${a.number} Login` }))
+    expect(useMainbus.getState().currentTicketId).toBe(a.id)
+    expect(within(group).getByRole('button', { name: `#${b.number} Logout` })).toBeInTheDocument()
+  })
+
+  test('answers one via the orchestrator, and drops one answered elsewhere; hides when empty', async () => {
+    history()
+    const { a, b } = board()
+    renderWithMantine(<Panel />)
+    const group = await screen.findByRole('region', { name: 'Waiting on you' })
+
+    await userEvent.click(within(group).getByRole('radio', { name: 'No' }))
+    await userEvent.click(within(group).getByRole('button', { name: 'Answer' }))
+    expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'late', { kind: 'option', index: 1 }, 'orchestrator')
+
+    // The engine's board now has it answered; the permission one was answered on the board.
+    act(() => useMainbus.setState({ tickets: [{ ...a, pendingDecisions: [] }, b] }))
+    expect(within(group).queryByText('Question late?')).not.toBeInTheDocument()
+    await userEvent.click(within(group).getByRole('button', { name: 'Deny' }))
+    expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'early', { kind: 'permission', choice: 'deny' }, 'orchestrator')
+
+    act(() => useMainbus.setState({ tickets: [{ ...a, pendingDecisions: [] }, { ...b, pendingDecisions: [] }] }))
+    expect(screen.queryByRole('region', { name: 'Waiting on you' })).not.toBeInTheDocument()
+  })
 })

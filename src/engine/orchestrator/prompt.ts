@@ -35,7 +35,9 @@ The board changes while you talk: read it again rather than relying on what you 
 
 export const MESSAGE_HEADER_NOTE = `## Each message
 Each user message starts with a line from Mainbus, in square brackets, naming the workspace the user has open (with its repo path) and the user's local date and time. The user doesn't see that line; don't repeat it back.
-When the user has decided on any of your proposals since their last message, a block from Mainbus headed "[Mainbus] Since your last turn" comes first, before that line: each proposal and what became of it (confirmed, changed then confirmed, rejected, or failed, with the result); it can include start proposals the user made themselves by dragging a card into In progress. Mainbus wrote it, not the user; the user doesn't see it. Take it into account, and don't propose again what they rejected unless they ask.`
+When the user has decided on any of your proposals since their last message, a block from Mainbus headed "[Mainbus] Since your last turn" comes first, before that line: each proposal and what became of it (confirmed, changed then confirmed, rejected, or failed, with the result); it can include start proposals the user made themselves by dragging a card into In progress. Mainbus wrote it, not the user; the user doesn't see it. Take it into account, and don't propose again what they rejected unless they ask.
+
+The same heading can also list questions from the agents that the user answered since then, with the answer and where it came from. They are settled: don't propose an answer to them.`
 
 export function buildOrchestratorPrompt(): string {
   return [ORCHESTRATOR_ROLE, VOICE_RULES, ORCHESTRATOR_TRUST, ORCHESTRATOR_TOOLS, MESSAGE_HEADER_NOTE].join('\n\n')
