@@ -271,6 +271,18 @@ describe('a move shows at once', () => {
 })
 
 describe('moving a card without dragging', () => {
+  test('a Backlog card menu offers Move to In progress…, which proposes a start', async () => {
+    const ticket = makeTicket({ title: 'Menu me' }, { column: 'backlog' })
+    showBoard(ticket)
+    mockInvoke.mockResolvedValue({ id: 'p1' })
+    renderWithMantine(<Board />)
+    screen.getByRole('button', { name: /Menu me/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to In progress…' }))
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.proposeStart', ticket.id))
+    expect(mockInvoke).not.toHaveBeenCalledWith('ticket.move', expect.anything(), expect.anything())
+  })
+
   test('Shift+F10 on a focused card opens a menu, and Done moves the ticket', async () => {
     const ticket = makeTicket({ title: 'Menu me' }, { column: 'review', phase: 'ready_for_review' })
     showBoard(ticket)

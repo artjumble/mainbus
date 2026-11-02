@@ -255,7 +255,7 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, onOpen
         ))}
         {(ticket.state.column === 'backlog' || ticket.state.column === 'ready') && (
           <Menu.Item disabled={moving} onClick={() => onPropose(ticket)}>
-            Move to In progressâ€¦
+            Move to In progress…
           </Menu.Item>
         )}
       </Menu.Dropdown>

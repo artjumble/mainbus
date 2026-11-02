@@ -82,7 +82,8 @@ function make(control: Control): ProposalKind<RoleControlPayload, RoleControlRes
         throw new Error(`The ${p.role} on #${p.number} is no longer ${active.agentStatus === 'working' ? 'eligible' : active.agentStatus} (${why}). ${nothing}`)
       }
       await spec.act(ctx, p.ticketId, { agentRunId: p.agentRunId })
-      return { ticketId: p.ticketId, number: p.number, title: p.title, role: p.role, next: p.next }
+      // The next role as it is now, which is the one that starts.
+      return { ticketId: p.ticketId, number: p.number, title: p.title, role: p.role, next: control === 'skip' ? active.next : null }
     },
 
     outcome: spec.outcome
