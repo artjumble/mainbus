@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { Decision, LineupRole, Ticket } from '../../shared/domain'
+import { defaultLineup } from '../store/lineups'
 import { DISALLOWED_TOOLS, TRUST_STATEMENT } from './hardening'
 import {
   AGENT_FILED_SUFFIX,
@@ -135,6 +136,17 @@ describe('buildRolePrompt', () => {
     expect(prompt).toContain('Implement the ticket with small, tested commits.')
     expect(prompt).toContain(ROLE_PROTOCOL)
     expect(prompt).toContain(TRUST_STATEMENT)
+  })
+
+  test('a new run carries the default Implementer and Reviewer instructions', () => {
+    const [, implementer, reviewer] = defaultLineup()
+    for (const d of [implementer!, reviewer!]) {
+      const prompt = buildRolePrompt({ ...role, name: d.name, instructions: d.instructions }, ticket, [])
+      expect(prompt).toContain(`## Your role: ${d.name}
+${d.instructions}`)
+    }
+    expect(implementer!.instructions).toContain('run only the tests that cover the code you changed')
+    expect(reviewer!.instructions).toContain('run the full test suite')
   })
 })
 

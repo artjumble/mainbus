@@ -466,6 +466,47 @@ describe('openDb', () => {
     expect(await db.select({ n: count() }).from(criteria)).toEqual([{ n: 0 }])
   })
 
+  it('updates default Implementer and Reviewer instructions, and leaves edited ones alone', async () => {
+    const OLD_IMPLEMENTER =
+      'Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). Run the tests. Commit your work on the branch before handing off.'
+    const OLD_REVIEWER =
+      "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the tests, and check each criterion. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+    const first = await open(firstMigrations(11))
+    for (const id of ['w1', 'w2']) {
+      await first.db.run(
+        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+            values (${id}, 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    const rows = [
+      ['w1', 'planner', 1, 'Planner', 'Plan it.'],
+      ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER],
+      ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER],
+      ['w2', 'planner', 1, 'Planner', 'Plan it.'],
+      ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER + ' My own addition.'],
+      ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER]
+    ] as const
+    for (const [w, id, position, name, instructions] of rows) {
+      await first.db.run(
+        sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
+            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'testing', 'ask_me', 'edit')`
+      )
+    }
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    const [, newImplementer, newReviewer] = defaultLineup()
+    const byId = async (id: string) =>
+      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
+    expect(await byId('w1planner')).toBe('Plan it.')
+    expect(await byId('w1implementer')).toBe(newImplementer!.instructions)
+    expect(await byId('w1reviewer')).toBe(newReviewer!.instructions)
+    expect(await byId('w2planner')).toBe('Plan it.')
+    expect(await byId('w2implementer')).toBe(OLD_IMPLEMENTER + ' My own addition.')
+    expect(await byId('w2reviewer')).toBe(newReviewer!.instructions)
+  })
+
   it('enforces foreign keys', async () => {
     const { db } = await open()
     await expect(
