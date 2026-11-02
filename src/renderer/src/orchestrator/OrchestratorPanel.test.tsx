@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState, type ReactElement } from 'react'
 import type { EngineEvent } from '../../../shared/api'
 import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shared/events'
+import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
 import { makeTicket, renderWithMantine } from '../test-utils'
@@ -18,13 +19,34 @@ let emit: (e: EngineEvent) => void
 let seq = 0
 const ev = (event: ThreadEvent): StoredEvent => ({ runId: 'o1', seq: ++seq, at: '2026-11-01T10:00:00.000Z', event })
 
-function history(events: StoredEvent[] = [], status: OrchestratorThread['status'] = 'idle'): void {
+function history(events: StoredEvent[] = [], status: OrchestratorThread['status'] = 'idle', proposals: Proposal[] = []): void {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'orchestrator.get') {
-      return { status, runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }], events } satisfies OrchestratorThread
+      return {
+        status,
+        runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }],
+        events,
+        proposals
+      } satisfies OrchestratorThread
     }
     return undefined
   })
+}
+
+function proposal(over: Partial<Proposal> = {}): Proposal {
+  return {
+    id: 'p1',
+    workspaceId: 'ws',
+    orchestratorRunId: 'o1',
+    kind: 'create_tickets',
+    payload: { intent: 'Add login', tickets: [{ title: 'Login', spec: 'A form', criteria: [], labels: [] }], column: 'backlog' },
+    evidence: null,
+    status: 'pending',
+    result: null,
+    createdAt: '2026-11-01T10:00:00.000Z',
+    decidedAt: null,
+    ...over
+  }
 }
 
 /** The panel as App holds it: open or collapsed, remembered. */
@@ -122,8 +144,35 @@ test('a status that arrives while the history loads is applied after it', async 
   )
   renderWithMantine(<Panel />)
   act(() => emit({ type: 'orchestrator.status', status: 'working' }))
-  await act(async () => answer({ status: 'idle', runs: [], events: [] }))
+  await act(async () => answer({ status: 'idle', runs: [], events: [], proposals: [] }))
   expect(screen.getByText('Working…')).toBeInTheDocument()
+})
+
+test('a proposal shows as its card where it was proposed, and follows its changes', async () => {
+  history([ev({ kind: 'user_message', text: 'Add login' }), ev({ kind: 'proposal', proposalId: 'p1' })], 'idle', [proposal()])
+  renderWithMantine(<Panel />)
+  const card = await screen.findByRole('group', { name: 'Proposal: Create 1 ticket in Backlog' })
+  expect(card).toHaveTextContent('Login')
+
+  act(() =>
+    emit({
+      type: 'proposal.changed',
+      proposal: proposal({ status: 'confirmed', result: { tickets: [{ id: 't1', number: 4, title: 'Login' }], column: 'backlog' } })
+    })
+  )
+  expect(screen.queryByRole('group', { name: /^Proposal:/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '#4' })).toBeInTheDocument()
+})
+
+test('a proposal event that arrives before its proposal shows a loader until it does', async () => {
+  history([ev({ kind: 'user_message', text: 'Add login' })])
+  renderWithMantine(<Panel />)
+  await screen.findByText('Add login')
+  act(() => emit({ type: 'orchestrator.appended', event: ev({ kind: 'proposal', proposalId: 'p1' }) }))
+  expect(screen.getByLabelText('Loading the proposal')).toBeInTheDocument()
+  act(() => emit({ type: 'proposal.changed', proposal: proposal() }))
+  expect(screen.queryByLabelText('Loading the proposal')).not.toBeInTheDocument()
+  expect(screen.getByRole('group', { name: 'Proposal: Create 1 ticket in Backlog' })).toBeInTheDocument()
 })
 
 test('the thread shows messages as markdown, a thinking stub, summarised tools, notices and errors', async () => {

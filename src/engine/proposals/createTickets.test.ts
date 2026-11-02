@@ -12,8 +12,7 @@ const ws: Workspace = {
   repoPath: '/repo',
   baseBranch: 'main',
   slug: 'repo',
-  openPrOnReview: false,
-  createdAt: '2026-10-30T12:00:00.000Z'
+  openPrOnReview: false
 }
 
 function propose(input: unknown): CreateTicketsPayload {

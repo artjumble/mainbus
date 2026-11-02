@@ -18,6 +18,13 @@ test('a mix is summarised in the order first seen, capitalising only the first p
   )
 })
 
+test('the propose tools count the proposals made', () => {
+  expect(summariseTools(calls('mcp__mainbus__propose_create_tickets'))).toBe('Made 1 proposal')
+  expect(summariseTools(calls('Read', 'mcp__mainbus__propose_create_tickets', 'propose_create_tickets'))).toBe(
+    'Read 1 file, made 2 proposals'
+  )
+})
+
 test('other tools are counted', () => {
   expect(summariseTools(calls('WebFetch'))).toBe('Used 1 tool')
   expect(summariseTools(calls('Read', 'WebFetch', 'Bash'))).toBe('Read 1 file, used 2 tools')

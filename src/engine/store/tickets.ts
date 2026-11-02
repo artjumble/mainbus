@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import type { BatchItem } from 'drizzle-orm/batch'
 import type { Criterion, IntentEntry, NewTicketInput, PullRequest, Ticket, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
 
 export interface TicketRepo {
   create(input: NewTicketInput): Promise<Ticket>
-  /** Creates the tickets in order, in one transaction: all of them, or none if one insert fails. */
+  /** Creates the tickets in order, in one batch: all of them, or none if one insert fails. */
   createMany(inputs: NewTicketInput[]): Promise<Ticket[]>
   get(id: string): Promise<Ticket>
   /** The ticket with this number in the workspace, or null. */
@@ -75,12 +76,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       .where(eq(tickets.id, id))
   }
 
-  /** Inserts one ticket and its criteria through `q` (the database, or a transaction); returns its id. */
-  async function insert(q: Pick<Db, 'insert'>, input: NewTicketInput): Promise<string> {
-    const id = randomUUID()
+  /** The inserts of one ticket and its criteria, to run in a batch. */
+  function inserts(id: string, input: NewTicketInput): BatchItem<'sqlite'>[] {
     const at = now().toISOString()
     const intent: IntentEntry[] = [input.source ? { text: input.intent, at, source: input.source } : { text: input.intent, at }]
-    await q.insert(tickets).values({
+    const ticket = db.insert(tickets).values({
       id,
       workspaceId: input.workspaceId,
       // One statement, so the number is allocated atomically with the insert.
@@ -94,26 +94,25 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       createdAt: at,
       updatedAt: at
     })
-    if (input.criteria.length > 0) {
-      await q
-        .insert(criteria)
-        .values(input.criteria.map((text, position) => ({ ticketId: id, position, text, checked: false })))
-    }
-    return id
+    if (input.criteria.length === 0) return [ticket]
+    return [ticket, db.insert(criteria).values(input.criteria.map((text, position) => ({ ticketId: id, position, text, checked: false })))]
+  }
+
+  async function createMany(inputs: NewTicketInput[]): Promise<Ticket[]> {
+    if (inputs.length === 0) return []
+    const ids = inputs.map(() => randomUUID())
+    const [first, ...rest] = inputs.flatMap((input, i) => inserts(ids[i]!, input))
+    // One batch: every insert or none, with nothing else run in between.
+    await db.batch([first!, ...rest])
+    return Promise.all(ids.map(get))
   }
 
   return {
     async create(input) {
-      return get(await insert(db, input))
+      return (await createMany([input]))[0]!
     },
 
-    async createMany(inputs) {
-      const ids: string[] = []
-      await db.transaction(async (tx) => {
-        for (const input of inputs) ids.push(await insert(tx, input))
-      })
-      return Promise.all(ids.map(get))
-    },
+    createMany,
 
     get,
 

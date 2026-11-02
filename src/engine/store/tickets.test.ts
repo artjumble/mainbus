@@ -81,6 +81,28 @@ describe('ticket repo', () => {
     expect(await repo.get(made[1]!.id)).toEqual(made[1])
   })
 
+  it('createMany at the same time as other creates: each gets its own numbers, and nothing fails', async () => {
+    const repo = createTicketRepo(db, now)
+    const made = await Promise.all([
+      repo.createMany([input({ title: 'a1' }), input({ title: 'a2' })]),
+      repo.create(input({ title: 'b' })),
+      repo.createMany([input({ title: 'c1' }), input({ title: 'c2' })])
+    ])
+    const numbers = made.flat().map((t) => t.number)
+    expect(numbers.toSorted((x, y) => x - y)).toEqual([1, 2, 3, 4, 5])
+    // Each batch's tickets are numbered one after the other.
+    expect(made[0]!.map((t) => t.number)).toEqual([made[0]![0]!.number, made[0]![0]!.number + 1])
+    expect(made[2]!.map((t) => t.number)).toEqual([made[2]![0]!.number, made[2]![0]!.number + 1])
+  })
+
+  it('a batch inside an open transaction still works', async () => {
+    const repo = createTicketRepo(db, now)
+    await db.transaction(async () => {
+      await repo.createMany([input({ title: 'inside' })])
+    })
+    expect((await repo.list(workspaceId)).map((t) => t.title)).toEqual(['inside'])
+  })
+
   it('createMany creates none when one insert fails', async () => {
     const repo = createTicketRepo(db, now)
     // The second ticket's workspace doesn't exist: its insert breaks the foreign key, after the first went in.
