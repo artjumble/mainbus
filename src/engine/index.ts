@@ -11,6 +11,8 @@ import {
 import type { DraftColumn } from '../shared/proposals'
 import type { AgentLauncher, LineupRole, NewTicketInput, Ticket, Workspace } from '../shared/domain'
 import { openDb } from './db/open'
+import { realClock, type Clock } from './holds/clock'
+import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
 import { PullRequestPublisher } from './git/pullRequests'
@@ -19,6 +21,7 @@ import { WorktreeManager } from './git/worktrees'
 import type { HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
+import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import { OrchestratorSession } from './orchestrator/session'
 import { createProposalService } from './proposals/service'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
@@ -50,6 +53,8 @@ export interface EngineConfig {
   intakeError?: () => string | null
   /** Held while unattended mode is on and a ticket is working or a usage limit is waited out; the app passes Electron's powerSaveBlocker. */
   keepAwake?: KeepAwake
+  /** The time and the one timer that releases holds on their date; tests (and the end-to-end tests) pass a fake. */
+  clock?: Clock
 }
 
 export interface Engine {
@@ -84,7 +89,8 @@ function samePath(a: string, b: string): boolean {
 }
 
 export async function createEngine(cfg: EngineConfig): Promise<Engine> {
-  const now = () => new Date()
+  const clock = cfg.clock ?? realClock
+  const now = () => clock.now()
   const handle = await openDb(cfg.paths, cfg.migrationsDir)
   try {
     const repos = createRepos(handle.db, now)
@@ -102,6 +108,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
     }
 
+    const holds = new HoldService({ holds: repos.holds, tickets: repos.tickets, clock, emit })
+
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
     const runner = new TicketRunner({
@@ -115,6 +123,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     })
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()
+    // Holds that came due while Mainbus was closed are released before anything can start a ticket.
+    await holds.start()
 
     const requireWorkspace = async (): Promise<Workspace> => {
       const ws = await repos.workspaces.get()
@@ -137,6 +147,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         await requireWorkspace()
       },
       emit,
+      held: () => holds.heldIds(),
       keepAwake: cfg.keepAwake ?? { start: () => {}, stop: () => {} },
       now
     })
@@ -231,6 +242,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         lineup: (workspaceId) => repos.lineups.get(workspaceId),
         ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
         async whyNotStartable(ticket) {
+          const held = await holds.active(ticket.id)
+          if (held) {
+            const until = held.until === null ? '' : ` until ${held.until.slice(0, 10)}`
+            return `#${ticket.number} is on hold${until}; the user has to release the hold first`
+          }
           // Checked before the column: a running ticket is In progress or Needs you, and is said to be running.
           const latest = await repos.runs.latest(ticket.id)
           if ((latest && latest.endReason === null) || runner.isLaunching(ticket.id)) {
@@ -249,7 +265,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         },
         pauseTicket,
         stopTicket,
-        skipTicket
+        skipTicket,
+        now,
+        holdTicket: (ticketId, opts) => holds.hold(ticketId, opts)
       }
     })
 
@@ -268,10 +286,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     const boardView = async (ws: Workspace): Promise<BoardTicket[]> => {
       const tickets = await repos.tickets.list(ws.id)
+      const holdOf = new Map((await repos.holds.activeOf('ticket')).map((h) => [h.targetId, h]))
       // Read once, for every ticket that hasn't run yet.
       let lineup: Promise<LineupRole[]> | undefined
       const workspaceLineup = () => (lineup ??= repos.lineups.get(ws.id))
-      return Promise.all(tickets.map(async (t) => ({ ...t, ...(await runner.boardView(t.id, workspaceLineup)) })))
+      return Promise.all(tickets.map(async (t) => ({ ...t, ...(await runner.boardView(t.id, workspaceLineup)), hold: holdOf.get(t.id) ?? null })))
     }
 
     // Its events never reach unattended mode as board changes: the orchestrator is not a ticket.
@@ -285,7 +304,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       workspaceRequired: WORKSPACE_REQUIRED,
       readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView }),
       proposals,
-      answeredSince: (workspaceId, since) => repos.decisions.answeredSince(workspaceId, since)
+      answeredSince: (workspaceId, since) => repos.decisions.answeredSince(workspaceId, since),
+      releasedSince: async (workspaceId, since) => {
+        const released: ReleasedHold[] = []
+        for (const h of await repos.holds.releasedSince('ticket', since)) {
+          const ticket = await repos.tickets.get(h.targetId).catch(() => null)
+          if (ticket?.workspaceId === workspaceId && h.releasedAt !== null) {
+            released.push({ number: ticket.number, title: ticket.title, until: h.until, releasedAt: h.releasedAt })
+          }
+        }
+        return released
+      }
     })
 
     const handlers: Handlers = {
@@ -326,10 +355,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       'ticket.move': async (id, column) => {
         mode.userMoved(id, column)
-        if (column === 'done') return (await runner.moveToDone(id)) === 'done' ? 'moved' : 'dirty'
+        if (column === 'done') {
+          const moved = (await runner.moveToDone(id)) === 'done'
+          // A Done ticket has nothing left to hold back.
+          if (moved) await holds.unhold(id)
+          return moved ? 'moved' : 'dirty'
+        }
         await runner.moveToColumn(id, column)
         return 'moved'
       },
+      'ticket.hold': (id, opts) => holds.hold(id, opts),
+      'ticket.unhold': (id) => holds.unhold(id),
       'ticket.openPr': (id) => runner.openPr(id),
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.
@@ -343,9 +379,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         }
       },
 
-      'agent.start': (ticketId, opts) => {
+      // The user starting a held ticket by hand releases its hold (once the start has gone through).
+      'agent.start': async (ticketId, opts) => {
         requireRuntime()
-        return runner.start(ticketId, opts)
+        await runner.start(ticketId, opts)
+        await holds.unhold(ticketId)
       },
       'agent.send': (ticketId, text) => {
         requireRuntime()
@@ -440,6 +478,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           try {
             // First, so the queue starts nothing while the agents are stopped.
             mode.dispose()
+            holds.dispose()
             await Promise.all([runner.shutdown(), orchestrator.shutdown()])
           } finally {
             listeners.clear()

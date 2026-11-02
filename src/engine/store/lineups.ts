@@ -24,7 +24,7 @@ export interface LineupRepo {
 const CHANGE: Lineup = 'change'
 
 // The ids here only link the defaults to each other; saving gives every role a fresh one.
-// Migrations 0002 and 0011 have their own copies of these texts, as they were when each was written.
+// Migrations 0002 and 0012 have their own copies of these texts, as they were when each was written.
 /** The lineup every new workspace starts with: Planner → Implementer → Reviewer. */
 export function defaultLineup(): LineupRoleInput[] {
   return [

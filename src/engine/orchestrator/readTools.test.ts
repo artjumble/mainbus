@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
-import type { StripRole, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Hold, StripRole, Ticket, TicketState, Workspace } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
@@ -12,6 +12,8 @@ let repos: Repos
 let ws: Workspace
 /** The board each ticket shows: its state and lineup strip, by ticket id. Unlisted tickets are in Backlog. */
 let views: Map<string, { state: Partial<TicketState>; lineup: StripRole[] }>
+/** The holds on tickets, by ticket id. */
+let holds: Map<string, Hold>
 let tools: OrchestratorReadToolHandlers
 
 const planner = testRole({ id: 'p', name: 'Planner', position: 1, activePhase: 'planning', model: 'opus', effort: 'high' })
@@ -28,7 +30,7 @@ const STATE: TicketState = {
 
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
-  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [] }
+  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], hold: holds.get(t.id) ?? null }
 }
 
 beforeEach(async () => {
@@ -37,6 +39,7 @@ beforeEach(async () => {
   repos = createRepos(testDb.db, () => FIXED_NOW)
   ws = await repos.workspaces.create('C:\\code\\shop', 'main', 'shop', 'shop')
   views = new Map()
+  holds = new Map()
   let open: Workspace | null = ws
   tools = createReadTools({
     repos,
@@ -111,6 +114,20 @@ describe('list_tickets', () => {
       '- #2 <ticket-data field="title">Add a </ticket-data-literal> footer</ticket-data> · Backlog · phase: not started · active role: none · labels: none · filed by an agent'
     )
     expect(out.split('\n')[1]).not.toContain('filed by an agent')
+  })
+
+  test('marks a held ticket in the list and in get_ticket, with its date', async () => {
+    const held = await ticket({ title: 'Wait for the API' })
+    const free = await ticket({ title: 'Go now' })
+    const base = { id: 'h', targetKind: 'ticket', createdBy: 'user', createdAt: 'x', releasedAt: null, reason: null } as const
+    holds.set(held.id, { ...base, targetId: held.id, until: '2026-11-04T00:00:00.000Z' })
+    const list = (await tools.listTickets({})).split('\n')
+    expect(list[1]).toContain("· held by the user until 2026-11-04 (don't propose starting it)")
+    expect(list[2]).not.toContain('held')
+    expect(await tools.getTicket({ number: held.number })).toContain('held by the user until 2026-11-04')
+    holds.set(held.id, { ...base, targetId: held.id, until: null })
+    expect(await tools.listTickets({})).toContain('held by the user until the user releases it')
+    expect(await tools.getTicket({ number: free.number })).not.toContain('held')
   })
 
   test('filters by column and rejects an unknown one', async () => {

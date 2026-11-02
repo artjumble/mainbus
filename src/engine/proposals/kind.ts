@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { DraftColumn } from '../../shared/proposals'
-import type { LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -28,6 +28,10 @@ export interface ExecContext {
   whyNotStartable(ticket: Ticket): Promise<string | null>
   /** The same path as the ticket view's Start. */
   startTicket(ticketId: string, opts: StartOptions): Promise<void>
+  /** The engine's clock, which a hold's date is checked against. */
+  now(): Date
+  /** The same path as the ticket view's Hold…: a held ticket takes the new date and reason. */
+  holdTicket(ticketId: string, opts: HoldOptions): Promise<Hold>
   /** The ticket's open run's active role, or null with no run or an ended one. */
   activeRole(ticket: Ticket): Promise<ActiveRole | null>
   /** The same paths as the ticket view's Pause, Stop and Skip; they fail, changing nothing, if the run has moved on. */
@@ -76,10 +80,10 @@ export interface ProposalKind<P, R> {
    */
   propose(input: unknown, turn: Turn, ctx: ExecContext): P | Promise<P>
   /**
-   * Validates the user's override the same way; the engine's fields come from `stored`. Throws ProposalInvalid.
+   * Validates the user's override the same way (`now` is the engine's time, for a kind that checks dates); the engine's fields come from `stored`. Throws ProposalInvalid.
    * Absent for a kind with nothing to change.
    */
-  override?(stored: P, input: unknown): P
+  override?(stored: P, input: unknown, now?: Date): P
   /** Carries it out; a throw makes the proposal failed, with the error as its result. */
   execute(p: P, target: { workspaceId: string; proposalId: string }, ctx: ExecContext): Promise<R>
   /** Plain text for the orchestrator, such as `Created #21 "Title" in Backlog.` */

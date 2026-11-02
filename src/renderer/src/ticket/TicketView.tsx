@@ -2,6 +2,7 @@ import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, T
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
+import { HoldChip } from '../board/HoldChip'
 import { PausedChip, PhaseChip, PrLink } from '../board/TicketCard'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
@@ -11,6 +12,7 @@ import { Thread } from '../thread/Thread'
 import { useThread } from '../thread/useThread'
 import { AdjustStartModal } from './AdjustStartModal'
 import { ContextPane } from './ContextPane'
+import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
 import { SkipModal } from './SkipModal'
 
@@ -51,6 +53,7 @@ export function TicketView(): ReactElement {
           <Text>is</Text>
           <PhaseChip state={ticket.state} />
           <PausedChip state={ticket.state} />
+          <HoldChip hold={ticket.hold} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           <Text size="sm" c="dimmed" ml="auto">
             Source: Local
@@ -164,6 +167,13 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     }, 'Could not start')
   }
 
+  /** Holds the ticket until a date (ISO) or with no date. Resolves true once it is held. */
+  function hold(until: string | null): Promise<boolean> {
+    return guarded(async () => {
+      await invoke('ticket.hold', ticket.id, until === null ? {} : { until })
+    }, 'Could not hold')
+  }
+
   /** Skip to next role, once confirmed. Resolves true once skipped. */
   function skip(): Promise<boolean> {
     return guarded(() => invoke('agent.skip', ticket.id), 'Could not skip')
@@ -224,6 +234,17 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
           {canStart && (
             <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
               Adjust before starting
+            </Button>
+          )}
+          {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
+          {ticket.hold && (
+            <Button
+              size="compact-sm"
+              variant="default"
+              disabled={busy}
+              onClick={() => void guarded(() => invoke('ticket.unhold', ticket.id), 'Could not unhold')}
+            >
+              Unhold
             </Button>
           )}
         </Group>

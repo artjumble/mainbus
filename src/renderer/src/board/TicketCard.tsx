@@ -4,6 +4,7 @@ import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
+import { HoldChip } from './HoldChip'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
   not_started: 'Not started',
@@ -110,6 +111,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       <Group gap="xs">
         <PhaseChip state={state} />
         <PausedChip state={state} />
+        <HoldChip hold={ticket.hold} />
         {source && <AgentBadge source={source} />}
         {ticket.pr && <PrLink pr={ticket.pr} />}
         {cleaningUp && (

@@ -48,4 +48,11 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).toContain("The user doesn't see that line")
     expect(prompt).toContain('"[Mainbus] Since your last turn" comes first')
   })
+
+  test('says what a hold is, that held tickets are not to be proposed for starting, and that released holds are reported', () => {
+    expect(prompt).toContain('mcp__mainbus__propose_hold(ticket, until?, reason)')
+    expect(prompt).toContain("Holding doesn't stop a running agent")
+    expect(prompt).toContain('Never propose starting a held ticket: propose_start refuses it')
+    expect(prompt).toContain('tickets whose hold the user released')
+  })
 })
