@@ -81,6 +81,22 @@ export function previousAttempt(events: StoredEvent[], decisions: Decision[], ro
   return `Handoff from the previous attempt:\n${data('previous-attempt', lines.join('\n'))}`
 }
 
+/** A longer line than the role digest's: the orchestrator's conversation is messages only. */
+const CONVERSATION_LINE_MAX = 1000
+
+/**
+ * The first message of a fresh orchestrator session when its earlier one could not be resumed: the last
+ * messages between the user and the orchestrator, as data.
+ */
+export function conversationDigest(events: StoredEvent[]): string {
+  const said = events.filter((e) => e.event.kind === 'message' || e.event.kind === 'user_message')
+  const lines = describeEvents(said, [], 'Orchestrator', CONVERSATION_LINE_MAX).slice(-DIGEST_EVENTS)
+  return (
+    "Mainbus couldn't resume your earlier conversation with the user. These are its last messages, for context:\n" +
+    data('previous-conversation', lines.length > 0 ? lines.join('\n') : '(No messages yet.)')
+  )
+}
+
 /**
  * What the summary call for a skipped role is asked: to write the handoff the role never wrote, from its log
  * (its last lines, within SUMMARY_LOG_MAX characters). `next` names the role that takes over, if any.

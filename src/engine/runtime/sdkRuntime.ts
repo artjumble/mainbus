@@ -13,7 +13,17 @@ import type { AgentEvent } from '../../shared/events'
 import { guardReason, type GuardContext } from '../permissions/guard'
 import { InputQueue } from './inputQueue'
 import { Normalizer } from './normalize'
-import { ResumeFailedError, type AgentRuntime, type RunHandle, type RunSpec, type SummaryRequest } from './types'
+import {
+  ResumeFailedError,
+  type AgentRuntime,
+  type AnyRunSpec,
+  type OrchestratorRunSpec,
+  type PermissionRequest,
+  type PermissionVerdict,
+  type RunHandle,
+  type RunSpec,
+  type SummaryRequest
+} from './types'
 
 /** The parts of the Agent SDK that the runtime uses; tests pass a fake. */
 export interface SdkApi {
@@ -30,6 +40,17 @@ const ROLE_TOOLS = [
   'mcp__mainbus__report_problem',
   'mcp__mainbus__check_criterion'
 ]
+/** The orchestrator's Mainbus read tools, pre-approved like the role tools. */
+export const ORCHESTRATOR_READ_TOOLS = [
+  'mcp__mainbus__list_workspaces',
+  'mcp__mainbus__list_tickets',
+  'mcp__mainbus__get_ticket',
+  'mcp__mainbus__get_run_status',
+  'mcp__mainbus__get_recent_events',
+  'mcp__mainbus__list_pending_decisions'
+]
+/** The only built-in tools the orchestrator has. */
+export const ORCHESTRATOR_BUILT_IN_TOOLS = ['Read', 'Grep', 'Glob']
 
 interface Run {
   q: Query
@@ -114,10 +135,11 @@ export class SdkRuntime implements AgentRuntime {
     this.agentHome = options.agentHome ?? null
   }
 
-  async start(spec: RunSpec): Promise<RunHandle> {
+  async start(spec: AnyRunSpec): Promise<RunHandle> {
     const input = new InputQueue<SDKUserMessage>()
     const abort = new AbortController()
-    const q = this.sdk.query({ prompt: input, options: this.options(spec, abort) })
+    const options = spec.kind === 'orchestrator' ? this.orchestratorOptions(spec, abort) : this.options(spec, abort)
+    const q = this.sdk.query({ prompt: input, options })
     const run: Run = {
       q,
       input,
@@ -403,6 +425,120 @@ export class SdkRuntime implements AgentRuntime {
           : { behavior: 'deny', message: verdict.message }
       },
       env: childEnv(this.agentHome, spec.tempDir),
+      abortController
+    }
+  }
+
+  /**
+   * The orchestrator reads and never changes anything: only Read, Grep and Glob among the built-in tools, the
+   * Mainbus read tools, and no settings files. Every call it makes goes through `spec.onPermission`, which never
+   * raises a card.
+   */
+  private orchestratorOptions(spec: OrchestratorRunSpec, abortController: AbortController): Options {
+    const sdk = this.sdk
+    const t = spec.readTools
+    const ticketNumber = z.number().int().describe('The ticket number, as in #12')
+    const server = sdk.createSdkMcpServer({
+      name: 'mainbus',
+      alwaysLoad: true,
+      tools: [
+        sdk.tool('list_workspaces', 'The workspaces on the board: name, repo path and base branch.', {}, async () =>
+          toolText(await t.listWorkspaces())
+        ),
+        sdk.tool(
+          'list_tickets',
+          "The open workspace's tickets: number, title, column, phase, active role and labels.",
+          {
+            column: z
+              .enum(['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done'])
+              .optional()
+              .describe('Only the tickets in this column')
+          },
+          async (a) => toolText(await t.listTickets(a.column !== undefined ? { column: a.column } : {}))
+        ),
+        sdk.tool(
+          'get_ticket',
+          "One ticket: the user's words, spec, criteria, labels, pull request, and the latest run's roles.",
+          { number: ticketNumber },
+          async (a) => toolText(await t.getTicket({ number: a.number }))
+        ),
+        sdk.tool(
+          'get_run_status',
+          "The latest run of a ticket: its roles in order with status, model and effort, the active role, and pending decisions.",
+          { number: ticketNumber },
+          async (a) => toolText(await t.getRunStatus({ number: a.number }))
+        ),
+        sdk.tool(
+          'get_recent_events',
+          "The last events of a ticket's thread, oldest first.",
+          {
+            number: ticketNumber,
+            limit: z.number().int().optional().describe('How many events, 20 by default, at most 50')
+          },
+          async (a) => toolText(await t.getRecentEvents({ number: a.number, ...(a.limit !== undefined ? { limit: a.limit } : {}) }))
+        ),
+        sdk.tool('list_pending_decisions', 'Every decision waiting for the user, with its ticket.', {}, async () =>
+          toolText(await t.listPendingDecisions())
+        )
+      ]
+    })
+
+    const decide = async (req: PermissionRequest): Promise<PermissionVerdict> => {
+      try {
+        return await spec.onPermission(req)
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err)
+        return { allow: false, message: `Mainbus could not decide this permission: ${why}` }
+      }
+    }
+    // Default mode lets Read, Grep and Glob inside cwd and the extra folders run without reaching canUseTool,
+    // so the same policy runs here first: a credential file inside the repo is denied, never asked about.
+    const policy: HookCallback = async (hookInput, toolUseId, o) => {
+      const i = hookInput as { tool_name?: unknown; tool_input?: unknown }
+      const input =
+        typeof i.tool_input === 'object' && i.tool_input !== null ? (i.tool_input as Record<string, unknown>) : {}
+      const toolName = typeof i.tool_name === 'string' ? i.tool_name : ''
+      const verdict = await decide({ toolName, input, toolUseId: toolUseId ?? '', signal: o.signal })
+      if (verdict.allow) return {}
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: verdict.message
+        }
+      }
+    }
+
+    return {
+      pathToClaudeCodeExecutable: this.claudePath,
+      cwd: spec.cwd,
+      model: spec.model,
+      effort: spec.effort,
+      ...(spec.resumeSessionId !== undefined ? { resume: spec.resumeSessionId } : {}),
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: spec.appendSystemPrompt },
+      tools: ORCHESTRATOR_BUILT_IN_TOOLS,
+      permissionMode: 'default',
+      // No settings files at all: its folder has none, and the user's own settings must not apply.
+      settingSources: [],
+      strictMcpConfig: true,
+      includePartialMessages: true,
+      disallowedTools: [...spec.disallowedTools],
+      allowedTools: ORCHESTRATOR_READ_TOOLS,
+      additionalDirectories: spec.additionalDirectories,
+      mcpServers: { mainbus: server },
+      hooks: { PreToolUse: [{ hooks: [policy] }] },
+      canUseTool: async (toolName, input, o) => {
+        const verdict = await decide({
+          toolName,
+          input,
+          reason: o.decisionReason,
+          toolUseId: o.toolUseID,
+          signal: o.signal
+        })
+        return verdict.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: verdict.message }
+      },
+      // It has no shell, so its temp folder is never used; its own folder stands in.
+      env: childEnv(this.agentHome, spec.cwd),
       abortController
     }
   }

@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
-import { FakeRuntime, scriptFromFile, type FakeStep } from './fakeRuntime'
-import { ResumeFailedError, type RoleToolHandlers, type RunSpec } from './types'
+import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeStep } from './fakeRuntime'
+import { ResumeFailedError, type OrchestratorRunSpec, type RoleToolHandlers, type RunSpec } from './types'
 
 function makeSpec(over: Partial<RunSpec> = {}) {
   const roleTools = {
@@ -190,5 +190,68 @@ describe('scriptFromFile', () => {
     // A role with no resumed steps plays its own steps when resumed.
     const only = scriptFromFile({ Reviewer: steps('review') }) as (spec: RunSpec) => FakeStep[]
     expect(only(makeSpec({ role: 'Reviewer', resumeSessionId: 's1' }).spec)).toEqual(steps('review'))
+  })
+})
+
+describe('FakeRuntime: the orchestrator', () => {
+  function orchestratorSpec(over: Partial<OrchestratorRunSpec> = {}): OrchestratorRunSpec {
+    return {
+      kind: 'orchestrator',
+      cwd: '/home/orchestrator',
+      prompt: 'hi',
+      appendSystemPrompt: '',
+      model: 'opus',
+      effort: 'medium',
+      additionalDirectories: ['/repo'],
+      disallowedTools: [],
+      readTools: {
+        listWorkspaces: vi.fn(async () => 'ws'),
+        listTickets: vi.fn(async () => 'tickets'),
+        getTicket: vi.fn(async () => 'ticket'),
+        getRunStatus: vi.fn(async () => 'status'),
+        getRecentEvents: vi.fn(async () => 'events'),
+        listPendingDecisions: vi.fn(async () => 'decisions')
+      },
+      onPermission: async () => ({ allow: true }),
+      ...over
+    }
+  }
+
+  test('plays its own script, keeps its specs apart from role specs, and calls its read tools', async () => {
+    const rt = new FakeRuntime([{ emit: { kind: 'message', text: 'role' } }, { exit: 0 }], {
+      orchestrator: [{ callTool: 'getTicket', args: { number: 2 } }, { emit: { kind: 'message', text: 'orchestrator' } }, { exit: 0 }]
+    })
+    const spec = orchestratorSpec()
+    const run = await rt.start(spec)
+    expect(await collect(rt.events(run))).toEqual([{ kind: 'message', text: 'orchestrator' }])
+    expect(spec.readTools.getTicket).toHaveBeenCalledWith({ number: 2 })
+    expect(rt.orchestratorSpecs).toEqual([spec])
+    expect(rt.specs).toEqual([])
+  })
+
+  test('without a script it stays open and silent; a role tool is not one of its tools', async () => {
+    const quiet = new FakeRuntime([{ exit: 0 }])
+    const run = await quiet.start(orchestratorSpec())
+    await tick()
+    await quiet.stop(run)
+    expect(await collect(quiet.events(run))).toEqual([])
+
+    const wrong = new FakeRuntime([], { orchestrator: [{ callTool: 'handoff', args: {} }] })
+    const r = await wrong.start(orchestratorSpec())
+    expect(await collect(wrong.events(r))).toEqual([{ kind: 'error', message: 'No tool handoff in this run' }])
+  })
+
+  test('rejects a resume when asked to', async () => {
+    const rt = new FakeRuntime([], { rejectResume: true })
+    await expect(rt.start(orchestratorSpec({ resumeSessionId: 's1' }))).rejects.toBeInstanceOf(ResumeFailedError)
+  })
+
+  test('orchestratorScriptFromFile picks the Orchestrator steps, resumed ones when resuming', () => {
+    const say = (text: string): FakeStep[] => [{ emit: { kind: 'message', text } }]
+    const pick = orchestratorScriptFromFile({ '*': say('any'), Orchestrator: say('o'), 'Orchestrator resumed': say('r') })
+    expect(pick(orchestratorSpec())).toEqual(say('o'))
+    expect(pick(orchestratorSpec({ resumeSessionId: 's1' }))).toEqual(say('r'))
+    expect(orchestratorScriptFromFile({ '*': say('any') })(orchestratorSpec())).toEqual([])
+    expect(orchestratorScriptFromFile(say('all'))(orchestratorSpec())).toEqual([])
   })
 })

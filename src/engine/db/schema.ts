@@ -174,6 +174,32 @@ export const allowRules = sqliteTable(
   (t) => [index('allow_rules_workspace_idx').on(t.workspaceId)]
 )
 
+/**
+ * The orchestrator's sessions: one global conversation, so no workspace or ticket. A run ends only when its
+ * session can't be resumed and a fresh one takes over; otherwise the next message resumes it.
+ */
+export const orchestratorRuns = sqliteTable('orchestrator_runs', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id'),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at'),
+  endReason: text('end_reason', { enum: ['resume_failed'] })
+})
+
+/** The orchestrator's thread, stored like agent_events so the panel can render it the same way. */
+export const orchestratorEvents = sqliteTable(
+  'orchestrator_events',
+  {
+    runId: text('run_id')
+      .notNull()
+      .references(() => orchestratorRuns.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    at: text('at').notNull(),
+    json: text('json').notNull()
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.seq] })]
+)
+
 // Worktrees that still need removing; deliberately no foreign key, so a row can outlive its ticket.
 export const pendingCleanups = sqliteTable('pending_cleanups', {
   ticketId: text('ticket_id').primaryKey(),

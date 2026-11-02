@@ -2,6 +2,9 @@ import type { AgentEvent } from '../../shared/events'
 import {
   ResumeFailedError,
   type AgentRuntime,
+  type AnyRunSpec,
+  type OrchestratorRunSpec,
+  type OrchestratorToolHandlers,
   type PermissionRequest,
   type RoleToolHandlers,
   type RunHandle,
@@ -17,7 +20,8 @@ export const FAKE_SUMMARY = 'A summary the fake runtime wrote.'
 /** One scripted step. Plain data only, so a script can be loaded from a JSON file. */
 export type FakeStep =
   | { emit: AgentEvent }
-  | { callTool: keyof RoleToolHandlers; args: unknown }
+  /** A role tool in a role's run, a read tool in the orchestrator's. */
+  | { callTool: keyof RoleToolHandlers | keyof OrchestratorToolHandlers; args: unknown }
   | { requestPermission: Omit<PermissionRequest, 'signal'> }
   | { waitForSend: true }
   | { exit: number | null }
@@ -36,6 +40,18 @@ export function scriptFromFile(file: FakeScriptFile): FakeStep[] | ((spec: RunSp
     const resumed = `${spec.role} resumed`
     if (spec.role !== undefined && spec.resumeSessionId !== undefined && Object.hasOwn(file, resumed)) return file[resumed]!
     return spec.role !== undefined && Object.hasOwn(file, spec.role) ? file[spec.role]! : (file['*'] ?? [])
+  }
+}
+
+/**
+ * The orchestrator's script from a script file: its `Orchestrator` steps (`Orchestrator resumed` for a resumed
+ * session, when the file has it). A file with no `Orchestrator` steps leaves it open and silent.
+ */
+export function orchestratorScriptFromFile(file: FakeScriptFile): (spec: OrchestratorRunSpec) => FakeStep[] {
+  return (spec) => {
+    if (Array.isArray(file)) return []
+    if (spec.resumeSessionId !== undefined && Object.hasOwn(file, 'Orchestrator resumed')) return file['Orchestrator resumed']!
+    return Object.hasOwn(file, 'Orchestrator') ? file['Orchestrator']! : []
   }
 }
 
@@ -92,8 +108,10 @@ interface Run {
  * `EventQueue` supports a single `events()` consumer per run.
  */
 export class FakeRuntime implements AgentRuntime {
-  /** Every spec passed to start(), including ones that went on to fail. */
+  /** Every role spec passed to start(), including ones that went on to fail. */
   readonly specs: RunSpec[] = []
+  /** Every orchestrator spec passed to start(), including ones that went on to fail. */
+  readonly orchestratorSpecs: OrchestratorRunSpec[] = []
   /** Every text passed to send(). */
   readonly sent: string[] = []
   /** Every handle passed to interrupt(). */
@@ -106,7 +124,12 @@ export class FakeRuntime implements AgentRuntime {
   constructor(
     /** The same steps for every run, or the steps for each run by its spec. */
     private readonly script: FakeStep[] | ((spec: RunSpec) => FakeStep[]),
-    private readonly opts: { rejectResume?: boolean; summary?: FakeSummary } = {}
+    private readonly opts: {
+      rejectResume?: boolean
+      summary?: FakeSummary
+      /** The orchestrator's steps; without them it stays open and says nothing. */
+      orchestrator?: FakeStep[] | ((spec: OrchestratorRunSpec) => FakeStep[])
+    } = {}
   ) {}
 
   async summarize(req: SummaryRequest): Promise<string> {
@@ -120,8 +143,9 @@ export class FakeRuntime implements AgentRuntime {
     )
   }
 
-  async start(spec: RunSpec): Promise<RunHandle> {
-    this.specs.push(spec)
+  async start(spec: AnyRunSpec): Promise<RunHandle> {
+    if (spec.kind === 'orchestrator') this.orchestratorSpecs.push(spec)
+    else this.specs.push(spec)
     if (this.opts.rejectResume && spec.resumeSessionId) throw new ResumeFailedError()
     const handle = { id: `fake-${this.nextId++}` }
     const run: Run = {
@@ -170,18 +194,28 @@ export class FakeRuntime implements AgentRuntime {
     return run
   }
 
-  private async play(spec: RunSpec, run: Run): Promise<void> {
+  private steps(spec: AnyRunSpec): FakeStep[] {
+    if (spec.kind === 'orchestrator') {
+      const script = this.opts.orchestrator ?? []
+      return typeof script === 'function' ? script(spec) : script
+    }
+    return typeof this.script === 'function' ? this.script(spec) : this.script
+  }
+
+  private async play(spec: AnyRunSpec, run: Run): Promise<void> {
     // Yield first so nothing fires until the caller has the handle, as with a real runtime.
     await new Promise<void>((resolve) => setImmediate(resolve))
     try {
-      for (const step of typeof this.script === 'function' ? this.script(spec) : this.script) {
+      for (const step of this.steps(spec)) {
         if (run.stopped) return
         if ('emit' in step) {
           run.queue.push(step.emit)
         } else if ('callTool' in step) {
           // The script file is trusted test data, so the args are passed through as-is.
-          const tool = spec.roleTools[step.callTool] as (args: unknown) => Promise<string>
-          await tool.call(spec.roleTools, step.args)
+          const tools: object = spec.kind === 'orchestrator' ? spec.readTools : spec.roleTools
+          const tool = (tools as Record<string, unknown>)[step.callTool]
+          if (typeof tool !== 'function') throw new Error(`No tool ${step.callTool} in this run`)
+          await (tool as (args: unknown) => Promise<string>).call(tools, step.args)
         } else if ('requestPermission' in step) {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })
         } else if ('waitForSend' in step) {

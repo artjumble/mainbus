@@ -82,6 +82,24 @@ export type ThreadEvent =
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 
+/** What the orchestrator is doing: `failed` when its last turn failed or its process ended mid-turn. */
+export type OrchestratorStatus = 'idle' | 'working' | 'failed'
+
+/** One orchestrator session; a run ends only when it couldn't be resumed and a fresh one took over. */
+export interface OrchestratorRun {
+  id: string
+  startedAt: string
+  endedAt: string | null
+  endReason: 'resume_failed' | null
+}
+
+/** The orchestrator's whole thread: every run, oldest first, and their events. */
+export interface OrchestratorThread {
+  status: OrchestratorStatus
+  runs: OrchestratorRun[]
+  events: StoredEvent[]
+}
+
 /** The agent run a thread event belongs to: its ticket run and its role's name. */
 export interface ThreadRun {
   id: string

@@ -1,12 +1,19 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path, { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
 import { Normalizer } from './normalize'
 import { SdkRuntime, type SdkApi } from './sdkRuntime'
-import { ResumeFailedError, type RoleToolHandlers, type RunSpec } from './types'
+import { orchestratorVerdict } from '../orchestrator/permissions'
+import {
+  ResumeFailedError,
+  type OrchestratorRunSpec,
+  type OrchestratorToolHandlers,
+  type RoleToolHandlers,
+  type RunSpec
+} from './types'
 
 const CLAUDE_PATH = 'C:\\Users\\x\\.local\\bin\\claude.exe'
 
@@ -593,6 +600,157 @@ function gitBashes(): string[] {
 }
 
 const BASHES = gitBashes()
+
+describe('SdkRuntime: the orchestrator spec', () => {
+  const ORCH_CWD = 'C:\\home\\orchestrator'
+  const REPO = 'C:\\code\\repo'
+
+  function makeOrchestratorSpec(over: Partial<OrchestratorRunSpec> = {}): OrchestratorRunSpec {
+    const readTools: OrchestratorToolHandlers = {
+      listWorkspaces: vi.fn(async () => 'workspaces'),
+      listTickets: vi.fn(async () => 'tickets'),
+      getTicket: vi.fn(async () => 'ticket'),
+      getRunStatus: vi.fn(async () => 'status'),
+      getRecentEvents: vi.fn(async () => 'events'),
+      listPendingDecisions: vi.fn(async () => 'decisions')
+    }
+    return {
+      kind: 'orchestrator',
+      cwd: ORCH_CWD,
+      prompt: 'What needs me?',
+      appendSystemPrompt: 'You are the orchestrator.',
+      model: 'opus',
+      effort: 'medium',
+      additionalDirectories: [REPO],
+      disallowedTools: ['Bash', 'Edit', 'Agent'],
+      readTools,
+      onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, repo: REPO }),
+      ...over
+    }
+  }
+
+  test('limits built-in tools to Read, Grep and Glob, loads no settings, and pre-approves only the read tools', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test')
+    const f = fakeSdk()
+    const spec = makeOrchestratorSpec()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk, { agentHome: 'C:\\home' }).start(spec)
+    const o = f.calls[0].options
+    expect(o.tools).toEqual(['Read', 'Grep', 'Glob'])
+    expect(o.disallowedTools).toEqual(['Bash', 'Edit', 'Agent'])
+    expect(o.allowedTools).toEqual([
+      'mcp__mainbus__list_workspaces',
+      'mcp__mainbus__list_tickets',
+      'mcp__mainbus__get_ticket',
+      'mcp__mainbus__get_run_status',
+      'mcp__mainbus__get_recent_events',
+      'mcp__mainbus__list_pending_decisions'
+    ])
+    expect(o.settingSources).toEqual([])
+    expect(o.permissionMode).toBe('default')
+    expect(o.strictMcpConfig).toBe(true)
+    expect(o.model).toBe('opus')
+    expect(o.effort).toBe('medium')
+    expect(o.cwd).toBe(ORCH_CWD)
+    expect(o.additionalDirectories).toEqual([REPO])
+    expect(o.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: spec.appendSystemPrompt })
+    expect(o.resume).toBeUndefined()
+    expect(o.env.MAINBUS_AGENT).toBe('1')
+    expect(o.env.MAINBUS_AGENT_HOME).toBe('C:\\home')
+    expect(o.env.ANTHROPIC_API_KEY).toBeUndefined()
+  })
+
+  test('its MCP server has exactly the six read tools, and they call the handlers', async () => {
+    const f = fakeSdk()
+    const spec = makeOrchestratorSpec()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    expect(f.servers).toHaveLength(1)
+    expect(f.servers[0]).toMatchObject({ name: 'mainbus', alwaysLoad: true })
+    expect(f.tools.map((t) => t.name)).toEqual([
+      'list_workspaces',
+      'list_tickets',
+      'get_ticket',
+      'get_run_status',
+      'get_recent_events',
+      'list_pending_decisions'
+    ])
+    const byName = new Map(f.tools.map((t) => [t.name, t]))
+    expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
+      content: [{ type: 'text', text: 'events' }]
+    })
+    expect(spec.readTools.getRecentEvents).toHaveBeenCalledWith({ number: 3, limit: 5 })
+    await byName.get('list_tickets')!.handler({}, {})
+    expect(spec.readTools.listTickets).toHaveBeenCalledWith({})
+  })
+
+  test('the PreToolUse hook denies a credential file inside the repo and allows other reads there', async () => {
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeOrchestratorSpec())
+    const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    const secret = await hook({ tool_name: 'Read', tool_input: { file_path: `${REPO}\\.env` } }, 't1', { signal })
+    expect(secret.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', permissionDecision: 'deny' })
+    const code = await hook({ tool_name: 'Read', tool_input: { file_path: `${REPO}\\src\\index.ts` } }, 't2', { signal })
+    expect(code).toEqual({})
+    const bash = await hook({ tool_name: 'Bash', tool_input: { command: 'ls' } }, 't3', { signal })
+    expect(bash.hookSpecificOutput.permissionDecision).toBe('deny')
+  })
+
+  test('the PreToolUse hook denies a Grep over a repo with a credential file ripgrep would search', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'mainbus-orch-grep-'))
+    try {
+      const repo = path.join(dir, 'repo')
+      const clean = path.join(dir, 'clean')
+      for (const d of [repo, clean]) {
+        mkdirSync(path.join(d, 'src'), { recursive: true })
+        writeFileSync(path.join(d, 'src', 'index.ts'), 'export {}\n')
+      }
+      writeFileSync(path.join(repo, '.npmrc'), '//registry.npmjs.org/:_authToken=FAKE_TOKEN_123\n')
+      const f = fakeSdk()
+      await new SdkRuntime(CLAUDE_PATH, f.sdk).start(
+        makeOrchestratorSpec({
+          additionalDirectories: [dir],
+          onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, repo: dir })
+        })
+      )
+      const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
+      const signal = new AbortController().signal
+      const grep = (input: Record<string, unknown>) => hook({ tool_name: 'Grep', tool_input: { pattern: 'authToken', output_mode: 'content', ...input } }, 't', { signal })
+      const secret = await grep({ path: repo })
+      expect(secret.hookSpecificOutput).toMatchObject({ permissionDecision: 'deny' })
+      expect(secret.hookSpecificOutput.permissionDecisionReason).toContain('.npmrc')
+      expect(await grep({ path: repo, glob: '*.ts' })).toEqual({})
+      expect(await grep({ path: clean })).toEqual({})
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('canUseTool maps a deny, and denies when the policy throws', async () => {
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeOrchestratorSpec())
+    const opts = { signal: new AbortController().signal, toolUseID: 'tu1' }
+    const write = await f.calls[0].options.canUseTool('Write', { file_path: `${REPO}\\x` }, opts)
+    expect(write).toEqual({ behavior: 'deny', message: 'The orchestrator only reads and proposes; it cannot do this.' })
+    const read = await f.calls[0].options.canUseTool('Read', { file_path: `${REPO}\\x` }, opts)
+    expect(read).toEqual({ behavior: 'allow', updatedInput: { file_path: `${REPO}\\x` } })
+
+    const g = fakeSdk()
+    const onPermission = vi.fn(async () => {
+      throw new Error('store offline')
+    })
+    await new SdkRuntime(CLAUDE_PATH, g.sdk).start(makeOrchestratorSpec({ onPermission }))
+    expect(await g.calls[0].options.canUseTool('Read', {}, opts)).toEqual({
+      behavior: 'deny',
+      message: 'Mainbus could not decide this permission: store offline'
+    })
+  })
+
+  test('passes resume when resuming', async () => {
+    const f = fakeSdk({ messages: fixture('e1-simple') })
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeOrchestratorSpec({ resumeSessionId: 'sess-9' }))
+    expect(f.calls[0].options.resume).toBe('sess-9')
+  })
+})
 
 // The guard reads $TEMP, $TMP and $TMPDIR in Bash commands as the scratch folder: check the agent's shell agrees.
 // Claude Code's Bash tool runs Git Bash with `-c`; a login shell (`-l`) is checked too, since its profile could

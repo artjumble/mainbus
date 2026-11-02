@@ -19,7 +19,18 @@ export interface PermissionRequest {
 
 export type PermissionVerdict = { allow: true } | { allow: false; message: string }
 
+/** What the orchestrator's read tools call back into: each answers with plain text for the agent. */
+export interface OrchestratorToolHandlers {
+  listWorkspaces(): Promise<string>
+  listTickets(a: { column?: string }): Promise<string>
+  getTicket(a: { number: number }): Promise<string>
+  getRunStatus(a: { number: number }): Promise<string>
+  getRecentEvents(a: { number: number; limit?: number }): Promise<string>
+  listPendingDecisions(): Promise<string>
+}
+
 export interface RunSpec {
+  kind?: 'role'
   /** The name of the lineup role the agent plays. The fake runtime can pick its script by it. */
   role?: string
   cwd: string
@@ -38,6 +49,29 @@ export interface RunSpec {
   onPermission(r: PermissionRequest): Promise<PermissionVerdict>
 }
 
+/**
+ * The orchestrator's session: it reads (Read, Grep and Glob, and the Mainbus read tools) and never changes
+ * anything. No settings files are loaded, and its permission callback never raises a card.
+ */
+export interface OrchestratorRunSpec {
+  kind: 'orchestrator'
+  /** `<MAINBUS_HOME>\orchestrator`. */
+  cwd: string
+  prompt: string
+  appendSystemPrompt: string
+  model: string
+  effort: Effort
+  /** The workspace's repo, readable so it can draft good tickets. */
+  additionalDirectories: string[]
+  disallowedTools: string[]
+  resumeSessionId?: string
+  readTools: OrchestratorToolHandlers
+  /** Allows or denies at once: the orchestrator never waits on the user for a permission. */
+  onPermission(r: PermissionRequest): Promise<PermissionVerdict>
+}
+
+export type AnyRunSpec = RunSpec | OrchestratorRunSpec
+
 export interface RunHandle {
   id: string
 }
@@ -53,7 +87,7 @@ export interface SummaryRequest {
 }
 
 export interface AgentRuntime {
-  start(spec: RunSpec): Promise<RunHandle>
+  start(spec: AnyRunSpec): Promise<RunHandle>
   send(run: RunHandle, text: string): Promise<void>
   interrupt(run: RunHandle): Promise<void>
   stop(run: RunHandle): Promise<void>

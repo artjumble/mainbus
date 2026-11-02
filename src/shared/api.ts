@@ -18,7 +18,7 @@ import type {
   UnattendedState,
   Workspace
 } from './domain'
-import type { StoredEvent, ThreadRun } from './events'
+import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 
 /**
  * A ticket as the board shows it: its state, and its lineup strip (the latest ticket run's roles, or the
@@ -36,6 +36,9 @@ export type EngineEvent =
   | { type: 'thread.appended'; ticketId: string; event: StoredEvent; run: ThreadRun }
   | { type: 'decision.changed'; decision: Decision }
   | { type: 'unattended.changed'; state: UnattendedState }
+  /** An event of the orchestrator's thread; partial ones carry seq 0, as in a ticket's thread. */
+  | { type: 'orchestrator.appended'; event: StoredEvent }
+  | { type: 'orchestrator.status'; status: OrchestratorStatus }
 
 /** Every command the renderer can send to the engine. A thrown error reaches the renderer as a rejected promise. */
 export interface EngineCommands {
@@ -96,6 +99,15 @@ export interface EngineCommands {
    */
   'unattended.get'(): UnattendedState
   'unattended.set'(on: boolean): UnattendedState
+  /**
+   * The orchestrator: one conversation for the whole app, which only reads. Like unattended mode, only the
+   * renderer can reach it. `get` gives every run's events and its status.
+   */
+  'orchestrator.get'(): OrchestratorThread
+  /** Starts the conversation on the first message, or resumes it after a restart. Rejects empty text. */
+  'orchestrator.send'(text: string): void
+  /** Interrupts the turn under way; the conversation goes on with the next message. */
+  'orchestrator.stop'(): void
 }
 
 export type CommandName = keyof EngineCommands
