@@ -34,6 +34,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     workspaceId: 'ws',
     orchestratorRunId: 'o1',
     kind: 'start_lineup',
+    origin: 'orchestrator',
     payload: PAYLOAD,
     evidence: 'It is specced and nothing is running',
     status: 'pending',

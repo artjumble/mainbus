@@ -39,6 +39,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     workspaceId: 'ws',
     orchestratorRunId: 'o1',
     kind: 'create_tickets',
+    origin: 'orchestrator',
     payload: { intent: 'Add login', tickets: [{ title: 'Login', spec: 'A form', criteria: [], labels: [] }], column: 'backlog' },
     evidence: null,
     status: 'pending',
@@ -207,4 +208,21 @@ test('live events are added to the thread, from a session it had not seen', asyn
   )
   expect(screen.getByText('there').tagName).toBe('EM')
   expect(screen.getByText('ORCHESTRATOR')).toBeInTheDocument()
+})
+
+test('a revealed proposal is scrolled into view once, as its card arrives', async () => {
+  const scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scrollIntoView
+  history([ev({ kind: 'proposal', proposalId: 'p1', from: 'drag' })], 'idle', [proposal()])
+  renderWithMantine(<OrchestratorPanel open onOpenChange={() => {}} />)
+  await screen.findByRole('group', { name: /Proposal:/ })
+  expect(scrollIntoView).not.toHaveBeenCalled()
+
+  act(() => useMainbus.getState().revealProposal('p1'))
+  await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1))
+  // Other renders don't scroll again; a second reveal does.
+  act(() => emit({ type: 'orchestrator.status', status: 'working' }))
+  expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  act(() => useMainbus.getState().revealProposal('p1'))
+  await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2))
 })

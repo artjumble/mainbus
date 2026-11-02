@@ -22,6 +22,7 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
     workspaceId: 'ws',
     orchestratorRunId: 'o1',
     kind: 'create_tickets',
+    origin: 'orchestrator',
     payload: {
       intent: 'Please add login and logout',
       tickets: [

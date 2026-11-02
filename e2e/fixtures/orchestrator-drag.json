@@ -1,0 +1,7 @@
+{
+  "*": [
+    { "emit": { "kind": "session", "sessionId": "e2e-role" } },
+    { "emit": { "kind": "message", "text": "Working on it." } },
+    { "waitForSend": true }
+  ]
+}

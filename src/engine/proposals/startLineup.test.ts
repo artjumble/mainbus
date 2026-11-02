@@ -25,6 +25,10 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
     ticketByNumber: async (_w: string, n: number) => (n === 12 ? TICKET : null),
     whyNotStartable: vi.fn(async () => why),
     startTicket: vi.fn(async (_id: string, _opts: StartOptions) => {}),
+    activeRole: async () => null,
+    pauseTicket: async () => {},
+    stopTicket: async () => {},
+    skipTicket: async () => {},
     /** Changes what whyNotStartable says from now on. */
     setWhy: (w: string | null) => (why = w)
   }
@@ -106,7 +110,7 @@ describe('start_lineup: override', () => {
 
   test('keeps the ticked roles in their order with the chosen model and effort, as the user chose them', async () => {
     const s = await stored()
-    const o = startLineup.override(s, {
+    const o = startLineup.override!(s, {
       roles: [
         { roleId: 'r', model: 'sonnet', effort: 'high' },
         { roleId: 'i', model: 'opus', effort: 'low' }
@@ -121,12 +125,12 @@ describe('start_lineup: override', () => {
       ],
       extraInstructions: 'New words.'
     })
-    expect(startLineup.override(s, { roles: [{ roleId: 'p', model: 'opus', effort: 'high' }], extraInstructions: ' ' }).extraInstructions).toBeNull()
+    expect(startLineup.override!(s, { roles: [{ roleId: 'p', model: 'opus', effort: 'high' }], extraInstructions: ' ' }).extraInstructions).toBeNull()
   })
 
   test('accepts a model the role already had, even if it is not offered', async () => {
     const s = { ...(await stored()), roles: [{ roleId: 'i', name: 'Implementer', model: 'claude-x', effort: 'low' as const, source: 'role' as const }] }
-    expect(startLineup.override(s, { roles: [{ roleId: 'i', model: 'claude-x', effort: 'low' }], extraInstructions: '' }).roles[0]!.model).toBe('claude-x')
+    expect(startLineup.override!(s, { roles: [{ roleId: 'i', model: 'claude-x', effort: 'low' }], extraInstructions: '' }).roles[0]!.model).toBe('claude-x')
   })
 
   test.each([
@@ -141,8 +145,8 @@ describe('start_lineup: override', () => {
     [{ roles: [{ roleId: 'p', model: 'opus', effort: 'low' }], ticketId: 'other' }, 'Unknown field: ticketId']
   ])('rejects %j', async (input, message) => {
     const s = await stored()
-    expect(() => startLineup.override(s, input)).toThrow(ProposalInvalid)
-    expect(() => startLineup.override(s, input)).toThrow(message)
+    expect(() => startLineup.override!(s, input)).toThrow(ProposalInvalid)
+    expect(() => startLineup.override!(s, input)).toThrow(message)
   })
 })
 
@@ -171,7 +175,7 @@ describe('start_lineup: execute and outcome', () => {
   test('overridden: starts it with the override, and no extra instructions when they were cleared', async () => {
     const c = ctx()
     const p = await propose({ ticket: 12, extraInstructions: 'Small.' }, c)
-    const o = startLineup.override(p, { roles: [{ roleId: 'i', model: 'opus', effort: 'high' }], extraInstructions: '' })
+    const o = startLineup.override!(p, { roles: [{ roleId: 'i', model: 'opus', effort: 'high' }], extraInstructions: '' })
     await startLineup.execute(o, { workspaceId: ws.id, proposalId: 'p1' }, c)
     expect(c.startTicket).toHaveBeenCalledWith('t12', { roleIds: ['i'], roles: { i: { model: 'opus', effort: 'high' } } })
   })

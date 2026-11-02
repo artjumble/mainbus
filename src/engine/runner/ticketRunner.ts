@@ -74,6 +74,12 @@ const COMMIT_FIRST =
   'Not handed off: the worktree has uncommitted changes. Commit all your work on the current branch, then call mcp__mainbus__handoff again.'
 const RUN_ENDED = 'This run has ended.'
 const NOT_WORKING = 'No agent is working on this ticket'
+export const MOVED_ON = 'The ticket has moved on: that role is no longer the active one'
+
+/** The run an action was meant for; the action fails rather than act on another role. */
+export interface RunExpectation {
+  agentRunId: string
+}
 const ENDED_RUN_MOVE = 'Start again or move to Done'
 const SILENT_FAILURE = 'Ended two turns in a row without asking the user or handing off'
 const PERMISSION_OPTIONS = ['Allow once', 'Always allow in this workspace', 'Deny']
@@ -204,9 +210,25 @@ export class TicketRunner {
   }
 
   /** Takes effect on an in-flight launch as soon as its process starts; the rest waits its turn. */
-  stop(ticketId: string): Promise<void> {
+  async stop(ticketId: string, expect?: RunExpectation): Promise<void> {
+    // A stop for a run that has moved on must not mark the ticket as stopping, or it would kill the next role's launch.
+    if (expect) await this.assertExpected(ticketId, expect)
     this.stopRequested.add(ticketId)
-    return this.serial(ticketId, () => this.stopNow(ticketId))
+    return this.serial(ticketId, () => this.stopNow(ticketId, expect))
+  }
+
+  /** The ticket's open run's active role and the one a skip would start; null with no run or an ended one. */
+  async activeRole(
+    ticketId: string
+  ): Promise<{ agentRunId: string; role: string; agentStatus: TicketState['agentStatus']; next: string | null } | null> {
+    const { state, run } = await this.inspect(ticketId, false)
+    if (!run || run.endReason !== null) return null
+    return { agentRunId: run.id, role: run.role, agentStatus: state.agentStatus, next: (await this.nextRole(run))?.name ?? null }
+  }
+
+  private async assertExpected(ticketId: string, expect: RunExpectation): Promise<void> {
+    const latest = await this.repos.runs.latest(ticketId)
+    if (!latest || latest.id !== expect.agentRunId || latest.endReason !== null) throw new Error(MOVED_ON)
   }
 
   continue(ticketId: string): Promise<void> {
@@ -214,8 +236,8 @@ export class TicketRunner {
   }
 
   /** The user's Pause: interrupts the active role and stops its process; the run stays open until Resume. */
-  pause(ticketId: string): Promise<void> {
-    return this.serial(ticketId, () => this.pauseNow(ticketId))
+  pause(ticketId: string, expect?: RunExpectation): Promise<void> {
+    return this.serial(ticketId, () => this.pauseNow(ticketId, expect))
   }
 
   /** The user's Resume of a role they paused: the same session, with "Continue.". Never resumes any other pause. */
@@ -228,8 +250,8 @@ export class TicketRunner {
    * generates (or a digest, if that fails), and starts the next ticked role. Skipping the last role puts the
    * ticket in Review, and the push and PR follow as after a handoff.
    */
-  skip(ticketId: string): Promise<void> {
-    return this.serial(ticketId, () => this.skipNow(ticketId))
+  skip(ticketId: string, expect?: RunExpectation): Promise<void> {
+    return this.serial(ticketId, () => this.skipNow(ticketId, expect))
   }
 
   /**
@@ -473,12 +495,13 @@ export class TicketRunner {
     return true
   }
 
-  private async stopNow(ticketId: string): Promise<void> {
+  private async stopNow(ticketId: string, expect?: RunExpectation): Promise<void> {
     // Everything queued before this stop has finished; later actions are not affected.
     this.stopRequested.delete(ticketId)
     this.limited.delete(ticketId)
     const run = await this.repos.runs.latest(ticketId)
     if (!run) return
+    if (expect && (run.id !== expect.agentRunId || run.endReason !== null)) throw new Error(MOVED_ON)
     const ticket = await this.repos.tickets.get(ticketId)
     const target = this.target(run, ticket)
     // The active role's process, and that of a role that handed off and has not ended its last turn yet.
@@ -509,8 +532,9 @@ export class TicketRunner {
     await this.resume(run, CONTINUE_TEXT)
   }
 
-  private async pauseNow(ticketId: string): Promise<void> {
+  private async pauseNow(ticketId: string, expect?: RunExpectation): Promise<void> {
     const run = await this.repos.runs.latest(ticketId)
+    if (expect && run?.id !== expect.agentRunId) throw new Error(MOVED_ON)
     const live = run && run.endReason === null ? this.live.get(run.id) : undefined
     if (!run || !live || live.ended) throw new Error(NOT_WORKING)
     // From here the agent gets no nudge, and its process ending is neither reported nor a usage-limit pause.
@@ -535,10 +559,11 @@ export class TicketRunner {
     await this.resume(run, RESUME_TEXT)
   }
 
-  private async skipNow(ticketId: string): Promise<void> {
+  private async skipNow(ticketId: string, expect?: RunExpectation): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
     if (this.stopRequested.has(ticketId)) throw new Error(NOT_WORKING)
     const run = await this.repos.runs.latest(ticketId)
+    if (expect && run?.id !== expect.agentRunId) throw new Error(MOVED_ON)
     if (!run || run.endReason !== null) throw new Error(NOT_WORKING)
     const ticket = await this.repos.tickets.get(ticketId)
     const target = this.target(run, ticket)

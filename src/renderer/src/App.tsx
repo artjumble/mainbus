@@ -18,6 +18,8 @@ export function App(): ReactElement {
   const currentTicketId = useMainbus((s) => s.currentTicketId)
   const [panelOpen, setPanelOpen] = useState(readPanelOpen)
 
+  const revealedProposal = useMainbus((s) => s.revealedProposal)
+
   useEffect(() => startSync((err) => showError(err, 'Could not load Mainbus')), [])
 
   // The orchestrator sits beside the board and the ticket view; it stays mounted between them, so its thread is kept.
@@ -27,6 +29,12 @@ export function App(): ReactElement {
     setPanelOpen(open)
     writePanelOpen(open)
   }
+
+  // A proposal to show (a card dragged into In progress) expands a collapsed panel.
+  useEffect(() => {
+    if (revealedProposal) onPanelOpenChange(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealedProposal])
 
   return (
     <AppShell

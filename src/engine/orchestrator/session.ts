@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
-import type { Workspace } from '../../shared/domain'
+import type { Proposal } from '../../shared/proposals'
+import type { Ticket, Workspace } from '../../shared/domain'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
 import type { ProposalService } from '../proposals/service'
@@ -182,6 +183,33 @@ export class OrchestratorSession {
   }
 
   /**
+   * The user dragged a Backlog or Ready card into In progress: a start proposal for the whole lineup, made by the
+   * engine and shown in the thread. It is no orchestrator turn: nothing is sent to the agent and its status stays;
+   * it hears the outcome in its next turn like any proposal. A start already pending for the ticket is returned.
+   */
+  proposeStartFromDrag(ticket: Ticket): Promise<Proposal> {
+    return this.serial(async () => {
+      if (this.shuttingDown) throw new Error('Mainbus is shutting down')
+      const ws = await this.deps.workspace()
+      if (!ws || ws.id !== ticket.workspaceId) throw new Error(this.deps.workspaceRequired)
+      const pending = (await this.deps.proposals.list()).find(
+        (p) => p.status === 'pending' && p.kind === 'start_lineup' && (p.payload as { ticketId?: string }).ticketId === ticket.id
+      )
+      if (pending) return pending
+      // With no session yet the run is just a place for the card; the next message launches it.
+      const runId = this.live?.runId ?? (await this.deps.repo.latestOpen())?.id ?? (await this.deps.repo.create()).id
+      const made = await this.deps.proposals.propose(
+        'start_lineup',
+        { ticket: ticket.number, reason: `You dragged #${ticket.number} ${JSON.stringify(ticket.title)} into In progress.` },
+        { workspaceId: ws.id, orchestratorRunId: runId, userMessage: null, origin: 'drag' }
+      )
+      if (!made.ok) throw new Error(made.error)
+      await this.record(runId, { kind: 'proposal', proposalId: made.proposal.id, from: 'drag' })
+      return made.proposal
+    })
+  }
+
+  /**
    * A propose tool: stores the proposal, made from the message the current turn answers, and puts its card in
    * the thread here. An invalid one stores nothing, and the orchestrator is told why.
    */
@@ -216,7 +244,10 @@ export class OrchestratorSession {
       tools: {
         ...this.deps.readTools,
         proposeCreateTickets: (a) => this.propose('create_tickets', a),
-        proposeStart: (a) => this.propose('start_lineup', a)
+        proposeStart: (a) => this.propose('start_lineup', a),
+        proposePause: (a) => this.propose('pause', a),
+        proposeStop: (a) => this.propose('stop', a),
+        proposeSkip: (a) => this.propose('skip', a)
       },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, repo: ws.repoPath })
     }

@@ -75,12 +75,43 @@ test('a drop on a column that takes no manual drops, or on nothing, moves nothin
   const ticket = makeTicket({}, { column: 'backlog' })
   showBoard(ticket)
   renderWithMantine(<Board />)
-  drag(ticket.id, 'in_progress')
   drag(ticket.id, 'needs_you')
   drag(ticket.id, 'review')
   drag(ticket.id, null)
   drag(ticket.id, 'backlog') // already there
   expect(mockInvoke).not.toHaveBeenCalled()
+})
+
+test.each(['backlog', 'ready'] as const)('dragging a %s card into In progress proposes a start and leaves the card where it is', async (column) => {
+  const ticket = makeTicket({}, { column })
+  showBoard(ticket)
+  mockInvoke.mockResolvedValue({ id: 'p1' })
+  renderWithMantine(<Board />)
+  drag(ticket.id, 'in_progress')
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.proposeStart', ticket.id))
+  expect(mockInvoke).not.toHaveBeenCalledWith('ticket.move', expect.anything(), expect.anything())
+  await vi.waitFor(() => expect(useMainbus.getState().revealedProposal).toEqual({ id: 'p1', n: 1 }))
+  expect(useMainbus.getState().pendingMoves).toEqual({})
+  expect(within(screen.getByRole('region', { name: column === 'backlog' ? 'Backlog' : 'Ready' })).getByRole('button', { name: /./ })).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'In progress' })).getByTestId('column-count').textContent).toBe('0')
+})
+
+test.each(['review', 'needs_you', 'in_progress'] as const)('dragging a %s card into In progress does nothing', (column) => {
+  const ticket = makeTicket({}, column === 'review' ? { column, phase: 'ready_for_review' } : { column })
+  showBoard(ticket)
+  renderWithMantine(<Board />)
+  drag(ticket.id, 'in_progress')
+  expect(mockInvoke).not.toHaveBeenCalled()
+})
+
+test('an engine refusal of the start proposal shows a notification', async () => {
+  const ticket = makeTicket({}, { column: 'backlog' })
+  showBoard(ticket)
+  mockInvoke.mockRejectedValue(new Error('ticket: #1 is already running'))
+  renderWithMantine(<Board />)
+  drag(ticket.id, 'in_progress')
+  expect(await screen.findByText(/already running/)).toBeInTheDocument()
+  expect(useMainbus.getState().revealedProposal).toBeNull()
 })
 
 test('moving a ticket with uncommitted work to Done shows a notification', async () => {

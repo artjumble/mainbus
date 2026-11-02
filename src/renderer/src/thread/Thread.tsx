@@ -22,6 +22,8 @@ interface Props {
   summariseTools?: boolean
   /** The orchestrator's proposals, by id: each one's card goes where it was proposed. */
   proposals?: Record<string, Proposal>
+  /** A proposal whose card to scroll into view, once per `n`; it is tried again as the card arrives. */
+  reveal?: { id: string; n: number } | null
 }
 
 const NO_PROPOSALS: Record<string, Proposal> = {}
@@ -32,7 +34,7 @@ const NEAR_BOTTOM_PX = 48
  * The ticket thread: agent messages and tool rows tagged with their role, thinking, dividers (handoffs between
  * roles, new runs) and inline decision cards. Follows new events while scrolled to the bottom.
  */
-export function Thread({ events, decisions, runs, summariseTools: summarise = false, proposals = NO_PROPOSALS }: Props): ReactElement {
+export function Thread({ events, decisions, runs, summariseTools: summarise = false, proposals = NO_PROPOSALS, reveal = null }: Props): ReactElement {
   const scroller = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
@@ -40,6 +42,15 @@ export function Thread({ events, decisions, runs, summariseTools: summarise = fa
     const el = scroller.current
     if (el && atBottom.current) el.scrollTop = el.scrollHeight
   }, [events, decisions, proposals])
+
+  const revealed = useRef(0)
+  useEffect(() => {
+    if (!reveal || reveal.n === revealed.current) return
+    const card = scroller.current?.querySelector(`[data-proposal-id="${CSS.escape(reveal.id)}"]`)
+    if (!card) return
+    revealed.current = reveal.n
+    card.scrollIntoView?.({ block: 'nearest' })
+  }, [reveal, events, proposals])
 
   function onScroll(): void {
     const el = scroller.current

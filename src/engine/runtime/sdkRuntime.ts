@@ -54,7 +54,10 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__get_recent_events',
   'mcp__mainbus__list_pending_decisions',
   'mcp__mainbus__propose_create_tickets',
-  'mcp__mainbus__propose_start'
+  'mcp__mainbus__propose_start',
+  'mcp__mainbus__propose_pause',
+  'mcp__mainbus__propose_stop',
+  'mcp__mainbus__propose_skip'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -531,6 +534,24 @@ export class SdkRuntime implements AgentRuntime {
           },
           // The engine validates it again, against the board: the SDK passes what the agent sent.
           async (a) => toolText(await t.proposeStart(a))
+        ),
+        sdk.tool(
+          'propose_pause',
+          "Propose pausing the working role of a ticket; Resume continues it. The user confirms or rejects it; Mainbus pauses only then. Check get_run_status first. Then end your turn.",
+          { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to pause it, shown to the user') },
+          async (a) => toolText(await t.proposePause(a))
+        ),
+        sdk.tool(
+          'propose_stop',
+          "Propose stopping a ticket's run; the ticket goes back to Ready. The user confirms or rejects it; Mainbus stops it only then. Check get_run_status first. Then end your turn.",
+          { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to stop it, shown to the user') },
+          async (a) => toolText(await t.proposeStop(a))
+        ),
+        sdk.tool(
+          'propose_skip',
+          "Propose skipping a ticket's active role: it ends with a summary of its work so far and the next role starts (or the ticket goes to Review). The user confirms or rejects it; Mainbus skips only then. Check get_run_status first. Then end your turn.",
+          { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to skip it, shown to the user') },
+          async (a) => toolText(await t.proposeSkip(a))
         )
       ]
     })
