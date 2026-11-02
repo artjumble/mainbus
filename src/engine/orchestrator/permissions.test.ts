@@ -9,15 +9,24 @@ import { ORCHESTRATOR_DENIED, orchestratorVerdict } from './permissions'
 let tmp: string
 let CWD: string
 let REPO: string
+let HOME: string
+let TICKETS: string
+let WT: string
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-orch-perm-'))
-  CWD = path.join(tmp, 'home', 'orchestrator')
+  HOME = path.join(tmp, 'home')
+  CWD = path.join(HOME, 'orchestrator')
+  TICKETS = path.join(HOME, 'work', 'ws')
+  WT = path.join(TICKETS, '1-fix')
   await fs.mkdir(CWD, { recursive: true })
   REPO = await makeRepo(path.join(tmp, 'repo'))
   await write('.gitignore', '.env\nsecrets/\n')
   await write('.env', 'API_KEY=FAKE')
   await write('src/index.ts', 'export {}\n')
+  await runGit(['add', '-A'], REPO)
+  await runGit(['commit', '-m', 'files'], REPO)
+  await runGit(['worktree', 'add', '-b', 't1', WT], REPO)
 })
 
 afterEach(async () => {
@@ -29,7 +38,7 @@ async function write(rel: string, text: string, root = REPO): Promise<void> {
   await fs.writeFile(path.join(root, rel), text)
 }
 
-const verdict = (tool: string, input: Record<string, unknown>) => orchestratorVerdict(tool, input, { cwd: CWD, repo: REPO })
+const verdict = (tool: string, input: Record<string, unknown>) => orchestratorVerdict(tool, input, { cwd: CWD, readable: [REPO, TICKETS] })
 
 async function deniedFor(tool: string, input: Record<string, unknown>): Promise<string> {
   const v = await verdict(tool, input)
@@ -86,6 +95,44 @@ describe('orchestratorVerdict', () => {
     ['mcp__mainbus__handoff', { summary: 'x' }],
     ['mcp__other__tool', {}]
   ])('denies %s without a card', async (tool, input) => {
+    expect(await verdict(tool, input)).toEqual({ allow: false, message: ORCHESTRATOR_DENIED })
+  })
+})
+
+describe('ticket folders', () => {
+  test('allows Read, Glob and Grep in a ticket worktree, one made later too', async () => {
+    await write('src/a.ts', 'export {}\n', WT)
+    const later = path.join(TICKETS, '2-new')
+    await fs.mkdir(later, { recursive: true })
+    for (const dir of [WT, later]) {
+      expect(await verdict('Read', { file_path: path.join(dir, 'src', 'a.ts') })).toEqual({ allow: true })
+      expect(await verdict('Glob', { pattern: '**/*.ts', path: dir })).toEqual({ allow: true })
+      expect(await verdict('Grep', { pattern: 'x', path: dir })).toEqual({ allow: true })
+    }
+  })
+
+  test('refuses credential files in a worktree', async () => {
+    await write('.env', 'API_KEY=FAKE', WT)
+    expect(await deniedFor('Read', { file_path: path.join(WT, '.env') })).toMatch(/^Reads a credentials file/)
+    await write('.npmrc', 'token', WT)
+    expect(await deniedFor('Grep', { pattern: 'x', path: WT })).toContain('.npmrc')
+    // From the parent folder every file is checked, so the gitignored .env is caught.
+    await fs.rm(path.join(WT, '.npmrc'))
+    expect(await deniedFor('Grep', { pattern: 'x', path: TICKETS })).toContain('.env')
+  })
+
+  test.each([
+    ['another workspace', () => path.join(HOME, 'work', 'other', '1-x', 'a.ts')],
+    ['a folder sharing the prefix', () => path.join(HOME, 'work', 'ws-2', 'a.ts')],
+    ['a scratch folder', () => path.join(HOME, 'scratch', 'ws', '1-fix', 'a.txt')],
+    ['the database', () => path.join(HOME, 'mainbus.db')],
+    ['the backups', () => path.join(HOME, 'backups', 'x')]
+  ])('refuses %s', async (_name, file) => {
+    expect(await deniedFor('Read', { file_path: file() })).toContain(ORCHESTRATOR_DENIED)
+  })
+
+  test.each(['Write', 'Edit', 'Bash', 'PowerShell'])('still refuses %s with a path in a worktree', async (tool) => {
+    const input = { file_path: path.join(WT, 'a.ts'), command: `ls ${WT}`, content: '', old_string: 'a', new_string: 'b' }
     expect(await verdict(tool, input)).toEqual({ allow: false, message: ORCHESTRATOR_DENIED })
   })
 })

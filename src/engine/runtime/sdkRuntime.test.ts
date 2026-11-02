@@ -651,7 +651,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       additionalDirectories: [REPO],
       disallowedTools: ['Bash', 'Edit', 'Agent'],
       tools,
-      onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, repo: REPO }),
+      onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, readable: [REPO] }),
       ...over
     }
   }
@@ -787,7 +787,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       await new SdkRuntime(CLAUDE_PATH, f.sdk).start(
         makeOrchestratorSpec({
           additionalDirectories: [dir],
-          onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, repo: dir })
+          onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, readable: [dir] })
         })
       )
       const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]

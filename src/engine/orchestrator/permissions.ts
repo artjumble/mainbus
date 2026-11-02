@@ -8,18 +8,18 @@ export const ORCHESTRATOR_DENIED = 'The orchestrator only reads and proposes; it
 
 /**
  * Whether the orchestrator may make a tool call. It never asks the user: the Mainbus read and propose tools are
- * allowed, Read, Grep and Glob are allowed inside its own folder and the repo unless they could read a credential
+ * allowed, Read, Grep and Glob are allowed inside its own folder and the readable ones (the repo and the ticket folders) unless they could read a credential
  * file, and everything else is denied.
  */
 export async function orchestratorVerdict(
   toolName: string,
   input: Record<string, unknown>,
-  folders: { cwd: string; repo: string }
+  folders: { cwd: string; readable: string[] }
 ): Promise<PermissionVerdict> {
   if (ORCHESTRATOR_MAINBUS_TOOLS.includes(toolName)) return { allow: true }
   if (!ORCHESTRATOR_BUILT_IN_TOOLS.includes(toolName)) return { allow: false, message: ORCHESTRATOR_DENIED }
   // For these tools the guard checks only for credential files they name and reads outside the folders.
-  const reason = guardReason(toolName, input, { worktree: folders.cwd, additionalDirectories: [folders.repo], ownBranch: '' })
+  const reason = guardReason(toolName, input, { worktree: folders.cwd, additionalDirectories: folders.readable, ownBranch: '' })
   if (reason !== null) return { allow: false, message: `${reason.message}. ${ORCHESTRATOR_DENIED}` }
   if (toolName !== 'Grep') return { allow: true }
 

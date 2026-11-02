@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
 import type { Column, Decision, Phase, RoleStatus, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
@@ -76,6 +77,13 @@ function heldText(t: BoardTicket): string {
 
 function activeRole(t: BoardTicket): string {
   return t.lineup.find((r) => r.active)?.name ?? 'none'
+}
+
+/** The ticket's folder; its path stays after Done, when the folder is removed. */
+async function folderText(worktreePath: string | null): Promise<string> {
+  if (worktreePath === null) return 'None yet: Mainbus makes it when the ticket first starts.'
+  const there = await fs.stat(worktreePath).then(() => true, () => false)
+  return `${oneLine(worktreePath)}${there ? '' : ' (no longer there)'}`
 }
 
 function labels(t: BoardTicket): string {
@@ -249,12 +257,14 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         : // Before the first run the strip is the workspace lineup: the roles propose_start can name.
           `Not started. The lineup's roles, in order: ${t.lineup.map((r) => oneLine(r.name)).join(', ') || 'none'}.`
       const pr = t.pr ? oneLine(t.pr.url) : 'none'
+      const folder = await folderText(t.worktreePath)
       const sections = [
         `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nColumn: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}`,
         ...intentSections(t),
         t.spec ? `## Spec${byAgent}\n${data('spec', t.spec)}` : `## Spec\nNone.`,
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,
         `## Labels\n${labels(t)}`,
+        `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
         `## Latest run\n${roles}`
       ]

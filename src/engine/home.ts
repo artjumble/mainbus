@@ -48,3 +48,8 @@ export function resolveHome(
 export function scratchPathFor(paths: HomePaths, worktreePath: string): string {
   return path.join(paths.scratch, path.basename(path.dirname(worktreePath)), path.basename(worktreePath))
 }
+
+/** The folder holding all of a workspace's ticket worktrees: `work\<workspace slug>`. */
+export function ticketFoldersFor(paths: HomePaths, slug: string): string {
+  return path.join(paths.worktrees, slug)
+}

@@ -8,6 +8,7 @@ import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
+import { ticketFoldersFor, type HomePaths } from '../home'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
@@ -43,6 +44,8 @@ export interface OrchestratorDeps {
   runtime: AgentRuntime
   /** The data home: the orchestrator works in its `orchestrator` folder. */
   homeRoot: string
+  /** The data home's folders: the ticket folders of the open workspace are readable. */
+  paths: HomePaths
   now: () => Date
   emit: (e: EngineEvent) => void
   /** The open workspace, or null; send() rejects with `workspaceRequired` when there is none. */
@@ -247,14 +250,19 @@ export class OrchestratorSession {
 
   private async launch(runId: string, ws: Workspace, prompt: string, resumeSessionId?: string): Promise<void> {
     const cwd = this.folder
+    // The whole folder, not each ticket's: tickets start and finish while the session runs. It exists up front
+    // because the CLI may skip a folder it can't find.
+    const ticketFolders = ticketFoldersFor(this.deps.paths, ws.slug)
+    await fs.mkdir(ticketFolders, { recursive: true })
+    const readable = [ws.repoPath, ticketFolders]
     const spec: OrchestratorRunSpec = {
       kind: 'orchestrator',
       cwd,
       prompt,
-      appendSystemPrompt: buildOrchestratorPrompt(),
+      appendSystemPrompt: buildOrchestratorPrompt(ticketFolders),
       model: ORCHESTRATOR_MODEL,
       effort: ORCHESTRATOR_EFFORT,
-      additionalDirectories: [ws.repoPath],
+      additionalDirectories: readable,
       disallowedTools: ORCHESTRATOR_DISALLOWED,
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
       tools: {
@@ -267,7 +275,7 @@ export class OrchestratorSession {
         proposeHold: (a) => this.propose('hold', a),
         proposeAnswer: (a) => this.propose('answer', a)
       },
-      onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, repo: ws.repoPath })
+      onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, readable })
     }
     const handle = await this.deps.runtime.start(spec)
     if (this.shuttingDown) {
