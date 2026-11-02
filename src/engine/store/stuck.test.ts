@@ -183,3 +183,34 @@ describe('a declared wait on the run', () => {
     expect((await runs.listOpen()).map((r) => r.id)).toEqual([second])
   })
 })
+
+describe('replacing and the ladder', () => {
+  it('lists every episode of the given runs, open or closed, oldest first', async () => {
+    await stuck.hit(runId, hit)
+    await stuck.close(runId)
+    clock = new Date(later(10))
+    await stuck.hit(runId, { rule: 'silence', evidence: ['No events'] })
+    expect((await stuck.forRuns([runId])).map((e) => e.rule)).toEqual(['repeated_failure', 'silence'])
+    expect(await stuck.forRuns([])).toEqual([])
+    expect(await stuck.forRuns(['other'])).toEqual([])
+  })
+
+  it('reports a redirected episode that is hit again as news, but not one that is merely redirected', async () => {
+    const { episode } = await stuck.hit(runId, hit)
+    clock = new Date(later(2))
+    await stuck.markRedirected(episode.id)
+    // Redirected at +2 and not hit since: an old episode, nothing new.
+    expect(await stuck.changedSince(later(1))).toEqual([])
+    clock = new Date(later(8))
+    await stuck.hit(runId, hit)
+    expect((await stuck.changedSince(later(5))).map((c) => c.episode.id)).toEqual([episode.id])
+    expect(await stuck.changedSince(later(9))).toEqual([])
+  })
+
+  it('an episode ends with its replaced run', async () => {
+    await stuck.hit(runId, hit)
+    const fresh = await runs.replace(runId, { model: 'opus', effort: 'high', extraInstructions: null, handoffSummary: 's' })
+    expect(await stuck.open(runId)).toBeNull()
+    expect(await stuck.open(fresh!.id)).toBeNull()
+  })
+})

@@ -90,6 +90,7 @@ describe('create_tickets: execute and outcome', () => {
       decision: async () => null,
       openStuckEpisode: async () => null,
       redirectTicket: async () => {},
+      replaceTicket: async () => {},
       answerDecision: async () => {}
     }
   }

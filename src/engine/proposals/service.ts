@@ -93,7 +93,12 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
 
   function describe(p: Proposal): string {
     const kind = kindOf(p.kind)
-    const by = p.origin === 'drag' ? ', made by the user dragging the card into In progress' : ''
+    const by =
+      p.origin === 'drag'
+        ? ', made by the user dragging the card into In progress'
+        : p.origin === 'button'
+          ? ', made by the user pressing Replace… on the ticket'
+          : ''
     const head = `- Proposal ${p.id} (${kind.label}${by})`
     switch (p.status) {
       case 'rejected':
@@ -120,7 +125,7 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
         const split = splitEvidence(input, kind.evidenceKey ?? 'evidence')
         evidence = split.evidence
         if (kind.evidenceRequired && evidence === null) throw new ProposalInvalid(`${kind.evidenceKey ?? 'evidence'}: required`)
-        payload = await kind.propose(split.payload, { userMessage: at.userMessage, workspaceId: at.workspaceId }, deps.exec)
+        payload = await kind.propose(split.payload, { userMessage: at.userMessage, workspaceId: at.workspaceId, ...(at.origin ? { origin: at.origin } : {}) }, deps.exec)
       } catch (err) {
         if (err instanceof ProposalInvalid) return { ok: false, error: err.message }
         throw err

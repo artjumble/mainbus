@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, gte, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { StuckEpisode, StuckRule } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { agentRuns, stuckEpisodes } from '../db/schema'
@@ -29,11 +29,13 @@ export interface StuckRepo {
    * changing nothing, when the episode is closed or was already redirected.
    */
   markRedirected(episodeId: string): Promise<boolean>
+  /** Every episode, open or closed, of the given runs, oldest first. */
+  forRuns(runIds: string[]): Promise<StuckEpisode[]>
   /** True when a dead process was ever reported on the run, open or closed: it is reported once per run. */
   hadDeadProcess(runId: string): Promise<boolean>
   /** The open episodes of every ticket's open run, by ticket id. */
   openByTicket(): Promise<Map<string, StuckEpisode>>
-  /** The open episodes opened or escalated at or after `since` (all open ones when null), with their ticket and the run's role, oldest first. */
+  /** The open episodes opened, escalated or (once redirected) hit again at or after `since` (all open ones when null), with their ticket and the run's role, oldest first. */
   changedSince(since: string | null): Promise<{ ticketId: string; role: string; episode: StuckEpisode }[]>
 }
 
@@ -114,6 +116,12 @@ export function createStuckRepo(db: Db, now: () => Date): StuckRepo {
       })
     },
 
+    async forRuns(runIds) {
+      if (runIds.length === 0) return []
+      const rows = await db.select().from(stuckEpisodes).where(inArray(stuckEpisodes.agentRunId, runIds)).orderBy(asc(stuckEpisodes.openedAt))
+      return rows.map(toEpisode)
+    },
+
     async hadDeadProcess(runId) {
       const [row] = await db
         .select({ id: stuckEpisodes.id })
@@ -141,7 +149,14 @@ export function createStuckRepo(db: Db, now: () => Date): StuckRepo {
         .where(
           and(
             isNull(stuckEpisodes.closedAt),
-            since === null ? undefined : or(gte(stuckEpisodes.openedAt, since), gte(stuckEpisodes.escalatedAt, since))
+            since === null
+              ? undefined
+              : or(
+                  gte(stuckEpisodes.openedAt, since),
+                  gte(stuckEpisodes.escalatedAt, since),
+                  // A redirected episode that fires again is news too: it opens the way to a replacement.
+                  and(isNotNull(stuckEpisodes.redirectedAt), gt(stuckEpisodes.lastHitAt, stuckEpisodes.redirectedAt), gte(stuckEpisodes.lastHitAt, since))
+                )
           )
         )
         .orderBy(asc(stuckEpisodes.openedAt))

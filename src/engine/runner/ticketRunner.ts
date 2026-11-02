@@ -41,8 +41,8 @@ import { lineupStrip } from '../state/lineupStrip'
 import type { Repos } from '../store'
 import type { DecisionAction } from '../store/decisions'
 import type { AgentRunRow } from '../store/runs'
-import { previousAttempt, skippedDigest, skipSummaryPrompt } from './digest'
-import { STUCK } from '../stuck/config'
+import { previousAttempt, replaceSummaryPrompt, skippedDigest, skipSummaryPrompt } from './digest'
+import { STUCK, STUCK_RULE_TEXT } from '../stuck/config'
 import type { RunObservation } from '../stuck/observation'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
 
@@ -89,6 +89,14 @@ const RUN_ENDED = 'This run has ended.'
 const REDIRECT_STALE = 'The agent is no longer stuck in that episode, or it was already redirected'
 const NOT_WORKING = 'No agent is working on this ticket'
 export const MOVED_ON = 'The ticket has moved on: that role is no longer the active one'
+
+/** What the user chose for the run that replaces another. */
+export interface ReplaceRequest {
+  model: string
+  effort: Effort
+  /** Added to the ticket run's own instructions for the new run only; null for none. */
+  extraInstructions: string | null
+}
 
 /** The run an action was meant for; the action fails rather than act on another role. */
 export interface RunExpectation {
@@ -246,12 +254,27 @@ export class TicketRunner {
   }
 
   /** The ticket's open run's active role and the one a skip would start; null with no run or an ended one. */
-  async activeRole(
-    ticketId: string
-  ): Promise<{ agentRunId: string; role: string; agentStatus: TicketState['agentStatus']; next: string | null } | null> {
-    const { state, run } = await this.inspect(ticketId, false)
+  async activeRole(ticketId: string): Promise<{
+    agentRunId: string
+    role: string
+    agentStatus: TicketState['agentStatus']
+    model: string
+    effort: Effort
+    next: string | null
+  } | null> {
+    const { state, run, roles } = await this.inspect(ticketId, false)
     if (!run || run.endReason !== null) return null
-    return { agentRunId: run.id, role: run.role, agentStatus: state.agentStatus, next: (await this.nextRole(run))?.name ?? null }
+    // Ticket runs started before models were resolved at start hold nulls: those get the default table.
+    const role = roles ? launchRole(roles, run) : null
+    const fallback = defaultFor(run.role)
+    return {
+      agentRunId: run.id,
+      role: run.role,
+      agentStatus: state.agentStatus,
+      model: role?.model ?? fallback.model,
+      effort: role?.effort ?? fallback.effort,
+      next: (await this.nextRole(run))?.name ?? null
+    }
   }
 
   /**
@@ -302,6 +325,36 @@ export class TicketRunner {
    */
   redirect(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>): Promise<void> {
     return this.serial(ticketId, () => this.redirectNow(ticketId, expect, message, claim))
+  }
+
+  /**
+   * The user's confirmed replacement of the active role's agent: its process ends, its run ends as replaced with a
+   * handoff summary Mainbus generates from its log (or the digest, if that fails), and a fresh agent of the same
+   * role starts in the same worktree and ticket run, with that summary. Other roles' runs and the ticket run's
+   * snapshot are untouched.
+   */
+  replace(ticketId: string, expect: RunExpectation, request: ReplaceRequest): Promise<void> {
+    return this.serial(ticketId, () => this.replaceNow(ticketId, expect, request))
+  }
+
+  /**
+   * Called by the stuck detector when an episode opens on the run: a role whose agent was already replaced
+   * STUCK.maxReplacements times in this ticket run is marked Failed, with a plain account of what was tried, instead
+   * of being offered another redirect or replacement. False when the run isn't in that position.
+   */
+  async failIfExhausted(ticketId: string, runId: string): Promise<boolean> {
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run || run.id !== runId || run.endReason !== null) return false
+    if ((await this.repos.runs.replacedCount(run.ticketRunId, run.roleId)) < STUCK.maxReplacements) return false
+    const account = await this.stuckAccount(run)
+    if (!(await this.repos.runs.end(run.id, 'failed'))) return false
+    const ticket = await this.repos.tickets.get(ticketId)
+    const live = this.live.get(run.id)
+    if (live) live.ended = true
+    await this.record(this.target(run, ticket), { kind: 'error', message: account })
+    if (live) void this.stopProcess(live)
+    this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    return true
   }
 
   /** The user's Resume of a role they paused: the same session, with "Continue.". Never resumes any other pause. */
@@ -633,6 +686,92 @@ export class TicketRunner {
     if (failure !== null) throw new Error(`The message was not delivered: ${failure}`)
   }
 
+  private async replaceNow(ticketId: string, expect: RunExpectation, request: ReplaceRequest): Promise<void> {
+    if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    if (this.stopRequested.has(ticketId)) throw new Error(NOT_WORKING)
+    const run = await this.repos.runs.latest(ticketId)
+    if (run?.id !== expect.agentRunId) throw new Error(MOVED_ON)
+    if (run.endReason !== null) throw new Error(NOT_WORKING)
+    const ticket = await this.repos.tickets.get(ticketId)
+    const target = this.target(run, ticket)
+    // The ticket counts as working while the summary is written, so it never shows as paused or failed meanwhile.
+    this.handingOn.add(ticketId)
+    let launching = false
+    try {
+      this.limited.delete(ticketId)
+      // A handed-off role's process may still be ending its last turn; it is stopped along with the active one.
+      for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+
+      const { summary, source } = await this.summarise(run, (events, decisions) => replaceSummaryPrompt(events, decisions, run.role))
+      // The old agent's own handoff, a hand-back or a stop may have ended the run meanwhile: then that stands.
+      const next = await this.repos.runs.replace(run.id, { ...request, handoffSummary: summary })
+      if (next === null) return
+      await this.record(target, { kind: 'replaced', role: run.role, summary, source })
+      // The replaced agent's process is gone, so nothing is left to receive any answer.
+      await this.expirePending(target, (d) => d.agentRunId === run.id)
+      // This step holds the ticket's queue, so the fresh agent launches here rather than behind it.
+      launching = true
+      try {
+        await this.launchReplacement(next, summary)
+      } finally {
+        this.handingOn.delete(ticketId)
+      }
+    } finally {
+      if (!launching && !(await this.awaitingLaunch(ticketId, run.id))) this.handingOn.delete(ticketId)
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    }
+  }
+
+  /** Launches the run that replaced another: a fresh session whose first message carries the handoff summary. */
+  private async launchReplacement(run: AgentRunRow, summary: string): Promise<void> {
+    await this.whileLaunching(run.ticketId, async () => {
+      const prepared = await this.prepare(run.ticketId)
+      const ticketRun = await this.repos.runs.ticketRun(run.ticketRunId)
+      const launch: Launch = {
+        ...prepared,
+        role: launchRole(ticketRun.roles, run),
+        ticketRunId: run.ticketRunId,
+        handoffs: await this.handoffsBefore(run),
+        extraInstructions: joinInstructions(ticketRun.extraInstructions, run.extraInstructions)
+      }
+      const decisions = await this.repos.decisions.forTicket(run.ticketId)
+      const prompt =
+        `${firstMessage(prepared.ticket)}\n\n` +
+        `Handoff from the previous run: the ${run.role} before you got stuck and was replaced. You start afresh in the same worktree; ` +
+        `this is what it left you:\n${data('previous-run-summary', summary)}`
+      await this.launch(launch, run.id, prompt, decisions)
+    })
+  }
+
+  /**
+   * What happened to a stuck role in its ticket run, in plain words: each of its agents (oldest first) with its
+   * stuck episodes and evidence, the redirect messages sent and whether it was replaced.
+   */
+  private async stuckAccount(run: AgentRunRow): Promise<string> {
+    const runs = (await this.repos.runs.listForTicketRun(run.ticketRunId)).filter((r) => r.roleId === run.roleId)
+    const episodes = await this.repos.stuck.forRuns(runs.map((r) => r.id))
+    const replaced = runs.filter((r) => r.endReason === 'replaced').length
+    const lines = [
+      `The ${run.role} got stuck again after being replaced ${replaced} ${replaced === 1 ? 'time' : 'times'}, so Mainbus marked it Failed instead of offering another redirect or replacement. What was tried:`
+    ]
+    for (const [i, r] of runs.entries()) {
+      const messages = (await this.repos.runs.events(r.id)).flatMap((e) => (e.event.kind === 'redirected' ? [e.event.text] : []))
+      const parts: string[] = []
+      let redirects = 0
+      for (const ep of episodes.filter((e) => e.agentRunId === r.id)) {
+        const evidence = ep.evidence.map((l) => oneLine(l).slice(0, 200)).join(' | ')
+        let part = `It looked stuck (${STUCK_RULE_TEXT[ep.rule]}). Evidence: ${evidence}.`
+        if (ep.redirectedAt !== null) part += ` It was redirected with: ${JSON.stringify(oneLine(messages[redirects++] ?? ''))}.`
+        parts.push(part)
+      }
+      if (parts.length === 0) parts.push('It was not reported as stuck.')
+      const end = r.id === run.id ? 'It is stuck again now.' : r.endReason === 'replaced' ? 'It was then replaced by a fresh agent.' : ''
+      lines.push(`${i + 1}. The ${i === 0 ? 'first' : i === runs.length - 1 ? 'latest' : 'next'} ${run.role}: ${[...parts, end].filter(Boolean).join(' ')}`)
+    }
+    return lines.join('\n')
+  }
+
   private async resumeNow(ticketId: string): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
     const run = await this.repos.runs.latest(ticketId)
@@ -662,7 +801,7 @@ export class TicketRunner {
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
 
-      const { summary, source } = await this.skipSummary(run, next)
+      const { summary, source } = await this.summarise(run, (events, decisions) => skipSummaryPrompt(events, decisions, run.role, next?.name ?? null))
       // The skipped agent's own handoff, a hand-back or a stop may have ended the run meanwhile: then that stands.
       let nextRun: AgentRunRow | null = null
       if (next) {
@@ -708,10 +847,14 @@ export class TicketRunner {
   }
 
   /**
-   * The handoff summary of a skipped role: written by a one-shot model call, through the runtime and the user's own
-   * `claude`, from the role's log in this ticket run; or, when that fails, is empty or takes too long, the digest.
+   * The handoff summary of a skipped or replaced role: written by a one-shot model call, through the runtime and the
+   * user's own `claude`, from the role's log in this ticket run (`prompt` is what it is asked); or, when that fails,
+   * is empty or takes too long, the digest.
    */
-  private async skipSummary(run: AgentRunRow, next: LineupRole | null): Promise<{ summary: string; source: 'summary' | 'digest' }> {
+  private async summarise(
+    run: AgentRunRow,
+    prompt: (events: StoredEvent[], decisions: Decision[]) => string
+  ): Promise<{ summary: string; source: 'summary' | 'digest' }> {
     const events: StoredEvent[] = []
     for (const earlier of await this.repos.runs.listForTicketRun(run.ticketRunId)) {
       if (earlier.roleId === run.roleId) events.push(...(await this.repos.runs.events(earlier.id)))
@@ -724,7 +867,7 @@ export class TicketRunner {
       const call = this.deps.runtime.summarize({
         cwd: worktree.path,
         tempDir: worktree.scratch,
-        prompt: skipSummaryPrompt(events, decisions, run.role, next?.name ?? null),
+        prompt: prompt(events, decisions),
         timeoutMs
       })
       // Bounded here too, whatever the runtime does with its timeout.
@@ -899,17 +1042,18 @@ export class TicketRunner {
       const ticketRun = await this.repos.runs.ticketRun(current.ticketRunId)
       const launch: Launch = {
         ...prepared,
-        role: roleIn(ticketRun.roles, current),
+        role: launchRole(ticketRun.roles, current),
         ticketRunId: current.ticketRunId,
         handoffs: await this.handoffsBefore(current),
-        extraInstructions: ticketRun.extraInstructions
+        extraInstructions: joinInstructions(ticketRun.extraInstructions, current.extraInstructions)
       }
       const events = await this.repos.runs.events(run.id)
       // A role handed a problem back, or returned to, worked in its earlier runs of this ticket run too.
       const before: StoredEvent[] = []
       for (const earlier of await this.repos.runs.listForTicketRun(current.ticketRunId)) {
         if (earlier.id === current.id) break
-        if (earlier.roleId === current.roleId) before.push(...(await this.repos.runs.events(earlier.id)))
+        // A replaced agent's log is not this one's: it got a summary of it instead.
+        if (earlier.roleId === current.roleId && earlier.endReason !== 'replaced') before.push(...(await this.repos.runs.events(earlier.id)))
       }
       // The whole ticket's decisions, so a run made by Start again keeps the earlier runs' answers.
       const decisions = await this.repos.decisions.forTicket(run.ticketId)
@@ -1548,6 +1692,19 @@ function roleIn(roles: LineupRole[], run: AgentRunRow): LineupRole {
   const role = roles.find((r) => r.id === run.roleId)
   if (!role) throw new Error(`The role of run ${run.id} is missing from its ticket run`)
   return role
+}
+
+/** The run's role as it launches: the snapshot's, with the model and effort the run itself was started with. */
+function launchRole(roles: LineupRole[], run: AgentRunRow): LineupRole {
+  const role = roleIn(roles, run)
+  return { ...role, ...(run.model !== null ? { model: run.model } : {}), ...(run.effort !== null ? { effort: run.effort as Effort } : {}) }
+}
+
+/** The ticket run's extra instructions, then the ones the user added for one run. */
+function joinInstructions(ticketRun: string | null, run: string | null): string | null {
+  return ticketRun !== null && run !== null ? `${ticketRun}
+
+${run}` : (ticketRun ?? run)
 }
 
 /** The run a thread event of `target` belongs to, as the renderer sees it. */

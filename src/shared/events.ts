@@ -82,10 +82,12 @@ export type ThreadEvent =
   | { kind: 'resumed' }
   /** The user confirmed the orchestrator's redirect of the run's role: its turn was interrupted and `text` sent as its next message. */
   | { kind: 'redirected'; role: string; text: string }
+  /** The user replaced the run's role: this run ended, and `summary` (generated from its log, or the digest) goes to its successor. */
+  | { kind: 'replaced'; role: string; summary: string; source: 'summary' | 'digest' }
   /** The run's role declared a wait with report_waiting: the stuck detector expects silence until `until` (ISO). */
   | { kind: 'waiting'; reason: string; until: string }
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */
-  | { kind: 'proposal'; proposalId: string; from?: 'drag' }
+  | { kind: 'proposal'; proposalId: string; from?: 'drag' | 'button' }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 

@@ -108,6 +108,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
   const started = useRef(false)
   const [skipping, setSkipping] = useState(false)
+  const proposeReplace = useMainbus((s) => s.proposeReplace)
   const { agentStatus, canContinue, phase, pausedByUser } = ticket.state
   const isDone = phase === 'done'
   const ended = agentStatus === 'failed' || agentStatus === 'handed_off'
@@ -182,6 +183,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     return guarded(() => invoke('agent.skip', ticket.id), 'Could not skip')
   }
 
+  /** Replace…: opens the replace card in the orchestrator panel, with no stuck episode needed. */
+  function replace(): Promise<boolean> {
+    return guarded(() => proposeReplace(ticket.id), 'Could not propose a replacement')
+  }
+
   const activeRole = ticket.lineup.find((r) => r.active)
   const composerPlaceholder = ended
     ? 'Message to start a new run'
@@ -222,6 +228,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
           {runOpen && activeRole && (
             <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
               Skip to next role
+            </Button>
+          )}
+          {runOpen && activeRole && (
+            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void replace()}>
+              Replace…
             </Button>
           )}
           {canContinue && (

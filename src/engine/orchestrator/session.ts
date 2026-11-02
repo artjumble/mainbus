@@ -211,23 +211,36 @@ export class OrchestratorSession {
    * it hears the outcome in its next turn like any proposal. A start already pending for the ticket is returned.
    */
   proposeStartFromDrag(ticket: Ticket): Promise<Proposal> {
+    return this.proposeFromUser(ticket, 'start_lineup', 'drag', {
+      ticket: ticket.number,
+      reason: `You dragged #${ticket.number} ${JSON.stringify(ticket.title)} into In progress.`
+    })
+  }
+
+  /**
+   * The user pressed Replace… on a ticket: a replace proposal for its active role, made by the engine and shown in the
+   * thread like a drag's start. No stuck episode is needed, and no orchestrator turn happens. A replace already
+   * pending for the ticket is returned.
+   */
+  proposeReplaceFromButton(ticket: Ticket): Promise<Proposal> {
+    const text = `You pressed Replace… on #${ticket.number} ${JSON.stringify(ticket.title)}.`
+    return this.proposeFromUser(ticket, 'replace', 'button', { ticket: ticket.number, reason: text, evidence: text })
+  }
+
+  private proposeFromUser(ticket: Ticket, kind: ProposalKindName, from: 'drag' | 'button', input: unknown): Promise<Proposal> {
     return this.serial(async () => {
       if (this.shuttingDown) throw new Error('Mainbus is shutting down')
       const ws = await this.deps.workspace()
       if (!ws || ws.id !== ticket.workspaceId) throw new Error(this.deps.workspaceRequired)
       const pending = (await this.deps.proposals.list()).find(
-        (p) => p.status === 'pending' && p.kind === 'start_lineup' && (p.payload as { ticketId?: string }).ticketId === ticket.id
+        (p) => p.status === 'pending' && p.kind === kind && (p.payload as { ticketId?: string }).ticketId === ticket.id
       )
       if (pending) return pending
       // With no session yet the run is just a place for the card; the next message launches it.
       const runId = this.live?.runId ?? (await this.deps.repo.latestOpen())?.id ?? (await this.deps.repo.create()).id
-      const made = await this.deps.proposals.propose(
-        'start_lineup',
-        { ticket: ticket.number, reason: `You dragged #${ticket.number} ${JSON.stringify(ticket.title)} into In progress.` },
-        { workspaceId: ws.id, orchestratorRunId: runId, userMessage: null, origin: 'drag' }
-      )
+      const made = await this.deps.proposals.propose(kind, input, { workspaceId: ws.id, orchestratorRunId: runId, userMessage: null, origin: from })
       if (!made.ok) throw new Error(made.error)
-      await this.record(runId, { kind: 'proposal', proposalId: made.proposal.id, from: 'drag' })
+      await this.record(runId, { kind: 'proposal', proposalId: made.proposal.id, from })
       return made.proposal
     })
   }
@@ -278,7 +291,8 @@ export class OrchestratorSession {
         proposeSkip: (a) => this.propose('skip', a),
         proposeHold: (a) => this.propose('hold', a),
         proposeAnswer: (a) => this.propose('answer', a),
-        proposeRedirect: (a) => this.propose('redirect', a)
+        proposeRedirect: (a) => this.propose('redirect', a),
+        proposeReplace: (a) => this.propose('replace', a)
       },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, readable })
     }

@@ -1,4 +1,15 @@
+import type { StuckRule } from '../../shared/domain'
+
 const MINUTE = 60_000
+
+/** Plain words for what each rule saw. */
+export const STUCK_RULE_TEXT: Record<StuckRule, string> = {
+  repeated_failure: 'the same command failing again and again',
+  no_progress: 'no file changes or new kinds of tool for a while',
+  silence: 'no events for a while',
+  long_turn: 'one turn running very long',
+  dead_process: 'the agent process ended'
+}
 
 /** The stuck detector's defaults, all in one place; there is no settings screen for them yet. */
 export const STUCK = {
@@ -19,7 +30,9 @@ export const STUCK = {
   /** The hit count at which an episode asks for a closer look. */
   escalateAtHit: 3,
   /** The longest a declared wait may run ahead of now. */
-  maxWaitMs: 120 * MINUTE
+  maxWaitMs: 120 * MINUTE,
+  /** A role replaced this many times in a ticket run that gets stuck again is marked Failed, not offered another redirect or replacement. */
+  maxReplacements: 2
 } as const
 
 /** Folders whose files never count as the agent's work: dependencies, build output and caches. */

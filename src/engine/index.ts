@@ -29,6 +29,7 @@ import { createProposalService, type ProposalService } from './proposals/service
 import { ProcessSweeper } from './processes/sweep'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
 import { newestChange } from './stuck/files'
+import { firedAgainAfterRedirect } from './stuck/ladder'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -143,6 +144,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       timer: cfg.stuck?.timer ?? realTimer,
       ...(cfg.stuck?.intervalMs !== undefined ? { intervalMs: cfg.stuck.intervalMs } : {}),
       observe: (ticketId) => runner.observeRun(ticketId),
+      failIfExhausted: (ticketId, runId) => runner.failIfExhausted(ticketId, runId),
       newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
     })
     await worktrees.recoverPendingCleanups()
@@ -297,6 +299,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             return open?.id === expect.episodeId && (await repos.stuck.markRedirected(expect.episodeId))
           })
         },
+        replaceTicket: (ticketId, expect, request) => {
+          requireRuntime()
+          return runner.replace(ticketId, expect, request)
+        },
         stopTicket,
         skipTicket,
         now,
@@ -392,7 +398,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             evidence: episode.evidence,
             hitCount: episode.hitCount,
             needsCloserLook: episode.needsCloserLook,
-            redirected: episode.redirectedAt !== null
+            redirected: episode.redirectedAt !== null,
+            firedAgain: firedAgainAfterRedirect(episode)
           })
         }
         return reports
@@ -527,6 +534,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ticket = await repos.tickets.get(ticketId)
         if (ticket.workspaceId !== ws.id) throw new Error('That ticket is not in the open workspace')
         return orchestrator.proposeStartFromDrag(ticket)
+      },
+      'ticket.proposeReplace': async (ticketId) => {
+        const ws = await requireWorkspace()
+        const ticket = await repos.tickets.get(ticketId)
+        if (ticket.workspaceId !== ws.id) throw new Error('That ticket is not in the open workspace')
+        return orchestrator.proposeReplaceFromButton(ticket)
       },
       // Reached only through `invoke` (the renderer's IPC): only the user decides a proposal. No runtime needed.
       'proposal.confirm': (id, override) => proposals.confirm(id, override),

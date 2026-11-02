@@ -114,7 +114,7 @@ export const agentRuns = sqliteTable(
     effort: text('effort'),
     startedAt: text('started_at').notNull(),
     endedAt: text('ended_at'),
-    endReason: text('end_reason', { enum: ['handoff', 'handed_back', 'stopped', 'failed'] }),
+    endReason: text('end_reason', { enum: ['handoff', 'handed_back', 'stopped', 'failed', 'replaced'] }),
     /**
      * The snapshot id of the role this run's handoff goes to instead of the next one: the role that reported
      * a problem and is waiting for this one to deal with it. Null hands on to the next role.
@@ -128,7 +128,13 @@ export const agentRuns = sqliteTable(
     /** JSON: { reason, until }. A wait the agent declared with report_waiting; the stuck detector honours it until `until`. */
     declaredWait: text('declared_wait'),
     /** How many times the user's confirmed redirects interrupted this run (at most one per stuck episode). */
-    redirectCount: integer('redirect_count').notNull().default(0)
+    redirectCount: integer('redirect_count').notNull().default(0),
+    /** The run that replaced this one (end reason 'replaced'), or null. */
+    replacedBy: text('replaced_by'),
+    /** The handoff summary Mainbus generated from this run's log when the user replaced it, or null. */
+    handoffSummary: text('handoff_summary'),
+    /** Extra instructions the user added when this run replaced another; null for none. */
+    extraInstructions: text('extra_instructions')
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )
@@ -258,7 +264,7 @@ export const proposals = sqliteTable(
       .notNull()
       .references(() => orchestratorRuns.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(),
-    origin: text('origin', { enum: ['orchestrator', 'drag'] }).notNull().default('orchestrator'),
+    origin: text('origin', { enum: ['orchestrator', 'drag', 'button'] }).notNull().default('orchestrator'),
     payload: text('payload').notNull(), // JSON: the kind's payload, as proposed
     evidence: text('evidence'),
     status: text('status', { enum: ['pending', 'confirmed', 'overridden', 'rejected', 'failed'] }).notNull(),

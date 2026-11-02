@@ -105,6 +105,7 @@ beforeEach(async () => {
       live: live(),
       ...scene()
     }),
+    failIfExhausted: async () => false,
     newestChange: async () => files
   })
 })

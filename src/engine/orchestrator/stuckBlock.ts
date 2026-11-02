@@ -12,8 +12,10 @@ export interface StuckReport {
   hitCount: number
   /** The episode reached its escalation count: it asks for a closer look. */
   needsCloserLook: boolean
-  /** The episode was already redirected once: the next step is a replacement. */
+  /** The episode was already redirected once. */
   redirected?: boolean
+  /** It was redirected and has fired again since: the next step is a replacement. */
+  firedAgain?: boolean
 }
 
 /** The block that opens the orchestrator's next message, or null when no episode opened or escalated. */
@@ -22,7 +24,11 @@ export function stuckBlock(reports: StuckReport[]): string | null {
   const lines = reports.map((r) => {
     const look = r.needsCloserLook ? ` It has now been flagged ${r.hitCount} times and needs a closer look.` : ''
     const evidence = r.evidence.map((e) => `  - ${data('stuck-evidence', oneLine(e), true)}`).join('\n')
-    const redirected = r.redirected ? ' It was already redirected once; propose a replacement, not another redirect.' : ''
+    const redirected = r.firedAgain
+      ? ' It was redirected once and has fired again: propose a replacement, not another redirect.'
+      : r.redirected
+        ? ' It was already redirected once, and has not fired again since: propose neither a redirect nor a replacement yet.'
+        : ''
     return `- #${r.number} ${JSON.stringify(oneLine(r.title))}: the ${oneLine(r.role)} looks stuck.${look}${redirected} Evidence (from the agent's log):\n${evidence}`
   })
   return [STUCK_HEADING, ...lines].join('\n')

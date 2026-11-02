@@ -329,3 +329,18 @@ test('a redirect is a Mainbus entry naming the role, not the user own message', 
   expect(within(entry).getByText('Mainbus · Redirected Implementer')).toBeInTheDocument()
   expect(document.querySelector('[data-event="user_message"]')).toBeNull()
 })
+
+test('a replacement is a Mainbus entry with the summary the next agent starts from', () => {
+  const events = [ev({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary' })]
+  renderWithMantine(<Thread events={events} decisions={[]} />)
+  const entry = screen.getByText('It tried X; Y failed.').closest('[data-event="replaced"]') as HTMLElement
+  expect(entry).not.toBeNull()
+  expect(within(entry).getByText('Mainbus · Replaced Implementer')).toBeInTheDocument()
+  expect(document.querySelector('[data-event="user_message"]')).toBeNull()
+})
+
+test('a replacement summary built from the digest says so', () => {
+  const events = [ev({ kind: 'replaced', role: 'Implementer', summary: 'Implementer: at work', source: 'digest' })]
+  renderWithMantine(<Thread events={events} decisions={[]} />)
+  expect(screen.getByText('Mainbus · Replaced Implementer (summary from the log digest)')).toBeInTheDocument()
+})

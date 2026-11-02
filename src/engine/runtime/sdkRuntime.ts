@@ -64,7 +64,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_skip',
   'mcp__mainbus__propose_hold',
   'mcp__mainbus__propose_answer',
-  'mcp__mainbus__propose_redirect'
+  'mcp__mainbus__propose_redirect',
+  'mcp__mainbus__propose_replace'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -646,6 +647,16 @@ export class SdkRuntime implements AgentRuntime {
             evidence: z.string().describe('What you read that shows why this will help, shown to the user')
           },
           async (a) => toolText(await t.proposeRedirect(a))
+        ),
+        sdk.tool(
+          'propose_replace',
+          "Propose replacing a stuck agent with a fresh one of the same role, which starts from a summary of what the first did. Only for a ticket whose agent's open stuck episode was already redirected and has fired again (get_run_status shows it); it is refused otherwise. The user keeps the current agent, overrides the new one's model, effort and extra instructions, or confirms; nothing changes until then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            reason: z.string().describe('Why a replacement will do better than the agent so far, shown to the user'),
+            evidence: z.string().describe('What you read that shows the redirect did not help, shown to the user')
+          },
+          async (a) => toolText(await t.proposeReplace(a))
         )
       ]
     })

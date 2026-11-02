@@ -149,6 +149,12 @@ export interface EngineCommands {
    */
   'ticket.proposeStart'(ticketId: string): Proposal
   /**
+   * The user pressed Replace… on a ticket with an open run: stores a replace proposal for its active role, with no
+   * orchestrator turn and no stuck episode needed. Returns the pending proposal, which the orchestrator panel shows;
+   * one already pending for the ticket is returned as it is. Only the renderer can reach it.
+   */
+  'ticket.proposeReplace'(ticketId: string): Proposal
+  /**
    * The orchestrator's proposals, decided once only. Confirm carries it out: as proposed, or with the user's
    * `override` (validated like the proposal). A failure while carrying it out comes back as a failed proposal.
    */

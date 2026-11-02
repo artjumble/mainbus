@@ -194,3 +194,11 @@ test('the Activity records a redirect with who suggested and who confirmed it', 
     within(activity).getByText('Redirected Implementer: Timeouts are ruled out; check the shared fixtures instead. (suggested by the orchestrator, confirmed by you)')
   ).toBeInTheDocument()
 })
+
+test('the Activity records a replacement, confirmed by the user, with its summary', () => {
+  const events = [makeEvent({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary' }, { at: '2026-10-30T10:05:00.000Z' })]
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} />)
+  const activity = screen.getByRole('region', { name: 'Activity' })
+  expect(within(activity).getByText('Replaced Implementer (confirmed by you)')).toBeInTheDocument()
+  expect(within(activity).getByText('It tried X; Y failed.')).toBeInTheDocument()
+})

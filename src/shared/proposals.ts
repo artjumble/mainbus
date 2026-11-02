@@ -8,10 +8,13 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace'
 
-/** Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress. */
-export type ProposalOrigin = 'orchestrator' | 'drag'
+/**
+ * Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress
+ * or pressed a ticket's Replace… button.
+ */
+export type ProposalOrigin = 'orchestrator' | 'drag' | 'button'
 
 /** Something the orchestrator proposed, which engine code carries out once the user confirms it. */
 export interface Proposal {
@@ -215,6 +218,42 @@ export interface RedirectResult {
   title: string
   role: string
   message: string
+}
+
+/**
+ * The payload of a replace proposal: the run to replace and the stuck episode that led to it (null when the user
+ * asked with the ticket's Replace… button), with the model, effort and extra instructions the new run gets.
+ */
+export interface ReplacePayload {
+  ticketId: string
+  number: number
+  title: string
+  agentRunId: string
+  role: string
+  episodeId: string | null
+  /** The episode's evidence lines when it was proposed; empty without an episode. */
+  episodeEvidence: string[]
+  /** Why a replacement, in the orchestrator's words or Mainbus's. */
+  reason: string
+  model: string
+  effort: Effort
+  extraInstructions: string | null
+}
+
+/** What the user's Override sends for a replace: the new run's model and effort, and its extra instructions. */
+export interface ReplaceOverride {
+  model: string
+  effort: Effort
+  extraInstructions: string
+}
+
+export interface ReplaceResult {
+  ticketId: string
+  number: number
+  title: string
+  role: string
+  model: string
+  effort: Effort
 }
 
 /** The result of a proposal that failed while being carried out. */
