@@ -26,6 +26,9 @@ export type AgentRunRow = {
   returnToRoleId: string | null
   /** The user skipped the run's role: it ended as handed off, with a handoff summary Mainbus generated. */
   skipped: boolean
+  /** The agent's `claude` process id and start time, until what it left running has been swept; null when none is recorded. */
+  processPid: number | null
+  processStartedAt: number | null
 }
 
 /** How a run ends when the user skipped its role. */
@@ -72,6 +75,8 @@ export interface RunRepo {
   listForTicketRun(ticketRunId: string): Promise<AgentRunRow[]>
   ticketRun(ticketRunId: string): Promise<TicketRunRow>
   setSession(runId: string, sessionId: string): Promise<void>
+  /** Records the run's `claude` process (or, with null, that nothing of it is left to sweep). */
+  setProcess(runId: string, process: { pid: number; startedAt: number } | null): Promise<void>
   /**
    * Ends an open run, and its ticket run with it: a handoff ends the ticket run as done (it was the last role),
    * a stop or failure as stopped or failed. Returns false, changing nothing, if the run had already ended.
@@ -94,7 +99,9 @@ const runColumns = {
   startedAt: agentRuns.startedAt,
   endedAt: agentRuns.endedAt,
   returnToRoleId: agentRuns.returnTo,
-  skipped: agentRuns.skipped
+  skipped: agentRuns.skipped,
+  processPid: agentRuns.processPid,
+  processStartedAt: agentRuns.processStartedAt
 }
 
 const TICKET_RUN_END: Record<EndingReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
@@ -216,6 +223,13 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
 
     async setSession(runId, sessionId) {
       await db.update(agentRuns).set({ sessionId }).where(eq(agentRuns.id, runId))
+    },
+
+    async setProcess(runId, process) {
+      await db
+        .update(agentRuns)
+        .set({ processPid: process?.pid ?? null, processStartedAt: process?.startedAt ?? null })
+        .where(eq(agentRuns.id, runId))
     },
 
     async end(runId, reason, opts) {

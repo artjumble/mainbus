@@ -117,6 +117,25 @@ afterEach(() => {
 })
 
 describe('SdkRuntime', () => {
+  test('starts a role's claude through its own spawn, which reports the process id and its exit', async () => {
+    const f = fakeSdk({ messages: fixture('e1-simple') })
+    const started: number[] = []
+    const exited: number[] = []
+    const spec = makeSpec({ onProcessStart: (p) => started.push(p.pid), onProcessExit: (p) => exited.push(p.pid) })
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const spawnClaude = f.calls[0].options.spawnClaudeCodeProcess as (o: unknown) => { pid?: number; kill(): boolean }
+    const child = spawnClaude({
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      cwd: process.cwd(),
+      env: { ...process.env },
+      signal: new AbortController().signal
+    })
+    expect(started).toEqual([child.pid])
+    child.kill()
+    await vi.waitFor(() => expect(exited).toEqual([child.pid]))
+  })
+
   test('passes the official binary path, cwd, model, effort, disallowed tools, additional directories and appended system prompt', async () => {
     const f = fakeSdk({ messages: fixture('e1-simple') })
     const spec = makeSpec()

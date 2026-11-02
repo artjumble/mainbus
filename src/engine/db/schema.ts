@@ -121,7 +121,10 @@ export const agentRuns = sqliteTable(
      */
     returnTo: text('return_to'),
     /** The user skipped the run's role: it ended as handed off, with a handoff summary Mainbus generated. */
-    skipped: integer('skipped', { mode: 'boolean' }).notNull().default(false)
+    skipped: integer('skipped', { mode: 'boolean' }).notNull().default(false),
+    /** The agent's `claude` process id and its start time (ms since the epoch), until what it left running has been swept. */
+    processPid: integer('process_pid'),
+    processStartedAt: integer('process_started_at')
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )
