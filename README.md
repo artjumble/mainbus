@@ -1,6 +1,6 @@
 # Mainbus
 
-A local desktop app for running AI coding agents against a ticket board. You write a ticket, and a lineup of Claude Code agents takes it from plan to reviewed branch. Mainbus records the work in a thread you can read, turns anything an agent wants to do outside its lane into a card you answer, and stops at Review for you to merge.
+A local desktop app for running AI coding agents against a ticket board. You write a ticket, and a lineup of Claude Code agents takes it from plan to reviewed branch. Mainbus records the work in a thread you can read, turns anything an agent wants to do outside its lane into a card you answer, notices when an agent gets stuck, and stops at Review for you to merge.
 
 Since its MVP, Mainbus has been built by Mainbus: each feature after that is a ticket on its own board, worked by its own agents, and merged as a pull request.
 
@@ -13,6 +13,21 @@ The name comes from the "main bus" pattern in Factorio: one central line that fe
 - **Lineups of role agents.** The default lineup is Planner → Implementer → Reviewer, and each workspace can reorder, add or edit roles. Each role is a fresh agent that hands off to the next one with a summary. A Reviewer can hand work back to the Implementer, up to three round trips, after which the ticket comes to you.
 - **Your words are the acceptance bar.** The ticket's intent is kept verbatim and given to every role as the standard it may not widen. Anything beyond it has to come back to you as a question.
 - **Questions and permissions as cards.** Agents ask through a Mainbus tool rather than a terminal prompt, and anything that needs approval shows as a card with Allow once, Always allow in this workspace, or Deny. The ticket moves to Needs you until you answer.
+- **One decision, three places.** An open question shows on the board card, in the orchestrator panel and inline in the ticket's thread, and answering it in any one of them resolves all three. **Later…** defers a decision until a date, when it comes back. A ticket can be put on hold, optionally until a date, and is released automatically when that date arrives.
+- **An orchestrator beside the board.** A docked panel holds a read-only Claude Code session that can see the board. Ask it in plain words and it drafts tickets with your words kept as the intent, proposes starting, pausing or holding tickets, picks a model and effort for each role, and recommends answers to open decisions, flagging the ones that need your judgement. Each proposal is a card you confirm or override, and Mainbus, not the model, carries it out.
+- **Stuck agents are noticed and recovered.** Once a minute, a detector checks every running agent's log and worktree for a stuck pattern:
+  - the same command failing 5 times in a row;
+  - 15 minutes without a file change or a new kind of tool;
+  - 10 minutes without a single event;
+  - one turn running over an hour;
+  - an agent process that has ended.
+
+  An agent that is still changing files, or has declared a wait, isn't stuck. Each stuck episode raises one alert rather than a stream of them. Recovery goes up a ladder:
+  1. **Redirect:** one corrective message to the agent.
+  2. **Replace:** a fresh agent for the same role, which starts from a generated summary of the previous run.
+  3. **Failed:** after two replacements, the ticket comes to you.
+
+  The orchestrator proposes each step as a card. The **Replace…** button in the ticket view offers a replacement at any time. The thread marks where the replacement took over, and **View previous run** opens the old run read-only.
 - **Unattended mode.** Mainbus works through Ready one ticket at a time and waits when Ready is empty.
 - **Pull requests at Review.** Optionally, Mainbus pushes the branch and opens a PR through the GitHub CLI when the last role hands off.
 - **Agents can file tickets.** The `mainbus` CLI and an MCP server let a Claude Code session in another terminal create, list and read tickets on the running board. New tickets always land in Backlog for you to review.
@@ -28,10 +43,15 @@ flowchart LR
   subgraph Engine["Engine (Node, no Electron imports)"]
     Store[(SQLite)]
     Runner[Ticket runner]
+    Orch[Orchestrator session]
+    Stuck[Stuck detector]
     Guard[Permission guard]
     MCP[Mainbus MCP tools]
   end
+  Stuck -- reads logs --> Store
+  Orch -- confirmed proposals --> Runner
   Runner --> Runtime["AgentRuntime adapter"] --> SDK["Agent SDK"] --> CLI["claude.exe"]
+  Orch --> Runtime
   CLI -- tool calls --> Guard
   CLI -- ask_user / handoff --> MCP
   Intake["mainbus CLI / MCP server"] -- named pipe --> Engine
@@ -43,10 +63,11 @@ Mainbus's guiding rule is that **state lives on disk and code owns the mechanics
   - `ask_user` opens a decision and ends the agent's turn;
   - `handoff` passes the ticket to the next role;
   - `report_problem` hands back to an earlier role or asks you;
-  - `check_criterion` ticks an acceptance criterion the agent has verified.
+  - `check_criterion` ticks an acceptance criterion the agent has verified;
+  - `report_waiting` declares a legitimate wait of up to two hours, such as a slow build, so the stuck detector doesn't take the silence for being stuck.
 
   The engine, not the model, moves the ticket between columns.
-- **Launch hardening.** Agents can't use the built-in question tool, subagents, their own worktrees or scheduling tools, so every question and every piece of work goes through Mainbus's records. They load only the repository's own Claude settings, never the user's global ones. The system prompt draws a trust boundary: the ticket and Mainbus's messages are instructions, while files, tool output and web pages are data.
+- **Launch hardening.** Agents can't use the built-in question tool, subagents, their own worktrees, scheduling tools or background commands, so every question and every piece of work goes through Mainbus's records. They load only the repository's own Claude settings, never the user's global ones. The system prompt draws a trust boundary: the ticket and Mainbus's messages are instructions, while files, tool output and web pages are data.
 - **A nudge, then a stop.** A turn that ends without a handoff, a question or a reported problem gets one nudge. A second one in a row marks the agent Failed and brings the ticket to you. "Same obstacle twice" means stop and report, not retry.
 - **Replaceable runtime.** The engine talks to agents only through an `AgentRuntime` interface. A scripted fake runtime implements the same interface for tests.
 
@@ -106,9 +127,9 @@ Mainbus is a personal tool: one user, one machine, Windows first. It runs on you
 | M0 | Agent SDK spike | Directly | Done |
 | M1 | Self-hosting MVP | Directly | Done |
 | M2 | Lineups and handoffs | Through Mainbus | Done |
-| M3 | Orchestrator agent that drafts and starts tickets | Through Mainbus | In Progress |
-| M4 | Decisions in three places, holds and "Later" | Through Mainbus | Planned |
-| M5 | Stuck detection, Redirect and Replace | Through Mainbus | Planned |
+| M3 | Orchestrator agent that drafts and starts tickets | Through Mainbus | Done |
+| M4 | Decisions in three places, holds and "Later" | Through Mainbus | Done |
+| M5 | Stuck detection, Redirect and Replace | Through Mainbus | Done |
 | M6 | Restart recovery, usage limits and a concurrency cap | Through Mainbus | Planned |
 | M7 | Investigate tickets, multiple workspaces and polish | Through Mainbus | Planned |
 
@@ -166,26 +187,32 @@ npm test
 npm run e2e
 ```
 
-- **Unit tests** (Vitest, about 700 cases) cover the engine, the permission guard and shell parser, the CLI and intake protocol, and the React components. The SDK message normalizer is tested against messages recorded from real sessions during the spike.
-- **End-to-end tests** (Playwright for Electron) build the app and drive it against throwaway repositories and a temporary data home. A scripted fake agent runtime asks questions, requests permissions and hands off, so the full flow runs without calling a model.
+- **Unit tests** (Vitest, about 1,300 cases) cover the engine, the permission guard and shell parser, the stuck detector's rules, the CLI and intake protocol, and the React components. The SDK message normalizer is tested against messages recorded from real sessions during the spike.
+- **End-to-end tests** (Playwright for Electron) build the app and drive it against throwaway repositories and a temporary data home. A scripted fake agent runtime asks questions, requests permissions, hands off and loops on a failing command, so the full flow runs without calling a model. A fake clock moves time forward for holds, deferred decisions and the stuck detector.
+- **By hand:** [the M5 stuck-recovery scenario](docs/manual/m5-stuck-recovery-by-hand.md) runs the same detect, redirect and replace sequence against a real `claude` agent.
 
 ## Project layout
 
 ```
 src/
-  engine/        the app's core, a plain Node module behind a typed command/event API
-    runtime/     AgentRuntime: the Agent SDK adapter and the scripted fake
-    runner/      runs tickets through their lineup, handoffs, decisions, unattended mode
-    permissions/ the guard, shell parsing and allow-rule policy
-    roles/       role prompts, the role protocol and launch hardening
-    git/         worktrees, branches and pull requests
-    intake/      the named-pipe server behind the CLI and MCP server
-    store/, db/  SQLite through node:sqlite and Drizzle, with migrations
-  main/          Electron main process
-  renderer/      React UI built from Mantine components
-  cli/           the mainbus CLI and MCP server
-e2e/             Playwright end-to-end tests and fake-runtime scripts
-docs/            design, spike results, roadmap and plans
+  engine/         the app's core, a plain Node module behind a typed command/event API
+    runtime/      AgentRuntime: the Agent SDK adapter and the scripted fake
+    runner/       runs tickets through their lineup, handoffs, decisions, unattended mode
+    orchestrator/ the orchestrator session, its read-only tools and prompt
+    proposals/    proposal kinds the user confirms: create, start, pause, hold, answer, redirect, replace
+    holds/        holds, deferred decisions and the clock that releases them
+    stuck/        the stuck detector, its rules and the recovery ladder
+    processes/    ends the processes an agent leaves running
+    permissions/  the guard, shell parsing and allow-rule policy
+    roles/        role prompts, the role protocol and launch hardening
+    git/          worktrees, branches and pull requests
+    intake/       the named-pipe server behind the CLI and MCP server
+    store/, db/   SQLite through node:sqlite and Drizzle, with migrations
+  main/           Electron main process
+  renderer/       React UI built from Mantine components
+  cli/            the mainbus CLI and MCP server
+e2e/              Playwright end-to-end tests and fake-runtime scripts
+docs/             design, spike results, roadmap, plans and manual test runs
 ```
 
 ## Acknowledgements

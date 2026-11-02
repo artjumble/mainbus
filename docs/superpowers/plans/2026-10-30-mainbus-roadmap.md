@@ -2,6 +2,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-30-mainbus-design.md` (approved 2026-10-30)
 
+**Status (2026-11-02):** M0–M5 are done, and M6 is next. M5's exit scenario is automated in `e2e/m5Exit.spec.ts`, and `docs/manual/m5-stuck-recovery-by-hand.md` runs it by hand against a real agent.
+
 The spec's self-hosting MVP (§15a) splits v1 into two halves:
 - **M0–M1** are built directly, outside Mainbus. M0 is a throwaway spike and M1 is the MVP.
 - **M2–M7** are built through Mainbus itself, as tickets on its own board. Each one gets its own detailed plan when it starts, written against the code that exists by then.
