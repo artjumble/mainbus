@@ -105,8 +105,8 @@ Mainbus is a personal tool: one user, one machine, Windows first. It runs on you
 |---|---|---|---|
 | M0 | Agent SDK spike | Directly | Done |
 | M1 | Self-hosting MVP | Directly | Done |
-| M2 | Lineups and handoffs | Through Mainbus | In progress |
-| M3 | Orchestrator agent that drafts and starts tickets | Through Mainbus | Planned |
+| M2 | Lineups and handoffs | Through Mainbus | Done |
+| M3 | Orchestrator agent that drafts and starts tickets | Through Mainbus | In Progress |
 | M4 | Decisions in three places, holds and "Later" | Through Mainbus | Planned |
 | M5 | Stuck detection, Redirect and Replace | Through Mainbus | Planned |
 | M6 | Restart recovery, usage limits and a concurrency cap | Through Mainbus | Planned |
