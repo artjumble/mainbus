@@ -49,7 +49,9 @@ describe('run repo', () => {
       startedAt: FIXED_NOW.toISOString(),
       endedAt: null,
       returnToRoleId: null,
-      skipped: false
+      skipped: false,
+      processPid: null,
+      processStartedAt: null
     })
   })
 

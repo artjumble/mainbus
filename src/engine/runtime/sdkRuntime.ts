@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type {
   createSdkMcpServer,
@@ -6,6 +7,8 @@ import type {
   Query,
   query,
   SDKUserMessage,
+  SpawnedProcess,
+  SpawnOptions,
   tool
 } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
@@ -120,6 +123,38 @@ function childEnv(agentHome: string | null, tempDir: string): Record<string, str
   if (agentHome !== null) env.MAINBUS_AGENT_HOME = agentHome
   env.TEMP = env.TMP = env.TMPDIR = tempDir
   return env
+}
+
+/**
+ * Starts the `claude` binary as the SDK's own spawn does (same command, args, cwd, env and signal; its stderr is
+ * drained, as the SDK would), and tells the run's spec when it has started and when it has exited.
+ */
+function spawnClaude(o: SpawnOptions, spec: RunSpec): SpawnedProcess {
+  const spawnedAt = Date.now()
+  const child = spawn(o.command, o.args, {
+    cwd: o.cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    signal: o.signal,
+    env: o.env,
+    windowsHide: true
+  })
+  child.stderr.resume()
+  if (child.pid !== undefined) {
+    const p = { pid: child.pid, spawnedAt }
+    child.once('exit', () => {
+      try {
+        spec.onProcessExit?.(p)
+      } catch {
+        // A failing observer must not stop the agent.
+      }
+    })
+    try {
+      spec.onProcessStart?.(p)
+    } catch {
+      // Likewise.
+    }
+  }
+  return child
 }
 
 function toolText(result: string) {
@@ -440,6 +475,7 @@ export class SdkRuntime implements AgentRuntime {
           : { behavior: 'deny', message: verdict.message }
       },
       env: childEnv(this.agentHome, spec.tempDir),
+      spawnClaudeCodeProcess: (o) => spawnClaude(o, spec),
       abortController
     }
   }

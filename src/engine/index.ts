@@ -25,6 +25,7 @@ import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import { OrchestratorSession } from './orchestrator/session'
 import { createProposalService, type ProposalService } from './proposals/service'
+import { ProcessSweeper } from './processes/sweep'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -48,6 +49,8 @@ export interface EngineConfig {
   exec: ExecFn
   /** Runs `git push` and `gh` for pull requests; tests pass a fake gh. Defaults to running them for real. */
   commands?: CommandRunner
+  /** Finds and ends the processes an agent leaves running; tests pass one with a fake process table. */
+  processes?: ProcessSweeper
   /** Shown in the Connect agents settings. */
   launcher?: AgentLauncher | null
   /** Why the intake pipe couldn't be opened, if it couldn't; shown in the Connect agents settings. */
@@ -125,7 +128,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       now,
       emit,
       unattended: () => unattended?.isOn() ?? false,
-      pullRequests
+      pullRequests,
+      processes: cfg.processes ?? new ProcessSweeper()
     })
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()

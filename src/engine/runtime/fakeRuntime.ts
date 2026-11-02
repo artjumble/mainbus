@@ -9,6 +9,7 @@ import {
   type RoleToolHandlers,
   type RunHandle,
   type RunSpec,
+  type SpawnedClaude,
   type SummaryRequest
 } from './types'
 
@@ -111,6 +112,8 @@ interface Run {
   pendingSends: number
   sendWaiter: (() => void) | null
   stopped: boolean
+  /** The fake `claude` process, until it has exited. */
+  proc: { claude: SpawnedClaude; spec: RunSpec } | null
 }
 
 /**
@@ -144,6 +147,8 @@ export class FakeRuntime implements AgentRuntime {
       orchestrator?: FakeStep[] | ((spec: OrchestratorRunSpec) => FakeStep[])
       /** interrupt() ends the turn under way with an interrupted turn_end, as the real runtime does. */
       endTurnOnInterrupt?: boolean
+      /** Gives each role run a `claude` process with the next id from this, announced through the spec's process hooks. */
+      nextPid?: () => number
     } = {}
   ) {}
 
@@ -168,9 +173,15 @@ export class FakeRuntime implements AgentRuntime {
       abort: new AbortController(),
       pendingSends: 0,
       sendWaiter: null,
-      stopped: false
+      stopped: false,
+      proc: null
     }
     this.runs.set(handle.id, run)
+    if (spec.kind !== 'orchestrator' && this.opts.nextPid) {
+      const claude = { pid: this.opts.nextPid(), spawnedAt: Date.now() }
+      run.proc = { claude, spec }
+      spec.onProcessStart?.(claude)
+    }
     void this.play(spec, run)
     return handle
   }
@@ -194,7 +205,7 @@ export class FakeRuntime implements AgentRuntime {
     const run = this.get(handle)
     run.stopped = true
     run.abort.abort()
-    run.queue.close()
+    this.close(run)
     const w = run.sendWaiter
     run.sendWaiter = null
     w?.()
@@ -202,6 +213,14 @@ export class FakeRuntime implements AgentRuntime {
 
   events(handle: RunHandle): AsyncIterable<AgentEvent> {
     return this.get(handle).queue
+  }
+
+  /** Ends the run's events, and its `claude` process (once). */
+  private close(run: Run): void {
+    run.queue.close()
+    const proc = run.proc
+    run.proc = null
+    proc?.spec.onProcessExit?.(proc.claude)
   }
 
   private get(handle: RunHandle): Run {
@@ -250,13 +269,13 @@ export class FakeRuntime implements AgentRuntime {
           if (run.stopped) return
           run.pendingSends--
         } else {
-          run.queue.close()
+          this.close(run)
           return
         }
       }
     } catch (err) {
       run.queue.push({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
-      run.queue.close()
+      this.close(run)
     }
   }
 }

@@ -44,6 +44,12 @@ export interface OrchestratorToolHandlers extends OrchestratorReadToolHandlers {
   proposeAnswer(a: unknown): Promise<string>
 }
 
+/** A role's `claude` process: its id, and the time just before it was spawned (ms since the epoch). */
+export interface SpawnedClaude {
+  pid: number
+  spawnedAt: number
+}
+
 export interface RunSpec {
   kind?: 'role'
   /** The name of the lineup role the agent plays. The fake runtime can pick its script by it. */
@@ -62,6 +68,10 @@ export interface RunSpec {
   resumeSessionId?: string
   roleTools: RoleToolHandlers
   onPermission(r: PermissionRequest): Promise<PermissionVerdict>
+  /** Called when the run's `claude` process has started. */
+  onProcessStart?(p: SpawnedClaude): void
+  /** Called when the run's `claude` process has exited, whatever the reason. */
+  onProcessExit?(p: SpawnedClaude): void
 }
 
 /**

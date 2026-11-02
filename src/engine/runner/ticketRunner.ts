@@ -17,6 +17,7 @@ import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shar
 import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
+import { endedNotice, type ProcessRef, type ProcessSweeper } from '../processes/sweep'
 import { credentialReason } from '../permissions/credentials'
 import { guardReason } from '../permissions/guard'
 import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
@@ -30,7 +31,8 @@ import {
   type PermissionVerdict,
   type RoleToolHandlers,
   type RunHandle,
-  type RunSpec
+  type RunSpec,
+  type SpawnedClaude
 } from '../runtime/types'
 import { currentState, pausedByUser } from '../state/currentState'
 import { lineupStrip } from '../state/lineupStrip'
@@ -58,6 +60,11 @@ export interface RunnerDeps {
   pullRequests?: { publish(input: PublishInput): Promise<PublishResult> }
   /** How long a skipped role's summary call may take before the digest is used instead (tests shorten it). */
   summaryTimeoutMs?: number
+  /**
+   * Ends what an agent leaves running: when its `claude` process exits, and before a worktree is removed.
+   * Without it nothing is swept.
+   */
+  processes?: ProcessSweeper
 }
 
 export const NUDGE_TEXT =
@@ -89,6 +96,8 @@ const PERMISSION_OPTIONS = ['Allow once', 'Always allow in this workspace', 'Den
 const STOP_DRAIN_MS = 2000
 /** How long shutdown waits for launches and queued user actions to finish before it drains the live agents. */
 const SHUTDOWN_SETTLE_MS = 5000
+/** How long shutdown waits for the sweeps of exited agents. */
+const SWEEP_WAIT_MS = 15_000
 const SHUTTING_DOWN = 'Mainbus is shutting down'
 const USAGE_LIMIT_PAUSE = 'Paused by the usage limit. Unattended mode continues this ticket when the limit resets.'
 const AUTO_ALLOWED = 'Allowed by unattended mode'
@@ -175,6 +184,10 @@ export class TicketRunner {
   private readonly waiters = new Map<string, PermissionWaiter>()
   /** Tickets whose run was paused by a usage limit in unattended mode, until it is resumed, started or stopped. */
   private readonly limited = new Map<string, UsageLimit>()
+  /** The `claude` process of each run launched in this session, once its start time is known (null: unknown). */
+  private readonly processRefs = new Map<string, Promise<ProcessRef | null>>()
+  /** The sweeps under way or queued, by run: a run is never swept twice at once. */
+  private readonly sweeps = new Map<string, Promise<void>>()
 
   constructor(private readonly deps: RunnerDeps) {
     this.repos = deps.repos
@@ -357,6 +370,8 @@ export class TicketRunner {
     const lives = [...this.live.values()]
     await Promise.all(lives.map((live) => this.stopProcess(live)))
     await settleWithin(Promise.all(lives.map((live) => live.done)).then(() => {}), STOP_DRAIN_MS)
+    // Each exit has started a sweep of what the agent left running; the app must not quit before they finish.
+    await settleWithin(Promise.all([...this.sweeps.values()]).then(() => {}), SWEEP_WAIT_MS)
   }
 
   // --- user actions, run one at a time per ticket ---
@@ -687,6 +702,9 @@ export class TicketRunner {
     // A handed-off agent may not have ended its last turn yet.
     if (live) await this.stopProcess(live)
 
+    // A process the agent left running holds the worktree's folder open, and would keep it from being removed.
+    await this.sweepTicket(ticket)
+
     // Removal first: on 'dirty' a paused run must stay paused, so its session can still be continued.
     // Nothing can revive the agent in between, because this step holds the ticket's queue.
     if (ticket.worktreePath !== null && ticket.branch !== null) {
@@ -894,6 +912,8 @@ export class TicketRunner {
     }
     // Ticket runs started before models were resolved at start hold nulls: those get the default table.
     const fallback = defaultFor(role.name)
+    // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
+    let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {
       role: role.name,
       cwd: worktree.path,
@@ -909,7 +929,9 @@ export class TicketRunner {
       additionalDirectories: [worktree.scratch],
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
       roleTools: this.roleTools(target, worktree.path),
-      onPermission: (req) => this.onPermission(target, worktree, req)
+      onPermission: (req) => this.onPermission(target, worktree, req),
+      onProcessStart: (p) => void (claude = this.processStarted(target, p)),
+      onProcessExit: () => void (claude && this.sweepRun(target, claude).catch(() => {}))
     }
 
     try {
@@ -1350,6 +1372,68 @@ export class TicketRunner {
   private announceDecision(decision: Decision, workspaceId: string): void {
     this.deps.emit({ type: 'decision.changed', decision })
     this.deps.emit({ type: 'board.changed', workspaceId })
+  }
+
+  // --- processes an agent left running ---
+
+  /**
+   * Remembers the run's `claude` process, with the start time the process table gives it, in memory and on the run.
+   * The result settles with the process, or with null when processes are not swept.
+   */
+  private processStarted(target: ThreadTarget, p: SpawnedClaude): Promise<ProcessRef | null> {
+    const sweeper = this.deps.processes
+    if (!sweeper) return Promise.resolve(null)
+    const known = (async (): Promise<ProcessRef> => {
+      // The time just before the spawn stands in when the process is already gone.
+      const startedAt = (await sweeper.startTime(p.pid).catch(() => null)) ?? p.spawnedAt
+      const ref = { pid: p.pid, startedAt }
+      await this.repos.runs.setProcess(target.runId, ref).catch(() => {})
+      return ref
+    })()
+    this.processRefs.set(target.runId, known)
+    return known
+  }
+
+  /**
+   * Ends every process still running that descends from `claude`, a `claude` process of the run, and says so in
+   * the run's thread; says nothing when there were none. Sweeps of one run follow one another. Rejects when the
+   * processes could not be listed or ended.
+   */
+  private sweepRun(target: ThreadTarget, claude: Promise<ProcessRef | null> | ProcessRef | null): Promise<void> {
+    const sweeper = this.deps.processes
+    if (!sweeper) return Promise.resolve()
+    const run = (this.sweeps.get(target.runId) ?? Promise.resolve()).then(async () => {
+      const ref = await claude
+      if (ref === null) return
+      const ended = await sweeper.sweep(ref)
+      // A process started since (the run was resumed) keeps its record.
+      if (this.processRefs.get(target.runId) === claude || !(claude instanceof Promise)) {
+        this.processRefs.delete(target.runId)
+        await this.repos.runs.setProcess(target.runId, null)
+      }
+      const notice = endedNotice(target.role, ended)
+      if (notice !== null) await this.record(target, { kind: 'notice', text: notice })
+    })
+    const tail = run.catch(() => {})
+    this.sweeps.set(target.runId, tail)
+    void tail.then(() => {
+      if (this.sweeps.get(target.runId) === tail) this.sweeps.delete(target.runId)
+    })
+    return run
+  }
+
+  /**
+   * Sweeps every run of the ticket by the process kept on it, so what was left before a restart is caught too.
+   * A failure is not fatal here: the removal that follows reports what still holds the folder.
+   */
+  private async sweepTicket(ticket: Ticket): Promise<void> {
+    if (!this.deps.processes) return
+    for (const run of await this.repos.runs.listForTicket(ticket.id)) {
+      const known = this.processRefs.get(run.id)
+      const stored = run.processPid !== null && run.processStartedAt !== null ? { pid: run.processPid, startedAt: run.processStartedAt } : null
+      if (known === undefined && stored === null) continue
+      await this.sweepRun(this.target(run, ticket), known ?? stored).catch(() => {})
+    }
   }
 
   // --- helpers ---
