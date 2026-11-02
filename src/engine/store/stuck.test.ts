@@ -77,6 +77,36 @@ describe('stuck episodes', () => {
     expect(second.episode.id).not.toBe(first.id)
   })
 
+  it('records one redirect per episode and counts it on the run', async () => {
+    const { episode } = await stuck.hit(runId, hit)
+    expect(episode.redirectedAt).toBeNull()
+    expect((await runs.latest(ticketId))!.redirectCount).toBe(0)
+
+    clock = new Date(later(3))
+    expect(await stuck.markRedirected(episode.id)).toBe(true)
+    expect(await stuck.open(runId)).toMatchObject({ id: episode.id, redirectedAt: later(3) })
+    expect((await runs.latest(ticketId))!.redirectCount).toBe(1)
+
+    // Once per episode: the second is refused and counts nothing.
+    expect(await stuck.markRedirected(episode.id)).toBe(false)
+    expect((await runs.latest(ticketId))!.redirectCount).toBe(1)
+
+    // A repeat hit keeps the redirect; a new episode starts unredirected and can be redirected again.
+    expect((await stuck.hit(runId, hit)).episode.redirectedAt).toBe(later(3))
+    await stuck.close(runId)
+    const next = (await stuck.hit(runId, hit)).episode
+    expect(next.redirectedAt).toBeNull()
+    expect(await stuck.markRedirected(next.id)).toBe(true)
+    expect((await runs.latest(ticketId))!.redirectCount).toBe(2)
+  })
+
+  it('does not redirect a closed episode', async () => {
+    const { episode } = await stuck.hit(runId, hit)
+    await stuck.close(runId)
+    expect(await stuck.markRedirected(episode.id)).toBe(false)
+    expect((await runs.latest(ticketId))!.redirectCount).toBe(0)
+  })
+
   it('closes with the run, however it ends', async () => {
     await stuck.hit(runId, hit)
     await runs.end(runId, 'failed')

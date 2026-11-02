@@ -8,6 +8,7 @@ import { createTicketsView } from './CreateTicketsProposal'
 import { holdView } from './HoldProposal'
 import type { ProposalView } from './proposalView'
 import { pauseView, skipView, stopView } from './RoleControlProposal'
+import { redirectView } from './RedirectProposal'
 import { startLineupView } from './StartLineupProposal'
 
 /** The card's view of each kind of proposal. */
@@ -18,7 +19,8 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   stop: stopView,
   skip: skipView,
   hold: holdView,
-  answer: answerView
+  answer: answerView,
+  redirect: redirectView
 }
 
 interface Props {

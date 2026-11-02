@@ -52,6 +52,8 @@ beforeEach(async () => {
     now: () => clock,
     holdTicket: async () => ({}) as Hold,
     decision: async () => null,
+    openStuckEpisode: async () => null,
+    redirectTicket: async () => {},
     answerDecision: async () => {}
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })

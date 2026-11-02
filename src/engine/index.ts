@@ -289,6 +289,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           return runner.activeRole(ticket.id)
         },
         pauseTicket,
+        openStuckEpisode: (runId) => repos.stuck.open(runId),
+        redirectTicket: (ticketId, expect, message) => {
+          requireRuntime()
+          return runner.redirect(ticketId, { agentRunId: expect.agentRunId }, message, async () => {
+            const open = await repos.stuck.open(expect.agentRunId)
+            return open?.id === expect.episodeId && (await repos.stuck.markRedirected(expect.episodeId))
+          })
+        },
         stopTicket,
         skipTicket,
         now,
@@ -383,7 +391,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             role,
             evidence: episode.evidence,
             hitCount: episode.hitCount,
-            needsCloserLook: episode.needsCloserLook
+            needsCloserLook: episode.needsCloserLook,
+            redirected: episode.redirectedAt !== null
           })
         }
         return reports

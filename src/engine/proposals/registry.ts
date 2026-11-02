@@ -3,6 +3,7 @@ import { answer } from './answer'
 import { createTickets } from './createTickets'
 import { hold } from './hold'
 import type { ProposalKind } from './kind'
+import { redirect } from './redirect'
 import { pause, skip, stop } from './roleControls'
 import { startLineup } from './startLineup'
 
@@ -14,5 +15,6 @@ export const KINDS: Record<ProposalKindName, ProposalKind<any, any>> = {
   stop,
   skip,
   hold,
-  answer
+  answer,
+  redirect
 }

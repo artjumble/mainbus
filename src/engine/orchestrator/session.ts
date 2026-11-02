@@ -277,7 +277,8 @@ export class OrchestratorSession {
         proposeStop: (a) => this.propose('stop', a),
         proposeSkip: (a) => this.propose('skip', a),
         proposeHold: (a) => this.propose('hold', a),
-        proposeAnswer: (a) => this.propose('answer', a)
+        proposeAnswer: (a) => this.propose('answer', a),
+        proposeRedirect: (a) => this.propose('redirect', a)
       },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, readable })
     }

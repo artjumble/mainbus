@@ -80,6 +80,8 @@ export type ThreadEvent =
   | { kind: 'paused' }
   /** The user's pause ended: Resume, or a message or answer that resumed the role. */
   | { kind: 'resumed' }
+  /** The user confirmed the orchestrator's redirect of the run's role: its turn was interrupted and `text` sent as its next message. */
+  | { kind: 'redirected'; role: string; text: string }
   /** The run's role declared a wait with report_waiting: the stuck detector expects silence until `until` (ISO). */
   | { kind: 'waiting'; reason: string; until: string }
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */

@@ -8,7 +8,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect'
 
 /** Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress. */
 export type ProposalOrigin = 'orchestrator' | 'drag'
@@ -189,6 +189,32 @@ export interface AnswerResult {
   /** The label of the option answered with. */
   answer: string
   note: string | null
+}
+
+/** The payload of a redirect proposal: the stuck episode of the run it is for, and the one corrective message. */
+export interface RedirectPayload {
+  ticketId: string
+  number: number
+  title: string
+  agentRunId: string
+  episodeId: string
+  role: string
+  /** The episode's evidence lines when it was proposed, for the card. */
+  episodeEvidence: string[]
+  message: string
+}
+
+/** What the user's Override sends for a redirect: the message, edited. */
+export interface RedirectOverride {
+  message: string
+}
+
+export interface RedirectResult {
+  ticketId: string
+  number: number
+  title: string
+  role: string
+  message: string
 }
 
 /** The result of a proposal that failed while being carried out. */

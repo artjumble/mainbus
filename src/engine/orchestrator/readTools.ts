@@ -118,7 +118,8 @@ function toolSummary(input: unknown): string {
 function stuckText(s: StuckEpisode): string {
   const look = s.needsCloserLook ? ` It has been flagged ${s.hitCount} times and needs a closer look.` : ''
   const evidence = s.evidence.map((line) => `- ${data('stuck-evidence', oneLine(line), true)}`).join('\n')
-  return `Looks stuck (opened ${localStamp(s.openedAt)}; ${STUCK_RULES[s.rule]}).${look} Evidence:\n${evidence}`
+  const redirected = s.redirectedAt ? ` It was already redirected once at ${localStamp(s.redirectedAt)}: propose a replacement, not another redirect.` : ''
+  return `Looks stuck (opened ${localStamp(s.openedAt)}; ${STUCK_RULES[s.rule]}).${look}${redirected} Evidence:\n${evidence}`
 }
 
 function answerText(d: Decision): string {
@@ -172,6 +173,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
       return `The user paused the ${role}`
     case 'resumed':
       return `The ${role} resumed`
+    case 'redirected':
+      return `The user redirected the ${oneLine(e.role)}, as you suggested; the agent was interrupted and sent this message: ${data('redirect', clip(oneLine(e.text), MESSAGE_MAX), true)}`
     case 'waiting':
       return `${role} declared a wait (agent-written): ${data('wait-reason', clip(oneLine(e.reason), MESSAGE_MAX), true)}, until ${clockTime(e.until)}`
     case 'role_handoff':

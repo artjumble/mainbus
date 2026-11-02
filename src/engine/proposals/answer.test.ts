@@ -49,6 +49,8 @@ function ctx(decision: Decision | null = QUESTION, over: { ticket?: Ticket } = {
     now: () => NOW,
     holdTicket: async () => ({}) as never,
     decision: vi.fn(async (id: string) => (decision && decision.id === id ? { decision, ticket: over.ticket ?? TICKET } : null)),
+    openStuckEpisode: async () => null,
+    redirectTicket: async () => {},
     answerDecision: vi.fn(async (_id: string, _a: DecisionAnswer) => {})
   } satisfies ExecContext
 }

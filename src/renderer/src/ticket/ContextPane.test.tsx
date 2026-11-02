@@ -183,3 +183,14 @@ test('the activity entry for an answered permission names the choice and where i
   const item = within(screen.getByRole('region', { name: 'Activity' })).getByRole('listitem')
   expect(item.textContent).toContain('Decision: Run pnpm install → Denied (you, from the board)')
 })
+
+test('the Activity records a redirect with who suggested and who confirmed it', () => {
+  const events = [
+    makeEvent({ kind: 'redirected', role: 'Implementer', text: 'Timeouts are ruled out; check the shared fixtures instead.' }, { at: '2026-10-30T10:05:00.000Z' })
+  ]
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} />)
+  const activity = screen.getByRole('region', { name: 'Activity' })
+  expect(
+    within(activity).getByText('Redirected Implementer: Timeouts are ruled out; check the shared fixtures instead. (suggested by the orchestrator, confirmed by you)')
+  ).toBeInTheDocument()
+})

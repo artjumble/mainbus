@@ -1,0 +1,43 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "waitForSend": true },
+    { "emit": { "kind": "tool_call", "id": "t1", "name": "Bash", "input": { "command": "npm test" } } },
+    { "emit": { "kind": "tool_result", "id": "t1", "ok": false, "summary": "Error: test timed out after 5000ms" } },
+    { "emit": { "kind": "tool_call", "id": "t2", "name": "Bash", "input": { "command": "npm test" } } },
+    { "emit": { "kind": "tool_result", "id": "t2", "ok": false, "summary": "Error: test timed out after 5000ms" } },
+    { "emit": { "kind": "tool_call", "id": "t3", "name": "Bash", "input": { "command": "npm test" } } },
+    { "emit": { "kind": "tool_result", "id": "t3", "ok": false, "summary": "Error: test timed out after 5000ms" } },
+    { "emit": { "kind": "tool_call", "id": "t4", "name": "Bash", "input": { "command": "npm test" } } },
+    { "emit": { "kind": "tool_result", "id": "t4", "ok": false, "summary": "Error: test timed out after 5000ms" } },
+    { "emit": { "kind": "tool_call", "id": "t5", "name": "Bash", "input": { "command": "npm test" } } },
+    { "emit": { "kind": "tool_result", "id": "t5", "ok": false, "summary": "Error: test timed out after 5000ms" } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Checking the shared fixtures; that was the problem." } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "waitForSend": true }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "waitForSend": true }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-redirect" } },
+    { "emit": { "kind": "tool_call", "id": "a1", "name": "mcp__mainbus__propose_redirect", "input": {} } },
+    {
+      "callTool": "proposeRedirect",
+      "args": {
+        "ticket": 1,
+        "message": "Timeouts are ruled out; check the shared fixtures instead.",
+        "evidence": "npm test failed 5 times in a row with the same timeout."
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "a1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "I've proposed a redirect." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

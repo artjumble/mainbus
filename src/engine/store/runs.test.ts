@@ -52,7 +52,8 @@ describe('run repo', () => {
       skipped: false,
       processPid: null,
       processStartedAt: null,
-      declaredWait: null
+      declaredWait: null,
+      redirectCount: 0
     })
   })
 
