@@ -43,6 +43,7 @@ import type { DecisionAction } from '../store/decisions'
 import type { AgentRunRow } from '../store/runs'
 import { previousAttempt, replaceSummaryPrompt, skippedDigest, skipSummaryPrompt } from './digest'
 import { STUCK, STUCK_RULE_TEXT } from '../stuck/config'
+import type { StuckNote } from '../stuck/detector'
 import type { RunObservation } from '../stuck/observation'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
 
@@ -96,6 +97,10 @@ export interface ReplaceRequest {
   effort: Effort
   /** Added to the ticket run's own instructions for the new run only; null for none. */
   extraInstructions: string | null
+  /** The proposal that was confirmed, for the timeline to link to. */
+  proposalId?: string
+  /** Who proposed it. */
+  suggestedBy?: 'orchestrator' | 'user'
 }
 
 /** The run an action was meant for; the action fails rather than act on another role. */
@@ -323,8 +328,25 @@ export class TicketRunner {
    * `message` as its next message. `claim` is asked once everything else checks out, and says whether the
    * redirect is still allowed (it records it); a false answer fails, with nothing interrupted.
    */
-  redirect(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>): Promise<void> {
-    return this.serial(ticketId, () => this.redirectNow(ticketId, expect, message, claim))
+  redirect(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>, proposalId?: string): Promise<void> {
+    return this.serial(ticketId, () => this.redirectNow(ticketId, expect, message, claim, proposalId))
+  }
+
+  /** Called by the stuck detector: puts the episode's news in the thread of the ticket's open run, if `runId` is still it. */
+  async noteStuck(ticketId: string, runId: string, note: StuckNote): Promise<void> {
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run || run.id !== runId || run.endReason !== null) return
+    const ticket = await this.repos.tickets.get(ticketId)
+    const { episode } = note
+    await this.record(this.target(run, ticket), {
+      kind: 'stuck',
+      role: run.role,
+      change: note.change,
+      episodeId: episode.id,
+      rule: episode.rule,
+      evidence: episode.evidence,
+      ...(note.count === undefined ? {} : { count: note.count })
+    })
   }
 
   /**
@@ -351,6 +373,7 @@ export class TicketRunner {
     const ticket = await this.repos.tickets.get(ticketId)
     const live = this.live.get(run.id)
     if (live) live.ended = true
+    await this.record(this.target(run, ticket), { kind: 'stuck_failed', role: run.role, replacements: STUCK.maxReplacements })
     await this.record(this.target(run, ticket), { kind: 'error', message: account })
     if (live) void this.stopProcess(live)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
@@ -670,7 +693,7 @@ export class TicketRunner {
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
   }
 
-  private async redirectNow(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>): Promise<void> {
+  private async redirectNow(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>, proposalId?: string): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
     if (this.stopRequested.has(ticketId)) throw new Error(NOT_WORKING)
     const run = await this.repos.runs.latest(ticketId)
@@ -679,7 +702,7 @@ export class TicketRunner {
     if (!live || live.ended || live.stopping) throw new Error(NOT_WORKING)
     if (!(await claim())) throw new Error(REDIRECT_STALE)
     // Logged before the interrupt, so it precedes anything the agent does in response.
-    await this.record(live, { kind: 'redirected', role: live.role, text: message })
+    await this.record(live, { kind: 'redirected', role: live.role, text: message, ...(proposalId === undefined ? {} : { proposalId }) })
     live.silentTurns = 0
     await settleWithin(this.deps.runtime.interrupt(live.handle).catch(() => {}), STOP_DRAIN_MS)
     const failure = await this.deliver(live, message)
@@ -705,9 +728,17 @@ export class TicketRunner {
 
       const { summary, source } = await this.summarise(run, (events, decisions) => replaceSummaryPrompt(events, decisions, run.role))
       // The old agent's own handoff, a hand-back or a stop may have ended the run meanwhile: then that stands.
-      const next = await this.repos.runs.replace(run.id, { ...request, handoffSummary: summary })
+      const { proposalId, suggestedBy, ...launchRequest } = request
+      const next = await this.repos.runs.replace(run.id, { ...launchRequest, handoffSummary: summary })
       if (next === null) return
-      await this.record(target, { kind: 'replaced', role: run.role, summary, source })
+      await this.record(target, {
+        kind: 'replaced',
+        role: run.role,
+        summary,
+        source,
+        ...(proposalId === undefined ? {} : { proposalId }),
+        ...(suggestedBy === undefined ? {} : { suggestedBy })
+      })
       // The replaced agent's process is gone, so nothing is left to receive any answer.
       await this.expirePending(target, (d) => d.agentRunId === run.id)
       // This step holds the ticket's queue, so the fresh agent launches here rather than behind it.

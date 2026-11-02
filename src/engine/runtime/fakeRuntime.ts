@@ -30,21 +30,31 @@ export type FakeStep =
   | { capture: { tool: keyof OrchestratorToolHandlers; args?: unknown; pattern: string; as: string } }
   | { requestPermission: Omit<PermissionRequest, 'signal'> }
   | { waitForSend: true }
+  /** Fails the script, with an error event and the run closed, unless the run's launch prompt contains this text. */
+  | { expectPrompt: string }
   | { exit: number | null }
 
 /**
  * A script as a JSON file holds it: the steps for every agent, or the steps for each role by name, with `*`
  * for any other role. A role with no script of its own and no `*` gets an empty script (its agent stays open).
  * A resumed session of a role plays `<Role> resumed` when the file has it, so a role handed a problem back,
- * or handed back to, can act differently the second time.
+ * or handed back to, can act differently the second time. A role's nth fresh session (not a resumed one) plays
+ * `<Role> #n` when the file has it, for n of 2 or more: a role replaced by a fresh agent acts differently.
  */
 export type FakeScriptFile = FakeStep[] | Record<string, FakeStep[]>
 
 export function scriptFromFile(file: FakeScriptFile): FakeStep[] | ((spec: RunSpec) => FakeStep[]) {
   if (Array.isArray(file)) return file
+  const fresh = new Map<string, number>()
   return (spec) => {
     const resumed = `${spec.role} resumed`
     if (spec.role !== undefined && spec.resumeSessionId !== undefined && Object.hasOwn(file, resumed)) return file[resumed]!
+    if (spec.role !== undefined && spec.resumeSessionId === undefined) {
+      const n = (fresh.get(spec.role) ?? 0) + 1
+      fresh.set(spec.role, n)
+      const nth = `${spec.role} #${n}`
+      if (n >= 2 && Object.hasOwn(file, nth)) return file[nth]!
+    }
     return spec.role !== undefined && Object.hasOwn(file, spec.role) ? file[spec.role]! : (file['*'] ?? [])
   }
 }
@@ -262,6 +272,8 @@ export class FakeRuntime implements AgentRuntime {
           captured[c.as] = m[1]
         } else if ('requestPermission' in step) {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })
+        } else if ('expectPrompt' in step) {
+          if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
         } else if ('waitForSend' in step) {
           while (run.pendingSends === 0 && !run.stopped) {
             await new Promise<void>((resolve) => (run.sendWaiter = resolve))

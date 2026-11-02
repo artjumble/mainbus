@@ -279,3 +279,39 @@ describe('FakeRuntime: the orchestrator', () => {
     expect(orchestratorScriptFromFile(say('all'))(orchestratorSpec())).toEqual([])
   })
 })
+
+describe('a replaced role in a script file', () => {
+  const steps = (text: string): FakeStep[] => [{ emit: { kind: 'message', text } }]
+
+  test('the nth fresh session plays "<Role> #n"; resumed sessions do not count', () => {
+    const pick = scriptFromFile({ Implementer: steps('first'), 'Implementer #2': steps('second'), Reviewer: steps('review') }) as (
+      spec: RunSpec
+    ) => FakeStep[]
+    expect(pick(makeSpec({ role: 'Implementer' }).spec)).toEqual(steps('first'))
+    expect(pick(makeSpec({ role: 'Implementer', resumeSessionId: 's1' }).spec)).toEqual(steps('first'))
+    expect(pick(makeSpec({ role: 'Implementer' }).spec)).toEqual(steps('second'))
+    // Without "#3" the third plays the role's own steps; other roles count separately.
+    expect(pick(makeSpec({ role: 'Implementer' }).spec)).toEqual(steps('first'))
+    expect(pick(makeSpec({ role: 'Reviewer' }).spec)).toEqual(steps('review'))
+  })
+})
+
+describe('expectPrompt', () => {
+  async function play(script: FakeStep[], prompt: string): Promise<AgentEvent[]> {
+    const rt = new FakeRuntime(script)
+    const handle = await rt.start(makeSpec({ prompt }).spec)
+    const events: AgentEvent[] = []
+    for await (const e of rt.events(handle)) events.push(e)
+    return events
+  }
+
+  test('passes when the launch prompt has the text', async () => {
+    const script: FakeStep[] = [{ expectPrompt: 'the summary' }, { emit: { kind: 'message', text: 'ok' } }, { exit: 0 }]
+    expect(await play(script, 'start. the summary here')).toEqual([{ kind: 'message', text: 'ok' }])
+  })
+
+  test('fails the run with an error when it lacks the text', async () => {
+    const script: FakeStep[] = [{ expectPrompt: 'the summary' }, { emit: { kind: 'message', text: 'ok' } }]
+    expect(await play(script, 'start')).toEqual([{ kind: 'error', message: 'The launch prompt lacks "the summary"' }])
+  })
+})

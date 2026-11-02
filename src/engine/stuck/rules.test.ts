@@ -42,6 +42,7 @@ describe('repeated failure', () => {
     expect(repeatedFailure(failures('npm test', 4))).toBeNull()
     expect(repeatedFailure(failures('npm test', 5))).toEqual({
       rule: 'repeated_failure',
+      count: 5,
       evidence: ['Bash failed 5 times in a row: npm test', 'Last error: exit code 1']
     })
   })

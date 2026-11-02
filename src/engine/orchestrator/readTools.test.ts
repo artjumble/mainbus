@@ -76,8 +76,8 @@ async function running(t: Ticket): Promise<{ plannerRun: string; implementerRun:
   views.set(t.id, {
     state: { column: 'in_progress', phase: 'implementing', agentStatus: 'working' },
     lineup: [
-      { id: 'p', name: 'Planner', status: 'handed_off', active: false },
-      { id: 'i', name: 'Implementer', status: 'working', active: true }
+      { id: 'p', name: 'Planner', status: 'handed_off', active: false, replacements: 0 },
+      { id: 'i', name: 'Implementer', status: 'working', active: true, replacements: 0 }
     ]
   })
   return { plannerRun, implementerRun: next!.id }

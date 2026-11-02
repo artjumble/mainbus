@@ -95,3 +95,15 @@ describe('lineupStrip', () => {
     ])
   })
 })
+
+describe('replacements', () => {
+  test('counts the role’s replaced agents, and the role still appears once', () => {
+    const runs = [run('a', 'p', 'handoff'), run('b', 'i', 'replaced'), run('c', 'i', 'replaced'), run('d', 'i')]
+    const lineup = lineupStrip({ roles, runs, latestRunId: 'd', agentStatus: 'working' })
+    expect(lineup.map((r) => [r.name, r.replacements])).toEqual([
+      ['Planner', 0],
+      ['Implementer', 2],
+      ['Reviewer', 0]
+    ])
+  })
+})

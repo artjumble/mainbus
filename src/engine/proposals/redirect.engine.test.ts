@@ -119,7 +119,9 @@ describe('propose_redirect', () => {
 
     // Recorded as Mainbus's own entry, not as the user's message.
     const events = await thread()
-    expect(events).toContainEqual({ kind: 'redirected', role: 'Planner', text: MESSAGE })
+    expect(events).toContainEqual({ kind: 'redirected', role: 'Planner', text: MESSAGE, proposalId: p!.id })
+    // The detector told the thread when the episode opened.
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'stuck', change: 'opened', rule: 'repeated_failure', role: 'Planner', count: 5 }))
     expect(events.filter((e) => e.kind === 'user_message')).toEqual([])
     await vi.waitFor(async () => expect(await thread()).toContainEqual({ kind: 'message', text: 'Checking the fixtures.' }))
 

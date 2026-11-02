@@ -58,6 +58,7 @@ export function repeatedFailure(events: StoredEvent[], count: number = STUCK.rep
   if (!streak || streak.failures < count) return null
   return {
     rule: 'repeated_failure',
+    count: streak.failures,
     evidence: [
       `${streak.name} failed ${streak.failures} times in a row: ${clip(oneLine(streak.text), EVIDENCE_MAX)}`,
       `Last error: ${clip(oneLine(streak.error), EVIDENCE_MAX)}`

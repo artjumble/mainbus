@@ -36,7 +36,8 @@ export function lineupStrip({ roles, runs, latestRunId, agentStatus }: StripInpu
     else if (run.endReason !== null) status = ENDED[run.endReason]
     else if (active) status = openStatus(agentStatus)
     else status = 'handed_off'
-    return { id: role.id, name: role.name, status, active }
+    const replacements = runs.filter((r) => r.roleId === role.id && r.endReason === 'replaced').length
+    return { id: role.id, name: role.name, status, active, replacements }
   })
 }
 

@@ -9,6 +9,8 @@ import { STUCK } from '../stuck/config'
 export interface StuckHit {
   rule: StuckRule
   evidence: string[]
+  /** For repeated_failure: how many times the same command failed in a row. Not stored. */
+  count?: number
 }
 
 /** What recording a hit did to the run's episode. */

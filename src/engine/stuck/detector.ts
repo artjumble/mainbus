@@ -1,10 +1,19 @@
 import type { EngineEvent } from '../../shared/api'
+import type { StuckEpisode } from '../../shared/domain'
 import type { Clock } from '../holds/clock'
 import type { Repos } from '../store'
 import type { StuckHit } from '../store/stuck'
 import { STUCK } from './config'
 import type { RunObservation } from './observation'
 import { evaluate, toolKindsSeen, type RuleInput } from './rules'
+
+/** What the detector tells the run's thread about an episode. */
+export interface StuckNote {
+  change: 'opened' | 'escalated' | 'fired_again'
+  episode: StuckEpisode
+  /** For repeated_failure: how many times the same command failed. */
+  count?: number
+}
 
 export interface StuckDetectorDeps {
   repos: Pick<Repos, 'runs' | 'holds' | 'stuck'>
@@ -18,6 +27,8 @@ export interface StuckDetectorDeps {
   observe: (ticketId: string) => Promise<RunObservation | null>
   /** Called when an episode opens: fails the run when its role was already replaced as often as allowed; true when it did. */
   failIfExhausted: (ticketId: string, runId: string) => Promise<boolean>
+  /** Called when an episode opens or escalates, or fires again after its redirect: puts it in the run's thread. */
+  noteStuck: (ticketId: string, runId: string, note: StuckNote) => Promise<void>
   /** The newest file change in a worktree (ms since the epoch), or null. */
   newestChange: (worktreePath: string) => Promise<number | null>
 }
@@ -111,7 +122,7 @@ export class StuckDetector {
     if (hit === null) return
     // A repeat hit counts only after the spacing, so an episode doesn't escalate within a few minutes of a first hit.
     if (episode && now - Date.parse(episode.lastHitAt) < STUCK.hitSpacingMs) return
-    await this.record(obs, hit)
+    await this.record(obs, hit, episode)
   }
 
   /**
@@ -123,7 +134,7 @@ export class StuckDetector {
     const dead = obs.state.agentStatus === 'paused' && !obs.state.pausedByUser && last?.kind === 'process_exit'
     if (!dead || obs.usageLimited || (await this.deps.repos.holds.active('ticket', obs.ticketId))) return
     if (await this.deps.repos.stuck.hadDeadProcess(obs.runId)) return
-    await this.record(obs, { rule: 'dead_process', evidence: [`The ${obs.role}'s process ended while the ticket was still running`] })
+    await this.record(obs, { rule: 'dead_process', evidence: [`The ${obs.role}'s process ended while the ticket was still running`] }, null)
   }
 
   /** True while no rule may fire: the agent is not working, or silence is expected. */
@@ -145,8 +156,13 @@ export class StuckDetector {
     return false
   }
 
-  private async record(obs: RunObservation, hit: StuckHit): Promise<void> {
-    const { change } = await this.deps.repos.stuck.hit(obs.runId, hit)
+  /** `before` is the run's episode as it was before this hit; null when it had none. */
+  private async record(obs: RunObservation, hit: StuckHit, before: StuckEpisode | null): Promise<void> {
+    const { episode, change } = await this.deps.repos.stuck.hit(obs.runId, hit)
+    // A hit after the redirect and its first sighting since is news; a plain repeat is not.
+    const firedAgain = before?.redirectedAt != null && Date.parse(before.lastHitAt) <= Date.parse(before.redirectedAt)
+    if (firedAgain) await this.deps.noteStuck(obs.ticketId, obs.runId, { change: 'fired_again', episode, count: hit.count })
+    else if (change !== 'repeated') await this.deps.noteStuck(obs.ticketId, obs.runId, { change, episode, count: hit.count })
     // A role replaced as often as allowed isn't offered another redirect or replacement: its run fails instead.
     if (change === 'opened') await this.deps.failIfExhausted(obs.ticketId, obs.runId)
     this.deps.emit({ type: 'board.changed', workspaceId: obs.workspaceId })
