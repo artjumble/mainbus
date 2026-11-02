@@ -16,6 +16,7 @@ import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
 import { EFFORTS, MODEL_OPTIONS } from '../../shared/models'
 import { guardReason, type GuardContext } from '../permissions/guard'
+import { BACKGROUND_DENIED, isBackgroundShell } from '../permissions/policy'
 import { InputQueue } from './inputQueue'
 import { Normalizer } from './normalize'
 import {
@@ -107,7 +108,9 @@ const AUTH_ENV_VARS = new Set([
   'CLAUDE_CODE_USE_FOUNDRY'
 ])
 
-const TEMP_ENV_VARS = new Set(['TEMP', 'TMP', 'TMPDIR'])
+const ROLE_BASH_MAX_TIMEOUT_MS = '1800000'
+
+const TEMP_ENV_VARS =new Set(['TEMP', 'TMP', 'TMPDIR'])
 
 /**
  * The agent's environment: ours, minus credential and endpoint overrides, so the binary uses its own
@@ -431,6 +434,15 @@ export class SdkRuntime implements AgentRuntime {
       const input =
         typeof i.tool_input === 'object' && i.tool_input !== null ? (i.tool_input as Record<string, unknown>) : {}
       const reason = typeof i.tool_name === 'string' ? guardReason(i.tool_name, input, guardContext) : null
+      if (typeof i.tool_name === 'string' && isBackgroundShell(i.tool_name, input)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: BACKGROUND_DENIED
+          }
+        }
+      }
       if (reason === null) return {}
       return {
         hookSpecificOutput: {
@@ -486,7 +498,8 @@ export class SdkRuntime implements AgentRuntime {
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: verdict.message }
       },
-      env: childEnv(this.agentHome, spec.tempDir),
+      // Lets a foreground command run for up to 30 minutes, so a full test suite fits in one call.
+      env: { ...childEnv(this.agentHome, spec.tempDir), BASH_MAX_TIMEOUT_MS: ROLE_BASH_MAX_TIMEOUT_MS },
       spawnClaudeCodeProcess: (o) => spawnClaude(o, spec),
       abortController
     }

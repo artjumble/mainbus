@@ -504,6 +504,12 @@ describe('SdkRuntime', () => {
     expect('MAINBUS_AGENT_HOME' in g.calls[0].options.env).toBe(false)
   })
 
+  test('lets a role agent run a foreground command for up to 30 minutes', async () => {
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec())
+    expect(f.calls[0].options.env.BASH_MAX_TIMEOUT_MS).toBe('1800000')
+  })
+
   test("points TEMP, TMP and TMPDIR at the run's scratch folder, never an inherited one", async () => {
     vi.stubEnv('TEMP', 'C:\\inherited\\temp')
     vi.stubEnv('TMP', 'C:\\inherited\\tmp')

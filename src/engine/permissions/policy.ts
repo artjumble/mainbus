@@ -46,6 +46,14 @@ export function isShellTool(toolName: string): boolean {
   return SHELL_TOOLS.includes(toolName)
 }
 
+export const BACKGROUND_DENIED =
+  'Run this in the foreground instead, with the timeout parameter set as long as it needs (up to 30 minutes). Commands left running in the background are ended when your run ends, and ending your turn to wait for one fails the run.'
+
+/** True for a Bash or PowerShell call that asks to run in the background; roles may not. */
+export function isBackgroundShell(toolName: string, input: Record<string, unknown>): boolean {
+  return isShellTool(toolName) && input.run_in_background === true
+}
+
 export function commandOf(input: Record<string, unknown>): string | null {
   return typeof input.command === 'string' ? input.command : null
 }

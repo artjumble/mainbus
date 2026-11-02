@@ -386,6 +386,12 @@ describe('earlier handoffs in the role prompt', () => {
 })
 
 describe('ROLE_PROTOCOL', () => {
+  test('tells the agent to run long commands in the foreground and never end a turn to wait', () => {
+    expect(ROLE_PROTOCOL).toContain(
+      'Run long commands such as test suites in the foreground with a longer timeout; never in the background, and never end your turn to wait for a command.'
+    )
+  })
+
   test('tells the agent to stop after the same obstacle twice and report it', () => {
     expect(ROLE_PROTOCOL).toMatch(/same obstacle twice[^\n]*mcp__mainbus__report_problem/i)
   })
@@ -472,6 +478,11 @@ describe('DISALLOWED_TOOLS', () => {
       'ScheduleWakeup',
       'ListAgents',
       'TaskStop',
+      'Monitor',
     ])
+  })
+
+  test('refuses Monitor', () => {
+    expect(DISALLOWED_TOOLS).toContain('Monitor')
   })
 })

@@ -257,6 +257,19 @@ describe('TicketRunner', () => {
     expect(decision.question).toContain(other)
   })
 
+  it('denies a background command even when an always-allow rule covers it, and leaves the foreground one alone', async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'npm test *' })
+
+    const background = { ...permission('npm test -- x'), input: { command: 'npm test -- x', run_in_background: true } }
+    const denied = await runtime.specs[0].onPermission(background)
+    expect(denied).toMatchObject({ allow: false, message: expect.stringContaining('Run this in the foreground instead') })
+    expect(await runtime.specs[0].onPermission(permission('npm test -- x'))).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+  })
+
   it('ask_user opens a question decision and moves the ticket to Needs you', async () => {
     const runtime = new FakeRuntime([
       { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'], recommended: 1 } },
