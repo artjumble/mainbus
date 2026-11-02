@@ -2,6 +2,7 @@
     "name": "mainbus",
     "version": "0.1.0",
     "description": "Mainbus: run Claude Code agents against a ticket board",
+    "license": "MIT",
     "private": true,
     "type": "module",
     "main": "./out/main/index.js",
