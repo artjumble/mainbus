@@ -48,6 +48,8 @@ test('a tool group starts at the first tool row of a run, after any other row, a
     result('i', 'orphan') // no call: shown, and part of the group
   ]
   expect(annotate(events, runs).map((a) => a.toolGroupStart)).toEqual([true, false, false, false, false, true, true, false])
+  // Each shown tool row points at the row starting its group; hidden rows and other rows belong to none.
+  expect(annotate(events, runs).map((a) => a.toolGroup)).toEqual([0, undefined, undefined, 0, undefined, 5, 6, 6])
 })
 
 test('a role hand-back is not shown, so a tool group after it still starts there', () => {
