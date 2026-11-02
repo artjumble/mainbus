@@ -59,7 +59,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     updatedAt: '2026-10-30T00:00:00.000Z',
     hold: null,
     stuck: null,
-    lineup: makeLineup().map((r) => ({ id: r.id, name: r.name, status: 'not_started', active: false })),
+    lineup: makeLineup().map((r) => ({ id: r.id, name: r.name, status: 'not_started', active: false, replacements: 0 })),
     skipTo: null,
     pendingDecisions: [],
     deferredDecisions: [],

@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
+import { useMainbus } from '../store'
 import { makeDecision, makeEvent, makeTicket, renderWithMantine } from '../test-utils'
 import { ContextPane } from './ContextPane'
 
@@ -195,10 +196,62 @@ test('the Activity records a redirect with who suggested and who confirmed it', 
   ).toBeInTheDocument()
 })
 
-test('the Activity records a replacement, confirmed by the user, with its summary', () => {
-  const events = [makeEvent({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary' }, { at: '2026-10-30T10:05:00.000Z' })]
-  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} />)
-  const activity = screen.getByRole('region', { name: 'Activity' })
-  expect(within(activity).getByText('Replaced Implementer (confirmed by you)')).toBeInTheDocument()
-  expect(within(activity).getByText('It tried X; Y failed.')).toBeInTheDocument()
+describe('the Activity of a stuck agent', () => {
+  const at = (minute: number) => ({ at: `2026-10-30T10:0${minute}:00.000Z`, runId: 'r1' })
+  const stuck = (change: 'opened' | 'escalated' | 'fired_again', over = {}) =>
+    makeEvent({ kind: 'stuck', role: 'Implementer', change, episodeId: 'e1', rule: 'repeated_failure', evidence: ['x'], count: 5, ...over }, at(1))
+  const activity = () => screen.getByRole('region', { name: 'Activity' })
+
+  test('says when an episode opened, escalated and fired again after the redirect, as detected by Mainbus', () => {
+    const events = [stuck('opened'), stuck('escalated', { rule: 'no_progress', count: undefined }), stuck('fired_again')]
+    renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} />)
+    expect(within(activity()).getByText('Implementer looks stuck: same failing command 5 times (detected by Mainbus)')).toBeInTheDocument()
+    expect(
+      within(activity()).getByText('Implementer still looks stuck: no progress for a while, needs a closer look (detected by Mainbus)')
+    ).toBeInTheDocument()
+    expect(
+      within(activity()).getByText('Implementer still looks stuck after the redirect: same failing command 5 times (detected by Mainbus)')
+    ).toBeInTheDocument()
+  })
+
+  test('a replacement says who suggested it and that you confirmed it, with links to the run and the proposal', async () => {
+    const onViewRun = vi.fn()
+    useMainbus.setState({ revealedProposal: null })
+    const events = [
+      makeEvent({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary', suggestedBy: 'orchestrator', proposalId: 'p9' }, at(5))
+    ]
+    renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} onViewRun={onViewRun} />)
+    expect(within(activity()).getByText('Replaced Implementer (suggested by the orchestrator, confirmed by you)')).toBeInTheDocument()
+    expect(within(activity()).getByText('It tried X; Y failed.')).toBeInTheDocument()
+    await userEvent.click(within(activity()).getByRole('button', { name: 'View previous run' }))
+    expect(onViewRun).toHaveBeenCalledWith('r1')
+    await userEvent.click(within(activity()).getByRole('button', { name: 'View proposal' }))
+    expect(useMainbus.getState().revealedProposal).toMatchObject({ id: 'p9' })
+  })
+
+  test('a replacement from the Replace… button says you suggested it; an old one only that you confirmed it', () => {
+    const events = [
+      makeEvent({ kind: 'replaced', role: 'Planner', summary: 's', source: 'summary', suggestedBy: 'user' }, at(2)),
+      makeEvent({ kind: 'replaced', role: 'Reviewer', summary: 's', source: 'summary' }, at(3))
+    ]
+    renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} />)
+    expect(within(activity()).getByText('Replaced Planner (suggested by you with Replace…, confirmed by you)')).toBeInTheDocument()
+    expect(within(activity()).getByText('Replaced Reviewer (confirmed by you)')).toBeInTheDocument()
+  })
+
+  test('a redirect links to its proposal; the Failed outcome is recorded, with a link to the run', async () => {
+    const onViewRun = vi.fn()
+    useMainbus.setState({ revealedProposal: null })
+    const events = [
+      makeEvent({ kind: 'redirected', role: 'Implementer', text: 'Try again.', proposalId: 'p3' }, at(2)),
+      makeEvent({ kind: 'stuck_failed', role: 'Implementer', replacements: 2 }, at(4))
+    ]
+    renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} onViewRun={onViewRun} />)
+    expect(within(activity()).getByText('Redirected Implementer: Try again. (suggested by the orchestrator, confirmed by you)')).toBeInTheDocument()
+    expect(within(activity()).getByText('Implementer marked Failed: stuck again after being replaced 2 times (by Mainbus)')).toBeInTheDocument()
+    await userEvent.click(within(activity()).getByRole('button', { name: 'View proposal' }))
+    expect(useMainbus.getState().revealedProposal).toMatchObject({ id: 'p3' })
+    await userEvent.click(within(activity()).getByRole('button', { name: 'View run' }))
+    expect(onViewRun).toHaveBeenCalledWith('r1')
+  })
 })

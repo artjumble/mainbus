@@ -257,7 +257,7 @@ describe('Waiting on you', () => {
       {
         title: 'Logout',
         pendingDecisions: [decision('early', '2026-11-01T11:00:00.000Z', { kind: 'permission', options: [] })],
-        lineup: [{ id: 'r1', name: 'Reviewer', status: 'working', active: true }]
+        lineup: [{ id: 'r1', name: 'Reviewer', status: 'working', active: true, replacements: 0 }]
       },
       { column: 'needs_you' }
     )

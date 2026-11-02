@@ -330,17 +330,61 @@ test('a redirect is a Mainbus entry naming the role, not the user own message', 
   expect(document.querySelector('[data-event="user_message"]')).toBeNull()
 })
 
-test('a replacement is a Mainbus entry with the summary the next agent starts from', () => {
-  const events = [ev({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary' })]
-  renderWithMantine(<Thread events={events} decisions={[]} />)
-  const entry = screen.getByText('It tried X; Y failed.').closest('[data-event="replaced"]') as HTMLElement
-  expect(entry).not.toBeNull()
-  expect(within(entry).getByText('Mainbus · Replaced Implementer')).toBeInTheDocument()
-  expect(document.querySelector('[data-event="user_message"]')).toBeNull()
+
+describe('a replacement', () => {
+  const replaced = (over: Partial<Extract<ThreadEvent, { kind: 'replaced' }>> = {}) =>
+    ev({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary', ...over })
+
+  test('is a divider where the new run starts, with the handoff block collapsed under it', async () => {
+    const { container } = renderWithMantine(<Thread events={[replaced()]} decisions={[]} />)
+    expect(container.querySelector('[data-event="replaced"]')).toHaveTextContent('Implementer replaced')
+    const toggle = screen.getByRole('button', { name: /Handoff from the previous run/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('It tried X; Y failed.')).not.toBeInTheDocument()
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('It tried X; Y failed.')).toBeInTheDocument()
+    expect(screen.queryByText('Summary from the log digest')).not.toBeInTheDocument()
+    await userEvent.click(toggle)
+    expect(screen.queryByText('It tried X; Y failed.')).not.toBeInTheDocument()
+  })
+
+  test('says so when the summary came from the log digest', async () => {
+    renderWithMantine(<Thread events={[replaced({ source: 'digest' })]} decisions={[]} />)
+    await userEvent.click(screen.getByRole('button', { name: /Handoff from the previous run/ }))
+    expect(screen.getByText('Summary from the log digest')).toBeInTheDocument()
+  })
+
+  test('View previous run opens the replaced run, and is absent without a handler or in a read-only thread', async () => {
+    const onViewRun = vi.fn()
+    const first = renderWithMantine(<Thread events={[replaced()]} decisions={[]} onViewRun={onViewRun} />)
+    await userEvent.click(screen.getByRole('button', { name: 'View previous run' }))
+    expect(onViewRun).toHaveBeenCalledWith('r1')
+    first.unmount()
+
+    const none = renderWithMantine(<Thread events={[replaced()]} decisions={[]} />)
+    expect(screen.queryByRole('button', { name: 'View previous run' })).not.toBeInTheDocument()
+    none.unmount()
+
+    renderWithMantine(<Thread events={[replaced()]} decisions={[]} onViewRun={onViewRun} readOnly />)
+    expect(screen.queryByRole('button', { name: 'View previous run' })).not.toBeInTheDocument()
+  })
 })
 
-test('a replacement summary built from the digest says so', () => {
-  const events = [ev({ kind: 'replaced', role: 'Implementer', summary: 'Implementer: at work', source: 'digest' })]
-  renderWithMantine(<Thread events={events} decisions={[]} />)
-  expect(screen.getByText('Mainbus · Replaced Implementer (summary from the log digest)')).toBeInTheDocument()
+test('stuck episodes and the Failed outcome are for the Activity list, not the thread', () => {
+  const events = [
+    ev({ kind: 'stuck', role: 'Implementer', change: 'opened', episodeId: 'e1', rule: 'repeated_failure', evidence: ['x'], count: 5 }),
+    ev({ kind: 'stuck_failed', role: 'Implementer', replacements: 2 })
+  ]
+  const { container } = renderWithMantine(<Thread events={events} decisions={[]} />)
+  expect(container.querySelector('[data-event]')).toBeNull()
+})
+
+test('a read-only thread tells a question still open instead of showing its card', () => {
+  const events = [ev({ kind: 'decision', decisionId: 'dq' })]
+  const decisions = [makeDecision({ id: 'dq', question: 'Which palette?', status: 'pending' })]
+  renderWithMantine(<Thread events={events} decisions={decisions} readOnly />)
+  expect(screen.getByText('Asked the user: Which palette?')).toBeInTheDocument()
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
 })
