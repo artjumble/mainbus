@@ -117,7 +117,7 @@ afterEach(() => {
 })
 
 describe('SdkRuntime', () => {
-  test('starts a role's claude through its own spawn, which reports the process id and its exit', async () => {
+  test('starts the role claude through its own spawn, which reports the process id and its exit', async () => {
     const f = fakeSdk({ messages: fixture('e1-simple') })
     const started: number[] = []
     const exited: number[] = []
