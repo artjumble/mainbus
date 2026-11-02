@@ -544,3 +544,44 @@ test('a PR failure is not shown once the ticket has left Review', () => {
   renderWithMantine(<TicketView />)
   expect(screen.queryByText(/Couldn't open a PR/)).not.toBeInTheDocument()
 })
+
+describe('Replace…', () => {
+  test('is offered for the active role at any time, and opens the replace card in the orchestrator panel', async () => {
+    const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'ticket.proposeReplace') return { id: 'p9', kind: 'replace', status: 'pending' }
+      return undefined
+    })
+    renderWithMantine(<TicketView />)
+    // No stuck chip, no episode: the button is there anyway.
+    expect(screen.queryByText(/stuck/i)).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Replace…' }))
+    expect(mockInvoke).toHaveBeenCalledWith('ticket.proposeReplace', ticket.id)
+    await waitFor(() => expect(useMainbus.getState().revealedProposal).toMatchObject({ id: 'p9' }))
+  })
+
+  test('is offered to a paused role as well, and not without an open run', async () => {
+    show({ phase: 'implementing', agentStatus: 'paused', column: 'in_progress', pausedByUser: true }, strip('i', 'paused'))
+    const { unmount } = renderWithMantine(<TicketView />)
+    expect(screen.getByRole('button', { name: 'Replace…' })).toBeInTheDocument()
+    unmount()
+
+    show({ phase: 'not_started', agentStatus: null, column: 'ready' })
+    renderWithMantine(<TicketView />)
+    expect(screen.queryByRole('button', { name: 'Replace…' })).not.toBeInTheDocument()
+  })
+
+  test('a refusal is shown and nothing is revealed', async () => {
+    show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'ticket.proposeReplace') throw new Error('#12 has no active role to replace')
+      return undefined
+    })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Replace…' }))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.proposeReplace', expect.any(String)))
+    expect(useMainbus.getState().revealedProposal).toBeNull()
+  })
+})

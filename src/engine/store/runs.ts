@@ -6,9 +6,12 @@ import type { Db } from '../db/open'
 import { agentEvents, agentRuns, stuckEpisodes, ticketRuns } from '../db/schema'
 
 /** `handed_back`: the run's role reported a problem and handed the ticket back to an earlier role. */
-export type EndReason = 'handoff' | 'handed_back' | 'stopped' | 'failed'
-/** The reasons `end` takes: a hand-back only ends a run through `handBack`, which never ends the ticket run. */
-export type EndingReason = Exclude<EndReason, 'handed_back'>
+export type EndReason = 'handoff' | 'handed_back' | 'stopped' | 'failed' | 'replaced'
+/**
+ * The reasons `end` takes: a hand-back only ends a run through `handBack`, and a replacement through `replace`;
+ * neither ends the ticket run.
+ */
+export type EndingReason = Exclude<EndReason, 'handed_back' | 'replaced'>
 export type TicketRunStatus = 'running' | 'done' | 'stopped' | 'failed'
 
 export type AgentRunRow = {
@@ -33,6 +36,15 @@ export type AgentRunRow = {
   declaredWait: DeclaredWait | null
   /** How many redirects the user confirmed for this run. */
   redirectCount: number
+  /** The model and effort the run launches with when they differ from its role's in the ticket run's snapshot; null otherwise. */
+  model: string | null
+  effort: string | null
+  /** Extra instructions the user added when this run replaced another, on top of the ticket run's; null for none. */
+  extraInstructions: string | null
+  /** The run that replaced this one, when it ended as replaced. */
+  replacedBy: string | null
+  /** The handoff summary generated from this run's log when it was replaced, or null. */
+  handoffSummary: string | null
 }
 
 /** How a run ends when the user skipped its role. */
@@ -50,6 +62,15 @@ export type TicketRunRow = {
   status: TicketRunStatus
   startedAt: string
   endedAt: string | null
+}
+
+/** What a replacement run starts with: the user's choices for it and the summary of the run it replaces. */
+export interface ReplaceOptions {
+  model: string
+  effort: string
+  extraInstructions: string | null
+  /** The handoff summary generated from the replaced run's log. */
+  handoffSummary: string
 }
 
 export interface RunRepo {
@@ -72,6 +93,15 @@ export interface RunRepo {
    * `returnToRoleId`.
    */
   handBack(prevRunId: string, to: LineupRole, returnToRoleId: string): Promise<AgentRunRow | null>
+  /**
+   * Replaces `prevRunId` with a fresh run of the same role in the same ticket run (a new session, the same return
+   * role), then ends the previous one as replaced, pointing at the new one with its handoff summary. Returns the new
+   * run, or null, changing nothing, if the previous run had already ended or its ticket run is no longer running.
+   * The ticket run, its snapshot and every other role's runs are untouched.
+   */
+  replace(prevRunId: string, opts: ReplaceOptions): Promise<AgentRunRow | null>
+  /** How many runs of the role were replaced in the ticket run. */
+  replacedCount(ticketRunId: string, roleId: string): Promise<number>
   latest(ticketId: string): Promise<AgentRunRow | null>
   /** Every run of the ticket, oldest first. */
   listForTicket(ticketId: string): Promise<AgentRunRow[]>
@@ -111,7 +141,12 @@ const runColumns = {
   processPid: agentRuns.processPid,
   processStartedAt: agentRuns.processStartedAt,
   declaredWait: agentRuns.declaredWait,
-  redirectCount: agentRuns.redirectCount
+  redirectCount: agentRuns.redirectCount,
+  model: agentRuns.model,
+  effort: agentRuns.effort,
+  extraInstructions: agentRuns.extraInstructions,
+  replacedBy: agentRuns.replacedBy,
+  handoffSummary: agentRuns.handoffSummary
 }
 
 /** A selected run with its declared wait (stored as JSON) parsed. */
@@ -209,6 +244,36 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
 
     handBack(prevRunId, to, returnToRoleId) {
       return passTo(prevRunId, to, returnToRoleId, 'handed_back')
+    },
+
+    async replace(prevRunId, opts) {
+      const prev = await get(prevRunId)
+      if (!prev) return null
+      const id = randomUUID()
+      const startedAt = now().toISOString()
+      // One statement, so the checks and the insert can't be split by a concurrent stop or failure.
+      const inserted = await db.all<unknown>(sql`
+        insert into ${agentRuns} (id, ticket_id, ticket_run_id, role_id, role, model, effort, started_at, session_id, return_to, extra_instructions)
+        select ${id}, ${prev.ticketId}, ${prev.ticketRunId}, ${prev.roleId}, ${prev.role}, ${opts.model}, ${opts.effort}, ${startedAt},
+          null, ${prev.returnToRoleId}, ${opts.extraInstructions}
+        where exists (select 1 from ${agentRuns} where id = ${prevRunId} and end_reason is null)
+          and exists (select 1 from ${ticketRuns} where id = ${prev.ticketRunId} and status = 'running')
+        returning id`)
+      if (inserted.length === 0) return null
+      await db
+        .update(agentRuns)
+        .set({ endReason: 'replaced', endedAt: now().toISOString(), declaredWait: null, replacedBy: id, handoffSummary: opts.handoffSummary })
+        .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
+      await closeEpisode(prevRunId)
+      return get(id)
+    },
+
+    async replacedCount(ticketRunId, roleId) {
+      const [row] = await db
+        .select({ n: sql<number>`count(*)` })
+        .from(agentRuns)
+        .where(and(eq(agentRuns.ticketRunId, ticketRunId), eq(agentRuns.roleId, roleId), eq(agentRuns.endReason, 'replaced')))
+      return Number(row?.n ?? 0)
     },
 
     async latest(ticketId) {

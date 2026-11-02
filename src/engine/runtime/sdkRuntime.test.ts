@@ -653,7 +653,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       proposeSkip: vi.fn(async () => 'Proposed p5.'),
       proposeHold: vi.fn(async () => 'Proposed p6.'),
       proposeAnswer: vi.fn(async () => 'Proposed p7.'),
-      proposeRedirect: vi.fn(async () => 'Proposed p8.')
+      proposeRedirect: vi.fn(async () => 'Proposed p8.'),
+      proposeReplace: vi.fn(async () => 'Proposed p9.')
     }
     return {
       kind: 'orchestrator',
@@ -692,7 +693,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__propose_skip',
       'mcp__mainbus__propose_hold',
       'mcp__mainbus__propose_answer',
-      'mcp__mainbus__propose_redirect'
+      'mcp__mainbus__propose_redirect',
+      'mcp__mainbus__propose_replace'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -728,7 +730,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'propose_skip',
       'propose_hold',
       'propose_answer',
-      'propose_redirect'
+      'propose_redirect',
+      'propose_replace'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
@@ -776,6 +779,11 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(Object.keys(redirect.shape)).toEqual(['ticket', 'message', 'evidence'])
     expect(await redirect.handler(redirectArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p8.' }] })
     expect(spec.tools.proposeRedirect).toHaveBeenCalledWith(redirectArgs)
+    const replace = byName.get('propose_replace')!
+    const replaceArgs = { ticket: 4, reason: 'A fresh agent will not repeat the dead end', evidence: 'The redirect did not help' }
+    expect(Object.keys(replace.shape)).toEqual(['ticket', 'reason', 'evidence'])
+    expect(await replace.handler(replaceArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p9.' }] })
+    expect(spec.tools.proposeReplace).toHaveBeenCalledWith(replaceArgs)
     const roles = start.shape.roles as z.ZodType
     expect(roles.safeParse([{ role: 'Planner', model: 'haiku', effort: 'max' }]).success).toBe(true)
     expect(roles.safeParse([{ role: 'Planner', model: 'gpt' }]).success).toBe(false)

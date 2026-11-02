@@ -53,7 +53,12 @@ describe('run repo', () => {
       processPid: null,
       processStartedAt: null,
       declaredWait: null,
-      redirectCount: 0
+      redirectCount: 0,
+      model: 'opus',
+      effort: 'high',
+      extraInstructions: null,
+      replacedBy: null,
+      handoffSummary: null
     })
   })
 
@@ -292,5 +297,74 @@ describe('run repo', () => {
 
   it('events of an unknown run are empty', async () => {
     expect(await createRunRepo(db, now).events('missing')).toEqual([])
+  })
+})
+
+describe('replace', () => {
+  const REQUEST = { model: 'haiku', effort: 'low', extraInstructions: 'Try the fixtures', handoffSummary: 'It tried X; Y failed.' }
+
+  it('starts a fresh run of the same role and ends the old one as replaced, pointing at it, with its summary', async () => {
+    const repo = createRunRepo(db, now)
+    const planner = testRole({ id: 'p', name: 'Planner' })
+    const implementer = testRole({ id: 'i', name: 'Implementer', model: 'opus', effort: 'high' })
+    const first = await repo.create(ticketId, [planner, implementer])
+    await repo.setSession(first, 'planner-session')
+    const old = (await repo.handOn(first, implementer))!
+    await repo.setSession(old.id, 'impl-session')
+    await repo.setDeclaredWait(old.id, { reason: 'a build', until: '2026-11-02T10:00:00.000Z' })
+
+    clock = new Date(FIXED_NOW.getTime() + 1000)
+    const fresh = (await repo.replace(old.id, REQUEST))!
+
+    expect(fresh).toMatchObject({
+      ticketRunId: old.ticketRunId,
+      roleId: 'i',
+      role: 'Implementer',
+      sessionId: null,
+      endReason: null,
+      model: 'haiku',
+      effort: 'low',
+      extraInstructions: 'Try the fixtures',
+      replacedBy: null,
+      handoffSummary: null
+    })
+    expect((await repo.latest(ticketId))!.id).toBe(fresh.id)
+    const runs = await repo.listForTicketRun(old.ticketRunId)
+    expect(runs.map((r) => [r.role, r.endReason])).toEqual([
+      ['Planner', 'handoff'],
+      ['Implementer', 'replaced'],
+      ['Implementer', null]
+    ])
+    expect(runs[1]).toMatchObject({ replacedBy: fresh.id, handoffSummary: REQUEST.handoffSummary, declaredWait: null, endedAt: expect.any(String) })
+    // The planner's run and the ticket run are untouched.
+    expect(runs[0]).toMatchObject({ sessionId: 'planner-session', endReason: 'handoff' })
+    expect((await repo.ticketRun(old.ticketRunId)).status).toBe('running')
+  })
+
+  it("keeps the role's return role, and counts replacements per role", async () => {
+    const repo = createRunRepo(db, now)
+    const a = testRole({ id: 'a', name: 'A' })
+    const b = testRole({ id: 'b', name: 'B' })
+    const first = await repo.create(ticketId, [a, b])
+    const second = (await repo.handOn(first, b))!
+    const back = (await repo.handBack(second.id, a, 'b'))!
+    expect(back.returnToRoleId).toBe('b')
+
+    const fresh = (await repo.replace(back.id, REQUEST))!
+    expect(fresh.returnToRoleId).toBe('b')
+    expect(await repo.replacedCount(back.ticketRunId, 'a')).toBe(1)
+    expect(await repo.replacedCount(back.ticketRunId, 'b')).toBe(0)
+    const again = (await repo.replace(fresh.id, REQUEST))!
+    expect(await repo.replacedCount(back.ticketRunId, 'a')).toBe(2)
+    expect(again.id).not.toBe(fresh.id)
+  })
+
+  it('changes nothing for a run that has ended or does not exist', async () => {
+    const repo = createRunRepo(db, now)
+    const runId = await repo.create(ticketId, [testRole()])
+    expect(await repo.end(runId, 'stopped')).toBe(true)
+    expect(await repo.replace(runId, REQUEST)).toBeNull()
+    expect(await repo.listForTicket(ticketId)).toHaveLength(1)
+    expect(await repo.replace('no-such-run', REQUEST)).toBeNull()
   })
 })

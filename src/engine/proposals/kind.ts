@@ -1,6 +1,6 @@
 import type { z } from 'zod'
-import type { DraftColumn } from '../../shared/proposals'
-import type { StuckEpisode, Decision, DecisionAnswer, Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
+import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -46,6 +46,15 @@ export interface ExecContext {
    * ended or its episode has closed or was already redirected.
    */
   redirectTicket(ticketId: string, expect: { agentRunId: string; episodeId: string }, message: string): Promise<void>
+  /**
+   * The same path as the ticket view's Replace…: ends the run's agent as replaced, with a handoff summary generated from its
+   * log, and starts a fresh agent of the same role with it. Fails, changing nothing, if the run has moved on.
+   */
+  replaceTicket(
+    ticketId: string,
+    expect: { agentRunId: string },
+    request: { model: string; effort: Effort; extraInstructions: string | null }
+  ): Promise<void>
   /** A decision and its ticket, or null when there is none. */
   decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>
   /** The shared answer path (the board's and the thread's too), from the orchestrator panel; refuses a decision already answered. */
@@ -57,6 +66,9 @@ export interface ActiveRole {
   agentRunId: string
   role: string
   agentStatus: TicketState['agentStatus']
+  /** The model and effort the active run launched with. */
+  model: string
+  effort: Effort
   /** The role a skip would start; null when the ticket would go to Review. */
   next: string | null
 }
@@ -67,6 +79,8 @@ export interface Turn {
   userMessage: string | null
   /** The workspace the proposal is made for. */
   workspaceId: string
+  /** Who makes it; the orchestrator when absent. */
+  origin?: ProposalOrigin
 }
 
 /**

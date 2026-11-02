@@ -258,6 +258,16 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           <Text size="sm">{event.text}</Text>
         </Paper>
       )
+    case 'replaced':
+      // Mainbus's own entry: the user replaced this agent, and its successor starts from this summary.
+      return (
+        <Paper withBorder p="sm" radius="md" maw="80%" data-event="replaced" style={{ alignSelf: 'flex-end', whiteSpace: 'pre-wrap' }}>
+          <Text size="xs" c="dimmed" fw={600} mb={2}>
+            {`Mainbus · Replaced ${event.role}${event.source === 'digest' ? ' (summary from the log digest)' : ''}`}
+          </Text>
+          <Text size="sm">{event.summary}</Text>
+        </Paper>
+      )
     case 'thinking':
       return <ThinkingBlock text={event.text} durationMs={event.durationMs} partial={event.partial} />
     case 'tool_call':

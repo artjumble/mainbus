@@ -17,7 +17,9 @@ const ENDED: Record<NonNullable<AgentRunRow['endReason']>, RoleStatus> = {
   // Waiting for the earlier role it handed back to.
   handed_back: 'handed_off',
   failed: 'failed',
-  stopped: 'stopped'
+  stopped: 'stopped',
+  // Always followed by the run that replaced it, which is the role's latest.
+  replaced: 'handed_off'
 }
 
 /**

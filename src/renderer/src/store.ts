@@ -51,6 +51,8 @@ interface MainbusState {
   setUnattended(on: boolean): Promise<void>
   /** Asks the engine for a start proposal for a Backlog or Ready ticket (the card dragged into In progress), then shows it. */
   proposeStart(ticketId: string): Promise<void>
+  /** Asks the engine for a replace proposal for the ticket's active role (the Replace… button), then shows its card. */
+  proposeReplace(ticketId: string): Promise<void>
   revealProposal(id: string): void
 }
 
@@ -164,6 +166,11 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
 
   async proposeStart(ticketId) {
     const proposal = await invoke('ticket.proposeStart', ticketId)
+    get().revealProposal(proposal.id)
+  },
+
+  async proposeReplace(ticketId) {
+    const proposal = await invoke('ticket.proposeReplace', ticketId)
     get().revealProposal(proposal.id)
   },
 

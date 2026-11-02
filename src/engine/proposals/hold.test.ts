@@ -27,6 +27,7 @@ function ctx(over: { open?: Workspace | null; ticket?: Ticket | null } = {}) {
     decision: async () => null,
     openStuckEpisode: async () => null,
     redirectTicket: async () => {},
+    replaceTicket: async () => {},
     answerDecision: async () => {}
   }
   return c satisfies ExecContext

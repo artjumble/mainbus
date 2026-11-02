@@ -19,6 +19,10 @@ export interface ProposalView<P, R, E> {
    * The card then has no Confirm or Override, only these and Reject, and none is pre-selected.
    */
   choices?(payload: P): { label: string; override: unknown }[] | null
+  /** The label of the button that confirms, from the payload; 'Confirm' when absent. */
+  confirmLabel?(payload: P): string
+  /** The label of the button that rejects; 'Reject' when absent. */
+  rejectLabel?: string
   /** The receipt once carried out, such as "Created #21 and #22". */
   Receipt(props: { result: R }): ReactElement
 }

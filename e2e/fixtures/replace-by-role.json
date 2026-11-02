@@ -1,0 +1,15 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "emit": { "kind": "message", "text": "Planner at work on the flaky test." } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "waitForSend": true }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "waitForSend": true }
+  ]
+}

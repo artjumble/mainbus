@@ -219,7 +219,8 @@ describe('FakeRuntime: the orchestrator', () => {
         proposeSkip: vi.fn(async () => 'proposed'),
         proposeHold: vi.fn(async () => 'proposed'),
         proposeAnswer: vi.fn(async () => 'proposed'),
-        proposeRedirect: vi.fn(async () => 'proposed')
+        proposeRedirect: vi.fn(async () => 'proposed'),
+        proposeReplace: vi.fn(async () => 'proposed')
       },
       onPermission: async () => ({ allow: true }),
       ...over

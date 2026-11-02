@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
-import type { Column, Decision, Phase, RoleStatus, StuckEpisode, StuckRule, Workspace } from '../../shared/domain'
+import type { Column, Decision, Phase, RoleStatus, StuckEpisode, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import type { Repos } from '../store'
+import { STUCK_RULE_TEXT } from '../stuck/config'
+import { firedAgainAfterRedirect } from '../stuck/ladder'
 
 export interface ReadToolDeps {
   repos: Pick<Repos, 'runs' | 'decisions' | 'stuck'>
@@ -52,14 +54,6 @@ const ROLE_STATUSES: Record<RoleStatus, string> = {
   paused: 'paused',
   failed: 'failed',
   stopped: 'stopped'
-}
-
-const STUCK_RULES: Record<StuckRule, string> = {
-  repeated_failure: 'the same command failing again and again',
-  no_progress: 'no file changes or new kinds of tool for a while',
-  silence: 'no events for a while',
-  long_turn: 'one turn running very long',
-  dead_process: 'the agent process ended'
 }
 
 const PERMISSION_CHOICES = { allow_once: 'Allowed once', always_allow: 'Always allowed', deny: 'Denied' } as const
@@ -118,8 +112,12 @@ function toolSummary(input: unknown): string {
 function stuckText(s: StuckEpisode): string {
   const look = s.needsCloserLook ? ` It has been flagged ${s.hitCount} times and needs a closer look.` : ''
   const evidence = s.evidence.map((line) => `- ${data('stuck-evidence', oneLine(line), true)}`).join('\n')
-  const redirected = s.redirectedAt ? ` It was already redirected once at ${localStamp(s.redirectedAt)}: propose a replacement, not another redirect.` : ''
-  return `Looks stuck (opened ${localStamp(s.openedAt)}; ${STUCK_RULES[s.rule]}).${look}${redirected} Evidence:\n${evidence}`
+  const redirected = !s.redirectedAt
+    ? ''
+    : firedAgainAfterRedirect(s)
+      ? ` It was redirected once at ${localStamp(s.redirectedAt)} and has fired again: propose a replacement, not another redirect.`
+      : ` It was already redirected once at ${localStamp(s.redirectedAt)} and has not fired again since: propose neither a redirect nor a replacement yet.`
+  return `Looks stuck (opened ${localStamp(s.openedAt)}; ${STUCK_RULE_TEXT[s.rule]}).${look}${redirected} Evidence:\n${evidence}`
 }
 
 function answerText(d: Decision): string {
@@ -175,6 +173,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
       return `The ${role} resumed`
     case 'redirected':
       return `The user redirected the ${oneLine(e.role)}, as you suggested; the agent was interrupted and sent this message: ${data('redirect', clip(oneLine(e.text), MESSAGE_MAX), true)}`
+    case 'replaced':
+      return `The user replaced the ${oneLine(e.role)}: its agent ended and a fresh one took over from a summary of its log`
     case 'waiting':
       return `${role} declared a wait (agent-written): ${data('wait-reason', clip(oneLine(e.reason), MESSAGE_MAX), true)}, until ${clockTime(e.until)}`
     case 'role_handoff':

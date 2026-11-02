@@ -9,6 +9,7 @@ import { holdView } from './HoldProposal'
 import type { ProposalView } from './proposalView'
 import { pauseView, skipView, stopView } from './RoleControlProposal'
 import { redirectView } from './RedirectProposal'
+import { replaceView } from './ReplaceProposal'
 import { startLineupView } from './StartLineupProposal'
 
 /** The card's view of each kind of proposal. */
@@ -20,7 +21,8 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   skip: skipView,
   hold: holdView,
   answer: answerView,
-  redirect: redirectView
+  redirect: redirectView,
+  replace: replaceView
 }
 
 interface Props {
@@ -61,6 +63,7 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
   }
 
   const summary = view.summary(proposal.payload)
+  const confirmLabel = view.confirmLabel?.(proposal.payload) ?? 'Confirm'
   return (
     <Paper withBorder p="sm" radius="md" data-proposal="pending" data-proposal-id={proposal.id} role="group" aria-label={`Proposal: ${summary}`}>
       <Stack gap="xs">
@@ -83,7 +86,7 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
           ) : editing ? (
             <>
               <Button size="xs" disabled={override === null || busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
-                Confirm with changes
+                {`${confirmLabel} with changes`}
               </Button>
               <Button size="xs" variant="default" disabled={busy !== null} onClick={() => setEdit(null)}>
                 Cancel
@@ -92,7 +95,7 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
           ) : (
             <>
               <Button size="xs" disabled={busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
-                Confirm
+                {confirmLabel}
               </Button>
               {view.Editor && view.initialEdit && (
                 <Button size="xs" variant="default" disabled={busy !== null} onClick={() => setEdit(view.initialEdit!(proposal.payload))}>
@@ -102,7 +105,7 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
             </>
           )}
           <Button size="xs" variant="subtle" color="gray" disabled={busy !== null} loading={busy === 'reject'} onClick={() => void decide('reject')}>
-            Reject
+            {view.rejectLabel ?? 'Reject'}
           </Button>
         </Group>
       </Stack>

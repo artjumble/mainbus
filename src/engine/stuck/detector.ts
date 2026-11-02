@@ -16,6 +16,8 @@ export interface StuckDetectorDeps {
   emit: (e: EngineEvent) => void
   /** What the runner knows of the ticket's open run; null when it has none. */
   observe: (ticketId: string) => Promise<RunObservation | null>
+  /** Called when an episode opens: fails the run when its role was already replaced as often as allowed; true when it did. */
+  failIfExhausted: (ticketId: string, runId: string) => Promise<boolean>
   /** The newest file change in a worktree (ms since the epoch), or null. */
   newestChange: (worktreePath: string) => Promise<number | null>
 }
@@ -144,7 +146,9 @@ export class StuckDetector {
   }
 
   private async record(obs: RunObservation, hit: StuckHit): Promise<void> {
-    await this.deps.repos.stuck.hit(obs.runId, hit)
+    const { change } = await this.deps.repos.stuck.hit(obs.runId, hit)
+    // A role replaced as often as allowed isn't offered another redirect or replacement: its run fails instead.
+    if (change === 'opened') await this.deps.failIfExhausted(obs.ticketId, obs.runId)
     this.deps.emit({ type: 'board.changed', workspaceId: obs.workspaceId })
   }
 

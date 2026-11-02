@@ -6,7 +6,7 @@ import { redirect } from './redirect'
 
 const ws = { id: 'ws1' } as Workspace
 const TICKET = { id: 't12', number: 12, title: 'Rate-limit login' } as Ticket
-const ACTIVE: ActiveRole = { agentRunId: 'r1', role: 'Implementer', agentStatus: 'working', next: 'Reviewer' }
+const ACTIVE: ActiveRole = { agentRunId: 'r1', role: 'Implementer', agentStatus: 'working', model: 'opus', effort: 'high', next: 'Reviewer' }
 const EPISODE: StuckEpisode = {
   id: 'e1',
   agentRunId: 'r1',
@@ -39,6 +39,7 @@ function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; 
       throw new Error('unused')
     },
     openStuckEpisode: vi.fn(async () => (over.episode === undefined ? EPISODE : over.episode)),
+    replaceTicket: async () => {},
     redirectTicket: vi.fn(async (_id: string, _expect: { agentRunId: string; episodeId: string }, _message: string) => {}),
     decision: async () => null,
     answerDecision: async () => {}

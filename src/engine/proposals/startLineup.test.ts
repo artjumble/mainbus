@@ -34,6 +34,7 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
     decision: async () => null,
     openStuckEpisode: async () => null,
     redirectTicket: async () => {},
+    replaceTicket: async () => {},
     answerDecision: async () => {},
     /** Changes what whyNotStartable says from now on. */
     setWhy: (w: string | null) => (why = w)
