@@ -12,7 +12,7 @@ const initial = useMainbus.getState()
 /** Presses on the card, moves the pointer past the drag threshold, and reports the card wrapper's transform. */
 async function dragBy(title: RegExp): Promise<string> {
   const card = screen.getByRole('button', { name: title })
-  const wrapper = card.parentElement as HTMLElement
+  const wrapper = card.closest<HTMLElement>('[style*="touch-action"]')!
   await userEvent.pointer([
     { keys: '[MouseLeft>]', target: card, coords: { clientX: 10, clientY: 10 } },
     { target: card, coords: { clientX: 60, clientY: 60 } },

@@ -52,7 +52,7 @@ test('a question is answered from its board card: the agent gets it, the ticket 
     // Answer it from the board card, with a note. Clicking inside the popover does not open the ticket.
     const needsYou = page.getByRole('region', { name: 'Needs you' })
     await expect(needsYou.getByText('Add hello file')).toBeVisible()
-    await needsYou.getByRole('button', { name: 'Answer', exact: true }).click()
+    await needsYou.getByRole('button', { name: 'Answer' }).click()
     const popover = page.getByRole('dialog')
     await expect(popover.getByText('Where should hello.txt go?')).toBeVisible()
     await expect(popover.getByText('Recommended')).toBeVisible()

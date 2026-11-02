@@ -1,5 +1,5 @@
-import { Anchor, Badge, Group, Loader, Paper, Text } from '@mantine/core'
-import { memo, type KeyboardEvent, type ReactElement } from 'react'
+import { Anchor, Badge, Group, Loader, Paper, Text, UnstyledButton } from '@mantine/core'
+import { memo, type ReactElement } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import { waitingLabel } from '../../../shared/hold'
 import type { BoardTicket } from '../store'
@@ -64,7 +64,6 @@ export function PrLink({ pr, size = 'xs' }: { pr: PullRequest; size?: 'xs' | 'sm
       size={size}
       // Inside a card, the link opens the PR, not the ticket.
       onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
     >
       PR #{pr.number}
     </Anchor>
@@ -86,31 +85,24 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
   const { state } = ticket
   const source = ticket.intent[0]?.source
 
-  function onKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onOpen(ticket.id)
-    }
-  }
-
   return (
-    <Paper
-      withBorder
-      p="sm"
-      radius="md"
-      shadow="xs"
-      role="button"
-      tabIndex={0}
-      style={{ cursor: 'pointer' }}
-      onClick={() => onOpen(ticket.id)}
-      onKeyDown={onKeyDown}
-    >
+    // A click on the card's empty area opens the ticket too, as a pointer convenience; the title is the control.
+    <Paper withBorder p="sm" radius="md" shadow="xs" style={{ cursor: 'pointer' }} onClick={() => onOpen(ticket.id)}>
       <Text size="xs" c="dimmed">
         #{ticket.number}
       </Text>
-      <Text fw={500} size="sm" mb={6}>
-        {ticket.title}
-      </Text>
+      <UnstyledButton
+        mb={6}
+        style={{ display: 'block', textAlign: 'left', width: '100%' }}
+        onClick={(e) => {
+          e.stopPropagation()
+          onOpen(ticket.id)
+        }}
+      >
+        <Text fw={500} size="sm">
+          {ticket.title}
+        </Text>
+      </UnstyledButton>
       <Group gap="xs">
         <PhaseChip state={state} />
         <PausedChip state={state} />

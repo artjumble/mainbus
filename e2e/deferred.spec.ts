@@ -62,7 +62,7 @@ test('a decision put off with Later… > Tomorrow leaves Needs you, and is back 
     await expect(waiting.getByText('Where should hello.txt go?')).toBeVisible()
 
     // Answer > Later… > Tomorrow, on the board card's popover.
-    await needsYou.getByRole('button', { name: 'Answer', exact: true }).click()
+    await needsYou.getByRole('button', { name: 'Answer' }).click()
     const popover = page.getByRole('dialog')
     await popover.getByRole('button', { name: 'Later…' }).click()
     await popover.getByRole('menuitem', { name: 'Tomorrow' }).click()
@@ -94,7 +94,7 @@ test('a decision put off with Later… > Tomorrow leaves Needs you, and is back 
     await expect(card).toContainText('Where should hello.txt go?')
     await expect(card).not.toContainText('Deferred until')
     await card.getByRole('radio', { name: /docs folder/ }).check()
-    await card.getByRole('button', { name: 'Answer', exact: true }).click()
+    await card.getByRole('button', { name: 'Answer' }).click()
 
     // The agent received the answer, once.
     await expect(card).toContainText('✓ Answered: docs folder')

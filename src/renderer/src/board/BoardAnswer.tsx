@@ -29,7 +29,6 @@ export function BoardAnswer({ decisions }: Props): ReactElement | null {
             e.stopPropagation()
             setOpened((o) => !o)
           }}
-          onKeyDown={(e) => e.stopPropagation()}
         >
           Answer
         </Button>
