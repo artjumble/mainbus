@@ -194,6 +194,6 @@ Mainbus grew out of using [firstmate](https://github.com/kunchenguid/firstmate),
 
 ## License
 
-Copyright © 2026 artjumble. All rights reserved.
+Mainbus is released under the [MIT License](LICENSE). Copyright © 2026 artjumble.
 
-The source is public to read, but no license is granted to use, copy, modify or distribute it.
+Its dependencies keep their own licenses. The Claude Agent SDK, in particular, is covered by Anthropic's terms rather than MIT, and Mainbus doesn't include Claude Code itself: each user installs it and signs in to it.
