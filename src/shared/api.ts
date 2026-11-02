@@ -15,6 +15,7 @@ import type {
   NewTicketInput,
   StartOptions,
   StripRole,
+  StuckEpisode,
   Ticket,
   TicketPatch,
   TicketState,
@@ -39,6 +40,8 @@ export type BoardTicket = Ticket & {
   deferredDecisions: Decision[]
   /** The user's hold on the ticket, or null. */
   hold: Hold | null
+  /** The open stuck episode of the ticket's open run, or null. */
+  stuck: StuckEpisode | null
 }
 
 /**

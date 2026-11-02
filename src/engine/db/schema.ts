@@ -124,9 +124,39 @@ export const agentRuns = sqliteTable(
     skipped: integer('skipped', { mode: 'boolean' }).notNull().default(false),
     /** The agent's `claude` process id and its start time (ms since the epoch), until what it left running has been swept. */
     processPid: integer('process_pid'),
-    processStartedAt: integer('process_started_at')
+    processStartedAt: integer('process_started_at'),
+    /** JSON: { reason, until }. A wait the agent declared with report_waiting; the stuck detector honours it until `until`. */
+    declaredWait: text('declared_wait')
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
+)
+
+/**
+ * What the stuck detector found on one agent run. Every hit on a run belongs to its one open episode, which
+ * counts them instead of raising new alerts; it closes when the agent shows progress or the run ends.
+ */
+export const stuckEpisodes = sqliteTable(
+  'stuck_episodes',
+  {
+    id: text('id').primaryKey(),
+    agentRunId: text('agent_run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    /** The rule of the latest hit. */
+    rule: text('rule', { enum: ['repeated_failure', 'no_progress', 'silence', 'long_turn', 'dead_process'] }).notNull(),
+    evidence: text('evidence').notNull(), // JSON: string[], from the latest hit
+    hitCount: integer('hit_count').notNull(),
+    openedAt: text('opened_at').notNull(),
+    lastHitAt: text('last_hit_at').notNull(),
+    /** When the hit count reached the escalation count: the episode asks for a closer look. */
+    escalatedAt: text('escalated_at'),
+    closedAt: text('closed_at')
+  },
+  (t) => [
+    index('stuck_episodes_run_idx').on(t.agentRunId),
+    // One open episode per run.
+    uniqueIndex('stuck_episodes_open_uq').on(t.agentRunId).where(sql`${t.closedAt} is null`)
+  ]
 )
 
 export const agentEvents = sqliteTable(

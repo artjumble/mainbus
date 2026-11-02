@@ -8,6 +8,7 @@ import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
+import { stuckBlock, type StuckReport } from './stuckBlock'
 import { ticketFoldersFor, type HomePaths } from '../home'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
@@ -59,6 +60,8 @@ export interface OrchestratorDeps {
   releasedSince: (workspaceId: string, since: string | null) => Promise<ReleasedHold[]>
   /** The decisions the user put off that came back on their date since `since`. */
   resurfacedSince: (workspaceId: string, since: string | null) => Promise<ResurfacedDecision[]>
+  /** The stuck episodes opened or escalated since `since` that are still open. */
+  stuckSince: (workspaceId: string, since: string | null) => Promise<StuckReport[]>
 }
 
 interface Live {
@@ -149,7 +152,8 @@ export class OrchestratorSession {
       await this.deps.proposals.outcomeBlock(since),
       answeredBlock(await this.deps.answeredSince(ws.id, since)),
       releasedHoldsBlock(await this.deps.releasedSince(ws.id, since)),
-      resurfacedBlock(await this.deps.resurfacedSince(ws.id, since))
+      resurfacedBlock(await this.deps.resurfacedSince(ws.id, since)),
+      stuckBlock(await this.deps.stuckSince(ws.id, since))
     ].filter((b) => b !== null)
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)

@@ -6,6 +6,7 @@ import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
 import { HoldChip } from './HoldChip'
+import { StuckChip } from './StuckChip'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
   not_started: 'Not started',
@@ -107,6 +108,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <PhaseChip state={state} />
         <PausedChip state={state} />
         <HoldChip hold={ticket.hold} />
+        <StuckChip stuck={ticket.stuck} />
         {source && <AgentBadge source={source} />}
         {ticket.pr && <PrLink pr={ticket.pr} />}
         {cleaningUp && (

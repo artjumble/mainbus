@@ -1,11 +1,13 @@
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
 
-/** What the in-process role tools (ask_user, handoff, report_problem, check_criterion) call back into. */
+/** What the in-process role tools (ask_user, handoff, report_problem, report_waiting, check_criterion) call back into. */
 export interface RoleToolHandlers {
   askUser(a: { question: string; options: string[]; recommended?: number }): Promise<string>
   handoff(a: { summary: string; notesForNext: string }): Promise<string>
   reportProblem(a: { details: string }): Promise<string>
+  /** `until` is an ISO date-time; the handler checks it, since the agent sends whatever it likes. */
+  reportWaiting(a: { reason: string; until: string }): Promise<string>
   checkCriterion(a: { index: number }): Promise<string>
 }
 

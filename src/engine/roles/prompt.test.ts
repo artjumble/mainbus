@@ -391,12 +391,18 @@ describe('ROLE_PROTOCOL', () => {
   })
 
   test('names the exact tool ids and forbids asking in plain text', () => {
-    expect(ROLE_PROTOCOL).toContain('You have four Mainbus tools')
+    expect(ROLE_PROTOCOL).toContain('You have five Mainbus tools')
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__ask_user')
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__handoff')
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__report_problem(details)')
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__check_criterion(index)')
     expect(ROLE_PROTOCOL).toMatch(/never ask[^.]*plain text/i)
+  })
+
+  test('says when to use report_waiting, and that until is required, in the future and at most 2 hours ahead', () => {
+    expect(ROLE_PROTOCOL).toContain('mcp__mainbus__report_waiting(reason, until)')
+    expect(ROLE_PROTOCOL).toMatch(/long build, a slow test suite, or when waiting on a process you started/)
+    expect(ROLE_PROTOCOL).toMatch(/until is required: an ISO date-time in the future, at most 2 hours from now/)
   })
 
   test('says check_criterion takes a zero-based index and cannot untick', () => {

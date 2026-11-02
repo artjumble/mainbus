@@ -99,6 +99,13 @@
       "when": 1793634249034,
       "tag": "0013_run_processes",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793640163136,
+      "tag": "0014_stuck_detector",
+      "breakpoints": true
     }
   ]
 }

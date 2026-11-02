@@ -23,9 +23,12 @@ import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
+import type { StuckReport } from './orchestrator/stuckBlock'
 import { OrchestratorSession } from './orchestrator/session'
 import { createProposalService, type ProposalService } from './proposals/service'
 import { ProcessSweeper } from './processes/sweep'
+import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
+import { newestChange } from './stuck/files'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -59,6 +62,8 @@ export interface EngineConfig {
   keepAwake?: KeepAwake
   /** The time and the one timer that releases holds on their date; tests (and the end-to-end tests) pass a fake. */
   clock?: Clock
+  /** The stuck detector's timer, interval and file probe; tests pass fakes. By default a real timer, once a minute. */
+  stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange'>>
 }
 
 export interface Engine {
@@ -131,10 +136,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       pullRequests,
       processes: cfg.processes ?? new ProcessSweeper()
     })
+    const stuckDetector = new StuckDetector({
+      repos,
+      now,
+      emit,
+      timer: cfg.stuck?.timer ?? realTimer,
+      ...(cfg.stuck?.intervalMs !== undefined ? { intervalMs: cfg.stuck.intervalMs } : {}),
+      observe: (ticketId) => runner.observeRun(ticketId),
+      newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
+    })
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()
     // Holds that came due while Mainbus was closed are released before anything can start a ticket.
     await holds.start()
+    stuckDetector.start()
 
     const requireWorkspace = async (): Promise<Workspace> => {
       const ws = await repos.workspaces.get()
@@ -309,7 +324,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       // Read once, for every ticket that hasn't run yet.
       let lineup: Promise<LineupRole[]> | undefined
       const workspaceLineup = () => (lineup ??= repos.lineups.get(ws.id))
-      return Promise.all(tickets.map(async (t) => ({ ...t, ...(await runner.boardView(t.id, workspaceLineup)), hold: holdOf.get(t.id) ?? null })))
+      const stuckOf = await repos.stuck.openByTicket()
+      return Promise.all(
+        tickets.map(async (t) => ({
+          ...t,
+          ...(await runner.boardView(t.id, workspaceLineup)),
+          hold: holdOf.get(t.id) ?? null,
+          stuck: stuckOf.get(t.id) ?? null
+        }))
+      )
     }
 
     // Its events never reach unattended mode as board changes: the orchestrator is not a ticket.
@@ -348,6 +371,22 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           }
         }
         return resurfaced
+      },
+      stuckSince: async (workspaceId, since) => {
+        const reports: StuckReport[] = []
+        for (const { ticketId, role, episode } of await repos.stuck.changedSince(since)) {
+          const ticket = await repos.tickets.get(ticketId).catch(() => null)
+          if (ticket?.workspaceId !== workspaceId) continue
+          reports.push({
+            number: ticket.number,
+            title: ticket.title,
+            role,
+            evidence: episode.evidence,
+            hitCount: episode.hitCount,
+            needsCloserLook: episode.needsCloserLook
+          })
+        }
+        return reports
       }
     })
 
@@ -516,6 +555,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             // First, so the queue starts nothing while the agents are stopped.
             mode.dispose()
             holds.dispose()
+            stuckDetector.dispose()
             await Promise.all([runner.shutdown(), orchestrator.shutdown()])
           } finally {
             listeners.clear()

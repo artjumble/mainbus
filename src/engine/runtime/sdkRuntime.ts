@@ -43,6 +43,7 @@ const ROLE_TOOLS = [
   'mcp__mainbus__ask_user',
   'mcp__mainbus__handoff',
   'mcp__mainbus__report_problem',
+  'mcp__mainbus__report_waiting',
   'mcp__mainbus__check_criterion'
 ]
 /**
@@ -395,6 +396,15 @@ export class SdkRuntime implements AgentRuntime {
             details: z.string().describe('What is wrong and what needs to change')
           },
           async (a) => toolText(await spec.roleTools.reportProblem({ details: a.details }))
+        ),
+        sdk.tool(
+          'report_waiting',
+          'Declare a wait that is expected to be quiet, such as a long build, a slow test suite or a process you started. Until the time you give, Mainbus does not take your silence for being stuck.',
+          {
+            reason: z.string().describe('What you are waiting for'),
+            until: z.string().describe('When the wait ends: an ISO date-time in the future, at most 2 hours from now')
+          },
+          async (a) => toolText(await spec.roleTools.reportWaiting({ reason: a.reason, until: a.until }))
         ),
         sdk.tool(
           'check_criterion',

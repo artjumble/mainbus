@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
 import { HoldChip } from '../board/HoldChip'
+import { StuckChip, StuckEvidence } from '../board/StuckChip'
 import { PausedChip, PhaseChip, PrLink } from '../board/TicketCard'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
@@ -54,12 +55,14 @@ export function TicketView(): ReactElement {
           <PhaseChip state={ticket.state} />
           <PausedChip state={ticket.state} />
           <HoldChip hold={ticket.hold} />
+          <StuckChip stuck={ticket.stuck} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           <Text size="sm" c="dimmed" ml="auto">
             Source: Local
           </Text>
         </Group>
         {ticket.prError !== null && ticket.state.column === 'review' && <PrFailure ticket={ticket} />}
+        <StuckEvidence stuck={ticket.stuck} />
       </Stack>
       <TicketBody key={ticket.id} ticket={ticket} />
     </Flex>

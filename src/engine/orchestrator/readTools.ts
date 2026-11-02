@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
-import type { Column, Decision, Phase, RoleStatus, Workspace } from '../../shared/domain'
+import type { Column, Decision, Phase, RoleStatus, StuckEpisode, StuckRule, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
+import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import type { Repos } from '../store'
 
 export interface ReadToolDeps {
-  repos: Pick<Repos, 'runs' | 'decisions'>
+  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck'>
   /** The open workspace, or null. */
   workspace(): Promise<Workspace | null>
   /** The workspace's tickets as the board shows them: state and lineup strip. */
@@ -51,6 +52,14 @@ const ROLE_STATUSES: Record<RoleStatus, string> = {
   paused: 'paused',
   failed: 'failed',
   stopped: 'stopped'
+}
+
+const STUCK_RULES: Record<StuckRule, string> = {
+  repeated_failure: 'the same command failing again and again',
+  no_progress: 'no file changes or new kinds of tool for a while',
+  silence: 'no events for a while',
+  long_turn: 'one turn running very long',
+  dead_process: 'the agent process ended'
 }
 
 const PERMISSION_CHOICES = { allow_once: 'Allowed once', always_allow: 'Always allowed', deny: 'Denied' } as const
@@ -105,6 +114,13 @@ function toolSummary(input: unknown): string {
   return clip(oneLine(text), TOOL_SUMMARY_MAX)
 }
 
+/** The open stuck episode of the run, with the detector's evidence (text from the agent's log, so data). */
+function stuckText(s: StuckEpisode): string {
+  const look = s.needsCloserLook ? ` It has been flagged ${s.hitCount} times and needs a closer look.` : ''
+  const evidence = s.evidence.map((line) => `- ${data('stuck-evidence', oneLine(line), true)}`).join('\n')
+  return `Looks stuck (opened ${localStamp(s.openedAt)}; ${STUCK_RULES[s.rule]}).${look} Evidence:\n${evidence}`
+}
+
 function answerText(d: Decision): string {
   if (d.status !== 'answered' || d.answer === null) return d.status === 'pending' ? 'not answered yet' : d.status === 'deferred' ? 'deferred' : d.status
   const a = d.answer
@@ -156,6 +172,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
       return `The user paused the ${role}`
     case 'resumed':
       return `The ${role} resumed`
+    case 'waiting':
+      return `${role} declared a wait (agent-written): ${data('wait-reason', clip(oneLine(e.reason), MESSAGE_MAX), true)}, until ${clockTime(e.until)}`
     case 'role_handoff':
       return `${oneLine(e.from)} handed the ticket to ${oneLine(e.to)}`
     case 'hand_back':
@@ -282,11 +300,14 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         return `${i + 1}. ${oneLine(role.name)}: ${status}${strip?.active ? ' (active)' : ''} · model ${role.model ?? 'default'}, effort ${role.effort ?? 'default'}`
       })
       const pending = await pendingLines(t)
+      const latest = await deps.repos.runs.latest(t.id)
+      const stuck = latest ? await deps.repos.stuck.open(latest.id) : null
       return [
         `${title(t)}: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}`,
         `Latest run, started ${localStamp(run.ticketRun.startedAt)} (${run.ticketRun.status}). Roles in order:\n${roles.join('\n')}`,
         `Active role: ${activeRole(t)}`,
-        pending.length ? `Pending decisions:\n${pending.join('\n')}` : 'Pending decisions: none'
+        pending.length ? `Pending decisions:\n${pending.join('\n')}` : 'Pending decisions: none',
+        ...(stuck ? [stuckText(stuck)] : [])
       ].join('\n\n')
     },
 

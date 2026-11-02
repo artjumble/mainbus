@@ -85,6 +85,7 @@ describe.skipIf(!LIVE)('SdkRuntime (live)', () => {
             return 'Recorded. End your turn now.'
           },
           reportProblem: async () => 'no one is available',
+          reportWaiting: async () => 'no one is available',
           checkCriterion: async () => 'Checked'
         },
         onPermission: async (r) => {

@@ -1,0 +1,26 @@
+import { data, oneLine } from '../roles/prompt'
+
+export const STUCK_HEADING = '[Mainbus] Since your last turn, these agents look stuck:'
+
+/** A stuck episode opened or escalated since the orchestrator's last turn, and still open. */
+export interface StuckReport {
+  number: number
+  title: string
+  role: string
+  /** What the detector saw, one line each: text from the agent's log, so it is data. */
+  evidence: string[]
+  hitCount: number
+  /** The episode reached its escalation count: it asks for a closer look. */
+  needsCloserLook: boolean
+}
+
+/** The block that opens the orchestrator's next message, or null when no episode opened or escalated. */
+export function stuckBlock(reports: StuckReport[]): string | null {
+  if (reports.length === 0) return null
+  const lines = reports.map((r) => {
+    const look = r.needsCloserLook ? ` It has now been flagged ${r.hitCount} times and needs a closer look.` : ''
+    const evidence = r.evidence.map((e) => `  - ${data('stuck-evidence', oneLine(e), true)}`).join('\n')
+    return `- #${r.number} ${JSON.stringify(oneLine(r.title))}: the ${oneLine(r.role)} looks stuck.${look} Evidence (from the agent's log):\n${evidence}`
+  })
+  return [STUCK_HEADING, ...lines].join('\n')
+}

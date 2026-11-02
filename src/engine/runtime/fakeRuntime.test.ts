@@ -8,6 +8,7 @@ function makeSpec(over: Partial<RunSpec> = {}) {
     askUser: vi.fn(async () => 'answer'),
     handoff: vi.fn(async () => 'recorded'),
     reportProblem: vi.fn(async () => 'reported'),
+    reportWaiting: vi.fn(async () => 'waiting'),
     checkCriterion: vi.fn(async () => 'checked')
   } satisfies RoleToolHandlers
   const onPermission = vi.fn<RunSpec['onPermission']>(async () => ({ allow: true }))
