@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { dateInputValue, fromDateInput, holdLabel, nextMonday, tomorrow } from './hold'
+import { dateInputValue, deferredLabel, fromDateInput, holdLabel, laterMonday, laterTomorrow, nextMonday, tomorrow, waitingLabel } from './hold'
 
 // Local times, as the functions use: Wednesday 4 November 2026, 15:30.
 const WED = new Date(2026, 10, 4, 15, 30)
@@ -45,5 +45,21 @@ describe('date input values', () => {
     expect(fromDateInput('2026-13-01')).toBeNull()
     expect(fromDateInput('2026-02-30')).toBeNull()
     expect(fromDateInput('tomorrow')).toBeNull()
+  })
+})
+
+describe('Later… picks and labels', () => {
+  test('Tomorrow and Monday are at 09:00 local', () => {
+    expect(laterTomorrow(WED)).toEqual(new Date(2026, 10, 5, 9, 0))
+    expect(laterMonday(WED)).toEqual(new Date(2026, 10, 9, 9, 0))
+    // On a Monday, Monday is a week ahead.
+    expect(laterMonday(new Date(2026, 10, 9, 20, 0))).toEqual(new Date(2026, 10, 16, 9, 0))
+  })
+
+  test('the deferred and waiting labels name the day', () => {
+    const until = new Date(2026, 10, 5, 9).toISOString()
+    expect(deferredLabel(until, WED)).toBe('Deferred until Thu')
+    expect(waitingLabel(until, WED)).toBe('Waiting on you · until Thu')
+    expect(waitingLabel(new Date(2026, 10, 20, 9).toISOString(), WED)).toBe('Waiting on you · until Nov 20')
   })
 })

@@ -1,6 +1,7 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Db } from '../db/open'
+import { decisions } from '../db/schema'
 import { createHoldRepo, type HoldRepo } from './holds'
 import { FIXED_NOW, openTestDb } from './testDb'
 
@@ -113,5 +114,49 @@ describe('hold repo', () => {
     expect((await repo.releasedSince('ticket', at(10))).map((h) => h.targetId)).toEqual(['b'])
     expect(await repo.releasedSince('ticket', at(11))).toEqual([])
     expect(await repo.releasedSince('decision', null)).toEqual([])
+  })
+})
+
+describe('hold repo and deferred decisions', () => {
+  // Bare rows: the decision's ticket and run don't matter here.
+  const insertDecision = async (id: string, status: string) => {
+    await db.run(sql`pragma foreign_keys = off`)
+    await db.run(
+      sql`insert into decisions (id, ticket_id, agent_run_id, kind, question, options, allow_always, status, created_at) values (${id}, 't', 'r', 'question', 'Q?', '[]', 1, ${status}, 'x')`
+    )
+  }
+  const statusOf = async (id: string) => {
+    const [row] = await db.select({ status: decisions.status }).from(decisions).where(eq(decisions.id, id))
+    return row.status
+  }
+
+  test('releasing a decision hold, by date or by hand, returns it to pending', async () => {
+    await insertDecision('d1', 'deferred')
+    await insertDecision('d2', 'deferred')
+    await repo.place('decision', 'd1', { until: at(60) })
+    await repo.place('decision', 'd2', { until: at(600) })
+    expect((await repo.releaseDue(new Date(at(60)))).map((h) => h.targetId)).toEqual(['d1'])
+    expect(await statusOf('d1')).toBe('pending')
+    expect(await statusOf('d2')).toBe('deferred')
+    await repo.release('decision', 'd2')
+    expect(await statusOf('d2')).toBe('pending')
+  })
+
+  test('a ticket hold released leaves decisions alone', async () => {
+    await insertDecision('d1', 'deferred')
+    await repo.place('decision', 'd1', {})
+    await repo.place('ticket', 't1', { until: at(1) })
+    await repo.releaseDue(new Date(at(5)))
+    expect(await statusOf('d1')).toBe('deferred')
+  })
+
+  test('reconcile returns a deferred decision with no hold to pending, and leaves a held one', async () => {
+    await insertDecision('lost', 'deferred')
+    await insertDecision('held', 'deferred')
+    await repo.place('decision', 'held', {})
+    expect(await repo.reconcileDecisions()).toBe(true)
+    expect(await statusOf('lost')).toBe('pending')
+    expect(await statusOf('held')).toBe('deferred')
+    expect(await repo.reconcileDecisions()).toBe(false)
   })
 })

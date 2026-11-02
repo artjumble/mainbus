@@ -7,7 +7,7 @@ import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shar
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus, type BoardTicket } from '../store'
-import { makeTicket, renderWithMantine } from '../test-utils'
+import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
 import { EMPTY_TEXT, OrchestratorPanel } from './OrchestratorPanel'
 import { readPanelOpen, writePanelOpen } from './panelState'
 
@@ -231,6 +231,7 @@ test('a revealed proposal is scrolled into view once, as its card arrives', asyn
 describe('Waiting on you', () => {
   const decision = (id: string, createdAt: string, over: Partial<Decision> = {}): Decision => ({
     id,
+    deferredUntil: null,
     ticketId: 't',
     agentRunId: 'r',
     kind: 'question',
@@ -295,5 +296,69 @@ describe('Waiting on you', () => {
 
     act(() => useMainbus.setState({ tickets: [{ ...a, pendingDecisions: [] }, { ...b, pendingDecisions: [] }] }))
     expect(screen.queryByRole('region', { name: 'Waiting on you' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Deferred group', () => {
+  const until = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+  const deferred = (id: string, over: Partial<Decision> = {}): Decision =>
+    makeDecision({ id, question: `Question ${id}?`, status: 'deferred', deferredUntil: until, ...over })
+
+  function board(): BoardTicket {
+    const t = makeTicket(
+      { title: 'Login', deferredDecisions: [deferred('a'), deferred('b', { kind: 'permission', options: [] })] },
+      { column: 'in_progress', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', deferredUntil: until }
+    )
+    useMainbus.setState({ tickets: [t] })
+    return t
+  }
+
+  test('starts collapsed with its count, and shows no Waiting on you part when none is pending', async () => {
+    history()
+    board()
+    renderWithMantine(<Panel />)
+    const toggle = await screen.findByRole('button', { name: /Deferred \(2\)/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('region', { name: 'Waiting on you' })).not.toBeInTheDocument()
+    expect(screen.getByText('Question a?')).not.toBeVisible()
+  })
+
+  test('expanded, lists each entry with its date and answers via the orchestrator', async () => {
+    history()
+    board()
+    renderWithMantine(<Panel />)
+    await userEvent.click(await screen.findByRole('button', { name: /Deferred \(2\)/ }))
+    const group = screen.getByRole('region', { name: 'Deferred' })
+    expect(screen.getByRole('button', { name: /Deferred \(2\)/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(group).getAllByText(/^Until /)).toHaveLength(2)
+    expect(within(group).getByText('Question a?')).toBeInTheDocument()
+    expect(within(group).queryByRole('button', { name: 'Later…' })).not.toBeInTheDocument()
+
+    await userEvent.click(await within(group).findByRole('radio', { name: 'Postgres' }))
+    await userEvent.click(within(group).getByRole('button', { name: 'Answer' }))
+    expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'a', { kind: 'option', index: 1 }, 'orchestrator')
+    await userEvent.click(within(group).getByRole('button', { name: 'Deny' }))
+    expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'b', { kind: 'permission', choice: 'deny' }, 'orchestrator')
+  })
+
+  test('Bring back now invokes decision.bringBack', async () => {
+    history()
+    board()
+    renderWithMantine(<Panel />)
+    await userEvent.click(await screen.findByRole('button', { name: /Deferred \(2\)/ }))
+    const group = screen.getByRole('region', { name: 'Deferred' })
+    await userEvent.click((await within(group).findAllByRole('button', { name: 'Bring back now' }))[0]!)
+    expect(mockInvoke).toHaveBeenCalledWith('decision.bringBack', expect.stringMatching(/^[ab]$/))
+  })
+
+  test('pending decisions keep their own region above it, with Later…', async () => {
+    history()
+    const t = board()
+    useMainbus.setState({ tickets: [{ ...t, pendingDecisions: [makeDecision({ id: 'p', question: 'Now?' })] }] })
+    renderWithMantine(<Panel />)
+    const waiting = await screen.findByRole('region', { name: 'Waiting on you' })
+    expect(within(waiting).getByText('Now?')).toBeInTheDocument()
+    expect(within(waiting).getByRole('button', { name: 'Later…' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Deferred \(2\)/ })).toBeInTheDocument()
   })
 })

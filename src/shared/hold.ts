@@ -52,3 +52,30 @@ export function shortDay(until: string, now: Date): string {
 export function holdLabel(hold: Pick<Hold, 'until'>, now: Date): string {
   return hold.until === null ? 'Held by you' : `Held until ${shortDay(hold.until, now)}`
 }
+
+/** 09:00 local on the day `day` falls on: when a deferred decision comes back. */
+export function atNine(day: Date): Date {
+  const d = startOfDay(day)
+  d.setHours(9)
+  return d
+}
+
+/** Later… → Tomorrow: 09:00 tomorrow, local time. */
+export function laterTomorrow(now: Date): Date {
+  return atNine(tomorrow(now))
+}
+
+/** Later… → Monday: 09:00 on the next Monday (a week ahead when today is a Monday). */
+export function laterMonday(now: Date): Date {
+  return atNine(nextMonday(now))
+}
+
+/** "Deferred until Tue", on a deferred decision's card. */
+export function deferredLabel(until: string, now: Date): string {
+  return `Deferred until ${shortDay(until, now)}`
+}
+
+/** "Waiting on you · until Tue", the chip of a ticket whose only open decisions are deferred. */
+export function waitingLabel(until: string, now: Date): string {
+  return `Waiting on you · until ${shortDay(until, now)}`
+}

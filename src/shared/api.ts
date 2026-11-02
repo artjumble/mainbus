@@ -35,6 +35,8 @@ export type BoardTicket = Ticket & {
   skipTo: string | null
   /** The ticket's open decisions, oldest first: the card's Answer control answers the first. */
   pendingDecisions: Decision[]
+  /** The decisions the user put off with Later…, oldest first. */
+  deferredDecisions: Decision[]
   /** The user's hold on the ticket, or null. */
   hold: Hold | null
 }
@@ -104,6 +106,13 @@ export interface EngineCommands {
   'agent.skip'(ticketId: string): void
   /** Answers a pending decision from `via`; a decision already answered (from anywhere) is refused and nothing is delivered. */
   'decision.answer'(id: string, a: DecisionAnswer, via: AnsweredVia): void
+  /**
+   * Later…: puts a pending decision off until `until` (ISO, in the future) through a hold on it. It leaves Needs you
+   * and can still be answered; on its date it is pending again. Refuses a decision that isn't pending.
+   */
+  'decision.defer'(id: string, until: string): Decision
+  /** Brings a deferred decision back now; refuses one that isn't deferred. */
+  'decision.bringBack'(id: string): void
   /** The workspace's Change lineup, first role first. */
   'lineup.get'(): LineupRole[]
   /**

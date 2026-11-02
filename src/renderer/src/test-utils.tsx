@@ -61,6 +61,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     lineup: makeLineup().map((r) => ({ id: r.id, name: r.name, status: 'not_started', active: false })),
     skipTo: null,
     pendingDecisions: [],
+    deferredDecisions: [],
     ...overrides,
     state: {
       column: 'backlog',
@@ -69,6 +70,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
       summary: null,
       canContinue: false,
       pausedByUser: false,
+      deferredUntil: null,
       ...state
     }
   }
@@ -85,6 +87,7 @@ export function makeEvent(event: ThreadEvent, overrides: Partial<StoredEvent> = 
 export function makeDecision(overrides: Partial<Decision> = {}): Decision {
   return {
     id: 'd1',
+    deferredUntil: null,
     ticketId: 't1',
     agentRunId: 'r1',
     kind: 'question',

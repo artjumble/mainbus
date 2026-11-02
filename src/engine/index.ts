@@ -22,6 +22,7 @@ import type { HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
+import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import { OrchestratorSession } from './orchestrator/session'
 import { createProposalService } from './proposals/service'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
@@ -108,7 +109,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
     }
 
-    const holds = new HoldService({ holds: repos.holds, tickets: repos.tickets, clock, emit })
+    const holds = new HoldService({ holds: repos.holds, tickets: repos.tickets, decisions: repos.decisions, clock, emit })
 
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
@@ -314,6 +315,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           }
         }
         return released
+      },
+      resurfacedSince: async (workspaceId, since) => {
+        const resurfaced: ResurfacedDecision[] = []
+        for (const h of await repos.holds.releasedSince('decision', since)) {
+          // Only those whose date came: an answer or Bring back released the others.
+          if (h.until === null || h.releasedAt === null || h.until > h.releasedAt) continue
+          const decision = await repos.decisions.get(h.targetId).catch(() => null)
+          if (decision?.status !== 'pending') continue
+          const ticket = await repos.tickets.get(decision.ticketId).catch(() => null)
+          if (ticket?.workspaceId === workspaceId) {
+            resurfaced.push({ number: ticket.number, title: ticket.title, question: decision.question, until: h.until })
+          }
+        }
+        return resurfaced
       }
     })
 
@@ -404,6 +419,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         requireRuntime()
         return runner.answer(id, answer, via)
       },
+
+      'decision.defer': (id, until) => holds.defer(id, until),
+      'decision.bringBack': (id) => holds.bringBack(id),
 
       'lineup.get': async () => repos.lineups.get((await requireWorkspace()).id),
       // The board changes too: before a ticket's first run, its lineup strip is the workspace lineup.

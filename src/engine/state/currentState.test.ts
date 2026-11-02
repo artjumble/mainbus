@@ -29,6 +29,7 @@ function stored(seq: number, event: ThreadEvent): StoredEvent {
 function pending(kind: Decision['kind'], question: string): Decision {
   return {
     id: 'd-1',
+    deferredUntil: null,
     ticketId: 't-1',
     agentRunId: 'r-1',
     kind,
@@ -54,7 +55,7 @@ const base: StateInput = {
 }
 
 /** `pausedByUser` is false unless a case says otherwise. */
-const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState, 'pausedByUser'> & { pausedByUser?: true } }> = [
+const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState, 'pausedByUser' | 'deferredUntil'> & { pausedByUser?: true; deferredUntil?: string } }> = [
   {
     name: 'no run, manualColumn ready',
     input: { ...base, ticket: { ...ticket, manualColumn: 'ready' } },
@@ -225,11 +226,50 @@ const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState
       summary: 'Which database?',
       canContinue: false
     }
+  },
+  {
+    name: 'a deferred decision only: in progress, waiting on the user until its date, even with the process gone',
+    input: {
+      ...base,
+      run: { endReason: null, events: [] },
+      deferredDecisions: [
+        { ...pending('question', 'Later one?'), status: 'deferred', deferredUntil: '2026-11-05T09:00:00.000Z' },
+        { ...pending('question', 'Earlier one?'), id: 'd-2', status: 'deferred', deferredUntil: '2026-11-03T09:00:00.000Z' }
+      ]
+    },
+    expected: {
+      column: 'in_progress',
+      phase: 'waiting_on_you',
+      agentStatus: 'waiting_on_you',
+      summary: 'Later one?',
+      canContinue: false,
+      deferredUntil: '2026-11-03T09:00:00.000Z'
+    }
+  },
+  {
+    name: 'a pending and a deferred decision: the pending one puts it in Needs you',
+    input: {
+      ...base,
+      run: { endReason: null, events: [] },
+      processAlive: true,
+      pendingDecisions: [pending('question', 'Now?')],
+      deferredDecisions: [{ ...pending('question', 'Later?'), id: 'd-2', status: 'deferred', deferredUntil: '2026-11-03T09:00:00.000Z' }]
+    },
+    expected: { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', summary: 'Now?', canContinue: false }
+  },
+  {
+    name: 'a failed run with a deferred decision: failed wins',
+    input: {
+      ...base,
+      run: { endReason: 'failed', events: [] },
+      deferredDecisions: [{ ...pending('question', 'Later?'), status: 'deferred', deferredUntil: '2026-11-03T09:00:00.000Z' }]
+    },
+    expected: { column: 'needs_you', phase: 'implementing', agentStatus: 'failed', summary: 'Failed', canContinue: false }
   }
 ]
 
 describe('currentState', () => {
   test.each(cases)('$name', ({ input, expected }) => {
-    expect(currentState(input)).toEqual({ pausedByUser: false, ...expected })
+    expect(currentState(input)).toEqual({ pausedByUser: false, deferredUntil: null, ...expected })
   })
 })

@@ -4,6 +4,7 @@ import { answeredBlock, ANSWERED_HEADING } from './answeredBlock'
 
 const base: Decision = {
   id: 'd1',
+  deferredUntil: null,
   ticketId: 't',
   agentRunId: 'r',
   kind: 'question',

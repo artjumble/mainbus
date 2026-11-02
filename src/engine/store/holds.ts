@@ -2,21 +2,23 @@ import { randomUUID } from 'node:crypto'
 import { and, asc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import type { Hold, HoldOptions, HoldTarget } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { holds } from '../db/schema'
+import { decisions, holds } from '../db/schema'
 
 export interface HoldRepo {
   /** Holds the target; one that is already held keeps its hold, with the new date and reason. */
   place(kind: HoldTarget, targetId: string, opts: HoldOptions): Promise<Hold>
-  /** Releases the target's hold; null when it had none. */
+  /** Releases the target's hold (a decision's goes back to pending); null when it had none. */
   release(kind: HoldTarget, targetId: string): Promise<Hold | null>
   /** The target's unreleased hold, or null. */
   active(kind: HoldTarget, targetId: string): Promise<Hold | null>
   /** Every unreleased hold on this kind of target. */
   activeOf(kind: HoldTarget): Promise<Hold[]>
-  /** Releases every hold whose date is at or before `at`; returns them, earliest first. */
+  /** Releases every hold whose date is at or before `at`, returning deferred decisions to pending; returns them, earliest first. */
   releaseDue(at: Date): Promise<Hold[]>
   /** The earliest date of an unreleased hold, or null when none has one. */
   nextDue(): Promise<string | null>
+  /** Returns to pending every deferred decision with no hold left on it (one left over from a crash); true when it changed any. */
+  reconcileDecisions(): Promise<boolean>
   /** The holds on this kind of target released at or after `since` (every released one when null), oldest release first. */
   releasedSince(kind: HoldTarget, since: string | null): Promise<Hold[]>
 }
@@ -35,6 +37,18 @@ function toHold(row: typeof holds.$inferSelect): Hold {
 }
 
 export function createHoldRepo(db: Db, now: () => Date): HoldRepo {
+  /** A deferred decision whose hold is gone is pending again; run in the same batch as every release. */
+  const reconcile = () =>
+    db
+      .update(decisions)
+      .set({ status: 'pending' })
+      .where(
+        and(
+          eq(decisions.status, 'deferred'),
+          sql`not exists (select 1 from ${holds} where ${holds.targetKind} = 'decision' and ${holds.targetId} = ${decisions.id} and ${holds.releasedAt} is null)`
+        )
+      )
+
   const unreleased = (kind: HoldTarget, targetId: string) =>
     and(eq(holds.targetKind, kind), eq(holds.targetId, targetId), isNull(holds.releasedAt))
 
@@ -65,11 +79,10 @@ export function createHoldRepo(db: Db, now: () => Date): HoldRepo {
     },
 
     async release(kind, targetId) {
-      const changed = await db
-        .update(holds)
-        .set({ releasedAt: now().toISOString() })
-        .where(unreleased(kind, targetId))
-        .returning()
+      const [changed] = await db.batch([
+        db.update(holds).set({ releasedAt: now().toISOString() }).where(unreleased(kind, targetId)).returning(),
+        reconcile()
+      ])
       return changed[0] ? toHold(changed[0]) : null
     },
 
@@ -85,11 +98,14 @@ export function createHoldRepo(db: Db, now: () => Date): HoldRepo {
     },
 
     async releaseDue(at) {
-      const changed = await db
-        .update(holds)
-        .set({ releasedAt: now().toISOString() })
-        .where(and(isNull(holds.releasedAt), isNotNull(holds.until), lte(holds.until, at.toISOString())))
-        .returning()
+      const [changed] = await db.batch([
+        db
+          .update(holds)
+          .set({ releasedAt: now().toISOString() })
+          .where(and(isNull(holds.releasedAt), isNotNull(holds.until), lte(holds.until, at.toISOString())))
+          .returning(),
+        reconcile()
+      ])
       return changed.map(toHold).sort((a, b) => (a.until ?? '').localeCompare(b.until ?? ''))
     },
 
@@ -101,6 +117,11 @@ export function createHoldRepo(db: Db, now: () => Date): HoldRepo {
         .orderBy(asc(holds.until))
         .limit(1)
       return row?.until ?? null
+    },
+
+    async reconcileDecisions() {
+      const changed = await reconcile().returning({ id: decisions.id })
+      return changed.length > 0
     },
 
     async releasedSince(kind, since) {

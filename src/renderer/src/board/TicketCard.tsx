@@ -1,6 +1,7 @@
 import { Anchor, Badge, Group, Loader, Paper, Text } from '@mantine/core'
 import { memo, type KeyboardEvent, type ReactElement } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
+import { waitingLabel } from '../../../shared/hold'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
@@ -26,7 +27,9 @@ export function phaseLabel(phase: Phase): string {
   )
 }
 
-function chipColor({ phase, agentStatus }: TicketState): string {
+function chipColor({ phase, agentStatus, deferredUntil }: TicketState): string {
+  // Only deferred decisions: the person isn't needed until the date.
+  if (deferredUntil !== null) return 'gray'
   if (phase === 'waiting_on_you' || agentStatus === 'failed') return 'needs'
   if (phase === 'planning' || phase === 'implementing' || phase === 'testing' || phase === 'reviewing') return 'working'
   return 'gray'
@@ -36,7 +39,7 @@ function chipColor({ phase, agentStatus }: TicketState): string {
 export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   return (
     <Badge color={chipColor(state)} variant="light" size="sm" radius="sm">
-      {phaseLabel(state.phase)}
+      {state.deferredUntil !== null ? waitingLabel(state.deferredUntil, new Date()) : phaseLabel(state.phase)}
     </Badge>
   )
 }

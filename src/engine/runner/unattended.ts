@@ -198,6 +198,8 @@ export class UnattendedMode {
           : { kind: 'settled' }
       case 'in_progress': {
         if (state.agentStatus === 'working') return { kind: 'working' }
+        // A deferred decision: the user will answer it later; the queue moves on.
+        if (state.agentStatus === 'waiting_on_you') return { kind: 'settled' }
         // Paused: the process is gone but the run is open.
         const limit = this.deps.runner.usageLimit(ticket.id)
         return limit ? { kind: 'limited', limit } : { kind: 'failed', error: 'The agent process ended unexpectedly' }
