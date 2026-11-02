@@ -53,7 +53,7 @@ describe('create_tickets: override', () => {
   const stored = propose({ tickets: [{ title: 'Login' }, { title: 'Logout' }] })
 
   test('takes the edited drafts and column, and keeps the stored intent', () => {
-    const edited = createTickets.override(stored, { tickets: [{ title: 'Sign in', spec: 'Edited', criteria: [], labels: [] }], column: 'ready' })
+    const edited = createTickets.override!(stored, { tickets: [{ title: 'Sign in', spec: 'Edited', criteria: [], labels: [] }], column: 'ready' })
     expect(edited).toEqual({
       intent: MESSAGE,
       tickets: [{ title: 'Sign in', spec: 'Edited', criteria: [], labels: [] }],
@@ -62,8 +62,8 @@ describe('create_tickets: override', () => {
   })
 
   test('validates like a proposal, and never takes an intent from it', () => {
-    expect(() => createTickets.override(stored, { tickets: [] })).toThrow('tickets: must have at least 1 ticket')
-    expect(() => createTickets.override(stored, { tickets: [{ title: 'A' }], intent: 'Something else' })).toThrow(
+    expect(() => createTickets.override!(stored, { tickets: [] })).toThrow('tickets: must have at least 1 ticket')
+    expect(() => createTickets.override!(stored, { tickets: [{ title: 'A' }], intent: 'Something else' })).toThrow(
       'Unknown field: intent'
     )
   })
@@ -80,7 +80,11 @@ describe('create_tickets: execute and outcome', () => {
       lineup: async () => [],
       ticketByNumber: async () => null,
       whyNotStartable: async () => null,
-      startTicket: vi.fn()
+      startTicket: vi.fn(),
+      activeRole: async () => null,
+      pauseTicket: async () => {},
+      stopTicket: async () => {},
+      skipTicket: async () => {}
     }
   }
 

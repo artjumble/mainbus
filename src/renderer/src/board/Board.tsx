@@ -43,6 +43,7 @@ export function Board(): ReactElement {
   const openTicket = useMainbus((s) => s.openTicket)
   const pendingMoves = useMainbus((s) => s.pendingMoves)
   const move = useMainbus((s) => s.moveTicket)
+  const proposeStart = useMainbus((s) => s.proposeStart)
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // A small drag distance keeps a plain click on a card a click.
@@ -64,6 +65,23 @@ export function Board(): ReactElement {
     }
   }, [move])
 
+  /**
+   * Dragging a Backlog or Ready card into In progress doesn't move it: it proposes starting it, in the
+   * orchestrator panel. The card stays where it is until the proposal is confirmed.
+   */
+  const onPropose = useCallback(
+    async (ticket: BoardTicket): Promise<void> => {
+      const column = ticket.state.column
+      if (column !== 'backlog' && column !== 'ready') return
+      try {
+        await proposeStart(ticket.id)
+      } catch (err) {
+        showError(err, "Can't start this ticket")
+      }
+    },
+    [proposeStart]
+  )
+
   // Stable props and per-column arrays, so a refresh re-renders only the cards that changed.
   const onMove = useCallback((t: BoardTicket, to: ManualColumn) => void moveTicket(t, to), [moveTicket])
   const byColumn = useMemo(
@@ -75,7 +93,9 @@ export function Board(): ReactElement {
   function onDragEnd({ active, over }: DragEndEvent): void {
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
-    if (ticket && target !== null && isManual(target)) void moveTicket(ticket, target)
+    if (!ticket || target === null) return
+    if (isManual(target)) void moveTicket(ticket, target)
+    else if (target === 'in_progress') void onPropose(ticket)
   }
 
   return (
@@ -117,6 +137,7 @@ export function Board(): ReactElement {
               pendingMoves={pendingMoves}
               onOpen={openTicket}
               onMove={onMove}
+              onPropose={onPropose}
             />
           ))}
         </Box>
@@ -135,10 +156,11 @@ interface ColumnProps {
   pendingMoves: Record<string, ManualColumn>
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
+  onPropose: (ticket: BoardTicket) => void
 }
 
-const BoardColumn = memo(function BoardColumn({ id, title, tickets, pendingMoves, onOpen, onMove }: ColumnProps): ReactElement {
-  const { setNodeRef, isOver } = useDroppable({ id, disabled: !isManual(id) })
+const BoardColumn = memo(function BoardColumn({ id, title, tickets, pendingMoves, onOpen, onMove, onPropose }: ColumnProps): ReactElement {
+  const { setNodeRef, isOver } = useDroppable({ id, disabled: !isManual(id) && id !== 'in_progress' })
   const headingId = `column-${id}`
   return (
     <Paper
@@ -161,7 +183,7 @@ const BoardColumn = memo(function BoardColumn({ id, title, tickets, pendingMoves
       </Group>
       <Stack gap="xs">
         {tickets.map((t) => (
-          <DraggableTicket key={t.id} ticket={t} movingTo={pendingMoves[t.id] ?? null} onOpen={onOpen} onMove={onMove} />
+          <DraggableTicket key={t.id} ticket={t} movingTo={pendingMoves[t.id] ?? null} onOpen={onOpen} onMove={onMove} onPropose={onPropose} />
         ))}
       </Stack>
     </Paper>
@@ -174,6 +196,7 @@ interface DraggableProps {
   movingTo: ManualColumn | null
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
+  onPropose: (ticket: BoardTicket) => void
 }
 
 /**
@@ -181,7 +204,7 @@ interface DraggableProps {
  * a menu opened by right-click, the context-menu key or Shift+F10 on the focused card. A card being moved
  * can't be moved again until the engine answers.
  */
-const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, onOpen, onMove }: DraggableProps): ReactElement {
+const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, onOpen, onMove, onPropose }: DraggableProps): ReactElement {
   const moving = movingTo !== null
   const { setNodeRef, listeners, transform, isDragging } = useDraggable({ id: ticket.id, disabled: moving })
   const [menuOpen, setMenuOpen] = useState(false)
@@ -230,6 +253,11 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, onOpen
             Move to {m.title}
           </Menu.Item>
         ))}
+        {(ticket.state.column === 'backlog' || ticket.state.column === 'ready') && (
+          <Menu.Item disabled={moving} onClick={() => onPropose(ticket)}>
+            Move to In progress…
+          </Menu.Item>
+        )}
       </Menu.Dropdown>
     </Menu>
   )

@@ -21,7 +21,7 @@ import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import { OrchestratorSession } from './orchestrator/session'
 import { createProposalService } from './proposals/service'
-import { TicketRunner } from './runner/ticketRunner'
+import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
@@ -203,6 +203,24 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const createTicket = async (ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> =>
       (await createTickets(ws, [input]))[0]!
 
+    // The ticket view's Pause, Stop and Skip; a confirmed proposal goes through the same functions.
+    // With `expect`, they fail rather than act on a role other than the one named.
+    // Stopping needs no runtime: without one nothing is live, and a paused run can still be ended.
+    // Stopping the ticket unattended mode is running turns the mode off: the user is here.
+    const stopTicket = (ticketId: string, expect?: RunExpectation): Promise<void> => {
+      mode.userStopped(ticketId)
+      return runner.stop(ticketId, expect)
+    }
+    // Like Stop: pausing needs no runtime, and pausing the ticket unattended mode is running turns the mode off.
+    const pauseTicket = (ticketId: string, expect?: RunExpectation): Promise<void> => {
+      mode.userPaused(ticketId)
+      return runner.pause(ticketId, expect)
+    }
+    const skipTicket = (ticketId: string, expect?: RunExpectation): Promise<void> => {
+      requireRuntime()
+      return runner.skip(ticketId, expect)
+    }
+
     // Confirmed proposals are carried out here, by engine code, never by the orchestrator.
     const proposals = createProposalService({
       repo: repos.proposals,
@@ -225,7 +243,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         startTicket: (ticketId, opts) => {
           requireRuntime()
           return runner.start(ticketId, opts)
-        }
+        },
+        async activeRole(ticket) {
+          return runner.activeRole(ticket.id)
+        },
+        pauseTicket,
+        stopTicket,
+        skipTicket
       }
     })
 
@@ -326,29 +350,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         requireRuntime()
         return runner.send(ticketId, text)
       },
-      // Stopping needs no runtime: without one nothing is live, and a paused run can still be ended.
-      // Stopping the ticket unattended mode is running turns the mode off: the user is here.
-      'agent.stop': (ticketId) => {
-        mode.userStopped(ticketId)
-        return runner.stop(ticketId)
-      },
+      'agent.stop': (ticketId) => stopTicket(ticketId),
       'agent.continue': (ticketId) => {
         requireRuntime()
         return runner.continue(ticketId)
       },
-      // Like Stop: pausing needs no runtime, and pausing the ticket unattended mode is running turns the mode off.
-      'agent.pause': (ticketId) => {
-        mode.userPaused(ticketId)
-        return runner.pause(ticketId)
-      },
+      'agent.pause': (ticketId) => pauseTicket(ticketId),
       'agent.resume': (ticketId) => {
         requireRuntime()
         return runner.resumePaused(ticketId)
       },
-      'agent.skip': (ticketId) => {
-        requireRuntime()
-        return runner.skip(ticketId)
-      },
+      'agent.skip': (ticketId) => skipTicket(ticketId),
       'decision.answer': (id, answer) => {
         requireRuntime()
         return runner.answer(id, answer)
@@ -386,6 +398,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return orchestrator.send(text)
       },
       'orchestrator.stop': () => orchestrator.stop(),
+      'ticket.proposeStart': async (ticketId) => {
+        const ws = await requireWorkspace()
+        const ticket = await repos.tickets.get(ticketId)
+        if (ticket.workspaceId !== ws.id) throw new Error('That ticket is not in the open workspace')
+        return orchestrator.proposeStartFromDrag(ticket)
+      },
       // Reached only through `invoke` (the renderer's IPC): only the user decides a proposal. No runtime needed.
       'proposal.confirm': (id, override) => proposals.confirm(id, override),
       'proposal.reject': (id) => proposals.reject(id)

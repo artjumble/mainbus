@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { DraftColumn, Proposal, ProposalKindName } from '../../shared/proposals'
+import type { DraftColumn, Proposal, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
 import type { Db } from '../db/open'
 import { proposals, tickets } from '../db/schema'
 
@@ -9,6 +9,8 @@ export interface NewProposal {
   workspaceId: string
   orchestratorRunId: string
   kind: ProposalKindName
+  /** 'orchestrator' when absent. */
+  origin?: ProposalOrigin
   payload: unknown
   evidence: string | null
 }
@@ -43,6 +45,7 @@ function toProposal(row: typeof proposals.$inferSelect): Proposal {
     workspaceId: row.workspaceId,
     orchestratorRunId: row.orchestratorRunId,
     kind: row.kind as ProposalKindName,
+    origin: row.origin,
     payload: JSON.parse(row.payload) as unknown,
     evidence: row.evidence,
     status: row.status,
@@ -81,6 +84,7 @@ export function createProposalRepo(db: Db, now: () => Date): ProposalRepo {
         workspaceId: p.workspaceId,
         orchestratorRunId: p.orchestratorRunId,
         kind: p.kind,
+        origin: p.origin ?? 'orchestrator',
         payload: JSON.stringify(p.payload),
         evidence: p.evidence,
         status: 'pending',

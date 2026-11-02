@@ -615,7 +615,10 @@ describe('SdkRuntime: the orchestrator spec', () => {
       getRecentEvents: vi.fn(async () => 'events'),
       listPendingDecisions: vi.fn(async () => 'decisions'),
       proposeCreateTickets: vi.fn(async () => 'Proposed p1.'),
-      proposeStart: vi.fn(async () => 'Proposed p2.')
+      proposeStart: vi.fn(async () => 'Proposed p2.'),
+      proposePause: vi.fn(async () => 'Proposed p3.'),
+      proposeStop: vi.fn(async () => 'Proposed p4.'),
+      proposeSkip: vi.fn(async () => 'Proposed p5.')
     }
     return {
       kind: 'orchestrator',
@@ -648,7 +651,10 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__get_recent_events',
       'mcp__mainbus__list_pending_decisions',
       'mcp__mainbus__propose_create_tickets',
-      'mcp__mainbus__propose_start'
+      'mcp__mainbus__propose_start',
+      'mcp__mainbus__propose_pause',
+      'mcp__mainbus__propose_stop',
+      'mcp__mainbus__propose_skip'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -678,7 +684,10 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'get_recent_events',
       'list_pending_decisions',
       'propose_create_tickets',
-      'propose_start'
+      'propose_start',
+      'propose_pause',
+      'propose_stop',
+      'propose_skip'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
@@ -704,6 +713,13 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(await start.handler(startArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p2.' }] })
     expect(spec.tools.proposeStart).toHaveBeenCalledWith(startArgs)
     expect(Object.keys(start.shape)).toEqual(['ticket', 'roles', 'extraInstructions', 'reason'])
+
+    for (const [name, handler, text] of [['propose_pause', 'proposePause', 'p3'], ['propose_stop', 'proposeStop', 'p4'], ['propose_skip', 'proposeSkip', 'p5']] as const) {
+      const tool = byName.get(name)!
+      expect(Object.keys(tool.shape)).toEqual(['ticket', 'reason'])
+      expect(await tool.handler({ ticket: 4, reason: 'Stuck' }, {})).toEqual({ content: [{ type: 'text', text: `Proposed ${text}.` }] })
+      expect(spec.tools[handler]).toHaveBeenCalledWith({ ticket: 4, reason: 'Stuck' })
+    }
     const roles = start.shape.roles as z.ZodType
     expect(roles.safeParse([{ role: 'Planner', model: 'haiku', effort: 'max' }]).success).toBe(true)
     expect(roles.safeParse([{ role: 'Planner', model: 'gpt' }]).success).toBe(false)

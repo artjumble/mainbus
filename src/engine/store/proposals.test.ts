@@ -31,6 +31,7 @@ describe('proposal repo', () => {
     expect(p).toEqual({
       id: p.id,
       ...base,
+      origin: 'orchestrator',
       payload: { tickets: [{ title: 'A' }] },
       evidence: 'README says so',
       status: 'pending',

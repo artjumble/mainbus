@@ -1,5 +1,5 @@
 import type { EngineEvent } from '../../shared/api'
-import type { Proposal, ProposalFailure, ProposalKindName } from '../../shared/proposals'
+import type { Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
 import { oneLine } from '../roles/prompt'
 import type { ProposalRepo } from '../store/proposals'
 import { ProposalInvalid, type ExecContext, type ProposalKind } from './kind'
@@ -9,6 +9,8 @@ export const EVIDENCE_MAX = 5_000
 
 export const QUIT_ATOMIC_ERROR = 'Mainbus quit before carrying this out; nothing was created.'
 export const QUIT_PARTIAL_ERROR = 'Mainbus quit while carrying this out; it may have partly happened. Check the board.'
+
+export const NO_OVERRIDE = 'This proposal has nothing to change'
 
 export const OUTCOME_HEADING = '[Mainbus] Since your last turn, the user decided on your proposals:'
 
@@ -27,7 +29,7 @@ export interface ProposalService {
   propose(
     kind: ProposalKindName,
     input: unknown,
-    at: { workspaceId: string; orchestratorRunId: string; userMessage: string }
+    at: { workspaceId: string; orchestratorRunId: string; userMessage: string | null; origin?: ProposalOrigin }
   ): Promise<ProposeResult>
   /**
    * Confirms a pending proposal (overridden when `override` is given) and carries it out. An invalid override
@@ -84,7 +86,8 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
 
   function describe(p: Proposal): string {
     const kind = kindOf(p.kind)
-    const head = `- Proposal ${p.id} (${kind.label})`
+    const by = p.origin === 'drag' ? ', made by the user dragging the card into In progress' : ''
+    const head = `- Proposal ${p.id} (${kind.label}${by})`
     switch (p.status) {
       case 'rejected':
         return `${head}: rejected by the user.`
@@ -109,6 +112,7 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
       try {
         const split = splitEvidence(input, kind.evidenceKey ?? 'evidence')
         evidence = split.evidence
+        if (kind.evidenceRequired && evidence === null) throw new ProposalInvalid(`${kind.evidenceKey ?? 'evidence'}: required`)
         payload = await kind.propose(split.payload, { userMessage: at.userMessage, workspaceId: at.workspaceId }, deps.exec)
       } catch (err) {
         if (err instanceof ProposalInvalid) return { ok: false, error: err.message }
@@ -118,6 +122,7 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
         workspaceId: at.workspaceId,
         orchestratorRunId: at.orchestratorRunId,
         kind: name,
+        origin: at.origin ?? 'orchestrator',
         payload,
         evidence
       })
@@ -128,7 +133,8 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
       const stored = await deps.repo.get(id)
       const kind = kindOf(stored.kind)
       // Validated before claiming, so an invalid override leaves the proposal pending.
-      const payload = override === undefined ? stored.payload : kind.override(stored.payload, override)
+      if (override !== undefined && !kind.override) throw new ProposalInvalid(NO_OVERRIDE)
+      const payload = override === undefined ? stored.payload : kind.override!(stored.payload, override)
       const claimed = changed(await deps.repo.claim(id, override === undefined ? 'confirmed' : 'overridden'))
       try {
         const result = await kind.execute(payload, { workspaceId: claimed.workspaceId, proposalId: id }, deps.exec)

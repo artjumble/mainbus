@@ -1,0 +1,1 @@
+ALTER TABLE `proposals` ADD `origin` text DEFAULT 'orchestrator' NOT NULL;

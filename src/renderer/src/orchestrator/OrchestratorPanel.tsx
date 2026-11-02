@@ -28,6 +28,7 @@ interface Props {
  */
 export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const thread = useOrchestratorThread()
+  const reveal = useMainbus((s) => s.revealedProposal)
   const needsYou = useMainbus((s) => s.tickets.filter((t) => t.state.column === 'needs_you').length)
 
   if (!open) {
@@ -97,7 +98,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           </Text>
         </Center>
       ) : (
-        <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} proposals={thread.proposals} summariseTools />
+        <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} proposals={thread.proposals} reveal={reveal} summariseTools />
       )}
       {working && (
         <Group gap="xs" px="md" py={4} data-working>

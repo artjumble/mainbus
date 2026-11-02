@@ -217,6 +217,7 @@ export const proposals = sqliteTable(
       .notNull()
       .references(() => orchestratorRuns.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(),
+    origin: text('origin', { enum: ['orchestrator', 'drag'] }).notNull().default('orchestrator'),
     payload: text('payload').notNull(), // JSON: the kind's payload, as proposed
     evidence: text('evidence'),
     status: text('status', { enum: ['pending', 'confirmed', 'overridden', 'rejected', 'failed'] }).notNull(),

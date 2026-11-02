@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { DraftColumn } from '../../shared/proposals'
-import type { LineupRole, NewTicketInput, StartOptions, Ticket, Workspace } from '../../shared/domain'
+import type { LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -28,12 +28,27 @@ export interface ExecContext {
   whyNotStartable(ticket: Ticket): Promise<string | null>
   /** The same path as the ticket view's Start. */
   startTicket(ticketId: string, opts: StartOptions): Promise<void>
+  /** The ticket's open run's active role, or null with no run or an ended one. */
+  activeRole(ticket: Ticket): Promise<ActiveRole | null>
+  /** The same paths as the ticket view's Pause, Stop and Skip; they fail, changing nothing, if the run has moved on. */
+  pauseTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
+  stopTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
+  skipTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
+}
+
+/** The role working, paused or waiting on a ticket's open run. */
+export interface ActiveRole {
+  agentRunId: string
+  role: string
+  agentStatus: TicketState['agentStatus']
+  /** The role a skip would start; null when the ticket would go to Review. */
+  next: string | null
 }
 
 /** What the turn a proposal is made in gives it. */
 export interface Turn {
-  /** The user's message that started the turn, verbatim. */
-  userMessage: string
+  /** The user's message that started the turn, verbatim; null when no orchestrator turn made the proposal. */
+  userMessage: string | null
   /** The workspace the proposal is made for. */
   workspaceId: string
 }
@@ -53,13 +68,18 @@ export interface ProposalKind<P, R> {
   atomicWithResult: boolean
   /** The orchestrator's field the card shows as its evidence; 'evidence' when absent. */
   evidenceKey?: string
+  /** Whether the orchestrator must give its evidence (a reason). */
+  evidenceRequired?: boolean
   /**
    * Validates what the orchestrator sent, against the board where it must, and fills in the engine's own fields.
    * Throws ProposalInvalid.
    */
   propose(input: unknown, turn: Turn, ctx: ExecContext): P | Promise<P>
-  /** Validates the user's override the same way; the engine's fields come from `stored`. Throws ProposalInvalid. */
-  override(stored: P, input: unknown): P
+  /**
+   * Validates the user's override the same way; the engine's fields come from `stored`. Throws ProposalInvalid.
+   * Absent for a kind with nothing to change.
+   */
+  override?(stored: P, input: unknown): P
   /** Carries it out; a throw makes the proposal failed, with the error as its result. */
   execute(p: P, target: { workspaceId: string; proposalId: string }, ctx: ExecContext): Promise<R>
   /** Plain text for the orchestrator, such as `Created #21 "Title" in Backlog.` */

@@ -112,6 +112,12 @@ export interface EngineCommands {
   /** Interrupts the turn under way; the conversation goes on with the next message. */
   'orchestrator.stop'(): void
   /**
+   * The user dragged a Backlog or Ready card into In progress: stores a start proposal for it (the whole lineup),
+   * with no orchestrator turn. Returns the pending proposal; an existing pending start for the ticket is returned
+   * as it is. Only the renderer can reach it.
+   */
+  'ticket.proposeStart'(ticketId: string): Proposal
+  /**
    * The orchestrator's proposals, decided once only. Confirm carries it out: as proposed, or with the user's
    * `override` (validated like the proposal). A failure while carrying it out comes back as a failed proposal.
    */

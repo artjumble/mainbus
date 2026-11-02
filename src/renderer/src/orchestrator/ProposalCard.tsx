@@ -5,12 +5,16 @@ import { invoke } from '../api'
 import { showError } from '../notify'
 import { createTicketsView } from './CreateTicketsProposal'
 import type { ProposalView } from './proposalView'
+import { pauseView, skipView, stopView } from './RoleControlProposal'
 import { startLineupView } from './StartLineupProposal'
 
 /** The card's view of each kind of proposal. */
 const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   create_tickets: createTicketsView,
-  start_lineup: startLineupView
+  start_lineup: startLineupView,
+  pause: pauseView,
+  stop: stopView,
+  skip: skipView
 }
 
 interface Props {
@@ -30,7 +34,7 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
   const [edit, setEdit] = useState<unknown>(null)
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null)
   const editing = edit !== null
-  const override = editing ? view.toOverride(edit) : null
+  const override = editing ? (view.toOverride?.(edit) ?? null) : null
 
   async function decide(kind: 'confirm' | 'reject'): Promise<void> {
     if (busy) return
@@ -49,12 +53,12 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
 
   const summary = view.summary(proposal.payload)
   return (
-    <Paper withBorder p="sm" radius="md" data-proposal="pending" role="group" aria-label={`Proposal: ${summary}`}>
+    <Paper withBorder p="sm" radius="md" data-proposal="pending" data-proposal-id={proposal.id} role="group" aria-label={`Proposal: ${summary}`}>
       <Stack gap="xs">
         <Text size="sm" fw={600}>
           {summary}
         </Text>
-        {editing ? <view.Editor value={edit} onChange={setEdit} /> : <view.Body payload={proposal.payload} />}
+        {editing && view.Editor ? <view.Editor value={edit} onChange={setEdit} /> : <view.Body payload={proposal.payload} />}
         {proposal.evidence !== null && (
           <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }} data-evidence>
             {`Why: ${proposal.evidence}`}
@@ -75,9 +79,11 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
               <Button size="xs" disabled={busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
                 Confirm
               </Button>
-              <Button size="xs" variant="default" disabled={busy !== null} onClick={() => setEdit(view.initialEdit(proposal.payload))}>
-                Override
-              </Button>
+              {view.Editor && view.initialEdit && (
+                <Button size="xs" variant="default" disabled={busy !== null} onClick={() => setEdit(view.initialEdit!(proposal.payload))}>
+                  Override
+                </Button>
+              )}
             </>
           )}
           <Button size="xs" variant="subtle" color="gray" disabled={busy !== null} loading={busy === 'reject'} onClick={() => void decide('reject')}>
@@ -116,7 +122,7 @@ function Receipt({ proposal, view }: Props & { view: ProposalView<any, any, any>
     line = <view.Receipt result={proposal.result} />
   }
   return (
-    <Paper withBorder px="sm" py={6} radius="md" data-proposal="receipt" data-status={proposal.status}>
+    <Paper withBorder px="sm" py={6} radius="md" data-proposal="receipt" data-proposal-id={proposal.id} data-status={proposal.status}>
       {line}
     </Paper>
   )

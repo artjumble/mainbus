@@ -1,0 +1,45 @@
+{
+  "*": [],
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "emit": { "kind": "message", "text": "Planner: planned." } },
+    { "callTool": "handoff", "args": { "summary": "Planned it", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "emit": { "kind": "message", "text": "Implementer: implemented." } },
+    { "callTool": "handoff", "args": { "summary": "Implemented it", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "emit": { "kind": "message", "text": "Reviewer: reviewed." } },
+    { "callTool": "handoff", "args": { "summary": "Reviewed it", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-exit" } },
+    { "emit": { "kind": "tool_call", "id": "d1", "name": "mcp__mainbus__propose_create_tickets", "input": {} } },
+    {
+      "callTool": "proposeCreateTickets",
+      "args": {
+        "tickets": [
+          { "title": "Add a login page", "spec": "Drafted by the orchestrator: a form at /login." },
+          { "title": "Add a logout button", "spec": "Drafted by the orchestrator: a button in the header." }
+        ],
+        "evidence": "src/ has no auth code yet."
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "d1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "I have drafted two tickets for you to confirm." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "tool_call", "id": "s1", "name": "mcp__mainbus__propose_start", "input": {} } },
+    { "callTool": "proposeStart", "args": { "ticket": 1, "reason": "#1 is specced and nothing is running." } },
+    { "emit": { "kind": "tool_result", "id": "s1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "I have proposed starting #1." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

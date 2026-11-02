@@ -8,7 +8,10 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip'
+
+/** Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress. */
+export type ProposalOrigin = 'orchestrator' | 'drag'
 
 /** Something the orchestrator proposed, which engine code carries out once the user confirms it. */
 export interface Proposal {
@@ -16,6 +19,7 @@ export interface Proposal {
   workspaceId: string
   orchestratorRunId: string
   kind: ProposalKindName
+  origin: ProposalOrigin
   /** As proposed; an override is reflected in the result, never written back here. */
   payload: unknown
   /** What the orchestrator says led to it, or null. */
@@ -86,6 +90,26 @@ export interface StartLineupResult {
   number: number
   title: string
   roles: { name: string; model: string; effort: Effort }[]
+}
+
+/** The payload of a pause, stop or skip proposal: the role that was active when it was proposed. */
+export interface RoleControlPayload {
+  ticketId: string
+  number: number
+  title: string
+  agentRunId: string
+  role: string
+  /** Skip only: the role that would start next, or null when the ticket would go to Review. */
+  next: string | null
+}
+
+export interface RoleControlResult {
+  ticketId: string
+  number: number
+  title: string
+  role: string
+  /** Skip only: the role that started, or null when the ticket went to Review. */
+  next: string | null
 }
 
 /** The result of a proposal that failed while being carried out. */

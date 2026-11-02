@@ -27,6 +27,11 @@ interface MainbusState {
    * their target column at once; `tickets` keeps the engine's view, so refreshes meanwhile don't undo the move.
    */
   pendingMoves: Record<string, ManualColumn>
+  /**
+   * A proposal the panel should show: it expands if collapsed and scrolls to the card. `n` counts reveals, so
+   * revealing the same proposal again shows it again.
+   */
+  revealedProposal: { id: string; n: number } | null
 
   /** The first load: setup check, then workspace and board. Never rejects; a failure lands in `loadError`. */
   load(): Promise<void>
@@ -44,6 +49,9 @@ interface MainbusState {
   moveTicket(id: string, to: ManualColumn): Promise<'moved' | 'dirty'>
   /** Switches unattended mode; rejects with the engine's reason when it can't be switched on. */
   setUnattended(on: boolean): Promise<void>
+  /** Asks the engine for a start proposal for a Backlog or Ready ticket (the card dragged into In progress), then shows it. */
+  proposeStart(ticketId: string): Promise<void>
+  revealProposal(id: string): void
 }
 
 const UNATTENDED_OFF: UnattendedState = { on: false, status: { kind: 'off' } }
@@ -88,6 +96,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   currentTicketId: null,
   unattended: UNATTENDED_OFF,
   pendingMoves: {},
+  revealedProposal: null,
 
   async load() {
     set({ loadError: null })
@@ -152,6 +161,13 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
       })
     }
   },
+
+  async proposeStart(ticketId) {
+    const proposal = await invoke('ticket.proposeStart', ticketId)
+    get().revealProposal(proposal.id)
+  },
+
+  revealProposal: (id) => set((s) => ({ revealedProposal: { id, n: (s.revealedProposal?.n ?? 0) + 1 } })),
 
   async setUnattended(on) {
     // Every change arrives as an `unattended.changed` event, in order with the ones after it; the reply

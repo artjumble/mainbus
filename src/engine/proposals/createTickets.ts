@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { CreateTicketsPayload, CreateTicketsResult, DraftColumn } from '../../shared/proposals'
 import { ticketFields } from '../tickets/validate'
-import { parsePayload, type ProposalKind } from './kind'
+import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
 
 export const MAX_DRAFTS = 20
 
@@ -39,6 +39,7 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
   atomicWithResult: true,
 
   propose(input, turn) {
+    if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
     return { intent: turn.userMessage, ...parsePayload(editableSchema, input) }
   },
 

@@ -21,7 +21,7 @@ import { ResumeFailedError, type PermissionRequest, type RunHandle, type RunSpec
 import { createRepos, type Repos } from '../store'
 import { defaultLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb, testRole } from '../store/testDb'
-import { TicketRunner } from './ticketRunner'
+import { MOVED_ON, TicketRunner } from './ticketRunner'
 
 const NUDGE =
   'You ended your turn without asking the user or handing off. If you are done, commit and call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
@@ -2500,6 +2500,56 @@ describe('TicketRunner Skip to next role', () => {
     expect(back.resumeSessionId).toBe('session-Reviewer')
     expect(back.prompt).toContain('Implementer handed the ticket back to you after your report')
     expect(back.prompt).toContain(FAKE_SUMMARY)
+  })
+
+  describe('with the run an action is meant for (a confirmed proposal)', () => {
+    it('reports the active role, its status and the role a skip would start', async () => {
+      await threeRoles()
+      const runtime = new FakeRuntime(script)
+      const runner = skipRunner(runtime)
+      expect(await runner.activeRole(ticket.id)).toBeNull()
+      await runner.start(ticket.id)
+      await nth(runner, runtime, 1)
+      const run = (await repos.runs.latest(ticket.id))!
+      expect(await runner.activeRole(ticket.id)).toEqual({ agentRunId: run.id, role: 'Planner', agentStatus: 'working', next: 'Implementer' })
+      await runner.stop(ticket.id)
+      expect(await runner.activeRole(ticket.id)).toBeNull()
+    })
+
+    it('skip, pause and stop for a run that is not the latest throw and change nothing', async () => {
+      await threeRoles()
+      const runtime = new FakeRuntime(script)
+      const runner = skipRunner(runtime)
+      await runner.start(ticket.id)
+      await nth(runner, runtime, 1)
+      const before = await thread()
+      const stale = { agentRunId: 'a-role-that-handed-off' }
+
+      await expect(runner.skip(ticket.id, stale)).rejects.toThrow(MOVED_ON)
+      await expect(runner.pause(ticket.id, stale)).rejects.toThrow(MOVED_ON)
+      await expect(runner.stop(ticket.id, stale)).rejects.toThrow(MOVED_ON)
+
+      expect(await thread()).toEqual(before)
+      expect(await runsOfTicket()).toEqual([['Planner', null, false]])
+      expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working')
+      expect(runtime.interrupted).toEqual([])
+      // The refused stop left no stop pending: the ticket's next launch is not prevented.
+      const run = (await repos.runs.latest(ticket.id))!
+      await runner.pause(ticket.id, { agentRunId: run.id })
+      await runner.skip(ticket.id, { agentRunId: run.id })
+      expect(roleOf(await nth(runner, runtime, 2))).toBe('Implementer')
+    })
+
+    it('stops the run it was meant for', async () => {
+      await threeRoles()
+      const runtime = new FakeRuntime(script)
+      const runner = skipRunner(runtime)
+      await runner.start(ticket.id)
+      await nth(runner, runtime, 1)
+      const run = (await repos.runs.latest(ticket.id))!
+      await runner.stop(ticket.id, { agentRunId: run.id })
+      expect(await runsOfTicket()).toEqual([['Planner', 'stopped', false]])
+    })
   })
 
   it('skips a role the user paused, with no process to stop', async () => {

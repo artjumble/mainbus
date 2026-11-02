@@ -44,7 +44,11 @@ beforeEach(async () => {
     lineup: (workspaceId) => repos.lineups.get(workspaceId),
     ticketByNumber: (workspaceId, n) => repos.tickets.byNumber(workspaceId, n),
     whyNotStartable: async () => null,
-    startTicket: async () => {}
+    startTicket: async () => {},
+    activeRole: async () => null,
+    pauseTicket: async () => {},
+    stopTicket: async () => {},
+    skipTicket: async () => {}
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })
 })

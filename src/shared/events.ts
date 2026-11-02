@@ -81,7 +81,7 @@ export type ThreadEvent =
   /** The user's pause ended: Resume, or a message or answer that resumed the role. */
   | { kind: 'resumed' }
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */
-  | { kind: 'proposal'; proposalId: string }
+  | { kind: 'proposal'; proposalId: string; from?: 'drag' }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 

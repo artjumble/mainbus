@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke, onEngineEvent } from './api'
 import { App } from './App'
@@ -92,4 +92,15 @@ test('a failing first load shows an error with Try again instead of an endless l
   await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
   expect(await screen.findByText('Backlog')).toBeInTheDocument()
   expect(screen.queryByText('database is locked')).not.toBeInTheDocument()
+})
+
+test('revealing a proposal expands a collapsed orchestrator panel', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, workspace)
+  renderWithMantine(<App />)
+  const panel = await screen.findByRole('complementary', { name: 'Orchestrator' })
+  await userEvent.click(within(panel).getByRole('button', { name: 'Collapse orchestrator panel' }))
+  expect(within(panel).queryByRole('textbox', { name: 'Message the orchestrator' })).not.toBeInTheDocument()
+
+  act(() => useMainbus.getState().revealProposal('p1'))
+  expect(await within(panel).findByRole('textbox', { name: 'Message the orchestrator' })).toBeInTheDocument()
 })
