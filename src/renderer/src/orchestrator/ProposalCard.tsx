@@ -5,10 +5,12 @@ import { invoke } from '../api'
 import { showError } from '../notify'
 import { createTicketsView } from './CreateTicketsProposal'
 import type { ProposalView } from './proposalView'
+import { startLineupView } from './StartLineupProposal'
 
 /** The card's view of each kind of proposal. */
 const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
-  create_tickets: createTicketsView
+  create_tickets: createTicketsView,
+  start_lineup: startLineupView
 }
 
 interface Props {

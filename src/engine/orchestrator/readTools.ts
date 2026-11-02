@@ -22,7 +22,7 @@ export const EVENTS_MAX = 50
 
 export const NO_WORKSPACE = 'No workspace is open.'
 
-const COLUMNS: Record<Column, string> = {
+export const COLUMNS: Record<Column, string> = {
   backlog: 'Backlog',
   ready: 'Ready',
   in_progress: 'In progress',
@@ -238,7 +238,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         ? run.roles
             .map(({ role, strip }) => `- ${oneLine(role.name)}: ${strip ? ROLE_STATUSES[strip.status] : 'not started'}${strip?.active ? ' (active)' : ''}`)
             .join('\n')
-        : 'Not started.'
+        : // Before the first run the strip is the workspace lineup: the roles propose_start can name.
+          `Not started. The lineup's roles, in order: ${t.lineup.map((r) => oneLine(r.name)).join(', ') || 'none'}.`
       const pr = t.pr ? oneLine(t.pr.url) : 'none'
       const sections = [
         `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nColumn: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}`,

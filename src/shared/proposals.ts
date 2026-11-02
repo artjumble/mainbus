@@ -1,4 +1,6 @@
 // Shared by the engine and the renderer: types only, no Node imports.
+import type { Effort } from './domain'
+import type { ModelSource } from './models'
 
 /**
  * pending until the user decides; confirmed as proposed or overridden with their changes (both then carried
@@ -6,7 +8,7 @@
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets'
+export type ProposalKindName = 'create_tickets' | 'start_lineup'
 
 /** Something the orchestrator proposed, which engine code carries out once the user confirms it. */
 export interface Proposal {
@@ -51,6 +53,39 @@ export interface CreateTicketsOverride {
 export interface CreateTicketsResult {
   tickets: { id: string; number: number; title: string }[]
   column: DraftColumn
+}
+
+/** One role of a start_lineup proposal, with the model and effort it will run with. */
+export interface StartRolePlan {
+  /** The role's id in the workspace lineup. */
+  roleId: string
+  name: string
+  model: string
+  effort: Effort
+  /** Where the model came from: the user's override, the role's own setting, the orchestrator or the defaults. */
+  source: ModelSource
+}
+
+/** The payload of a start_lineup proposal: the roles in lineup order, resolved when it was proposed. */
+export interface StartLineupPayload {
+  ticketId: string
+  number: number
+  title: string
+  roles: StartRolePlan[]
+  extraInstructions: string | null
+}
+
+/** What the user's Override sends for start_lineup: the roles they kept, each one's model and effort. */
+export interface StartLineupOverride {
+  roles: { roleId: string; model: string; effort: Effort }[]
+  extraInstructions: string
+}
+
+export interface StartLineupResult {
+  ticketId: string
+  number: number
+  title: string
+  roles: { name: string; model: string; effort: Effort }[]
 }
 
 /** The result of a proposal that failed while being carried out. */

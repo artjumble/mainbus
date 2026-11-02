@@ -9,7 +9,9 @@ import type {
   tool
 } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
+import { EFFORTS, MODEL_OPTIONS } from '../../shared/models'
 import { guardReason, type GuardContext } from '../permissions/guard'
 import { InputQueue } from './inputQueue'
 import { Normalizer } from './normalize'
@@ -51,8 +53,12 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__get_run_status',
   'mcp__mainbus__get_recent_events',
   'mcp__mainbus__list_pending_decisions',
-  'mcp__mainbus__propose_create_tickets'
+  'mcp__mainbus__propose_create_tickets',
+  'mcp__mainbus__propose_start'
 ]
+const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
+const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
+
 /** The only built-in tools the orchestrator has. */
 export const ORCHESTRATOR_BUILT_IN_TOOLS = ['Read', 'Grep', 'Glob']
 
@@ -504,6 +510,27 @@ export class SdkRuntime implements AgentRuntime {
           },
           // The engine validates it again, strictly: the SDK passes what the agent sent.
           async (a) => toolText(await t.proposeCreateTickets(a))
+        ),
+        sdk.tool(
+          'propose_start',
+          "Propose starting a Backlog or Ready ticket that is not running, with some or all of the lineup's roles and a model and effort for each. The user confirms, changes or rejects it; Mainbus starts it only then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            roles: z
+              .array(
+                z.strictObject({
+                  role: z.string().describe('A role name in the lineup, as get_ticket shows it'),
+                  model: z.enum(MODEL_VALUES).optional().describe('The model; left out, Mainbus picks'),
+                  effort: z.enum(EFFORT_VALUES).optional().describe('The effort; left out, Mainbus picks')
+                })
+              )
+              .optional()
+              .describe('The roles to run; left out, the whole lineup. They run in lineup order'),
+            extraInstructions: z.string().optional().describe('Instructions for every role in this run, shown to the user'),
+            reason: z.string().optional().describe('Why to start it now, shown to the user')
+          },
+          // The engine validates it again, against the board: the SDK passes what the agent sent.
+          async (a) => toolText(await t.proposeStart(a))
         )
       ]
     })

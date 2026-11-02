@@ -1,20 +1,25 @@
-import { Button, Center, Checkbox, Group, Loader, Modal, Stack, Text } from '@mantine/core'
+import { Button, Center, Group, Loader, Modal, Stack, Text, Textarea } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import type { LineupRole } from '../../../shared/domain'
+import type { StartOptions } from '../../../shared/domain'
+import { EXTRA_INSTRUCTIONS_MAX, resolveModelEffort } from '../../../shared/models'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { RoleChoiceRow, type RoleChoice } from './RoleChoice'
 
 interface Props {
   opened: boolean
   onClose: () => void
-  /** Starts the ticket with the ticked roles; resolves true once it has started. */
-  onStart: (roleIds: string[]) => Promise<boolean>
+  /** Starts the ticket with these options; resolves true once it has started. */
+  onStart: (opts: StartOptions) => Promise<boolean>
 }
 
-/** "Adjust before starting": pick the lineup roles to run this time, all ticked to begin with. */
+/**
+ * "Adjust before starting": pick the lineup roles to run this time, all ticked to begin with, each one's model and
+ * effort (its own setting, else Mainbus's default), and instructions for every role of this run.
+ */
 export function AdjustStartModal({ opened, onClose, onStart }: Props): ReactElement {
   return (
-    <Modal opened={opened} onClose={onClose} title="Adjust before starting">
+    <Modal opened={opened} onClose={onClose} title="Adjust before starting" size="lg">
       {/* Mounted while open only, so every opening reads the lineup afresh with every role ticked. */}
       {opened && <RolePicker onClose={onClose} onStart={onStart} />}
     </Modal>
@@ -22,8 +27,8 @@ export function AdjustStartModal({ opened, onClose, onStart }: Props): ReactElem
 }
 
 function RolePicker({ onClose, onStart }: Omit<Props, 'opened'>): ReactElement {
-  const [roles, setRoles] = useState<LineupRole[] | null>(null)
-  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  const [roles, setRoles] = useState<RoleChoice[] | null>(null)
+  const [extra, setExtra] = useState('')
   const [starting, setStarting] = useState(false)
 
   useEffect(() => {
@@ -31,8 +36,12 @@ function RolePicker({ onClose, onStart }: Omit<Props, 'opened'>): ReactElement {
     invoke('lineup.get').then(
       (lineup) => {
         if (cancelled) return
-        setRoles(lineup)
-        setTicked(new Set(lineup.map((r) => r.id)))
+        setRoles(
+          lineup.map((role) => {
+            const { model, effort } = resolveModelEffort(role)
+            return { roleId: role.id, name: role.name, ticked: true, model, effort }
+          })
+        )
       },
       (err: unknown) => {
         if (cancelled) return
@@ -54,20 +63,22 @@ function RolePicker({ onClose, onStart }: Omit<Props, 'opened'>): ReactElement {
     )
   }
 
-  function toggle(id: string, on: boolean): void {
-    setTicked((current) => {
-      const next = new Set(current)
-      if (on) next.add(id)
-      else next.delete(id)
-      return next
-    })
+  const ticked = roles.filter((r) => r.ticked)
+
+  function change(i: number, patch: Partial<RoleChoice>): void {
+    setRoles((current) => current!.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   }
 
   async function start(): Promise<void> {
     setStarting(true)
     try {
       // In lineup order, as the engine runs them.
-      if (await onStart(roles!.filter((r) => ticked.has(r.id)).map((r) => r.id))) onClose()
+      const opts: StartOptions = {
+        roleIds: ticked.map((r) => r.roleId),
+        roles: Object.fromEntries(ticked.map((r) => [r.roleId, { model: r.model, effort: r.effort }])),
+        ...(extra.trim() !== '' ? { extraInstructions: extra } : {})
+      }
+      if (await onStart(opts)) onClose()
     } finally {
       setStarting(false)
     }
@@ -76,21 +87,28 @@ function RolePicker({ onClose, onStart }: Omit<Props, 'opened'>): ReactElement {
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        The ticked roles work the ticket in turn.
+        The ticked roles work the ticket in turn, each with its model and effort.
       </Text>
-      {roles.map((role) => (
-        <Checkbox
-          key={role.id}
-          label={role.name}
-          checked={ticked.has(role.id)}
-          onChange={(e) => toggle(role.id, e.currentTarget.checked)}
-        />
-      ))}
+      <Stack gap={6} role="group" aria-label="Models and effort per role">
+        {roles.map((role, i) => (
+          <RoleChoiceRow key={role.roleId} choice={role} onChange={(patch) => change(i, patch)} />
+        ))}
+      </Stack>
+      <Textarea
+        label="Extra instructions"
+        description="Added to every role's instructions in this run."
+        autosize
+        minRows={2}
+        maxRows={8}
+        maxLength={EXTRA_INSTRUCTIONS_MAX}
+        value={extra}
+        onChange={(e) => setExtra(e.currentTarget.value)}
+      />
       <Group justify="flex-end" mt="xs">
         <Button variant="default" onClick={onClose}>
           Cancel
         </Button>
-        <Button disabled={ticked.size === 0} loading={starting} onClick={() => void start()}>
+        <Button disabled={ticked.length === 0} loading={starting} onClick={() => void start()}>
           Start
         </Button>
       </Group>

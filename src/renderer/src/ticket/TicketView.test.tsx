@@ -5,7 +5,7 @@ import type { Decision, RoleStatus, StripRole, TicketState } from '../../../shar
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
-import { makeDecision, makeEvent, makeLineup, makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { makeDecision, makeEvent, makeLineup, makeTicket, optionLabels, renderWithMantine, workspace } from '../test-utils'
 import { TicketView } from './TicketView'
 
 vi.mock('../api', () => ({
@@ -444,8 +444,57 @@ describe('Adjust before starting', () => {
 
     await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Planner' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    expect(agentCalls()).toEqual([['agent.start', ticket.id, { roleIds: ['i', 'r'] }]])
+    expect(agentCalls()).toEqual([
+      [
+        'agent.start',
+        ticket.id,
+        { roleIds: ['i', 'r'], roles: { i: { model: 'sonnet', effort: 'medium' }, r: { model: 'opus', effort: 'medium' } } }
+      ]
+    ])
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  test("prefills each role's model and effort from its own setting, else the defaults, and sends what the user chose", async () => {
+    const [planner, implementer, reviewer] = makeLineup()
+    const lineup = [planner!, { ...implementer!, model: 'claude-custom', effort: 'max' as const }, reviewer!]
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'lineup.get') return lineup
+      return undefined
+    })
+    const ticket = show({ column: 'backlog' })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    const model = async (name: string) => within(dialog).findByRole('combobox', { name: `Model for ${name}` })
+    const effort = (name: string) => within(dialog).getByRole('combobox', { name: `Effort for ${name}` })
+    expect(await model('Planner')).toHaveValue('opus')
+    expect(effort('Planner')).toHaveValue('high')
+    // A role's own model shows even when it isn't one of the offered ones.
+    expect(await model('Implementer')).toHaveValue('claude-custom')
+    expect(effort('Implementer')).toHaveValue('max')
+    expect(await model('Reviewer')).toHaveValue('opus')
+    expect(effort('Reviewer')).toHaveValue('medium')
+    expect(optionLabels(await model('Reviewer'))).toEqual(['Opus', 'Sonnet', 'Haiku'])
+    expect(optionLabels(effort('Reviewer'))).toEqual(['Low', 'Medium', 'High'])
+
+    await userEvent.selectOptions(await model('Planner'), 'Haiku')
+    await userEvent.selectOptions(effort('Reviewer'), 'Low')
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Implementer' }))
+    expect(await model('Implementer')).toBeDisabled()
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Extra instructions' }), 'Keep it small.')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
+    expect(agentCalls()).toEqual([
+      [
+        'agent.start',
+        ticket.id,
+        {
+          roleIds: ['p', 'r'],
+          roles: { p: { model: 'haiku', effort: 'high' }, r: { model: 'opus', effort: 'low' } },
+          extraInstructions: 'Keep it small.'
+        }
+      ]
+    ])
   })
 
   test('Start is disabled with no role ticked, and Cancel starts nothing', async () => {

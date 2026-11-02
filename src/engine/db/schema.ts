@@ -85,6 +85,8 @@ export const ticketRuns = sqliteTable(
       .notNull()
       .references(() => tickets.id, { onDelete: 'cascade' }),
     roles: text('roles').notNull(), // JSON: LineupRole[], in order
+    /** What the user confirmed at start for every role of this run, or null. */
+    extraInstructions: text('extra_instructions'),
     status: text('status', { enum: ['running', 'done', 'stopped', 'failed'] }).notNull(),
     startedAt: text('started_at').notNull(),
     endedAt: text('ended_at')

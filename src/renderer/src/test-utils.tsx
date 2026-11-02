@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core'
 import { Notifications, notifications } from '@mantine/notifications'
-import { render, type RenderResult } from '@testing-library/react'
+import { render, within, type RenderResult } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
 import type { Decision, LineupRole, TicketState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
@@ -96,6 +96,13 @@ export function makeDecision(overrides: Partial<Decision> = {}): Decision {
     answeredAt: null,
     ...overrides
   }
+}
+
+/** The text of each option of a native select, in order. */
+export function optionLabels(select: HTMLElement): string[] {
+  return within(select)
+    .getAllByRole('option')
+    .map((o) => o.textContent ?? '')
 }
 
 /** The default Change lineup, as `lineup.get` returns it for workspace w1. */

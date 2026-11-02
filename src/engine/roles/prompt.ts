@@ -119,11 +119,15 @@ function handoffSection(handoffs: EarlierHandoff[]): string {
   return `${HANDOFFS_HEADING}\n${blocks.join('\n\n')}`
 }
 
+export const EXTRA_INSTRUCTIONS_HEADING = '## Extra instructions for this run, confirmed by the user'
+
+/** `extraInstructions` are the ones given when this ticket run was started, for every role in it. */
 export function buildRolePrompt(
   role: LineupRole,
   ticket: Ticket,
   answered: Decision[],
-  handoffs: EarlierHandoff[] = []
+  handoffs: EarlierHandoff[] = [],
+  extraInstructions: string | null = null
 ): string {
   // Numbered by position, from 0, as check_criterion takes them.
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
@@ -143,6 +147,7 @@ export function buildRolePrompt(
     ticket.spec ? `## Spec${byAgent}\n${data('spec', ticket.spec)}` : '',
     criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : '',
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
+    extraInstructions ? `${EXTRA_INSTRUCTIONS_HEADING}\n${data('extra-instructions', extraInstructions)}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',
     handoffSection(handoffs)
   ]

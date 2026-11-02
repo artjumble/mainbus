@@ -10,6 +10,7 @@ import {
   type RolePhase,
   type ToolProfile
 } from '../../shared/domain'
+import { EFFORTS } from '../../shared/models'
 import type { Db } from '../db/open'
 import { lineupRoles } from '../db/schema'
 
@@ -74,7 +75,6 @@ export function defaultLineup(): LineupRoleInput[] {
 
 const TOOL_PROFILES: ToolProfile[] = ['read_only', 'edit']
 const ON_PROBLEM: OnProblem[] = ['hand_back', 'ask_me']
-const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /**
  * Why `roles` can't be saved as a lineup, or null when it can. A hand-back to a role that isn't in the lineup

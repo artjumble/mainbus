@@ -24,34 +24,27 @@ import {
 } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { ROLE_PHASES, type Effort, type LineupRole, type OnProblem, type RolePhase, type ToolProfile } from '../../../shared/domain'
+import { DEFAULT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS, OTHER_ROLE_DEFAULT, modelLabel } from '../../../shared/models'
 import { invoke } from '../api'
 import { phaseLabel } from '../board/TicketCard'
+import { withCurrent } from '../ticket/RoleChoice'
 import { errorMessage, showError } from '../notify'
 import { moveRole, newRole, removeRole, sameLineup, toDraft, type DraftRole } from './lineupDraft'
 
 /** "" stands for null ("Orchestrator decides", "Previous role"), which a native select cannot hold as a value. */
 const DEFAULT = ''
-const MODELS = [
-  { value: DEFAULT, label: 'Orchestrator decides' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' }
-]
-const EFFORTS = [
-  { value: DEFAULT, label: 'Orchestrator decides' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' }
-]
+const MODELS = [{ value: DEFAULT, label: 'Orchestrator decides' }, ...MODEL_OPTIONS]
+const EFFORTS = [{ value: DEFAULT, label: 'Orchestrator decides' }, ...EFFORT_OPTIONS]
+
+/** "Planner Opus, high effort; …; any other role Sonnet, medium effort", from the default table. */
+const DEFAULTS_TEXT = [...DEFAULT_MODELS, { name: 'any other role', ...OTHER_ROLE_DEFAULT }]
+  .map((d) => `${d.name} ${modelLabel(d.model)}, ${d.effort} effort`)
+  .join('; ')
 const PHASES = ROLE_PHASES.map((p) => ({ value: p, label: phaseLabel(p) }))
 const TOOL_PROFILES: { value: ToolProfile; label: string }[] = [
   { value: 'read_only', label: 'Read only (no file edits)' },
   { value: 'edit', label: 'Can edit files' }
 ]
-
-/** The options plus, when the stored value isn't one of them, that value, so the select never misreports it. */
-function withCurrent(options: { value: string; label: string }[], current: string): { value: string; label: string }[] {
-  return options.some((o) => o.value === current) ? options : [...options, { value: current, label: current }]
-}
 
 /** The name to show for a role, even while its name field is empty. */
 function displayName(role: DraftRole, index: number): string {
@@ -364,7 +357,8 @@ function RoleForm({ role, index, earlier, onChange }: FormProps): ReactElement {
         }
       />
       <Text size="sm" c="dimmed">
-        For now, "Orchestrator decides" means Claude Code's default, because there is no orchestrator yet.
+        "Orchestrator decides" lets the orchestrator choose when it proposes a start. Otherwise Mainbus's defaults
+        apply: {DEFAULTS_TEXT}.
       </Text>
     </Stack>
   )

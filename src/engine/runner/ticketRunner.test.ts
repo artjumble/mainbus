@@ -3,21 +3,24 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../../shared/api'
-import type { Decision, LineupRole, LineupRoleInput, Ticket } from '../../shared/domain'
+import { eq } from 'drizzle-orm'
+import type { Decision, Effort, LineupRole, LineupRoleInput, Ticket } from '../../shared/domain'
 import type { AgentEvent, ThreadEvent } from '../../shared/events'
 import { runGit } from '../git/git'
 import { WorktreeManager } from '../git/worktrees'
 import { resolveHome, scratchPathFor, type HomePaths } from '../home'
 import { describeRequest } from '../permissions/policy'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
-import { firstMessage, HANDOFFS_HEADING } from '../roles/prompt'
+import { EXTRA_INSTRUCTIONS_HEADING, firstMessage, HANDOFFS_HEADING } from '../roles/prompt'
+import type { Db } from '../db/open'
+import { agentRuns } from '../db/schema'
 import type { PublishInput } from '../git/pullRequests'
 import { FAKE_SUMMARY, FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { Normalizer } from '../runtime/normalize'
 import { ResumeFailedError, type PermissionRequest, type RunHandle, type RunSpec } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
 import { defaultLineup } from '../store/lineups'
-import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
+import { FIXED_NOW, implementerOnly, openTestDb, testRole } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
 
 const NUDGE =
@@ -27,6 +30,7 @@ let tmp: string
 let repoPath: string
 let paths: HomePaths
 let closeDb: () => void
+let db: Db
 let repos: Repos
 let worktrees: WorktreeManager
 let ticket: Ticket
@@ -166,6 +170,7 @@ beforeEach(async () => {
   paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
+  db = testDb.db
   repos = createRepos(testDb.db, () => FIXED_NOW)
   worktrees = new WorktreeManager(runGit, paths, repos.cleanups)
   const ws = await repos.workspaces.create(repoPath, 'main', 'repo', 'repo')
@@ -1445,9 +1450,13 @@ describe('TicketRunner through a lineup', () => {
 
     await runner.send(ticket.id, 'go')
     const reviewer = await active(runner, runtime, 2)
-    expect(reviewer).toMatchObject({ toolProfile: 'read_only', prompt: firstMessage(ticket, 'Implementer') })
-    expect(reviewer.model).toBeUndefined()
-    expect(reviewer.effort).toBeUndefined()
+    // The Reviewer has no model or effort of its own: the default table's.
+    expect(reviewer).toMatchObject({
+      toolProfile: 'read_only',
+      prompt: firstMessage(ticket, 'Implementer'),
+      model: 'opus',
+      effort: 'medium'
+    })
     expect(reviewer.appendSystemPrompt).toContain('## Your role: Reviewer\n')
     expect(reviewer.appendSystemPrompt).toContain(
       `${plannerHandoff}\n\nFrom <ticket-data field="role">Implementer</ticket-data>:\n` +
@@ -1472,7 +1481,10 @@ describe('TicketRunner through a lineup', () => {
     ])
     const runs = await repos.runs.listForTicket(ticket.id)
     expect(new Set(runs.map((r) => r.ticketRunId)).size).toBe(1)
-    expect(await repos.runs.ticketRun(runs[0]!.ticketRunId)).toMatchObject({ status: 'done', roles: lineup })
+    expect(await repos.runs.ticketRun(runs[0]!.ticketRunId)).toMatchObject({
+      status: 'done',
+      roles: [lineup[0], lineup[1], { ...lineup[2], model: 'opus', effort: 'medium' }]
+    })
     // Each later role's thread opens with the handoff to it.
     expect((await repos.runs.events(runs[1]!.id))[0]?.event).toEqual({ kind: 'role_handoff', from: 'Planner', to: 'Implementer' })
     expect((await repos.runs.events(runs[2]!.id))[0]?.event).toEqual({ kind: 'role_handoff', from: 'Implementer', to: 'Reviewer' })
@@ -1543,6 +1555,105 @@ describe('TicketRunner through a lineup', () => {
     ])
     const { ticketRunId } = (await repos.runs.latest(ticket.id))!
     expect((await repos.runs.ticketRun(ticketRunId)).roles.map((r) => r.name)).toEqual(['Planner', 'Reviewer'])
+  })
+
+  it('a start with no options snapshots the default table for roles with no model or effort of their own', async () => {
+    await repos.lineups.save(ticket.workspaceId, defaultLineup().map((r) => ({ ...r, model: null, effort: null })))
+    const runtime = new FakeRuntime(lineupScript)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    expect(await active(runner, runtime, 0)).toMatchObject({ model: 'opus', effort: 'high' })
+
+    const run = (await repos.runs.latest(ticket.id))!
+    const { roles } = await repos.runs.ticketRun(run.ticketRunId)
+    expect(roles.map((r) => [r.name, r.model, r.effort])).toEqual([
+      ['Planner', 'opus', 'high'],
+      ['Implementer', 'sonnet', 'medium'],
+      ['Reviewer', 'opus', 'medium']
+    ])
+    // The agent run records them too.
+    const [row] = await db
+      .select({ model: agentRuns.model, effort: agentRuns.effort })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, run.id))
+    expect(row).toEqual({ model: 'opus', effort: 'high' })
+
+    await runner.send(ticket.id, 'go')
+    expect(await active(runner, runtime, 1)).toMatchObject({ model: 'sonnet', effort: 'medium' })
+  })
+
+  it("the user's choice beats the role's own setting, which beats the default table, each field on its own", async () => {
+    const [planner, implementer, reviewer] = await threeRoles()
+    const runtime = new FakeRuntime(lineupScript)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id, {
+      roles: { [planner!.id]: { effort: 'low' }, [reviewer!.id]: { model: 'haiku' } }
+    })
+    await active(runner, runtime, 0)
+    const { roles } = await repos.runs.ticketRun((await repos.runs.latest(ticket.id))!.ticketRunId)
+    expect(roles.map((r) => [r.id, r.model, r.effort])).toEqual([
+      [planner!.id, 'opus', 'low'],
+      [implementer!.id, 'sonnet', 'medium'],
+      [reviewer!.id, 'haiku', 'medium']
+    ])
+    expect(runtime.specs[0]).toMatchObject({ model: 'opus', effort: 'low' })
+  })
+
+  it('rejects an unknown model, effort or role in the options, and long extra instructions, starting nothing', async () => {
+    const [planner, implementer] = await threeRoles()
+    const runtime = new FakeRuntime(lineupScript)
+    const runner = makeRunner(runtime)
+    await expect(runner.start(ticket.id, { roles: { [planner!.id]: { model: 'gpt-4' } } })).rejects.toThrow(
+      'Planner has an unknown model: "gpt-4"'
+    )
+    await expect(runner.start(ticket.id, { roles: { [planner!.id]: { effort: 'huge' as Effort } } })).rejects.toThrow(
+      'Planner has an unknown effort: "huge"'
+    )
+    // A role that isn't ticked can't be given a model.
+    await expect(
+      runner.start(ticket.id, { roleIds: [planner!.id], roles: { [implementer!.id]: { model: 'opus' } } })
+    ).rejects.toThrow(`There is no role "${implementer!.id}" in this start`)
+    await expect(runner.start(ticket.id, { extraInstructions: 'x'.repeat(10_001) })).rejects.toThrow(
+      'Extra instructions must be at most 10000 characters'
+    )
+    expect(await repos.runs.latest(ticket.id)).toBeNull()
+    expect(runtime.specs).toEqual([])
+  })
+
+  it('extra instructions reach every role of the run, and a resumed one, but not a later Start again', async () => {
+    await threeRoles()
+    const extra = `${EXTRA_INSTRUCTIONS_HEADING}\n<ticket-data field="extra-instructions">\nKeep the diff small.\n</ticket-data>`
+    const first = new FakeRuntime(lineupScript)
+    const before = makeRunner(first)
+    await before.start(ticket.id, { extraInstructions: '  Keep the diff small.\n' })
+    expect((await active(before, first, 0)).appendSystemPrompt).toContain(extra)
+    await before.send(ticket.id, 'go')
+    expect((await active(before, first, 1)).appendSystemPrompt).toContain(extra)
+    await waitForThread((e) => e.kind === 'session')
+    await before.shutdown()
+
+    const runtime = new FakeRuntime(lineupScript)
+    const after = makeRunner(runtime)
+    await after.markAllNotAlive()
+    await after.continue(ticket.id)
+    expect((await active(after, runtime, 0)).appendSystemPrompt).toContain(extra)
+    await after.send(ticket.id, 'go')
+    expect((await active(after, runtime, 1)).appendSystemPrompt).toContain(extra)
+    await after.send(ticket.id, 'go')
+    await vi.waitFor(async () => expect((await after.stateOf(ticket.id)).column).toBe('review'))
+
+    await after.start(ticket.id)
+    expect((await active(after, runtime, 2)).appendSystemPrompt).not.toContain(EXTRA_INSTRUCTIONS_HEADING)
+  })
+
+  it('a ticket run snapshotted with no model or effort still launches with the default table', async () => {
+    const runtime = new FakeRuntime(lineupScript)
+    const runner = makeRunner(runtime)
+    // As a run started before models were resolved at start left it.
+    await repos.runs.create(ticket.id, [testRole({ name: 'Reviewer' })])
+    await runner.markAllNotAlive()
+    await runner.continue(ticket.id)
+    expect(await active(runner, runtime, 0)).toMatchObject({ model: 'opus', effort: 'medium' })
   })
 
   it('between roles the ticket stays In progress and working, never in Review', async () => {

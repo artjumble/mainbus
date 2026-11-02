@@ -232,4 +232,11 @@ export type ClaudeSetup =
 export interface StartOptions {
   /** The lineup roles to run, by id; they run in lineup order. Every role when absent. */
   roleIds?: string[]
+  /**
+   * The user's model and effort for this start, by role id; they beat the role's own setting. A role or field
+   * left out resolves as usual (role setting, else the default table).
+   */
+  roles?: Record<string, { model?: string; effort?: Effort }>
+  /** Added to every role's prompt in this run. */
+  extraInstructions?: string
 }

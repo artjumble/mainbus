@@ -16,7 +16,8 @@ const ws: Workspace = {
 }
 
 function propose(input: unknown): CreateTicketsPayload {
-  return createTickets.propose(input, { userMessage: MESSAGE })
+  // It reads nothing from the board, so it needs no context, and it is synchronous.
+  return createTickets.propose(input, { userMessage: MESSAGE, workspaceId: ws.id }, {} as ExecContext) as CreateTicketsPayload
 }
 
 describe('create_tickets: propose', () => {
@@ -75,7 +76,11 @@ describe('create_tickets: execute and outcome', () => {
       workspace: async () => open,
       createTickets: vi.fn(async (_ws: Workspace, inputs: { title: string }[]) =>
         inputs.map((i) => ({ id: `t${++n}`, number: n, title: i.title }) as Ticket)
-      )
+      ),
+      lineup: async () => [],
+      ticketByNumber: async () => null,
+      whyNotStartable: async () => null,
+      startTicket: vi.fn()
     }
   }
 

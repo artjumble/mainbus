@@ -82,11 +82,19 @@ describe('run repo', () => {
       id: run.ticketRunId,
       ticketId,
       roles,
+      extraInstructions: null,
       status: 'running',
       startedAt: FIXED_NOW.toISOString(),
       endedAt: null
     })
     await expect(repo.create(ticketId, [])).rejects.toThrow(/at least one role/)
+  })
+
+  it('create stores the extra instructions on the ticket run', async () => {
+    const repo = createRunRepo(db, now)
+    await repo.create(ticketId, [testRole()], 'Keep the diff small.')
+    const run = (await repo.latest(ticketId))!
+    expect((await repo.ticketRun(run.ticketRunId)).extraInstructions).toBe('Keep the diff small.')
   })
 
   it("handOn starts the next role's run before ending the previous one as handed off", async () => {

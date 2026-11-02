@@ -407,6 +407,59 @@ describe('proposals', () => {
     expect(proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual(['First ask', 'Second ask'])
   })
 
+  test('a start proposal, confirmed, starts a Backlog ticket with its roles, models and instructions', async () => {
+    // Each role agent stays alive, so the run stays open.
+    const runtime = new FakeRuntime([{ waitForSend: true }], {
+      orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { waitForSend: true }]
+    })
+    const { engine } = await makeEngine(runtime)
+    const t = await engine.invoke('ticket.create', {
+      title: 'Login',
+      intent: 'Add a login form',
+      spec: '',
+      criteria: [],
+      labels: [],
+      column: 'backlog'
+    })
+    const done = await engine.invoke('ticket.create', { title: 'Old', intent: 'x', spec: '', criteria: [], labels: [], column: 'ready' })
+    expect(await engine.invoke('ticket.move', done.id, 'done')).toBe('moved')
+    await engine.invoke('orchestrator.send', 'Start the login ticket')
+    const tools = await liveTools(runtime)
+
+    expect(await tools.proposeStart({ ticket: done.number })).toBe(
+      `Invalid proposal: ticket: #${done.number} is in Done; only Backlog or Ready tickets can be started. Nothing was stored; fix it and propose again.`
+    )
+    expect(await tools.proposeStart({ ticket: t.number, roles: [{ role: 'Tester' }] })).toMatch(/^Invalid proposal: roles: there is no role "Tester"/)
+
+    await tools.proposeStart({
+      ticket: t.number,
+      roles: [{ role: 'Planner', model: 'haiku' }, { role: 'Implementer' }],
+      extraInstructions: 'Keep it small.',
+      reason: 'It is ready to go'
+    })
+    const [proposal] = (await engine.invoke('orchestrator.get')).proposals
+    expect(proposal).toMatchObject({ kind: 'start_lineup', evidence: 'It is ready to go' })
+
+    const confirmed = await engine.invoke('proposal.confirm', proposal!.id, {
+      roles: (proposal!.payload as { roles: { roleId: string; name: string }[] }).roles
+        .filter((r) => r.name === 'Implementer')
+        .map((r) => ({ roleId: r.roleId, model: 'opus', effort: 'low' })),
+      extraInstructions: 'Keep it very small.'
+    })
+    expect(confirmed).toMatchObject({ status: 'overridden', result: { roles: [{ name: 'Implementer', model: 'opus', effort: 'low' }] } })
+    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    expect(runtime.specs[0]).toMatchObject({ role: 'Implementer', model: 'opus', effort: 'low' })
+    expect(runtime.specs[0]!.appendSystemPrompt).toContain('Keep it very small.')
+    const ticket = (await engine.invoke('board.get')).tickets.find((x) => x.id === t.id)!
+    expect(ticket.state.column).toBe('in_progress')
+    expect(ticket.lineup.map((r) => r.name)).toEqual(['Implementer'])
+
+    // Now it is running: another start is refused.
+    expect(await tools.proposeStart({ ticket: t.number })).toBe(
+      `Invalid proposal: ticket: #${t.number} is already running. Nothing was stored; fix it and propose again.`
+    )
+  })
+
   test('a pending proposal survives a restart, can be confirmed after it, and the next message hears of it', async () => {
     const first = new FakeRuntime([], {
       orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { callTool: 'proposeCreateTickets', args: DRAFTS }, turnEnd()]
