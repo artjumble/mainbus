@@ -36,6 +36,8 @@ export interface DecisionRepo {
   get(id: string): Promise<Decision>
   /** The workspace's decisions answered at or after `since` (every answered one when null), oldest answer first, with their ticket's number and title. */
   answeredSince(workspaceId: string, since: string | null): Promise<{ number: number; title: string; decision: Decision }[]>
+  /** Every open (pending or deferred) decision of the workspace, oldest first, with their ticket's number and title. */
+  openIn(workspaceId: string): Promise<{ number: number; title: string; decision: Decision }[]>
 }
 
 function toDecision(row: typeof decisions.$inferSelect, deferredUntil: string | null = null): Decision {
@@ -203,6 +205,17 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
         .orderBy(asc(decisions.answeredAt), asc(sql`${decisions}.rowid`))
       // Answered decisions are never deferred, so they carry no date.
       return rows.map((r) => ({ number: r.number, title: r.title, decision: toDecision(r.decision) }))
+    },
+
+    async openIn(workspaceId) {
+      const rows = await db
+        .select({ decision: decisions, number: tickets.number, title: tickets.title })
+        .from(decisions)
+        .innerJoin(tickets, eq(decisions.ticketId, tickets.id))
+        .where(and(eq(tickets.workspaceId, workspaceId), inArray(decisions.status, ['pending', 'deferred'])))
+        .orderBy(asc(decisions.createdAt), asc(sql`${decisions}.rowid`))
+      const dated = await withDates(rows.map((r) => r.decision))
+      return rows.map((r, i) => ({ number: r.number, title: r.title, decision: dated[i]! }))
     },
 
     get

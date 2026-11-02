@@ -24,10 +24,14 @@ export interface ProposalServiceDeps {
   kinds?: Record<ProposalKindName, ProposalKind<unknown, unknown>>
 }
 
-export type ProposeResult = { ok: true; proposal: Proposal } | { ok: false; error: string }
+/** `existing`: an equal proposal was already pending, and is returned as it is; nothing was stored. */
+export type ProposeResult = { ok: true; proposal: Proposal; existing?: true } | { ok: false; error: string }
 
 export interface ProposalService {
-  /** Validates and stores a pending proposal; an invalid one stores nothing and says why. */
+  /**
+   * Validates and stores a pending proposal; an invalid one stores nothing and says why. A proposal for a ticket whose
+   * kind already has one pending (an answer: the same decision) is not stored again: the pending one is returned.
+   */
   propose(
     kind: ProposalKindName,
     input: unknown,
@@ -116,6 +120,17 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
     }
   }
 
+  /** The pending proposal of this kind on the payload's ticket (for an answer, on its decision), if any; kinds with no ticket never match. */
+  async function pendingEqual(name: ProposalKindName, payload: unknown): Promise<Proposal | undefined> {
+    const target = payload as { ticketId?: string; decisionId?: string }
+    if (typeof target?.ticketId !== 'string') return undefined
+    return (await deps.repo.list()).find((p) => {
+      if (p.status !== 'pending' || p.kind !== name) return false
+      const stored = p.payload as { ticketId?: string; decisionId?: string }
+      return stored.ticketId === target.ticketId && (name !== 'answer' || stored.decisionId === target.decisionId)
+    })
+  }
+
   return {
     async propose(name, input, at) {
       const kind = kindOf(name)
@@ -130,6 +145,8 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
         if (err instanceof ProposalInvalid) return { ok: false, error: err.message }
         throw err
       }
+      const pending = await pendingEqual(name, payload)
+      if (pending) return { ok: true, proposal: pending, existing: true }
       const proposal = await deps.repo.create({
         workspaceId: at.workspaceId,
         orchestratorRunId: at.orchestratorRunId,

@@ -35,6 +35,7 @@ let repos: Repos
 let worktrees: WorktreeManager
 let ticket: Ticket
 let emitted: EngineEvent[]
+let failures: { workspaceId: string; ticketId: string; runId: string }[]
 let runners: TicketRunner[]
 
 async function git(args: string[], cwd = repoPath): Promise<string> {
@@ -57,7 +58,8 @@ function makeRunner(runtime: FakeRuntime, wt: WorktreeManager = worktrees, unatt
     runtime,
     now: () => FIXED_NOW,
     emit: (e) => emitted.push(e),
-    unattended: () => unattended
+    unattended: () => unattended,
+    onFailed: (f) => void failures.push(f)
   })
   runners.push(runner)
   return runner
@@ -186,6 +188,7 @@ beforeEach(async () => {
     column: 'ready'
   })
   emitted = []
+  failures = []
   runners = []
 })
 
@@ -487,6 +490,15 @@ describe('TicketRunner', () => {
     expect(await thread()).toContainEqual({ kind: 'nudge', text: NUDGE })
     expect(await repos.runs.latest(ticket.id)).toMatchObject({ endReason: 'failed' })
     expect(runtime.sent).toEqual([NUDGE])
+    // The orchestrator is told once, of the run that failed.
+    expect(failures).toEqual([{ workspaceId: ticket.workspaceId, ticketId: ticket.id, runId: (await repos.runs.latest(ticket.id))!.id }])
+  })
+
+  it('a run that does not fail tells no one: a stop is not a failure', async () => {
+    const runner = makeRunner(new FakeRuntime(keepAlive))
+    await runner.start(ticket.id)
+    await runner.stop(ticket.id)
+    expect(failures).toEqual([])
   })
 
   it('an interrupted turn is never a silent turn', async () => {
@@ -2729,7 +2741,7 @@ describe('TicketRunner Replace', () => {
   const SAME = { model: 'opus', effort: 'high' as Effort, extraInstructions: null }
 
   function replaceRunner(runtime: FakeRuntime): TicketRunner {
-    const runner = new TicketRunner({ repos, worktrees, runtime, now: () => FIXED_NOW, emit: (e) => emitted.push(e), summaryTimeoutMs: 300 })
+    const runner = new TicketRunner({ repos, worktrees, runtime, now: () => FIXED_NOW, emit: (e) => emitted.push(e), summaryTimeoutMs: 300, onFailed: (f) => void failures.push(f) })
     runners.push(runner)
     return runner
   }
@@ -2927,6 +2939,8 @@ describe('TicketRunner Replace', () => {
       // Its process is stopped, and nothing more is offered: the run is over.
       expect(await runner.activeRole(ticket.id)).toBeNull()
       expect(await runner.failIfExhausted(ticket.id, third.id)).toBe(false)
+      // Told once, when it failed; the second call changed nothing.
+      expect(failures).toEqual([{ workspaceId: ticket.workspaceId, ticketId: ticket.id, runId: third.id }])
     })
 
     it('counts replacements per role, and per ticket run', async () => {

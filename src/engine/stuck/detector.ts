@@ -29,6 +29,8 @@ export interface StuckDetectorDeps {
   failIfExhausted: (ticketId: string, runId: string) => Promise<boolean>
   /** Called when an episode opens or escalates, or fires again after its redirect: puts it in the run's thread. */
   noteStuck: (ticketId: string, runId: string, note: StuckNote) => Promise<void>
+  /** Called with the episode when it opened, escalated or fired again after its redirect, unless the run failed instead. */
+  onStuck?: (workspaceId: string, episode: StuckEpisode) => void | Promise<void>
   /** The newest file change in a worktree (ms since the epoch), or null. */
   newestChange: (worktreePath: string) => Promise<number | null>
 }
@@ -161,10 +163,13 @@ export class StuckDetector {
     const { episode, change } = await this.deps.repos.stuck.hit(obs.runId, hit)
     // A hit after the redirect and its first sighting since is news; a plain repeat is not.
     const firedAgain = before?.redirectedAt != null && Date.parse(before.lastHitAt) <= Date.parse(before.redirectedAt)
+    const news = firedAgain || change !== 'repeated'
     if (firedAgain) await this.deps.noteStuck(obs.ticketId, obs.runId, { change: 'fired_again', episode, count: hit.count })
     else if (change !== 'repeated') await this.deps.noteStuck(obs.ticketId, obs.runId, { change, episode, count: hit.count })
-    // A role replaced as often as allowed isn't offered another redirect or replacement: its run fails instead.
-    if (change === 'opened') await this.deps.failIfExhausted(obs.ticketId, obs.runId)
+    // A role replaced as often as allowed isn't offered another redirect or replacement: its run fails instead,
+    // and the failure is what the orchestrator hears of.
+    const failed = change === 'opened' && (await this.deps.failIfExhausted(obs.ticketId, obs.runId))
+    if (news && !failed) await this.deps.onStuck?.(obs.workspaceId, episode)
     this.deps.emit({ type: 'board.changed', workspaceId: obs.workspaceId })
   }
 

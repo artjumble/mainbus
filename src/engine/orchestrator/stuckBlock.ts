@@ -18,18 +18,21 @@ export interface StuckReport {
   firedAgain?: boolean
 }
 
+/** One stuck episode as the orchestrator is told of it: the ticket, the role, the advice for the next step and the evidence. */
+export function stuckLine(r: StuckReport): string {
+  const look = r.needsCloserLook ? ` It has now been flagged ${r.hitCount} times and needs a closer look.` : ''
+  const evidence = r.evidence.map((e) => `  - ${data('stuck-evidence', oneLine(e), true)}`).join('\n')
+  const redirected = r.firedAgain
+    ? ' It was redirected once and has fired again: propose a replacement, not another redirect.'
+    : r.redirected
+      ? ' It was already redirected once, and has not fired again since: propose neither a redirect nor a replacement yet.'
+      : ''
+  return `- #${r.number} ${JSON.stringify(oneLine(r.title))}: the ${oneLine(r.role)} looks stuck.${look}${redirected} Evidence (from the agent's log):\n${evidence}`
+}
+
 /** The block that opens the orchestrator's next message, or null when no episode opened or escalated. */
 export function stuckBlock(reports: StuckReport[]): string | null {
   if (reports.length === 0) return null
-  const lines = reports.map((r) => {
-    const look = r.needsCloserLook ? ` It has now been flagged ${r.hitCount} times and needs a closer look.` : ''
-    const evidence = r.evidence.map((e) => `  - ${data('stuck-evidence', oneLine(e), true)}`).join('\n')
-    const redirected = r.firedAgain
-      ? ' It was redirected once and has fired again: propose a replacement, not another redirect.'
-      : r.redirected
-        ? ' It was already redirected once, and has not fired again since: propose neither a redirect nor a replacement yet.'
-        : ''
-    return `- #${r.number} ${JSON.stringify(oneLine(r.title))}: the ${oneLine(r.role)} looks stuck.${look}${redirected} Evidence (from the agent's log):\n${evidence}`
-  })
+  const lines = reports.map(stuckLine)
   return [STUCK_HEADING, ...lines].join('\n')
 }

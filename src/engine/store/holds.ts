@@ -15,6 +15,8 @@ export interface HoldRepo {
   activeOf(kind: HoldTarget): Promise<Hold[]>
   /** Releases every hold whose date is at or before `at`, returning deferred decisions to pending; returns them, earliest first. */
   releaseDue(at: Date): Promise<Hold[]>
+  /** The hold with this id, released or not; null when there is none. */
+  get(id: string): Promise<Hold | null>
   /** The earliest date of an unreleased hold, or null when none has one. */
   nextDue(): Promise<string | null>
   /** Returns to pending every deferred decision with no hold left on it (one left over from a crash); true when it changed any. */
@@ -107,6 +109,11 @@ export function createHoldRepo(db: Db, now: () => Date): HoldRepo {
         reconcile()
       ])
       return changed.map(toHold).sort((a, b) => (a.until ?? '').localeCompare(b.until ?? ''))
+    },
+
+    async get(id) {
+      const [row] = await db.select().from(holds).where(eq(holds.id, id))
+      return row ? toHold(row) : null
     },
 
     async nextDue() {

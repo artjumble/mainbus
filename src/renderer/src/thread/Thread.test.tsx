@@ -388,3 +388,15 @@ test('a read-only thread tells a question still open instead of showing its card
   expect(screen.getByText('Asked the user: Which palette?')).toBeInTheDocument()
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
 })
+
+test('a wake turn is an engine line, not a message of the user', () => {
+  const items = ['#3 "Checkout": the Implementer failed', '#7 "Login": the Planner looks stuck']
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'wake', items })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="wake"]')).toHaveTextContent('Mainbus: 2 things to look at')
+  expect(container.querySelector('[data-event="user_message"]')).toBeNull()
+})
+
+test('a wake turn of one item says thing, not things', () => {
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'wake', items: ['#3 "Checkout": the Implementer failed'] })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="wake"]')).toHaveTextContent('Mainbus: 1 thing to look at')
+})

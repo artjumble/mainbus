@@ -162,7 +162,9 @@ describe('release by date', () => {
     expect(await holdOf(engine, soon.id)).toBeNull()
     expect(await holdOf(engine, later.id)).not.toBeNull()
     expect(events.some((e) => e.type === 'board.changed')).toBe(true)
-    // It is set again for the one that is left.
+    // It is set again for the one that is left, and the orchestrator's wake turn waits five seconds behind the release.
+    expect(clock.pending).toBe(2)
+    await clock.advance(5000)
     expect(clock.pending).toBe(1)
 
     await clock.advance(2 * DAY)
@@ -196,8 +198,8 @@ describe('release by date', () => {
     expect(await holdOf(second, due.id)).toBeNull()
     expect(await holdOf(second, waiting.id)).not.toBeNull()
     expect(await holdOf(second, undated.id)).not.toBeNull()
-    // The timer is set for the one still waiting.
-    expect(later.pending).toBe(1)
+    // The timer is set for the one still waiting, and the orchestrator's wake turn is due five seconds after launch.
+    expect(later.pending).toBe(2)
   })
 })
 

@@ -9,7 +9,7 @@ import {
   type EngineEvent
 } from '../shared/api'
 import type { DraftColumn } from '../shared/proposals'
-import type { AgentLauncher, LineupRole, NewTicketInput, Ticket, Workspace } from '../shared/domain'
+import type { AgentLauncher, LineupRole, NewTicketInput, StuckEpisode, Ticket, Workspace } from '../shared/domain'
 import { openDb } from './db/open'
 import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
@@ -25,6 +25,9 @@ import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import type { StuckReport } from './orchestrator/stuckBlock'
 import { OrchestratorSession } from './orchestrator/session'
+import { WakeScheduler } from './orchestrator/wakes'
+import type { OpenDecision, WakeItem } from './orchestrator/wakeDigest'
+import type { Wake, WakeKind } from './store/wakes'
 import { createProposalService, type ProposalService } from './proposals/service'
 import { ProcessSweeper } from './processes/sweep'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
@@ -123,7 +126,30 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
     }
 
-    const holds = new HoldService({ holds: repos.holds, tickets: repos.tickets, decisions: repos.decisions, clock, emit })
+    // News for the orchestrator's turns of its own. The session it wakes exists below; nothing fires before start().
+    let orchestratorSession: OrchestratorSession | null = null
+    const wakeScheduler = new WakeScheduler({
+      repo: repos.wakes,
+      clock,
+      wake: (rows) => orchestratorSession?.wake(rows) ?? Promise.resolve(),
+      busy: () => orchestratorSession?.busy ?? true,
+      usageLimitedUntil: () => orchestratorSession?.usageLimitedUntil() ?? null,
+      canWake: async () => cfg.runtime !== null && (await repos.workspaces.get()) !== null
+    })
+    const addWake = async (workspaceId: string, kind: WakeKind, ref: string): Promise<void> => {
+      // Losing the news must never break what produced it; the board still shows it.
+      if (await repos.wakes.add(workspaceId, kind, ref).catch(() => false)) wakeScheduler.added()
+    }
+
+    const holds = new HoldService({
+      holds: repos.holds,
+      tickets: repos.tickets,
+      decisions: repos.decisions,
+      clock,
+      emit,
+      onReleasedByDate: ({ workspaceId, hold, decision }) =>
+        decision === null ? addWake(workspaceId, 'released_hold', hold.id) : addWake(workspaceId, 'resurfaced', decision.id)
+    })
 
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
@@ -135,7 +161,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit,
       unattended: () => unattended?.isOn() ?? false,
       pullRequests,
-      processes: cfg.processes ?? new ProcessSweeper()
+      processes: cfg.processes ?? new ProcessSweeper(),
+      onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId)
     })
     const stuckDetector = new StuckDetector({
       repos,
@@ -146,6 +173,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       observe: (ticketId) => runner.observeRun(ticketId),
       failIfExhausted: (ticketId, runId) => runner.failIfExhausted(ticketId, runId),
       noteStuck: (ticketId, runId, note) => runner.noteStuck(ticketId, runId, note),
+      onStuck: (workspaceId, episode) => addWake(workspaceId, 'stuck', episode.id),
       newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
     })
     await worktrees.recoverPendingCleanups()
@@ -350,8 +378,53 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       )
     }
 
+    /** What a wake row says now, or null when its run, episode, hold, decision or ticket is gone. */
+    async function wakeItemOf(row: Wake): Promise<WakeItem | null> {
+      switch (row.kind) {
+        case 'failure': {
+          const run = await repos.runs.get(row.ref)
+          const ticket = run && (await repos.tickets.get(run.ticketId).catch(() => null))
+          if (!run || !ticket) return null
+          const errors = (await repos.runs.events(run.id)).filter((e) => e.event.kind === 'error')
+          const last = errors.at(-1)?.event
+          return { kind: 'failure', number: ticket.number, title: ticket.title, role: run.role, error: last?.kind === 'error' ? last.message : null }
+        }
+        case 'stuck': {
+          const found = await repos.stuck.byId(row.ref)
+          const ticket = found && (await repos.tickets.get(found.ticketId).catch(() => null))
+          if (!found || !ticket) return null
+          return { kind: 'stuck', report: stuckReportOf(ticket.number, ticket.title, found.role, found.episode), open: found.open }
+        }
+        case 'released_hold': {
+          const hold = await repos.holds.get(row.ref)
+          const ticket = hold && (await repos.tickets.get(hold.targetId).catch(() => null))
+          return hold && ticket ? { kind: 'released_hold', number: ticket.number, title: ticket.title, until: hold.until } : null
+        }
+        case 'resurfaced': {
+          const decision = await repos.decisions.get(row.ref).catch(() => null)
+          const ticket = decision && (await repos.tickets.get(decision.ticketId).catch(() => null))
+          if (!decision || !ticket) return null
+          return { kind: 'resurfaced', number: ticket.number, title: ticket.title, question: decision.question, decisionId: decision.id, stillOpen: decision.status === 'pending' }
+        }
+      }
+    }
+    /** The refs of this kind that a wake turn presented since `since`: the "Since your last turn" blocks leave them out. */
+    const wakesPresented = async (kind: WakeKind, since: string | null): Promise<Set<string>> =>
+      new Set((await repos.wakes.presentedSince(since)).filter((w) => w.kind === kind).map((w) => w.ref))
+
     // Its events never reach unattended mode as board changes: the orchestrator is not a ticket.
-    const orchestrator = new OrchestratorSession({
+    const stuckReportOf = (number: number, title: string, role: string, episode: StuckEpisode): StuckReport => ({
+      number,
+      title,
+      role,
+      evidence: episode.evidence,
+      hitCount: episode.hitCount,
+      needsCloserLook: episode.needsCloserLook,
+      redirected: episode.redirectedAt !== null,
+      firedAgain: firedAgainAfterRedirect(episode)
+    })
+
+    const orchestrator = (orchestratorSession = new OrchestratorSession({
       repo: repos.orchestrator,
       runtime: cfg.runtime ?? missingRuntime,
       homeRoot: cfg.paths.root,
@@ -365,7 +438,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       answeredSince: (workspaceId, since) => repos.decisions.answeredSince(workspaceId, since),
       releasedSince: async (workspaceId, since) => {
         const released: ReleasedHold[] = []
+        const presented = await wakesPresented('released_hold', since)
         for (const h of await repos.holds.releasedSince('ticket', since)) {
+          if (presented.has(h.id)) continue
           const ticket = await repos.tickets.get(h.targetId).catch(() => null)
           if (ticket?.workspaceId === workspaceId && h.releasedAt !== null) {
             released.push({ number: ticket.number, title: ticket.title, until: h.until, releasedAt: h.releasedAt })
@@ -375,7 +450,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       resurfacedSince: async (workspaceId, since) => {
         const resurfaced: ResurfacedDecision[] = []
+        const presented = await wakesPresented('resurfaced', since)
         for (const h of await repos.holds.releasedSince('decision', since)) {
+          if (presented.has(h.targetId)) continue
           // Only those whose date came: an answer or Bring back released the others.
           if (h.until === null || h.releasedAt === null || h.until > h.releasedAt) continue
           const decision = await repos.decisions.get(h.targetId).catch(() => null)
@@ -389,23 +466,37 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       stuckSince: async (workspaceId, since) => {
         const reports: StuckReport[] = []
+        const presented = await wakesPresented('stuck', since)
         for (const { ticketId, role, episode } of await repos.stuck.changedSince(since)) {
+          if (presented.has(episode.id)) continue
           const ticket = await repos.tickets.get(ticketId).catch(() => null)
           if (ticket?.workspaceId !== workspaceId) continue
-          reports.push({
-            number: ticket.number,
-            title: ticket.title,
-            role,
-            evidence: episode.evidence,
-            hitCount: episode.hitCount,
-            needsCloserLook: episode.needsCloserLook,
-            redirected: episode.redirectedAt !== null,
-            firedAgain: firedAgainAfterRedirect(episode)
-          })
+          reports.push(stuckReportOf(ticket.number, ticket.title, role, episode))
         }
         return reports
-      }
-    })
+      },
+      wakes: repos.wakes,
+      wakeItems: async (workspaceId, rows) => {
+        const presented: { row: Wake; item: WakeItem }[] = []
+        const gone: Wake[] = []
+        for (const row of rows) {
+          const item = await wakeItemOf(row)
+          if (item === null) gone.push(row)
+          else presented.push({ row, item })
+        }
+        const open: OpenDecision[] = (await repos.decisions.openIn(workspaceId)).map(({ number, title, decision }) => ({
+          id: decision.id,
+          number,
+          title,
+          question: decision.question,
+          status: decision.status === 'deferred' ? 'deferred' : 'pending',
+          deferredUntil: decision.deferredUntil
+        }))
+        return { presented, gone, open }
+      },
+      onTurnEnded: (finished) => void wakeScheduler.turnEnded(finished)
+    }))
+    await wakeScheduler.start()
 
     const handlers: Handlers = {
       'setup.check': async () => {
@@ -579,6 +670,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             mode.dispose()
             holds.dispose()
             stuckDetector.dispose()
+            wakeScheduler.dispose()
             await Promise.all([runner.shutdown(), orchestrator.shutdown()])
           } finally {
             listeners.clear()

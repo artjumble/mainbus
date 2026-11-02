@@ -18,6 +18,9 @@ let ticketId: string
 let runId: string
 let emitted: EngineEvent[]
 let notes: StuckNote[]
+/** The episodes the orchestrator was told of, and whether the run counts as failed when its episode opens. */
+let wakes: { workspaceId: string; episodeId: string }[]
+let exhausted: boolean
 let detector: StuckDetector
 
 /** What the fake runner reports, and the newest file change the fake probe finds. */
@@ -86,6 +89,8 @@ beforeEach(async () => {
   runId = await repos.runs.create(ticketId, [testRole()])
   emitted = []
   notes = []
+  wakes = []
+  exhausted = false
   scene = () => ({ live: live() })
   files = null
   detector = new StuckDetector({
@@ -107,8 +112,9 @@ beforeEach(async () => {
       live: live(),
       ...scene()
     }),
-    failIfExhausted: async () => false,
+    failIfExhausted: async () => exhausted,
     noteStuck: async (_t, _r, note) => void notes.push(note),
+    onStuck: async (workspaceId, e) => void wakes.push({ workspaceId, episodeId: e.id }),
     newestChange: async () => files
   })
 })
@@ -245,6 +251,40 @@ describe('telling the thread', () => {
     await detector.check()
     // The third hit escalates; it is not a second "fired again".
     expect(notes.map((n) => n.change)).toEqual(['opened', 'fired_again', 'escalated'])
+  })
+})
+
+describe('waking the orchestrator', () => {
+  test('is told of an opened episode and its escalation, with the workspace, but not of a plain repeat', async () => {
+    useScenario('repeated_failure')
+    for (let hit = 1; hit <= 4; hit++) {
+      await detector.check()
+      await clock.advance(5 * MIN)
+    }
+    const id = (await episode())!.id
+    expect(wakes).toEqual([
+      { workspaceId: expect.any(String), episodeId: id },
+      { workspaceId: expect.any(String), episodeId: id }
+    ])
+  })
+
+  test('is told when an episode fires again after its redirect', async () => {
+    useScenario('repeated_failure')
+    await detector.check()
+    await repos.stuck.markRedirected((await episode())!.id)
+    await clock.advance(5 * MIN)
+    await detector.check()
+    expect(notes.map((n) => n.change)).toEqual(['opened', 'fired_again'])
+    expect(wakes).toHaveLength(2)
+  })
+
+  test('is not told when the run failed instead of being offered another redirect: the failure is the news', async () => {
+    useScenario('repeated_failure')
+    exhausted = true
+    await detector.check()
+    // The thread still has its note; the orchestrator hears of the failure, not of the episode.
+    expect(notes.map((n) => n.change)).toEqual(['opened'])
+    expect(wakes).toEqual([])
   })
 })
 

@@ -306,3 +306,27 @@ export const holds = sqliteTable(
     index('holds_released_idx').on(t.releasedAt)
   ]
 )
+
+/**
+ * News the orchestrator is to hear in a turn of its own. One unacknowledged row per kind and ref; a row is
+ * acknowledged only after the turn that presented it finished. `ref` is the run (failure), episode (stuck),
+ * hold (released_hold) or decision (resurfaced) the news is about, by id: no foreign key.
+ */
+export const orchestratorWakes = sqliteTable(
+  'orchestrator_wakes',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['failure', 'stuck', 'released_hold', 'resurfaced'] }).notNull(),
+    ref: text('ref').notNull(),
+    createdAt: text('created_at').notNull(),
+    presentedAt: text('presented_at'),
+    ackedAt: text('acked_at')
+  },
+  (t) => [
+    uniqueIndex('orchestrator_wakes_pending_uq').on(t.kind, t.ref).where(sql`${t.ackedAt} is null`),
+    index('orchestrator_wakes_acked_idx').on(t.ackedAt)
+  ]
+)

@@ -103,6 +103,8 @@ export interface RunRepo {
   /** How many runs of the role were replaced in the ticket run. */
   replacedCount(ticketRunId: string, roleId: string): Promise<number>
   latest(ticketId: string): Promise<AgentRunRow | null>
+  /** The run with this id, or null. */
+  get(runId: string): Promise<AgentRunRow | null>
   /** Every run of the ticket, oldest first. */
   listForTicket(ticketId: string): Promise<AgentRunRow[]>
   /** Every agent run of a ticket run, oldest first. */
@@ -274,6 +276,11 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
         .from(agentRuns)
         .where(and(eq(agentRuns.ticketRunId, ticketRunId), eq(agentRuns.roleId, roleId), eq(agentRuns.endReason, 'replaced')))
       return Number(row?.n ?? 0)
+    },
+
+    async get(runId) {
+      const [row] = await db.select(runColumns).from(agentRuns).where(eq(agentRuns.id, runId))
+      return row ? toRun(row) : null
     },
 
     async latest(ticketId) {

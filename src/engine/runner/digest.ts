@@ -40,6 +40,8 @@ function describe(event: ThreadEvent, decisions: Map<string, Decision>, roleName
     case 'nudge':
     case 'notice':
       return `Mainbus: ${event.text}`
+    case 'wake':
+      return `Mainbus: ${event.items.length} ${event.items.length === 1 ? 'thing' : 'things'} to look at`
     case 'handoff':
       return `Handoff: ${event.summary}`
     case 'hand_back':

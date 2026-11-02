@@ -70,6 +70,8 @@ export interface RunnerDeps {
    * Without it nothing is swept.
    */
   processes?: ProcessSweeper
+  /** Called after a run ended as failed (and its error was recorded); the orchestrator hears of it in a turn of its own. */
+  onFailed?: (failed: { workspaceId: string; ticketId: string; runId: string }) => void | Promise<void>
 }
 
 export const NUDGE_TEXT =
@@ -377,6 +379,7 @@ export class TicketRunner {
     await this.record(this.target(run, ticket), { kind: 'error', message: account })
     if (live) void this.stopProcess(live)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    await this.deps.onFailed?.({ workspaceId: ticket.workspaceId, ticketId, runId: run.id })
     return true
   }
 
@@ -1307,6 +1310,8 @@ export class TicketRunner {
     live.ended = true
     await this.record(live, { kind: 'error', message })
     void this.stopProcess(live)
+    const ticket = await this.repos.tickets.get(live.ticketId)
+    await this.deps.onFailed?.({ workspaceId: ticket.workspaceId, ticketId: live.ticketId, runId: live.runId })
   }
 
   /** Sends to a live agent. Returns null once delivered, or why it was not. */

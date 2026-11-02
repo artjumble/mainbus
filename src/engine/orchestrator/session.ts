@@ -9,6 +9,7 @@ import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
+import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
 import { ticketFoldersFor, type HomePaths } from '../home'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
@@ -19,7 +20,9 @@ import {
   type OrchestratorRunSpec,
   type RunHandle
 } from '../runtime/types'
+import { isUsageLimitText, limitFromEvent } from '../runner/usageLimit'
 import type { OrchestratorRepo } from '../store/orchestrator'
+import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
 import { withHeader } from './header'
 import { orchestratorVerdict } from './permissions'
@@ -33,6 +36,11 @@ export const RESUME_FAILED_NOTICE =
 /** What a propose tool answers once the proposal is stored. */
 export function proposedText(id: string): string {
   return `Proposed ${id}. The user will confirm, change or reject it, and you'll hear the outcome in your next turn. End your turn now.`
+}
+
+/** What a propose tool answers when the same proposal is already waiting for the user. */
+export function pendingText(id: string): string {
+  return `Proposal ${id} for this is already pending: the user hasn't decided on it yet, so nothing new was stored. End your turn now.`
 }
 
 export const NO_TURN_MESSAGE = 'Mainbus could not tell which message of the user this turn answers, so nothing was stored.'
@@ -62,7 +70,25 @@ export interface OrchestratorDeps {
   resurfacedSince: (workspaceId: string, since: string | null) => Promise<ResurfacedDecision[]>
   /** The stuck episodes opened or escalated since `since` that are still open. */
   stuckSince: (workspaceId: string, since: string | null) => Promise<StuckReport[]>
+  /** The wake queue's rows, to be marked as presented and acknowledged. */
+  wakes: Pick<WakeRepo, 'markPresented' | 'ack'>
+  /**
+   * What the pending wake rows are about now: the item for each row that still has something to say, the rows
+   * whose ticket or referent is gone, and every open decision of the workspace.
+   */
+  wakeItems: (
+    workspaceId: string,
+    rows: Wake[]
+  ) => Promise<{ presented: { row: Wake; item: WakeItem }[]; gone: Wake[]; open: OpenDecision[] }>
+  /** An orchestrator turn ended: for a wake turn, `finished` is false when it failed or was interrupted. The wake queue starts the next turn from it. */
+  onTurnEnded?: (finished: boolean) => void
 }
+
+/** What the current turn answers: a message of the user, or the wake rows Mainbus presented. */
+type Turn = { kind: 'user'; message: string } | { kind: 'wake'; rowIds: string[] }
+
+/** How long a usage limit with no known reset is waited out. */
+const LIMIT_RETRY_MS = 15 * 60 * 1000
 
 interface Live {
   runId: string
@@ -90,8 +116,12 @@ export class OrchestratorSession {
   private live: Live | null = null
   private chain: Promise<unknown> = Promise.resolve()
   private shuttingDown = false
-  /** The user's message, as typed, that the current turn answers; null between turns. */
-  private turnMessage: string | null = null
+  /** What the current turn answers; null between turns. */
+  private turn: Turn | null = null
+  /** Wake turns queued or being started. */
+  private starting = 0
+  /** When the usage limit the orchestrator last ran into resets (ms since the epoch); null when none since a turn last succeeded. */
+  private limitedUntil: number | null = null
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -113,6 +143,25 @@ export class OrchestratorSession {
   async send(text: string): Promise<void> {
     if (typeof text !== 'string' || text.trim() === '') throw new Error(EMPTY_MESSAGE)
     return this.serial(() => this.sendNow(text))
+  }
+
+  /** True while a turn is running or a wake turn is being started. */
+  get busy(): boolean {
+    return this.status === 'working' || this.starting > 0
+  }
+
+  /** When the orchestrator's own last usage limit resets (ms since the epoch), while that is still ahead; otherwise null. */
+  usageLimitedUntil(): number | null {
+    return this.limitedUntil !== null && this.limitedUntil > this.deps.now().getTime() ? this.limitedUntil : null
+  }
+
+  /**
+   * Gives the orchestrator a turn of its own for these wake rows. Nothing happens while a turn is running: the rows
+   * stay pending and are presented later. They are acknowledged only when the turn finishes.
+   */
+  wake(rows: Wake[]): Promise<void> {
+    this.starting++
+    return this.serial(() => this.wakeNow(rows)).finally(() => this.starting--)
   }
 
   /** Interrupts the current turn; the session stays, and the next message goes to it. */
@@ -158,18 +207,42 @@ export class OrchestratorSession {
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
     const prompt = withHeader(ws, this.deps.now(), text)
+    await this.beginTurn(ws, { kind: 'user_message', text }, { kind: 'user', message: text }, prompt, opened)
+  }
 
+  private async wakeNow(rows: Wake[]): Promise<void> {
+    if (this.shuttingDown || this.status === 'working') return
+    const ws = await this.deps.workspace()
+    if (!ws) return
+    const { presented, gone, open } = await this.deps.wakeItems(ws.id, rows.filter((r) => r.workspaceId === ws.id))
+    // News whose ticket is gone has nothing to say.
+    await this.deps.wakes.ack(gone.map((r) => r.id))
+    if (presented.length === 0) return
+    const rowIds = presented.map((p) => p.row.id)
+    await this.deps.wakes.markPresented(rowIds)
+    const items = presented.map((p) => p.item)
+    const prompt = withHeader(ws, this.deps.now(), wakeDigest(items, open))
+    await this.beginTurn(ws, { kind: 'wake', items: items.map(wakeLine) }, { kind: 'wake', rowIds }, prompt, (body) => body)
+  }
+
+  /**
+   * Starts a turn: records `shown` in the thread, then sends `prompt` to the live session, or starts one (resuming the
+   * run's session when it has one, or from a digest of the conversation when that fails). `wrap` puts whatever opens
+   * the turn before the prompt.
+   */
+  private async beginTurn(ws: Workspace, shown: ThreadEvent, turn: Turn, prompt: string, wrap: (body: string) => string): Promise<void> {
     if (this.live) {
       // The panel shows what the user typed; the agent gets it with the header.
       const live = this.live
-      await this.record(live.runId, { kind: 'user_message', text })
+      await this.record(live.runId, shown)
       this.setStatus('working')
-      this.turnMessage = text
+      this.turn = turn
       try {
-        await this.deps.runtime.send(live.handle, opened(prompt))
+        await this.deps.runtime.send(live.handle, wrap(prompt))
       } catch (err) {
-        this.turnMessage = null
+        this.turn = null
         this.setStatus('idle')
+        if (turn.kind === 'wake') this.deps.onTurnEnded?.(false)
         throw err
       }
       return
@@ -178,13 +251,13 @@ export class OrchestratorSession {
     await fs.mkdir(this.folder, { recursive: true })
     const open = await this.deps.repo.latestOpen()
     let runId = open?.id ?? (await this.deps.repo.create()).id
-    const message = await this.record(runId, { kind: 'user_message', text })
+    const message = await this.record(runId, shown)
     this.setStatus('working')
-    this.turnMessage = text
+    this.turn = turn
     try {
       if (open?.sessionId) {
         try {
-          await this.launch(runId, ws, opened(prompt), open.sessionId)
+          await this.launch(runId, ws, wrap(prompt), open.sessionId)
           return
         } catch (err) {
           if (!(err instanceof ResumeFailedError)) throw err
@@ -193,14 +266,15 @@ export class OrchestratorSession {
         await this.deps.repo.end(runId, 'resume_failed')
         runId = (await this.deps.repo.create()).id
         await this.record(runId, { kind: 'notice', text: RESUME_FAILED_NOTICE })
-        await this.launch(runId, ws, opened(`${conversationDigest(earlier)}\n\n${prompt}`))
+        await this.launch(runId, ws, wrap(`${conversationDigest(earlier)}\n\n${prompt}`))
         return
       }
-      await this.launch(runId, ws, opened(prompt))
+      await this.launch(runId, ws, wrap(prompt))
     } catch (err) {
-      this.turnMessage = null
+      this.turn = null
       await this.record(runId, { kind: 'error', message: errorText(err) }).catch(() => {})
       this.setStatus('failed')
+      if (turn.kind === 'wake') this.deps.onTurnEnded?.(false)
       throw err
     }
   }
@@ -232,14 +306,12 @@ export class OrchestratorSession {
       if (this.shuttingDown) throw new Error('Mainbus is shutting down')
       const ws = await this.deps.workspace()
       if (!ws || ws.id !== ticket.workspaceId) throw new Error(this.deps.workspaceRequired)
-      const pending = (await this.deps.proposals.list()).find(
-        (p) => p.status === 'pending' && p.kind === kind && (p.payload as { ticketId?: string }).ticketId === ticket.id
-      )
-      if (pending) return pending
       // With no session yet the run is just a place for the card; the next message launches it.
       const runId = this.live?.runId ?? (await this.deps.repo.latestOpen())?.id ?? (await this.deps.repo.create()).id
       const made = await this.deps.proposals.propose(kind, input, { workspaceId: ws.id, orchestratorRunId: runId, userMessage: null, origin: from })
       if (!made.ok) throw new Error(made.error)
+      // One already pending for the ticket comes back as it is, its card already in the thread.
+      if (made.existing) return made.proposal
       await this.record(runId, { kind: 'proposal', proposalId: made.proposal.id, from })
       return made.proposal
     })
@@ -251,8 +323,10 @@ export class OrchestratorSession {
    */
   private async propose(kind: ProposalKindName, input: unknown): Promise<string> {
     const live = this.live
-    const userMessage = this.turnMessage
-    if (!live || userMessage === null) return NO_TURN_MESSAGE
+    const turn = this.turn
+    if (!live || turn === null) return NO_TURN_MESSAGE
+    // A wake turn answers no message of the user: the kinds that need one refuse it themselves.
+    const userMessage = turn.kind === 'user' ? turn.message : null
     const ws = await this.deps.workspace()
     if (!ws) return `${this.deps.workspaceRequired}. Nothing was stored.`
     const made = await this.deps.proposals.propose(kind, input, {
@@ -261,6 +335,7 @@ export class OrchestratorSession {
       userMessage
     })
     if (!made.ok) return `Invalid proposal: ${made.error}. Nothing was stored; fix it and propose again.`
+    if (made.existing) return pendingText(made.proposal.id)
     await this.record(live.runId, { kind: 'proposal', proposalId: made.proposal.id })
     return proposedText(made.proposal.id)
   }
@@ -320,13 +395,16 @@ export class OrchestratorSession {
     } catch (err) {
       if (!this.shuttingDown) await this.record(live.runId, { kind: 'error', message: errorText(err) }).catch(() => {})
     }
+    const cutShort = this.turn
     if (this.live === live) {
       this.live = null
       // Its turn is over: the next message starts a new session.
-      this.turnMessage = null
+      this.turn = null
     }
     // Quitting ends the turn under way and records nothing more: the run stays open for the next launch.
     if (this.shuttingDown) return
+    // A wake turn cut short leaves its rows pending.
+    if (cutShort?.kind === 'wake') this.deps.onTurnEnded?.(false)
     await this.record(live.runId, { kind: 'process_exit', code: null }).catch(() => {})
     if (this.status === 'working') this.setStatus('failed')
   }
@@ -341,9 +419,20 @@ export class OrchestratorSession {
     }
     if (event.kind === 'session') await this.deps.repo.setSession(live.runId, event.sessionId)
     await this.record(live.runId, event)
+    if (event.kind === 'rate_limit') {
+      const limit = limitFromEvent(event)
+      if (limit) this.limitedUntil = limit.resetsAt ?? this.deps.now().getTime() + LIMIT_RETRY_MS
+    }
     if (event.kind === 'turn_end') {
-      this.turnMessage = null
+      const turn = this.turn
+      this.turn = null
       this.setStatus(event.ok || event.interrupted ? 'idle' : 'failed')
+      if (event.ok) this.limitedUntil = null
+      else if (isUsageLimitText(event.error)) this.limitedUntil ??= this.deps.now().getTime() + LIMIT_RETRY_MS
+      const finished = event.ok && !event.interrupted
+      // Acknowledged only now that the turn finished: a failed or interrupted one leaves its rows to be presented again.
+      if (turn?.kind === 'wake' && finished) await this.deps.wakes.ack(turn.rowIds)
+      if (turn?.kind === 'wake' || finished) this.deps.onTurnEnded?.(finished)
     }
   }
 
