@@ -204,13 +204,14 @@ describe('FakeRuntime: the orchestrator', () => {
       effort: 'medium',
       additionalDirectories: ['/repo'],
       disallowedTools: [],
-      readTools: {
+      tools: {
         listWorkspaces: vi.fn(async () => 'ws'),
         listTickets: vi.fn(async () => 'tickets'),
         getTicket: vi.fn(async () => 'ticket'),
         getRunStatus: vi.fn(async () => 'status'),
         getRecentEvents: vi.fn(async () => 'events'),
-        listPendingDecisions: vi.fn(async () => 'decisions')
+        listPendingDecisions: vi.fn(async () => 'decisions'),
+        proposeCreateTickets: vi.fn(async () => 'proposed')
       },
       onPermission: async () => ({ allow: true }),
       ...over
@@ -224,7 +225,7 @@ describe('FakeRuntime: the orchestrator', () => {
     const spec = orchestratorSpec()
     const run = await rt.start(spec)
     expect(await collect(rt.events(run))).toEqual([{ kind: 'message', text: 'orchestrator' }])
-    expect(spec.readTools.getTicket).toHaveBeenCalledWith({ number: 2 })
+    expect(spec.tools.getTicket).toHaveBeenCalledWith({ number: 2 })
     expect(rt.orchestratorSpecs).toEqual([spec])
     expect(rt.specs).toEqual([])
   })

@@ -19,6 +19,7 @@ import type { HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { createReadTools } from './orchestrator/readTools'
 import { OrchestratorSession } from './orchestrator/session'
+import { createProposalService } from './proposals/service'
 import { TicketRunner } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -182,12 +183,24 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return workspace
     }
 
-    /** The one way a ticket is created, by the user (ticket.create) or by an agent (intake). */
-    async function createTicket(ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> {
-      const ticket = await repos.tickets.create({ ...input, workspaceId: ws.id })
+    /**
+     * The one way tickets are created: by the user (ticket.create), by an agent (intake), or from a proposal the
+     * user confirmed. In order, all of them or none.
+     */
+    async function createTickets(ws: Workspace, inputs: Omit<NewTicketInput, 'workspaceId'>[]): Promise<Ticket[]> {
+      const tickets = await repos.tickets.createMany(inputs.map((input) => ({ ...input, workspaceId: ws.id })))
       emit({ type: 'board.changed', workspaceId: ws.id })
-      return ticket
+      return tickets
     }
+    const createTicket = async (ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> =>
+      (await createTickets(ws, [input]))[0]!
+
+    // Confirmed proposals are carried out here, by engine code, never by the orchestrator.
+    const proposals = createProposalService({
+      repo: repos.proposals,
+      emit,
+      exec: { workspace: () => repos.workspaces.get(), createTickets }
+    })
 
     // The intake's tickets need only their state; the board's carry their lineup strip as well.
     const boardTickets = async (ws: Workspace) => {
@@ -216,7 +229,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit,
       workspace: () => repos.workspaces.get(),
       workspaceRequired: WORKSPACE_REQUIRED,
-      readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView })
+      readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView }),
+      proposals
     })
 
     const handlers: Handlers = {
@@ -341,7 +355,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         requireRuntime()
         return orchestrator.send(text)
       },
-      'orchestrator.stop': () => orchestrator.stop()
+      'orchestrator.stop': () => orchestrator.stop(),
+      // Reached only through `invoke` (the renderer's IPC): only the user decides a proposal. No runtime needed.
+      'proposal.confirm': (id, override) => proposals.confirm(id, override),
+      'proposal.reject': (id) => proposals.reject(id)
     }
 
     const intake = createIntakeHandler({

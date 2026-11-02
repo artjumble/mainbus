@@ -100,7 +100,7 @@ describe('orchestrator.send', () => {
     expect((await ask('Read', { file_path: path.join(repoPath, '.env') })).allow).toBe(false)
     expect((await ask('Bash', { command: 'ls' })).allow).toBe(false)
     // Its read tools answer from this board.
-    expect(await spec.readTools.listWorkspaces()).toContain(`- repo: repo ${repoPath}, base branch main`)
+    expect(await spec.tools.listWorkspaces()).toContain(`- repo: repo ${repoPath}, base branch main`)
   })
 
   test('stores and pushes its events, streams partials unstored, and keeps one live session', async () => {
@@ -255,5 +255,186 @@ describe('after a restart', () => {
     expect(thread.status).toBe('idle')
     expect(thread.runs).toEqual([expect.objectContaining({ endReason: null })])
     expect(thread.events.map((e) => e.event.kind)).toEqual(['user_message', 'session', 'message'])
+  })
+})
+
+describe('proposals', () => {
+  const ASK = '  Please add two tickets:\nlogin and logout  '
+  const DRAFTS = { tickets: [{ title: 'Login', spec: 'A form on /login' }, { title: 'Logout' }] }
+  const intentsOf = async (engine: Engine) => {
+    const board = await engine.invoke('board.get')
+    return board.tickets.map((t) => [t.title, t.intent.map((e) => e.text), t.intent[0]!.source])
+  }
+
+  /** The live session's tools, once the first message has started it. */
+  async function liveTools(runtime: FakeRuntime) {
+    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    return runtime.orchestratorSpecs[0]!.tools
+  }
+
+  test('propose stores the proposal, puts its card in the thread, and tells the orchestrator to end its turn', async () => {
+    // The turn stays open (no turn_end) while the test proposes, as the agent would mid-turn.
+    const runtime = new FakeRuntime([], { orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { waitForSend: true }] })
+    const { engine, events } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', ASK)
+    const tools = await liveTools(runtime)
+
+    const answer = await tools.proposeCreateTickets({ ...DRAFTS, evidence: 'No auth in src/' })
+    const thread = await engine.invoke('orchestrator.get')
+    expect(thread.proposals).toHaveLength(1)
+    const proposal = thread.proposals[0]!
+    expect(answer).toBe(
+      `Proposed ${proposal.id}. The user will confirm, change or reject it, and you'll hear the outcome in your next turn. End your turn now.`
+    )
+    // The intent is the user's message as typed: not trimmed, and without the header.
+    expect(proposal).toMatchObject({
+      status: 'pending',
+      evidence: 'No auth in src/',
+      orchestratorRunId: thread.runs[0]!.id,
+      payload: { intent: ASK, column: 'backlog', tickets: [{ title: 'Login', spec: 'A form on /login' }, { title: 'Logout' }] }
+    })
+    expect(thread.events.at(-1)?.event).toEqual({ kind: 'proposal', proposalId: proposal.id })
+    // The renderer has the proposal before its card's event arrives.
+    const order = events.flatMap((e) =>
+      e.type === 'proposal.changed' ? ['changed'] : e.type === 'orchestrator.appended' && e.event.event.kind === 'proposal' ? ['card'] : []
+    )
+    expect(order).toEqual(['changed', 'card'])
+    // Nothing is created until the user confirms.
+    expect((await engine.invoke('board.get')).tickets).toEqual([])
+  })
+
+  test('an invalid proposal stores nothing, and the orchestrator hears why', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', ASK)
+    const tools = await liveTools(runtime)
+    expect(await tools.proposeCreateTickets({ tickets: [{ title: 'Login', intent: 'The user wants SSO' }] })).toBe(
+      'Invalid proposal: Unknown field: tickets.0.intent. Nothing was stored; fix it and propose again.'
+    )
+    const thread = await engine.invoke('orchestrator.get')
+    expect(thread.proposals).toEqual([])
+    expect(thread.events.map((e) => e.event.kind)).not.toContain('proposal')
+  })
+
+  test('confirm creates the tickets with the user message as their intent; the next message starts with the outcome, once', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [
+        { emit: { kind: 'session', sessionId: 'sess-1' } },
+        { callTool: 'proposeCreateTickets', args: DRAFTS },
+        turnEnd(),
+        { waitForSend: true },
+        turnEnd(),
+        { waitForSend: true },
+        turnEnd()
+      ]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', ASK)
+    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
+    const [proposal] = (await engine.invoke('orchestrator.get')).proposals
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+
+    const done = await engine.invoke('proposal.confirm', proposal!.id)
+    expect(done.status).toBe('confirmed')
+    expect(await intentsOf(engine)).toEqual([
+      ['Login', [ASK], undefined],
+      ['Logout', [ASK], undefined]
+    ])
+    expect((await engine.invoke('board.get')).tickets.map((t) => t.spec)).toEqual(['A form on /login', ''])
+    await expect(engine.invoke('proposal.confirm', proposal!.id)).rejects.toThrow('not pending')
+
+    await engine.invoke('orchestrator.send', 'Thanks')
+    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    expect(runtime.sent[0]!.startsWith(
+      [
+        '[Mainbus] Since your last turn, the user decided on your proposals:',
+        `- Proposal ${proposal!.id} (create tickets): confirmed by the user. Created #1 "Login" and #2 "Logout" in Backlog.`,
+        '',
+        '[Mainbus] Workspace: repo '
+      ].join('\n')
+    )).toBe(true)
+    expect(runtime.sent[0]).toMatch(/\n\nThanks$/)
+    // The panel shows only what the user typed.
+    const messages = (await engine.invoke('orchestrator.get')).events.filter((e) => e.event.kind === 'user_message')
+    expect(messages.at(-1)?.event).toEqual({ kind: 'user_message', text: 'Thanks' })
+
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'And now?')
+    await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
+    expect(runtime.sent[1]).toMatch(/^\[Mainbus\] Workspace: repo .*\n\nAnd now\?$/)
+  })
+
+  test('a rejected proposal is told as rejected and creates nothing', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [{ callTool: 'proposeCreateTickets', args: DRAFTS }, turnEnd(), { waitForSend: true }, turnEnd()]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', ASK)
+    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
+    const [proposal] = (await engine.invoke('orchestrator.get')).proposals
+    expect((await engine.invoke('proposal.reject', proposal!.id)).status).toBe('rejected')
+    await expect(engine.invoke('proposal.reject', proposal!.id)).rejects.toThrow('not pending')
+    expect((await engine.invoke('board.get')).tickets).toEqual([])
+
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'Ok')
+    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    expect(runtime.sent[0]).toContain(`- Proposal ${proposal!.id} (create tickets): rejected by the user.`)
+  })
+
+  test('a message sent mid-turn does not become the intent of that turn’s proposals', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [
+        { emit: { kind: 'session', sessionId: 'sess-1' } },
+        // The second message arrives while the first turn is still under way, and is queued as its own turn.
+        { waitForSend: true },
+        { callTool: 'proposeCreateTickets', args: { tickets: [{ title: 'From the first' }] } },
+        turnEnd(),
+        { waitForSend: true }
+      ]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'First ask')
+    await engine.invoke('orchestrator.send', 'Second ask')
+    await vi.waitFor(async () => {
+      const kinds = (await engine.invoke('orchestrator.get')).events.map((e) => e.event.kind)
+      expect(kinds).toContain('turn_end')
+    })
+    // The second turn is now the current one.
+    await (await liveTools(runtime)).proposeCreateTickets({ tickets: [{ title: 'From the second' }] })
+
+    const proposals = (await engine.invoke('orchestrator.get')).proposals
+    expect(proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual(['First ask', 'Second ask'])
+  })
+
+  test('a pending proposal survives a restart, can be confirmed after it, and the next message hears of it', async () => {
+    const first = new FakeRuntime([], {
+      orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { callTool: 'proposeCreateTickets', args: DRAFTS }, turnEnd()]
+    })
+    const { engine } = await makeEngine(first)
+    await engine.invoke('orchestrator.send', ASK)
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    const [proposal] = (await engine.invoke('orchestrator.get')).proposals
+    await engine.dispose()
+
+    const runtime = new FakeRuntime([], { orchestrator: [turnEnd()] })
+    const { engine: next } = await makeEngine(runtime)
+    const thread = await next.invoke('orchestrator.get')
+    expect(thread.proposals).toEqual([expect.objectContaining({ id: proposal!.id, status: 'pending' })])
+    expect(thread.events.map((e) => e.event)).toContainEqual({ kind: 'proposal', proposalId: proposal!.id })
+
+    await next.invoke('proposal.confirm', proposal!.id, {
+      tickets: [{ title: 'Sign in', spec: 'Edited', criteria: ['works'], labels: [] }],
+      column: 'ready'
+    })
+    expect(await intentsOf(next)).toEqual([['Sign in', [ASK], undefined]])
+    expect((await next.invoke('board.get')).tickets[0]!.state.column).toBe('ready')
+
+    await next.invoke('orchestrator.send', 'Done?')
+    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    expect(runtime.orchestratorSpecs[0]!.resumeSessionId).toBe('sess-1')
+    expect(runtime.orchestratorSpecs[0]!.prompt).toMatch(
+      new RegExp(`^\\[Mainbus\\] Since your last turn.*\\n- Proposal ${proposal!.id} \\(create tickets\\): changed by the user, then confirmed\\. Created #1 "Sign in" in Ready\\.\\n\\n\\[Mainbus\\] Workspace`)
+    )
   })
 })

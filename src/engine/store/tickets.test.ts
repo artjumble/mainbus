@@ -70,6 +70,28 @@ describe('ticket repo', () => {
     expect(await repo.get(t.id)).toEqual(t)
   })
 
+  it('createMany creates the tickets in order, numbered on from the last', async () => {
+    const repo = createTicketRepo(db, now)
+    await repo.create(input({ title: 'Earlier' }))
+    const made = await repo.createMany([input({ title: 'One', criteria: ['a'] }), input({ title: 'Two', criteria: [] })])
+    expect(made.map((t) => [t.number, t.title, t.criteria.map((c) => c.text)])).toEqual([
+      [2, 'One', ['a']],
+      [3, 'Two', []]
+    ])
+    expect(await repo.get(made[1]!.id)).toEqual(made[1])
+  })
+
+  it('createMany creates none when one insert fails', async () => {
+    const repo = createTicketRepo(db, now)
+    // The second ticket's workspace doesn't exist: its insert breaks the foreign key, after the first went in.
+    await expect(
+      repo.createMany([input({ title: 'One' }), input({ title: 'Two', workspaceId: 'missing' }), input({ title: 'Three' })])
+    ).rejects.toThrow()
+    expect(await repo.list(workspaceId)).toEqual([])
+    // Numbering is unaffected.
+    expect((await repo.create(input())).number).toBe(1)
+  })
+
   it('intent is stored verbatim and only appended', async () => {
     const repo = createTicketRepo(db, now)
     const t = await repo.create(input({ intent: 'Fix it  \n exactly' }))

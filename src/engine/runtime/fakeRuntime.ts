@@ -20,7 +20,7 @@ export const FAKE_SUMMARY = 'A summary the fake runtime wrote.'
 /** One scripted step. Plain data only, so a script can be loaded from a JSON file. */
 export type FakeStep =
   | { emit: AgentEvent }
-  /** A role tool in a role's run, a read tool in the orchestrator's. */
+  /** A role tool in a role's run, a read or propose tool in the orchestrator's. */
   | { callTool: keyof RoleToolHandlers | keyof OrchestratorToolHandlers; args: unknown }
   | { requestPermission: Omit<PermissionRequest, 'signal'> }
   | { waitForSend: true }
@@ -212,7 +212,7 @@ export class FakeRuntime implements AgentRuntime {
           run.queue.push(step.emit)
         } else if ('callTool' in step) {
           // The script file is trusted test data, so the args are passed through as-is.
-          const tools: object = spec.kind === 'orchestrator' ? spec.readTools : spec.roleTools
+          const tools: object = spec.kind === 'orchestrator' ? spec.tools : spec.roleTools
           const tool = (tools as Record<string, unknown>)[step.callTool]
           if (typeof tool !== 'function') throw new Error(`No tool ${step.callTool} in this run`)
           await (tool as (args: unknown) => Promise<string>).call(tools, step.args)

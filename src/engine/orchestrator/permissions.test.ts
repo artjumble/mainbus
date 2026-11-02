@@ -51,7 +51,9 @@ describe('orchestratorVerdict', () => {
       ['mcp__mainbus__get_ticket', { number: 1 }],
       ['mcp__mainbus__get_run_status', { number: 1 }],
       ['mcp__mainbus__get_recent_events', { number: 1 }],
-      ['mcp__mainbus__list_pending_decisions', {}]
+      ['mcp__mainbus__list_pending_decisions', {}],
+      // Proposing only stores a proposal for the user to decide.
+      ['mcp__mainbus__propose_create_tickets', { tickets: [{ title: 'Add login' }] }]
     ]
     for (const [tool, input] of allowed) expect(await verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toEqual({ allow: true })
   })

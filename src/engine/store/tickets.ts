@@ -6,6 +6,8 @@ import { criteria, tickets } from '../db/schema'
 
 export interface TicketRepo {
   create(input: NewTicketInput): Promise<Ticket>
+  /** Creates the tickets in order, in one transaction: all of them, or none if one insert fails. */
+  createMany(inputs: NewTicketInput[]): Promise<Ticket[]>
   get(id: string): Promise<Ticket>
   /** The ticket with this number in the workspace, or null. */
   byNumber(workspaceId: string, number: number): Promise<Ticket | null>
@@ -73,31 +75,44 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       .where(eq(tickets.id, id))
   }
 
+  /** Inserts one ticket and its criteria through `q` (the database, or a transaction); returns its id. */
+  async function insert(q: Pick<Db, 'insert'>, input: NewTicketInput): Promise<string> {
+    const id = randomUUID()
+    const at = now().toISOString()
+    const intent: IntentEntry[] = [input.source ? { text: input.intent, at, source: input.source } : { text: input.intent, at }]
+    await q.insert(tickets).values({
+      id,
+      workspaceId: input.workspaceId,
+      // One statement, so the number is allocated atomically with the insert.
+      number: sql`(select coalesce(max(${tickets.number}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${input.workspaceId})`,
+      kind: 'change',
+      title: input.title,
+      intent: JSON.stringify(intent),
+      spec: input.spec,
+      labels: JSON.stringify(input.labels),
+      manualColumn: input.column,
+      createdAt: at,
+      updatedAt: at
+    })
+    if (input.criteria.length > 0) {
+      await q
+        .insert(criteria)
+        .values(input.criteria.map((text, position) => ({ ticketId: id, position, text, checked: false })))
+    }
+    return id
+  }
+
   return {
     async create(input) {
-      const id = randomUUID()
-      const at = now().toISOString()
-      const intent: IntentEntry[] = [input.source ? { text: input.intent, at, source: input.source } : { text: input.intent, at }]
-      await db.insert(tickets).values({
-        id,
-        workspaceId: input.workspaceId,
-        // One statement, so the number is allocated atomically with the insert.
-        number: sql`(select coalesce(max(${tickets.number}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${input.workspaceId})`,
-        kind: 'change',
-        title: input.title,
-        intent: JSON.stringify(intent),
-        spec: input.spec,
-        labels: JSON.stringify(input.labels),
-        manualColumn: input.column,
-        createdAt: at,
-        updatedAt: at
+      return get(await insert(db, input))
+    },
+
+    async createMany(inputs) {
+      const ids: string[] = []
+      await db.transaction(async (tx) => {
+        for (const input of inputs) ids.push(await insert(tx, input))
       })
-      if (input.criteria.length > 0) {
-        await db
-          .insert(criteria)
-          .values(input.criteria.map((text, position) => ({ ticketId: id, position, text, checked: false })))
-      }
-      return get(id)
+      return Promise.all(ids.map(get))
     },
 
     get,

@@ -20,13 +20,22 @@ export interface PermissionRequest {
 export type PermissionVerdict = { allow: true } | { allow: false; message: string }
 
 /** What the orchestrator's read tools call back into: each answers with plain text for the agent. */
-export interface OrchestratorToolHandlers {
+export interface OrchestratorReadToolHandlers {
   listWorkspaces(): Promise<string>
   listTickets(a: { column?: string }): Promise<string>
   getTicket(a: { number: number }): Promise<string>
   getRunStatus(a: { number: number }): Promise<string>
   getRecentEvents(a: { number: number; limit?: number }): Promise<string>
   listPendingDecisions(): Promise<string>
+}
+
+/**
+ * Every Mainbus tool of the orchestrator: the read tools, and the propose tools, which store a proposal for the
+ * user to decide and never change anything themselves. A propose tool validates its input itself, so it takes
+ * whatever the agent sent.
+ */
+export interface OrchestratorToolHandlers extends OrchestratorReadToolHandlers {
+  proposeCreateTickets(a: unknown): Promise<string>
 }
 
 export interface RunSpec {
@@ -50,8 +59,8 @@ export interface RunSpec {
 }
 
 /**
- * The orchestrator's session: it reads (Read, Grep and Glob, and the Mainbus read tools) and never changes
- * anything. No settings files are loaded, and its permission callback never raises a card.
+ * The orchestrator's session: it reads (Read, Grep and Glob, and the Mainbus read tools) and proposes, and never
+ * changes anything. No settings files are loaded, and its permission callback never raises a card.
  */
 export interface OrchestratorRunSpec {
   kind: 'orchestrator'
@@ -65,7 +74,7 @@ export interface OrchestratorRunSpec {
   additionalDirectories: string[]
   disallowedTools: string[]
   resumeSessionId?: string
-  readTools: OrchestratorToolHandlers
+  tools: OrchestratorToolHandlers
   /** Allows or denies at once: the orchestrator never waits on the user for a permission. */
   onPermission(r: PermissionRequest): Promise<PermissionVerdict>
 }
