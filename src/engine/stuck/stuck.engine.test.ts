@@ -8,6 +8,7 @@ import { resolveHome, type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { STUCK_HEADING } from '../orchestrator/stuckBlock'
+import { WAKE_HEADING } from '../orchestrator/wakeDigest'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 
@@ -75,6 +76,10 @@ async function started(runtime: FakeRuntime) {
   const ticket = await newTicket(engine)
   await engine.invoke('agent.start', ticket.id)
   await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+  // The agent's first event is its activity at the start: it lands before the clock moves, not in the middle of an advance.
+  await vi.waitFor(async () =>
+    expect((await engine.invoke('thread.get', ticket.id)).events.some((e) => e.event.kind === 'session')).toBe(true)
+  )
   return { engine, ticket }
 }
 
@@ -195,38 +200,43 @@ describe('the orchestrator hears of stuck agents', () => {
     await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await engine.invoke('agent.start', ticket.id)
     await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    const idle = () => vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     const say = async (text: string): Promise<string> => {
+      // A wake turn the clock started may still be under way.
+      await idle()
       const before = runtime.sent.length
       await engine.invoke('orchestrator.send', text)
       await vi.waitFor(() => expect(runtime.sent).toHaveLength(before + 1))
       await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
       return runtime.sent[before]!
     }
-    return { runtime, engine, ticket, say }
+    return { runtime, engine, ticket, say, idle }
   }
 
-  test('its next turn lists an opened episode with its evidence, then each escalation, and nothing else', async () => {
-    const { engine, ticket, say } = await withOrchestrator()
+  test('a wake turn lists an opened episode with its evidence, then each escalation; the next message repeats none of it', async () => {
+    const { runtime, engine, ticket, say, idle } = await withOrchestrator()
     await clock.advance(10 * MIN)
     expect((await ticketOf(engine, ticket.id)).stuck).toMatchObject({ hitCount: 1 })
+    // The wake turn starts five seconds after the episode opened, without a message of the user.
     await clock.advance(MIN)
-
-    const opened = await say('Anything new?')
-    expect(opened).toContain(STUCK_HEADING)
+    await idle()
+    const opened = runtime.sent.at(-1)!
+    expect(opened).toContain(WAKE_HEADING)
     expect(opened).toContain(`#${ticket.number} "Login": the Planner looks stuck. Evidence`)
     expect(opened).toContain('<ticket-data field="stuck-evidence">No events from the agent for 10 minutes</ticket-data>')
     expect(opened).not.toContain('needs a closer look')
 
-    // Nothing opened or escalated since: the block is gone.
-    await clock.advance(MIN)
-    expect(await say('And now?')).not.toContain(STUCK_HEADING)
+    // Already presented: the user's message does not repeat it.
+    expect(await say('Anything new?')).not.toContain(STUCK_HEADING)
 
     // The third hit escalates the episode, and that is news again.
     await clock.advance(10 * MIN)
     expect((await ticketOf(engine, ticket.id)).stuck).toMatchObject({ hitCount: 3, needsCloserLook: true })
-    const escalated = await say('Anything else?')
-    expect(escalated).toContain(STUCK_HEADING)
+    await idle()
+    const escalated = runtime.sent.at(-1)!
+    expect(escalated).toContain(WAKE_HEADING)
     expect(escalated).toContain('flagged 3 times and needs a closer look')
+    expect(await say('And now?')).not.toContain(STUCK_HEADING)
   })
 
   test('says nothing about an episode that has closed', async () => {

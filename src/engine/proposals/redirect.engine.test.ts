@@ -147,14 +147,13 @@ describe('propose_redirect', () => {
     expect(await proposals()).toHaveLength(1)
   })
 
-  test('of two pending proposals for one episode, only the first confirmed goes through', async () => {
+  test('a second redirect for the ticket while one is pending is not stored again', async () => {
     const { engine, runtime, proposals, propose } = await setup()
-    await propose('First')
-    await propose('Second')
-    const [a, b] = await proposals()
-    await engine.invoke('proposal.confirm', a!.id)
-    const second = await engine.invoke('proposal.confirm', b!.id)
-    expect(second).toMatchObject({ status: 'failed', result: { error: expect.stringContaining('already been redirected') } })
+    expect(await propose('First')).toMatch(/^Proposed /)
+    const [first] = await proposals()
+    expect(await propose('Second')).toBe(`Proposal ${first!.id} for this is already pending: the user hasn't decided on it yet, so nothing new was stored. End your turn now.`)
+    expect(await proposals()).toHaveLength(1)
+    await engine.invoke('proposal.confirm', first!.id)
     expect(runtime.interrupted).toHaveLength(1)
     expect(runtime.sent.filter((s) => s === 'First' || s === 'Second')).toEqual(['First'])
   })

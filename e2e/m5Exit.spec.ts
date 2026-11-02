@@ -69,11 +69,10 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
     await expect(page.locator('[data-stuck-evidence]')).toContainText('Bash failed 5 times in a row: npm test')
     await expect(activity.getByText('Implementer looks stuck: same failing command 5 times (detected by Mainbus)')).toBeVisible()
 
-    // 2. The orchestrator proposes a redirect, and the user confirms it.
+    // 2. Mainbus gives the orchestrator a turn of its own (no message of the user), and it proposes a redirect; the user confirms it.
+    await advance(app, 0.2)
     const panel = page.getByRole('complementary', { name: 'Orchestrator' })
-    const box = panel.getByRole('textbox', { name: 'Message the orchestrator' })
-    await box.fill('Alpha looks stuck.')
-    await box.press('Enter')
+    await expect(panel.locator('[data-event="wake"]').first()).toHaveText('Mainbus: 1 thing to look at')
     const redirect = panel.getByRole('group', { name: /^Proposal: Redirect the Implementer on #1/ })
     await redirect.getByRole('button', { name: 'Confirm', exact: true }).click()
     await expect(panel.locator('[data-proposal="receipt"]')).toContainText('Redirected the Implementer on #1')
@@ -84,9 +83,9 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
     await advance(app, 6)
     await expect(activity.getByText('Implementer still looks stuck after the redirect: same failing command 10 times (detected by Mainbus)')).toBeVisible()
 
-    // 4. The orchestrator proposes a replacement, and the user confirms it.
-    await box.fill('It is still stuck.')
-    await box.press('Enter')
+    // 4. The agent fired again: the orchestrator is woken again, proposes a replacement, and the user confirms it.
+    await advance(app, 1)
+    await expect(panel.locator('[data-event="wake"]')).toHaveCount(2)
     const replace = panel.getByRole('group', { name: /^Proposal: Replace the Implementer on #1/ })
     await replace.getByRole('button', { name: 'Replace Implementer' }).click()
     await expect(panel.locator('[data-proposal="receipt"]').last()).toContainText('Replaced the Implementer on #1')

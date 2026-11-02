@@ -350,6 +350,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           {waitingText(lookup.role, event.reason, event.until)}
         </Text>
       )
+    case 'wake':
+      return (
+        <Text size="xs" c="dimmed" data-event="wake" style={{ whiteSpace: 'pre-wrap' }}>
+          {`Mainbus: ${event.items.length} ${event.items.length === 1 ? 'thing' : 'things'} to look at`}
+        </Text>
+      )
     case 'notice':
       return (
         <Text size="xs" c="dimmed" data-event="notice" style={{ whiteSpace: 'pre-wrap' }}>

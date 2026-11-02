@@ -13,6 +13,11 @@ export interface HoldsDeps {
   decisions: Pick<DecisionRepo, 'get' | 'defer'>
   clock: Clock
   emit: (e: EngineEvent) => void
+  /**
+   * Called for each hold the clock released by its date, after the board is told: a ticket's hold, or the
+   * decision that is pending again (not one answered meanwhile). Not for an unhold or a Bring back.
+   */
+  onReleasedByDate?: (released: { workspaceId: string; hold: Hold; decision: Decision | null }) => void | Promise<void>
 }
 
 /** Normalizes a date the user or the orchestrator gave; throws, naming the problem, when it isn't one in the future. */
@@ -109,18 +114,25 @@ export class HoldService {
     const released = await this.deps.holds.releaseDue(this.deps.clock.now())
     const workspaces = new Set<string>()
     const decisions: Decision[] = []
+    const news: { workspaceId: string; hold: Hold; decision: Decision | null }[] = []
     for (const hold of released) {
       if (hold.targetKind === 'decision') {
         const decision = await this.deps.decisions.get(hold.targetId).catch(() => null)
         if (decision) decisions.push(decision)
+        const ticket = decision?.status === 'pending' ? await this.deps.tickets.get(decision.ticketId).catch(() => null) : null
+        if (ticket) news.push({ workspaceId: ticket.workspaceId, hold, decision })
         continue
       }
       const ticket = await this.deps.tickets.get(hold.targetId).catch(() => null)
-      if (ticket) workspaces.add(ticket.workspaceId)
+      if (ticket) {
+        workspaces.add(ticket.workspaceId)
+        news.push({ workspaceId: ticket.workspaceId, hold, decision: null })
+      }
     }
     await this.schedule()
     for (const decision of decisions) await this.announce(decision)
     for (const workspaceId of workspaces) this.deps.emit({ type: 'board.changed', workspaceId })
+    for (const item of news) await this.deps.onReleasedByDate?.(item)
   }
 
   /** One timer, for the next hold with a date. */

@@ -286,3 +286,59 @@ describe('proposal service', () => {
     })
   })
 })
+
+describe('a proposal that is already pending', () => {
+  const at = () => ({ workspaceId: ws.id, orchestratorRunId: runId, userMessage: MESSAGE })
+  const newTicket = (title: string) =>
+    repos.tickets.create({ workspaceId: ws.id, title, intent: 'x', spec: '', criteria: [], labels: [], column: 'backlog' })
+
+  test('for the same ticket and kind is returned as it is, not stored twice', async () => {
+    const t = await newTicket('Login')
+    const first = await service.propose('start_lineup', { ticket: t.number, reason: 'It is small' }, at())
+    const again = await service.propose('start_lineup', { ticket: t.number, reason: 'Still small' }, at())
+    expect(first).toMatchObject({ ok: true, proposal: { status: 'pending' } })
+    expect(again).toMatchObject({ ok: true, existing: true, proposal: { id: first.ok && first.proposal.id, evidence: 'It is small' } })
+    expect(first).not.toHaveProperty('existing')
+    expect(await service.list()).toHaveLength(1)
+    expect(changes()).toEqual(['pending'])
+  })
+
+  test('is no obstacle for another ticket or another kind', async () => {
+    const a = await newTicket('A')
+    const b = await newTicket('B')
+    await service.propose('start_lineup', { ticket: a.number, reason: 'r' }, at())
+    expect(await service.propose('start_lineup', { ticket: b.number, reason: 'r' }, at())).not.toHaveProperty('existing')
+    expect(await service.propose('hold', { ticket: a.number, reason: 'e' }, at())).not.toHaveProperty('existing')
+    expect(await service.list()).toHaveLength(3)
+  })
+
+  test('a decided one no longer counts: the same proposal can be made again', async () => {
+    const t = await newTicket('Login')
+    const first = await service.propose('start_lineup', { ticket: t.number, reason: 'r' }, at())
+    await service.reject(first.ok ? first.proposal.id : '')
+    const again = await service.propose('start_lineup', { ticket: t.number, reason: 'r' }, at())
+    expect(again).not.toHaveProperty('existing')
+    expect(await service.list()).toHaveLength(2)
+  })
+
+  test('drafting tickets is never matched: every draft is its own proposal', async () => {
+    await proposeTwo()
+    await proposeTwo()
+    expect(await service.list()).toHaveLength(2)
+  })
+
+  test('for an answer is matched by decision too: another decision of the same ticket gets its own proposal', async () => {
+    const t = await newTicket('Login')
+    const kinds = {
+      ...KINDS,
+      answer: { ...KINDS.answer, propose: async (input: unknown) => ({ ticketId: t.id, decisionId: (input as { decision: string }).decision }) }
+    } as unknown as NonNullable<Parameters<typeof createProposalService>[0]['kinds']>
+    const withKinds = createProposalService({ repo: repos.proposals, emit: () => {}, exec, kinds })
+    const propose = (decision: string) =>
+      withKinds.propose('answer', { decision, reasoning: 'r' }, at())
+    const one = await propose('d1')
+    expect(await propose('d1')).toMatchObject({ ok: true, existing: true, proposal: { id: one.ok && one.proposal.id } })
+    expect(await propose('d2')).not.toHaveProperty('existing')
+    expect(await withKinds.list()).toHaveLength(2)
+  })
+})

@@ -54,6 +54,8 @@ export type ThreadEvent =
   | { kind: 'stopped' }
   /** Something Mainbus did on its own, such as unattended mode allowing a request. */
   | { kind: 'notice'; text: string }
+  /** Mainbus started an orchestrator turn itself, for these items (one plain line each): failures, stuck agents, released holds, decisions that came back. */
+  | { kind: 'wake'; items: string[] }
   /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
   /** The first event of a role's run when an earlier role of the same ticket run handed off to it. */

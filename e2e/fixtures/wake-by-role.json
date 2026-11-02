@@ -1,0 +1,24 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-wake-planner" } },
+    { "emit": { "kind": "turn_end", "ok": false, "error": "The API is down" } },
+    { "emit": { "kind": "turn_end", "ok": false, "error": "The API is down" } }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-wake-orchestrator" } },
+    { "expectPrompt": "[Mainbus] Things to look at" },
+    { "expectPrompt": "#1 \"Alpha\": the Planner's run failed" },
+    { "emit": { "kind": "message", "text": "Alpha's Planner failed: the API was down." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Beta's Planner failed too; looking at it." } }
+  ],
+  "Orchestrator resumed": [
+    { "emit": { "kind": "session", "sessionId": "e2e-wake-orchestrator" } },
+    { "expectPrompt": "[Mainbus] Things to look at" },
+    { "expectPrompt": "#2 \"Beta\": the Planner's run failed" },
+    { "emit": { "kind": "message", "text": "Back after the restart: Beta's Planner failed, and I am on it." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

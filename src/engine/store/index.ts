@@ -9,6 +9,7 @@ import { createProposalRepo, type ProposalRepo } from './proposals'
 import { createRunRepo, type RunRepo } from './runs'
 import { createStuckRepo, type StuckRepo } from './stuck'
 import { createTicketRepo, type TicketRepo } from './tickets'
+import { createWakeRepo, type WakeRepo } from './wakes'
 import { createWorkspaceRepo, type WorkspaceRepo } from './workspaces'
 
 export interface Repos {
@@ -23,6 +24,7 @@ export interface Repos {
   proposals: ProposalRepo
   holds: HoldRepo
   stuck: StuckRepo
+  wakes: WakeRepo
 }
 
 export function createRepos(db: Db, now: () => Date): Repos {
@@ -37,6 +39,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     orchestrator: createOrchestratorRepo(db, now),
     proposals: createProposalRepo(db, now),
     holds: createHoldRepo(db, now),
-    stuck: createStuckRepo(db, now)
+    stuck: createStuckRepo(db, now),
+    wakes: createWakeRepo(db, now)
   }
 }

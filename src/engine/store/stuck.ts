@@ -37,6 +37,8 @@ export interface StuckRepo {
   hadDeadProcess(runId: string): Promise<boolean>
   /** The open episodes of every ticket's open run, by ticket id. */
   openByTicket(): Promise<Map<string, StuckEpisode>>
+  /** The episode with this id, open or closed, with its ticket and the run's role; null when there is none. */
+  byId(episodeId: string): Promise<{ ticketId: string; role: string; episode: StuckEpisode; open: boolean } | null>
   /** The open episodes opened, escalated or (once redirected) hit again at or after `since` (all open ones when null), with their ticket and the run's role, oldest first. */
   changedSince(since: string | null): Promise<{ ticketId: string; role: string; episode: StuckEpisode }[]>
 }
@@ -141,6 +143,15 @@ export function createStuckRepo(db: Db, now: () => Date): StuckRepo {
         .where(isNull(stuckEpisodes.closedAt))
         .orderBy(asc(stuckEpisodes.openedAt))
       return new Map(rows.map((r) => [r.ticketId, toEpisode(r.episode)]))
+    },
+
+    async byId(episodeId) {
+      const [row] = await db
+        .select({ ticketId: agentRuns.ticketId, role: agentRuns.role, episode: stuckEpisodes })
+        .from(stuckEpisodes)
+        .innerJoin(agentRuns, eq(agentRuns.id, stuckEpisodes.agentRunId))
+        .where(eq(stuckEpisodes.id, episodeId))
+      return row ? { ticketId: row.ticketId, role: row.role, episode: toEpisode(row.episode), open: row.episode.closedAt === null } : null
     },
 
     async changedSince(since) {
