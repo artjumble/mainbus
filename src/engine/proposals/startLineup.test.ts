@@ -150,7 +150,7 @@ describe('start_lineup: execute and outcome', () => {
   test('as proposed: starts the ticket with exactly the roles, models, effort and instructions on the card', async () => {
     const c = ctx()
     const p = await propose({ ticket: 12, roles: [{ role: 'Planner', model: 'haiku' }, { role: 'Reviewer' }], extraInstructions: 'Small.' }, c)
-    const result = await startLineup.execute(p, { workspaceId: ws.id }, c)
+    const result = await startLineup.execute(p, { workspaceId: ws.id, proposalId: 'p1' }, c)
     expect(c.startTicket).toHaveBeenCalledWith('t12', {
       roleIds: ['p', 'r'],
       roles: { p: { model: 'haiku', effort: 'high' }, r: { model: 'opus', effort: 'medium' } },
@@ -172,7 +172,7 @@ describe('start_lineup: execute and outcome', () => {
     const c = ctx()
     const p = await propose({ ticket: 12, extraInstructions: 'Small.' }, c)
     const o = startLineup.override(p, { roles: [{ roleId: 'i', model: 'opus', effort: 'high' }], extraInstructions: '' })
-    await startLineup.execute(o, { workspaceId: ws.id }, c)
+    await startLineup.execute(o, { workspaceId: ws.id, proposalId: 'p1' }, c)
     expect(c.startTicket).toHaveBeenCalledWith('t12', { roleIds: ['i'], roles: { i: { model: 'opus', effort: 'high' } } })
   })
 
@@ -180,9 +180,9 @@ describe('start_lineup: execute and outcome', () => {
     const c = ctx()
     const p = await propose({ ticket: 12 }, c)
     c.setWhy('#12 is already running')
-    await expect(startLineup.execute(p, { workspaceId: ws.id }, c)).rejects.toThrow('#12 is already running')
+    await expect(startLineup.execute(p, { workspaceId: ws.id, proposalId: 'p1' }, c)).rejects.toThrow('#12 is already running')
     c.setWhy(null)
-    await expect(startLineup.execute(p, { workspaceId: 'other' }, c)).rejects.toThrow('no longer open')
+    await expect(startLineup.execute(p, { workspaceId: 'other', proposalId: 'p1' }, c)).rejects.toThrow('no longer open')
     expect(c.startTicket).not.toHaveBeenCalled()
   })
 })

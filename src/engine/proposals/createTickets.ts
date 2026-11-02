@@ -36,6 +36,7 @@ export function listJoin(items: string[]): string {
  */
 export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResult> = {
   label: 'create tickets',
+  atomicWithResult: true,
 
   propose(input, turn) {
     return { intent: turn.userMessage, ...parsePayload(editableSchema, input) }
@@ -51,7 +52,8 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
     // No source: the intent is the user's own words, not an agent's.
     const created = await ctx.createTickets(
       ws,
-      p.tickets.map((d) => ({ title: d.title, intent: p.intent, spec: d.spec, criteria: d.criteria, labels: d.labels, column: p.column }))
+      p.tickets.map((d) => ({ title: d.title, intent: p.intent, spec: d.spec, criteria: d.criteria, labels: d.labels, column: p.column })),
+      { proposalId: target.proposalId, column: p.column }
     )
     return { tickets: created.map((t) => ({ id: t.id, number: t.number, title: t.title })), column: p.column }
   },

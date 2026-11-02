@@ -7,6 +7,9 @@ import { KINDS } from './registry'
 
 export const EVIDENCE_MAX = 5_000
 
+export const QUIT_ATOMIC_ERROR = 'Mainbus quit before carrying this out; nothing was created.'
+export const QUIT_PARTIAL_ERROR = 'Mainbus quit while carrying this out; it may have partly happened. Check the board.'
+
 export const OUTCOME_HEADING = '[Mainbus] Since your last turn, the user decided on your proposals:'
 
 export interface ProposalServiceDeps {
@@ -35,6 +38,11 @@ export interface ProposalService {
   /** Throws unless the proposal is still pending. */
   reject(id: string): Promise<Proposal>
   list(): Promise<Proposal[]>
+  /**
+   * At startup: fails every proposal claimed with no result, since Mainbus quit while carrying it out. The error
+   * says nothing was created for a kind whose result is recorded atomically, else that it may have partly happened.
+   */
+  failUnfinished(): Promise<void>
   /**
    * For the start of the orchestrator's next message: each proposal decided at or after `since` (every decided
    * one when null) and how it went. Null when there are none.
@@ -123,7 +131,7 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
       const payload = override === undefined ? stored.payload : kind.override(stored.payload, override)
       const claimed = changed(await deps.repo.claim(id, override === undefined ? 'confirmed' : 'overridden'))
       try {
-        const result = await kind.execute(payload, { workspaceId: claimed.workspaceId }, deps.exec)
+        const result = await kind.execute(payload, { workspaceId: claimed.workspaceId, proposalId: id }, deps.exec)
         return changed(await deps.repo.finish(id, result))
       } catch (err) {
         return changed(await deps.repo.fail(id, errorText(err)))
@@ -135,6 +143,12 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
     },
 
     list: () => deps.repo.list(),
+
+    async failUnfinished() {
+      for (const p of await deps.repo.unfinished()) {
+        await deps.repo.fail(p.id, kindOf(p.kind).atomicWithResult ? QUIT_ATOMIC_ERROR : QUIT_PARTIAL_ERROR)
+      }
+    },
 
     async outcomeBlock(since) {
       const decided = await deps.repo.decidedSince(since)

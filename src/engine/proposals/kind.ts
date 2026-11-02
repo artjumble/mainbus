@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import type { DraftColumn } from '../../shared/proposals'
 import type { LineupRole, NewTicketInput, StartOptions, Ticket, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
@@ -14,7 +15,12 @@ export interface ExecContext {
   /** The open workspace, or null. */
   workspace(): Promise<Workspace | null>
   /** The same path as ticket.create: creates them all in order, or none, and emits board.changed once. */
-  createTickets(ws: Workspace, inputs: Omit<NewTicketInput, 'workspaceId'>[]): Promise<Ticket[]>
+  createTickets(
+    ws: Workspace,
+    inputs: Omit<NewTicketInput, 'workspaceId'>[],
+    /** The proposal being carried out: its result is recorded in the same transaction as the tickets. */
+    record?: { proposalId: string; column: DraftColumn }
+  ): Promise<Ticket[]>
   /** The workspace's lineup, in order. */
   lineup(workspaceId: string): Promise<LineupRole[]>
   ticketByNumber(workspaceId: string, number: number): Promise<Ticket | null>
@@ -40,6 +46,11 @@ export interface Turn {
 export interface ProposalKind<P, R> {
   /** In the orchestrator's outcome block, as in "Proposal 3f… (create tickets)". */
   label: string
+  /**
+   * Whether carrying it out and recording its result happen in one transaction, so that after any quit the
+   * proposal has its result or nothing was done. A kind that doesn't (it starts a run, say) is false.
+   */
+  atomicWithResult: boolean
   /** The orchestrator's field the card shows as its evidence; 'evidence' when absent. */
   evidenceKey?: string
   /**
@@ -50,7 +61,7 @@ export interface ProposalKind<P, R> {
   /** Validates the user's override the same way; the engine's fields come from `stored`. Throws ProposalInvalid. */
   override(stored: P, input: unknown): P
   /** Carries it out; a throw makes the proposal failed, with the error as its result. */
-  execute(p: P, target: { workspaceId: string }, ctx: ExecContext): Promise<R>
+  execute(p: P, target: { workspaceId: string; proposalId: string }, ctx: ExecContext): Promise<R>
   /** Plain text for the orchestrator, such as `Created #21 "Title" in Backlog.` */
   outcome(r: R): string
 }

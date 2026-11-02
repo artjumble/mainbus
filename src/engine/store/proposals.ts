@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm'
-import type { Proposal, ProposalKindName } from '../../shared/proposals'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import type { BatchItem } from 'drizzle-orm/batch'
+import type { DraftColumn, Proposal, ProposalKindName } from '../../shared/proposals'
 import type { Db } from '../db/open'
-import { proposals } from '../db/schema'
+import { proposals, tickets } from '../db/schema'
 
 export interface NewProposal {
   workspaceId: string
@@ -23,6 +24,13 @@ export interface ProposalRepo {
   reject(id: string): Promise<Proposal>
   /** Records the result of carrying out a claimed proposal. */
   finish(id: string, result: unknown): Promise<Proposal>
+  /**
+   * The statement that records a create_tickets result from the tickets with these ids, as they are stored, for
+   * the same batch that creates them: the proposal has its result exactly when the tickets exist.
+   */
+  ticketsResultStatement(id: string, ticketIds: string[], column: DraftColumn): BatchItem<'sqlite'>
+  /** Proposals claimed but with no result: Mainbus quit while carrying them out. Oldest first. */
+  unfinished(): Promise<Proposal[]>
   /** Carrying out a claimed proposal threw: it is failed, with the error as its result. */
   fail(id: string, error: string): Promise<Proposal>
   /** The proposals decided at or after `since` (every decided one when null), oldest decision first. */
@@ -97,6 +105,25 @@ export function createProposalRepo(db: Db, now: () => Date): ProposalRepo {
     async finish(id, result) {
       await db.update(proposals).set({ result: JSON.stringify(result) }).where(eq(proposals.id, id))
       return get(id)
+    },
+
+    ticketsResultStatement(id, ticketIds, column) {
+      const idList = sql.join(ticketIds.map((t) => sql`${t}`), sql`, `)
+      // json() keeps each piece JSON rather than text inside the enclosing json_object.
+      const result = sql`json_object('tickets', json((select json_group_array(json(j)) from (select json_object('id', ${tickets.id}, 'number', ${tickets.number}, 'title', ${tickets.title}) as j from ${tickets} where ${tickets.id} in (${idList}) order by ${tickets.number}))), 'column', ${column})`
+      return db
+        .update(proposals)
+        .set({ result })
+        .where(and(eq(proposals.id, id), isNull(proposals.result), inArray(proposals.status, ['confirmed', 'overridden'])))
+    },
+
+    async unfinished() {
+      const rows = await db
+        .select()
+        .from(proposals)
+        .where(and(inArray(proposals.status, ['confirmed', 'overridden']), isNull(proposals.result)))
+        .orderBy(asc(proposals.createdAt), asc(sql`rowid`))
+      return rows.map(toProposal)
     },
 
     async fail(id, error) {

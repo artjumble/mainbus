@@ -87,11 +87,11 @@ describe('create_tickets: execute and outcome', () => {
   test('creates the drafts in order, each with the stored intent and no source, in the column', async () => {
     const c = ctx()
     const p = propose({ tickets: [{ title: 'Login', spec: 'S', criteria: ['c'], labels: ['l'] }, { title: 'Logout' }], column: 'ready' })
-    const result = await createTickets.execute(p, { workspaceId: 'ws1' }, c)
+    const result = await createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, c)
     expect(c.createTickets).toHaveBeenCalledWith(ws, [
       { title: 'Login', intent: MESSAGE, spec: 'S', criteria: ['c'], labels: ['l'], column: 'ready' },
       { title: 'Logout', intent: MESSAGE, spec: '', criteria: [], labels: [], column: 'ready' }
-    ])
+    ], { proposalId: 'p1', column: 'ready' })
     expect(result).toEqual({
       tickets: [
         { id: 't21', number: 21, title: 'Login' },
@@ -104,8 +104,8 @@ describe('create_tickets: execute and outcome', () => {
 
   test('refuses when the workspace it was proposed for is no longer open', async () => {
     const p = propose({ tickets: [{ title: 'Login' }] })
-    await expect(createTickets.execute(p, { workspaceId: 'other' }, ctx())).rejects.toThrow('no longer open')
-    await expect(createTickets.execute(p, { workspaceId: 'ws1' }, ctx(null))).rejects.toThrow('no longer open')
+    await expect(createTickets.execute(p, { workspaceId: 'other', proposalId: 'p1' }, ctx())).rejects.toThrow('no longer open')
+    await expect(createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, ctx(null))).rejects.toThrow('no longer open')
   })
 
   test('listJoin', () => {

@@ -20,6 +20,7 @@ import { orchestratorVerdict } from './permissions'
 import { buildOrchestratorPrompt } from './prompt'
 
 export const EMPTY_MESSAGE = 'Type a message first'
+export const BUSY_MESSAGE = 'The orchestrator is still working: wait for it, or Stop it first'
 export const RESUME_FAILED_NOTICE =
   "Couldn't resume the earlier conversation; started a new one from a digest of its last messages."
 
@@ -73,11 +74,8 @@ export class OrchestratorSession {
   private live: Live | null = null
   private chain: Promise<unknown> = Promise.resolve()
   private shuttingDown = false
-  /**
-   * The user's messages, as typed, of the turns the live session has yet to finish, oldest first: the first is
-   * the one the current turn answers. A message sent mid-turn is queued as a turn of its own.
-   */
-  private turnMessages: string[] = []
+  /** The user's message, as typed, that the current turn answers; null between turns. */
+  private turnMessage: string | null = null
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -127,6 +125,9 @@ export class OrchestratorSession {
 
   private async sendNow(text: string): Promise<void> {
     if (this.shuttingDown) throw new Error('Mainbus is shutting down')
+    // A message sent mid-turn would join the turn under way (at its next tool boundary), so the turn's one
+    // message would no longer be the user's only one; a proposal's intent must be the words of its own turn.
+    if (this.status === 'working') throw new Error(BUSY_MESSAGE)
     const ws = await this.deps.workspace()
     if (!ws) throw new Error(this.deps.workspaceRequired)
     // The proposals decided since the user's last message open this one; read before it is recorded.
@@ -139,11 +140,12 @@ export class OrchestratorSession {
       const live = this.live
       await this.record(live.runId, { kind: 'user_message', text })
       this.setStatus('working')
-      this.turnMessages.push(text)
+      this.turnMessage = text
       try {
         await this.deps.runtime.send(live.handle, opened(prompt))
       } catch (err) {
-        if (this.turnMessages.at(-1) === text) this.turnMessages.pop()
+        this.turnMessage = null
+        this.setStatus('idle')
         throw err
       }
       return
@@ -154,8 +156,7 @@ export class OrchestratorSession {
     let runId = open?.id ?? (await this.deps.repo.create()).id
     const message = await this.record(runId, { kind: 'user_message', text })
     this.setStatus('working')
-    // No live session: no turn is under way, so this message starts the first one.
-    this.turnMessages = [text]
+    this.turnMessage = text
     try {
       if (open?.sessionId) {
         try {
@@ -173,7 +174,7 @@ export class OrchestratorSession {
       }
       await this.launch(runId, ws, opened(prompt))
     } catch (err) {
-      this.turnMessages = []
+      this.turnMessage = null
       await this.record(runId, { kind: 'error', message: errorText(err) }).catch(() => {})
       this.setStatus('failed')
       throw err
@@ -186,8 +187,8 @@ export class OrchestratorSession {
    */
   private async propose(kind: ProposalKindName, input: unknown): Promise<string> {
     const live = this.live
-    const userMessage = this.turnMessages[0]
-    if (!live || userMessage === undefined) return NO_TURN_MESSAGE
+    const userMessage = this.turnMessage
+    if (!live || userMessage === null) return NO_TURN_MESSAGE
     const ws = await this.deps.workspace()
     if (!ws) return `${this.deps.workspaceRequired}. Nothing was stored.`
     const made = await this.deps.proposals.propose(kind, input, {
@@ -245,8 +246,8 @@ export class OrchestratorSession {
     }
     if (this.live === live) {
       this.live = null
-      // Its turns are over: the next message starts a new session.
-      this.turnMessages = []
+      // Its turn is over: the next message starts a new session.
+      this.turnMessage = null
     }
     // Quitting ends the turn under way and records nothing more: the run stays open for the next launch.
     if (this.shuttingDown) return
@@ -265,8 +266,7 @@ export class OrchestratorSession {
     if (event.kind === 'session') await this.deps.repo.setSession(live.runId, event.sessionId)
     await this.record(live.runId, event)
     if (event.kind === 'turn_end') {
-      // The next turn, if a message is queued, answers the next message.
-      this.turnMessages.shift()
+      this.turnMessage = null
       this.setStatus(event.ok || event.interrupted ? 'idle' : 'failed')
     }
   }
