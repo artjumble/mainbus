@@ -141,7 +141,10 @@ export interface Decision {
   recommended: number | null
   /** False for permission decisions where "Always allow" must not be offered (force-pushes). */
   allowAlways: boolean
-  status: 'pending' | 'answered' | 'cancelled' | 'expired'
+  /** `deferred`: the user put it off with Later…; it is still open, and returns to `pending` on its date. */
+  status: 'pending' | 'deferred' | 'answered' | 'cancelled' | 'expired'
+  /** The date a deferred decision comes back (from its hold); null while it isn't deferred. */
+  deferredUntil: string | null
   answer: DecisionAnswer | null
   createdAt: string
   answeredAt: string | null
@@ -167,6 +170,8 @@ export interface TicketState {
   canContinue: boolean
   /** The user paused the active role: Resume continues it. Continue does not (it is for other pauses). */
   pausedByUser: boolean
+  /** The earliest date a deferred decision of the ticket comes back; null when none is deferred (or one is pending). */
+  deferredUntil: string | null
 }
 
 /** Where one role of a ticket run stands. `stopped` is a role whose run the user stopped. */

@@ -1,7 +1,8 @@
 import { Button, Group, Paper, Stack, Text } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
 import type { AnsweredVia, Decision } from '../../../shared/domain'
-import { sendAnswer } from './DecisionCard'
+import { DeferredNote, sendAnswer } from './DecisionCard'
+import { LaterMenu } from './LaterMenu'
 
 interface Props {
   decision: Decision
@@ -45,6 +46,7 @@ export function PermissionChoices({
       <Button variant="default" disabled={sending} onClick={() => void choose('deny')}>
         Deny
       </Button>
+      {decision.status === 'pending' && <LaterMenu decision={decision} onDeferred={onAnswered} />}
     </Group>
   )
 }
@@ -57,7 +59,8 @@ export function PermissionCard({ decision }: Props): ReactElement {
         <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
           {decision.question}
         </Text>
-        {decision.status === 'pending' ? (
+        {decision.status === 'deferred' && <DeferredNote decision={decision} />}
+        {decision.status === 'pending' || decision.status === 'deferred' ? (
           <PermissionChoices decision={decision} via="thread" />
         ) : (
           <Text size="sm" c="dimmed">

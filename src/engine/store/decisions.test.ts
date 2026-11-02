@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../db/open'
 import { createDecisionRepo } from './decisions'
+import { createHoldRepo } from './holds'
 import { createRunRepo } from './runs'
 import { FIXED_NOW, openTestDb, testRole } from './testDb'
 import { createTicketRepo } from './tickets'
@@ -52,6 +53,7 @@ describe('decision repo', () => {
       ...question(),
       options: ['SQLite', 'Postgres'],
       status: 'pending',
+      deferredUntil: null,
       answer: null,
       createdAt: FIXED_NOW.toISOString(),
       answeredAt: null,
@@ -184,5 +186,59 @@ describe('decision repo', () => {
     ])
     expect((await repo.answeredSince(ws.id, clock.toISOString())).map((x) => x.decision.id)).toEqual([b.id])
     expect(await repo.answeredSince('other', null)).toEqual([])
+  })
+})
+
+describe('deferring a decision (Later…)', () => {
+  const later = '2026-11-03T09:00:00.000Z'
+  const openOne = () => createDecisionRepo(db, now).open({ ...question(), options: [...question().options] })
+
+  it('moves a pending decision to deferred and puts a hold with the date on it', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await openOne()
+    const deferred = await repo.defer(d.id, later)
+    expect(deferred).toMatchObject({ status: 'deferred', deferredUntil: later })
+    expect(await createHoldRepo(db, now).active('decision', d.id)).toMatchObject({ until: later, releasedAt: null })
+    expect(await repo.pending(ticketId)).toEqual([])
+    expect((await repo.deferred(ticketId)).map((x) => x.id)).toEqual([d.id])
+    expect((await repo.unsettled(ticketId)).map((x) => x.id)).toEqual([d.id])
+  })
+
+  it('cannot be deferred twice, and the second try makes no second hold', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await openOne()
+    await repo.defer(d.id, later)
+    await expect(repo.defer(d.id, '2026-11-09T09:00:00.000Z')).rejects.toThrow(/Already deferred/)
+    expect(await createHoldRepo(db, now).activeOf('decision')).toHaveLength(1)
+    expect((await repo.get(d.id)).deferredUntil).toBe(later)
+  })
+
+  it('cannot defer a decision that is answered or expired', async () => {
+    const repo = createDecisionRepo(db, now)
+    const a = await openOne()
+    await repo.answer(a.id, { kind: 'option', index: 0 }, 'board')
+    await expect(repo.defer(a.id, later)).rejects.toThrow(/Already answered from the board/)
+    const e = await openOne()
+    await repo.expire(e.id)
+    await expect(repo.defer(e.id, later)).rejects.toThrow()
+    expect(await createHoldRepo(db, now).activeOf('decision')).toHaveLength(0)
+  })
+
+  it('can still be answered, once, which releases its hold', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await openOne()
+    await repo.defer(d.id, later)
+    const answered = await repo.answer(d.id, { kind: 'option', index: 1 }, 'orchestrator')
+    expect(answered).toMatchObject({ status: 'answered', deferredUntil: null, answeredVia: 'orchestrator' })
+    expect(await createHoldRepo(db, now).active('decision', d.id)).toBeNull()
+    await expect(repo.answer(d.id, { kind: 'option', index: 0 }, 'thread')).rejects.toThrow(/Already answered from the orchestrator panel/)
+  })
+
+  it('expiring a deferred decision releases its hold', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await openOne()
+    await repo.defer(d.id, later)
+    expect((await repo.expire(d.id)).status).toBe('expired')
+    expect(await createHoldRepo(db, now).active('decision', d.id)).toBeNull()
   })
 })

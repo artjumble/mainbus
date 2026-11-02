@@ -502,7 +502,7 @@ describe('UnattendedMode timing', () => {
     return { mode: new UnattendedMode(deps), runner, emitted, box }
   }
 
-  const none = { summary: null, canContinue: false, pausedByUser: false }
+  const none = { summary: null, canContinue: false, pausedByUser: false, deferredUntil: null }
   const ready: TicketState = { ...none, column: 'ready', phase: 'not_started', agentStatus: null }
   const working: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'working' }
   const paused: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'paused', canContinue: true }
@@ -551,5 +551,15 @@ describe('UnattendedMode timing', () => {
     // Ticket 7 is no longer Ready, so the queue finds nothing else and waits.
     expect(mode.get()).toEqual({ on: true, status: { kind: 'idle' } })
     expect(runner.continue).not.toHaveBeenCalled()
+  })
+
+  it('a ticket waiting on a deferred decision counts as settled, not failed', async () => {
+    const { mode, box } = stub(() => undefined)
+    await mode.set(true)
+    await mode.settled()
+    box.state = { ...working, agentStatus: 'waiting_on_you', phase: 'waiting_on_you', deferredUntil: '2026-11-03T09:00:00.000Z' }
+    mode.observe({ type: 'board.changed', workspaceId: 'w' })
+    await mode.settled()
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'idle' } })
   })
 })

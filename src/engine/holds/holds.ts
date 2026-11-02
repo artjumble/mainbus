@@ -1,5 +1,6 @@
 import type { EngineEvent } from '../../shared/api'
-import type { Hold, HoldOptions } from '../../shared/domain'
+import type { Decision, Hold, HoldOptions } from '../../shared/domain'
+import type { DecisionRepo } from '../store/decisions'
 import type { HoldRepo } from '../store/holds'
 import type { TicketRepo } from '../store/tickets'
 import { MAX_TIMER_MS, type Clock } from './clock'
@@ -9,6 +10,7 @@ export const REASON_MAX = 500
 export interface HoldsDeps {
   holds: HoldRepo
   tickets: Pick<TicketRepo, 'get'>
+  decisions: Pick<DecisionRepo, 'get' | 'defer'>
   clock: Clock
   emit: (e: EngineEvent) => void
 }
@@ -22,7 +24,7 @@ export function futureDate(until: string, now: Date): string {
 }
 
 /**
- * Holds on tickets: holding and unholding, and the one timer, set for the next hold with a date, that releases
+ * Holds on tickets and on decisions (Later…): holding and unholding, and the one timer, set for the next hold with a date, that releases
  * holds as their date passes. Holding only marks a ticket; it never touches a running agent.
  */
 export class HoldService {
@@ -33,6 +35,8 @@ export class HoldService {
 
   /** At launch: releases the holds that came due while Mainbus was closed, and sets the timer for the next one. */
   async start(): Promise<void> {
+    // A deferred decision left without a hold (a crash between the two) would never come back.
+    await this.deps.holds.reconcileDecisions()
     await this.releaseDue()
   }
 
@@ -60,6 +64,29 @@ export class HoldService {
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
   }
 
+  /** Later…: defers the pending decision until `until`, which must be in the future. */
+  async defer(decisionId: string, until: string): Promise<Decision> {
+    const at = futureDate(until, this.deps.clock.now())
+    const decision = await this.deps.decisions.defer(decisionId, at)
+    await this.schedule()
+    await this.announce(decision)
+    return decision
+  }
+
+  /** Brings a deferred decision back now; throws when it isn't deferred. */
+  async bringBack(decisionId: string): Promise<void> {
+    const released = await this.deps.holds.release('decision', decisionId)
+    if (!released) throw new Error('That decision is not deferred')
+    await this.schedule()
+    await this.announce(await this.deps.decisions.get(decisionId))
+  }
+
+  private async announce(decision: Decision): Promise<void> {
+    this.deps.emit({ type: 'decision.changed', decision })
+    const ticket = await this.deps.tickets.get(decision.ticketId).catch(() => null)
+    if (ticket) this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+  }
+
   /** The ticket's hold, or null. */
   active(ticketId: string): Promise<Hold | null> {
     return this.deps.holds.active('ticket', ticketId)
@@ -81,12 +108,18 @@ export class HoldService {
     if (this.disposed) return
     const released = await this.deps.holds.releaseDue(this.deps.clock.now())
     const workspaces = new Set<string>()
+    const decisions: Decision[] = []
     for (const hold of released) {
-      if (hold.targetKind !== 'ticket') continue
+      if (hold.targetKind === 'decision') {
+        const decision = await this.deps.decisions.get(hold.targetId).catch(() => null)
+        if (decision) decisions.push(decision)
+        continue
+      }
       const ticket = await this.deps.tickets.get(hold.targetId).catch(() => null)
       if (ticket) workspaces.add(ticket.workspaceId)
     }
     await this.schedule()
+    for (const decision of decisions) await this.announce(decision)
     for (const workspaceId of workspaces) this.deps.emit({ type: 'board.changed', workspaceId })
   }
 

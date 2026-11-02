@@ -42,7 +42,9 @@ When the user has decided on any of your proposals since their last message, a b
 
 The same heading can also list questions from the agents that the user answered since then, with the answer and where it came from. They are settled: don't propose an answer to them.
 
-It can also list tickets whose hold the user released, or that ran out on its date, since then: they can be started again.`
+It can also list tickets whose hold the user released, or that ran out on its date, since then: they can be started again.
+
+And it can list decisions the user put off with Later… whose date came, which are waiting on the user again. Don't answer them or propose an answer.`
 
 export function buildOrchestratorPrompt(): string {
   return [ORCHESTRATOR_ROLE, VOICE_RULES, ORCHESTRATOR_TRUST, ORCHESTRATOR_TOOLS, MESSAGE_HEADER_NOTE].join('\n\n')

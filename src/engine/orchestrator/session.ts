@@ -7,6 +7,7 @@ import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, T
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
+import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
@@ -53,6 +54,8 @@ export interface OrchestratorDeps {
   answeredSince: (workspaceId: string, since: string | null) => Promise<AnsweredDecision[]>
   /** The tickets whose hold was released since `since` in the open workspace, by hand, by a start or by their date. */
   releasedSince: (workspaceId: string, since: string | null) => Promise<ReleasedHold[]>
+  /** The decisions the user put off that came back on their date since `since`. */
+  resurfacedSince: (workspaceId: string, since: string | null) => Promise<ResurfacedDecision[]>
 }
 
 interface Live {
@@ -142,7 +145,8 @@ export class OrchestratorSession {
     const blocks = [
       await this.deps.proposals.outcomeBlock(since),
       answeredBlock(await this.deps.answeredSince(ws.id, since)),
-      releasedHoldsBlock(await this.deps.releasedSince(ws.id, since))
+      releasedHoldsBlock(await this.deps.releasedSince(ws.id, since)),
+      resurfacedBlock(await this.deps.resurfacedSince(ws.id, since))
     ].filter((b) => b !== null)
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)

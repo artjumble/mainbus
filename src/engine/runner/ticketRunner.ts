@@ -287,17 +287,17 @@ export class TicketRunner {
   async boardView(
     ticketId: string,
     workspaceLineup: () => Promise<LineupRole[]>
-  ): Promise<{ state: TicketState; lineup: StripRole[]; skipTo: string | null; pendingDecisions: Decision[] }> {
-    const { state, run, roles, pending } = await this.inspect(ticketId, true)
+  ): Promise<{ state: TicketState; lineup: StripRole[]; skipTo: string | null; pendingDecisions: Decision[]; deferredDecisions: Decision[] }> {
+    const { state, run, roles, pending, deferred } = await this.inspect(ticketId, true)
     if (!run || !roles) {
       const lineup = lineupStrip({ roles: await workspaceLineup(), runs: [], latestRunId: null, agentStatus: null })
-      return { state, lineup, skipTo: null, pendingDecisions: pending }
+      return { state, lineup, skipTo: null, pendingDecisions: pending, deferredDecisions: deferred }
     }
     const runs = await this.repos.runs.listForTicketRun(run.ticketRunId)
     // The role Skip would start, named in its confirmation.
     const skipTo = run.endReason === null && state.column !== 'done' ? ((await this.nextRole(run))?.name ?? null) : null
     const lineup = lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus })
-    return { state, lineup, skipTo, pendingDecisions: pending }
+    return { state, lineup, skipTo, pendingDecisions: pending, deferredDecisions: deferred }
   }
 
   /**
@@ -307,7 +307,7 @@ export class TicketRunner {
   private async inspect(
     ticketId: string,
     doneRun: boolean
-  ): Promise<{ state: TicketState; run: AgentRunRow | null; roles: LineupRole[] | null; pending: Decision[] }> {
+  ): Promise<{ state: TicketState; run: AgentRunRow | null; roles: LineupRole[] | null; pending: Decision[]; deferred: Decision[] }> {
     const ticket = await this.repos.tickets.get(ticketId)
     const done = ticket.manualColumn === 'done'
     const run = !done || doneRun ? await this.repos.runs.latest(ticketId) : null
@@ -315,18 +315,20 @@ export class TicketRunner {
     if (done) {
       // The run's events and the decisions need not be loaded.
       const state = currentState({ ticket, run: null, pendingDecisions: [], processAlive: false, activePhase: 'done' })
-      return { state, run, roles, pending: [] }
+      return { state, run, roles, pending: [], deferred: [] }
     }
     const pending = (await this.repos.decisions.pending(ticketId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const deferred = (await this.repos.decisions.deferred(ticketId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     const activePhase: Phase = run && roles ? roleIn(roles, run).activePhase : 'not_started'
     const state = currentState({
       ticket,
       run: run ? { endReason: run.endReason, events: await this.repos.runs.events(run.id) } : null,
       pendingDecisions: pending,
+      deferredDecisions: deferred,
       processAlive: run ? this.live.has(run.id) || this.isLaunching(ticketId) : false,
       activePhase
     })
-    return { state, run, roles, pending }
+    return { state, run, roles, pending, deferred }
   }
 
   /**
@@ -1019,7 +1021,7 @@ export class TicketRunner {
       return
     }
     live.errorTurns = 0
-    if (asked || (await this.repos.decisions.pending(live.ticketId)).length > 0) {
+    if (asked || (await this.repos.decisions.unsettled(live.ticketId)).length > 0) {
       live.silentTurns = 0
       return
     }
@@ -1329,14 +1331,15 @@ export class TicketRunner {
     where: { ticketId: string; workspaceId: string },
     which: (d: Decision) => boolean
   ): Promise<void> {
-    for (const d of await this.repos.decisions.pending(where.ticketId)) {
+    for (const d of await this.repos.decisions.unsettled(where.ticketId)) {
       if (which(d)) await this.expireIfPending(d.id, where.workspaceId)
     }
   }
 
-  /** Expires the decision if it is still pending, and releases any agent waiting on it with no answer. */
+  /** Expires the decision if it is still open (pending or deferred), and releases any agent waiting on it with no answer. */
   private async expireIfPending(decisionId: string, workspaceId: string): Promise<void> {
-    if ((await this.repos.decisions.get(decisionId)).status === 'pending') {
+    const { status } = await this.repos.decisions.get(decisionId)
+    if (status === 'pending' || status === 'deferred') {
       // expire() throws if someone settled it in the meantime; then there is nothing to do.
       const expired = await this.repos.decisions.expire(decisionId).catch(() => null)
       if (expired) this.announceDecision(expired, workspaceId)

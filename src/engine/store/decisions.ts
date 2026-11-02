@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, gte, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { ANSWERED_VIA_LABELS, type AnsweredVia, type Decision, type DecisionAnswer } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { decisions, tickets } from '../db/schema'
+import { decisions, holds, tickets } from '../db/schema'
 
 /**
  * What Mainbus itself does with the answer to a question it asked on a role's behalf. Role ids are those of the
@@ -16,14 +16,21 @@ export type DecisionAction =
   | { kind: 'round_trip'; fromRoleId: string; toRoleId: string; details: string }
 
 export interface DecisionRepo {
-  open(d: Omit<Decision, 'id' | 'status' | 'answer' | 'createdAt' | 'answeredAt' | 'answeredBy' | 'answeredVia'>, action?: DecisionAction): Promise<Decision>
+  open(d: Omit<Decision, 'id' | 'status' | 'deferredUntil' | 'answer' | 'createdAt' | 'answeredAt' | 'answeredBy' | 'answeredVia'>, action?: DecisionAction): Promise<Decision>
   /** What Mainbus does with the decision's answer itself, or null when the answer goes to the agent as it is. */
   actionOf(id: string): Promise<DecisionAction | null>
-  /** Throws unless the decision is still pending; for one already answered, says where from ("Already answered from the board"). */
+  /** Throws unless the decision is still open (pending or deferred), and releases its hold; for one already answered, says where from ("Already answered from the board"). */
   answer(id: string, a: DecisionAnswer, via: AnsweredVia): Promise<Decision>
-  /** Throws unless the decision is still pending. */
+  /** Throws unless the decision is still pending or deferred. */
   expire(id: string): Promise<Decision>
+  /** Puts a pending decision off until `until` (ISO) with a hold on it, in one step. Throws unless it is pending. */
+  defer(id: string, until: string): Promise<Decision>
+  /** The ticket's pending decisions: the ones waiting on the user now. */
   pending(ticketId: string): Promise<Decision[]>
+  /** The ticket's deferred decisions, oldest first. */
+  deferred(ticketId: string): Promise<Decision[]>
+  /** The ticket's open decisions: pending and deferred. */
+  unsettled(ticketId: string): Promise<Decision[]>
   /** Every decision of the ticket, whatever its status, in the order they were opened. */
   forTicket(ticketId: string): Promise<Decision[]>
   get(id: string): Promise<Decision>
@@ -31,7 +38,7 @@ export interface DecisionRepo {
   answeredSince(workspaceId: string, since: string | null): Promise<{ number: number; title: string; decision: Decision }[]>
 }
 
-function toDecision(row: typeof decisions.$inferSelect): Decision {
+function toDecision(row: typeof decisions.$inferSelect, deferredUntil: string | null = null): Decision {
   return {
     id: row.id,
     ticketId: row.ticketId,
@@ -42,6 +49,7 @@ function toDecision(row: typeof decisions.$inferSelect): Decision {
     recommended: row.recommended,
     allowAlways: row.allowAlways,
     status: row.status as Decision['status'],
+    deferredUntil: row.status === 'deferred' ? deferredUntil : null,
     answer: row.answer === null ? null : (JSON.parse(row.answer) as DecisionAnswer),
     createdAt: row.createdAt,
     answeredAt: row.answeredAt,
@@ -57,22 +65,72 @@ function notPending(d: Decision): Error {
 }
 
 export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
+  /** The decisions of `rows`, the deferred ones with the date of their unreleased hold. */
+  async function withDates(rows: (typeof decisions.$inferSelect)[]): Promise<Decision[]> {
+    const deferredIds = rows.filter((r) => r.status === 'deferred').map((r) => r.id)
+    const dates = new Map<string, string | null>()
+    if (deferredIds.length > 0) {
+      const held = await db
+        .select({ targetId: holds.targetId, until: holds.until })
+        .from(holds)
+        .where(and(eq(holds.targetKind, 'decision'), isNull(holds.releasedAt), inArray(holds.targetId, deferredIds)))
+      for (const h of held) dates.set(h.targetId, h.until)
+    }
+    return rows.map((r) => toDecision(r, dates.get(r.id) ?? null))
+  }
+
   async function get(id: string): Promise<Decision> {
     const [row] = await db.select().from(decisions).where(eq(decisions.id, id))
     if (!row) throw new Error(`Decision not found: ${id}`)
-    return toDecision(row)
+    return (await withDates([row]))[0]
   }
 
-  /** Moves a pending decision to a new state; the status check is part of the UPDATE, so only one caller wins. */
+  async function withStatus(ticketId: string, statuses: string[]): Promise<Decision[]> {
+    const rows = await db
+      .select()
+      .from(decisions)
+      .where(and(eq(decisions.ticketId, ticketId), inArray(decisions.status, statuses)))
+      .orderBy(asc(sql`rowid`))
+    return withDates(rows)
+  }
+
+  /**
+   * Moves an open (pending or deferred) decision to a new state and releases its hold in the same step; the status
+   * check is part of the UPDATE, so only one caller wins.
+   */
   async function settle(id: string, set: Partial<typeof decisions.$inferInsert>): Promise<Decision> {
     const current = await get(id)
-    if (current.status !== 'pending') throw notPending(current)
-    const changed = await db
-      .update(decisions)
-      .set(set)
-      .where(and(eq(decisions.id, id), eq(decisions.status, 'pending')))
-      .returning({ id: decisions.id })
+    if (current.status !== 'pending' && current.status !== 'deferred') throw notPending(current)
+    const [changed] = await db.batch([
+      db
+        .update(decisions)
+        .set(set)
+        .where(and(eq(decisions.id, id), inArray(decisions.status, ['pending', 'deferred'])))
+        .returning({ id: decisions.id }),
+      // Whoever settled it, its hold goes; a settled decision has nothing to come back for.
+      db
+        .update(holds)
+        .set({ releasedAt: now().toISOString() })
+        .where(and(eq(holds.targetKind, 'decision'), eq(holds.targetId, id), isNull(holds.releasedAt)))
+    ])
     // Someone else settled it between our check and our update.
+    if (changed.length === 0) throw notPending(await get(id))
+    return get(id)
+  }
+
+  async function defer(id: string, until: string): Promise<Decision> {
+    const current = await get(id)
+    if (current.status === 'deferred') throw new Error(`Already deferred until ${current.deferredUntil ?? 'later'}`)
+    if (current.status !== 'pending') throw notPending(current)
+    const [changed] = await db.batch([
+      db.update(decisions).set({ status: 'deferred' }).where(and(eq(decisions.id, id), eq(decisions.status, 'pending'))).returning({ id: decisions.id }),
+      db.insert(holds).select(
+        sql`select ${randomUUID()}, 'decision', ${id}, null, ${until}, 'user', ${now().toISOString()}, null
+          where exists (select 1 from decisions where id = ${id} and status = 'deferred')
+          and not exists (select 1 from holds where target_kind = 'decision' and target_id = ${id} and released_at is null)`
+      )
+    ])
+    // Someone else settled or deferred it between our check and our update.
     if (changed.length === 0) throw notPending(await get(id))
     return get(id)
   }
@@ -118,18 +176,14 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
       return settle(id, { status: 'expired' })
     },
 
-    async pending(ticketId) {
-      const rows = await db
-        .select()
-        .from(decisions)
-        .where(and(eq(decisions.ticketId, ticketId), eq(decisions.status, 'pending')))
-        .orderBy(asc(sql`rowid`))
-      return rows.map(toDecision)
-    },
+    defer,
+    pending: (ticketId) => withStatus(ticketId, ['pending']),
+    deferred: (ticketId) => withStatus(ticketId, ['deferred']),
+    unsettled: (ticketId) => withStatus(ticketId, ['pending', 'deferred']),
 
     async forTicket(ticketId) {
       const rows = await db.select().from(decisions).where(eq(decisions.ticketId, ticketId)).orderBy(asc(sql`rowid`))
-      return rows.map(toDecision)
+      return withDates(rows)
     },
 
     async answeredSince(workspaceId, since) {
@@ -147,6 +201,7 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
           )
         )
         .orderBy(asc(decisions.answeredAt), asc(sql`${decisions}.rowid`))
+      // Answered decisions are never deferred, so they carry no date.
       return rows.map((r) => ({ number: r.number, title: r.title, decision: toDecision(r.decision) }))
     },
 

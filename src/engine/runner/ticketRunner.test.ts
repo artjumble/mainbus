@@ -555,7 +555,8 @@ describe('TicketRunner', () => {
       agentStatus: 'paused',
       summary: null,
       canContinue: true,
-      pausedByUser: false
+      pausedByUser: false,
+      deferredUntil: null
     })
   })
 
@@ -716,7 +717,8 @@ describe('TicketRunner', () => {
       agentStatus: null,
       summary: null,
       canContinue: false,
-      pausedByUser: false
+      pausedByUser: false,
+      deferredUntil: null
     })
   })
 
@@ -767,7 +769,8 @@ describe('TicketRunner', () => {
       agentStatus: null,
       summary: null,
       canContinue: false,
-      pausedByUser: false
+      pausedByUser: false,
+      deferredUntil: null
     })
   })
 
@@ -860,7 +863,8 @@ describe('TicketRunner', () => {
       agentStatus: null,
       summary: null,
       canContinue: false,
-      pausedByUser: false
+      pausedByUser: false,
+      deferredUntil: null
     })
     expect(events).not.toHaveBeenCalled()
     expect(latest).not.toHaveBeenCalled()
@@ -1729,7 +1733,8 @@ describe('TicketRunner through a lineup', () => {
       agentStatus: 'working',
       summary: null,
       canContinue: false,
-      pausedByUser: false
+      pausedByUser: false,
+      deferredUntil: null
     })
     expect(runner.isLaunching(ticket.id)).toBe(true)
 
@@ -2292,7 +2297,8 @@ describe('TicketRunner Pause and Resume', () => {
       agentStatus: 'paused',
       summary: null,
       canContinue: false,
-      pausedByUser: true
+      pausedByUser: true,
+      deferredUntil: null
     })
     expect(await repos.runs.latest(ticket.id)).toMatchObject({ endReason: null, sessionId: 's1' })
     const events = await thread()

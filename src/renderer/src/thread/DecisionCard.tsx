@@ -1,8 +1,10 @@
-import { Badge, Button, Paper, Radio, Stack, Text, Textarea } from '@mantine/core'
+import { Badge, Button, Group, Paper, Radio, Stack, Text, Textarea } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
 import type { AnsweredVia, Decision, DecisionAnswer } from '../../../shared/domain'
+import { deferredLabel } from '../../../shared/hold'
 import { invoke } from '../api'
 import { showAgentError } from './agentError'
+import { LaterMenu } from './LaterMenu'
 
 interface Props {
   decision: Decision
@@ -21,7 +23,8 @@ export async function sendAnswer(decision: Decision, answer: DecisionAnswer, via
 
 /**
  * The options of a question, with the recommended one marked, an optional note and the Answer button. The
- * thread card and the board card's popover both show it; `via` says which one this is.
+ * thread card and the board card's popover both show it; `via` says which one this is. A pending one also offers
+ * Later…; `onAnswered` is called once it is answered or put off.
  */
 export function QuestionForm({
   decision,
@@ -71,9 +74,12 @@ export function QuestionForm({
         value={note}
         onChange={(e) => setNote(e.currentTarget.value)}
       />
-      <Button w="fit-content" disabled={choice === null} loading={sending} onClick={() => void submit()}>
-        Answer
-      </Button>
+      <Group gap="xs">
+        <Button w="fit-content" disabled={choice === null} loading={sending} onClick={() => void submit()}>
+          Answer
+        </Button>
+        {decision.status === 'pending' && <LaterMenu decision={decision} onDeferred={onAnswered} />}
+      </Group>
     </>
   )
 }
@@ -86,9 +92,24 @@ export function DecisionCard({ decision }: Props): ReactElement {
         <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
           {decision.question}
         </Text>
-        {decision.status === 'pending' ? <QuestionForm decision={decision} via="thread" /> : <Outcome decision={decision} />}
+        {decision.status === 'deferred' && <DeferredNote decision={decision} />}
+        {decision.status === 'pending' || decision.status === 'deferred' ? (
+          <QuestionForm decision={decision} via="thread" />
+        ) : (
+          <Outcome decision={decision} />
+        )}
       </Stack>
     </Paper>
+  )
+}
+
+/** "Deferred until Tue", above the answer controls of a decision the user put off. */
+export function DeferredNote({ decision }: Props): ReactElement | null {
+  if (decision.deferredUntil === null) return null
+  return (
+    <Text size="xs" c="dimmed" data-deferred-note>
+      {deferredLabel(decision.deferredUntil, new Date())}
+    </Text>
   )
 }
 

@@ -11,6 +11,8 @@ export interface StateInput {
   run: { endReason: EndReason | null; events: StoredEvent[] } | null
   /** Only pending decisions; the caller filters by status. */
   pendingDecisions: Decision[]
+  /** Only deferred decisions (Later…); defaults to none. */
+  deferredDecisions?: Decision[]
   processAlive: boolean
   activePhase: Phase
 }
@@ -18,11 +20,12 @@ export interface StateInput {
 /**
  * Derives a ticket's board column, phase and agent status from its manual column,
  * its latest run, and the decisions still waiting on the user.
- * Precedence: done, handoff, pending decision, failed, stopped, paused by the user, paused, working.
+ * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, paused, working.
  */
 export function currentState(input: StateInput): TicketState {
   const { ticket, run, pendingDecisions, processAlive, activePhase } = input
-  const none = { summary: null, canContinue: false, pausedByUser: false }
+  const deferredDecisions = input.deferredDecisions ?? []
+  const none = { summary: null, canContinue: false, pausedByUser: false, deferredUntil: null }
 
   if (ticket.manualColumn === 'done') {
     return { ...none, column: 'done', phase: 'done', agentStatus: null }
@@ -48,6 +51,18 @@ export function currentState(input: StateInput): TicketState {
   if (run.endReason === 'stopped') {
     // Stopping puts the ticket back in Ready; the user may then move it to Backlog.
     return { ...none, column: ticket.manualColumn, phase: 'not_started', agentStatus: null }
+  }
+  if (deferredDecisions.length > 0) {
+    // The agent stays waiting on the user, whether or not its process is alive; the ticket just isn't asking for them now.
+    const dates = deferredDecisions.map((d) => d.deferredUntil).filter((d) => d !== null)
+    return {
+      ...none,
+      column: 'in_progress',
+      phase: 'waiting_on_you',
+      agentStatus: 'waiting_on_you',
+      summary: deferredDecisions[0].question,
+      deferredUntil: dates.sort()[0] ?? null
+    }
   }
   if (run.endReason === null && pausedByUser(run.events)) {
     // Paused at once, even while the process is still going down; only Resume continues it.

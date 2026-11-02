@@ -56,6 +56,7 @@ const ticket: Ticket = {
 
 const decision = (over: Partial<Decision>): Decision => ({
   id: 'd1',
+  deferredUntil: null,
   ticketId: 't1',
   agentRunId: 'r1',
   kind: 'question',
