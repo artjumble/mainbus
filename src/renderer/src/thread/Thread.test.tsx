@@ -314,3 +314,9 @@ test('without summariseTools, tool rows show one by one', () => {
   expect(container.querySelector('[data-event="tool_group"]')).toBeNull()
   expect(container.querySelectorAll('[data-event="tool"]')).toHaveLength(5)
 })
+
+test('a declared wait reads "<role> is waiting: <reason>, until <time>"', () => {
+  const until = new Date(2026, 10, 2, 14, 30).toISOString()
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'waiting', reason: 'the full test suite', until })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="waiting"]')).toHaveTextContent('Implementer is waiting: the full test suite, until 14:30')
+})

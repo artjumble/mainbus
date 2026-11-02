@@ -51,7 +51,8 @@ describe('run repo', () => {
       returnToRoleId: null,
       skipped: false,
       processPid: null,
-      processStartedAt: null
+      processStartedAt: null,
+      declaredWait: null
     })
   })
 

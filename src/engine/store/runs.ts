@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
-import type { LineupRole } from '../../shared/domain'
+import type { DeclaredWait, LineupRole } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { Db } from '../db/open'
-import { agentEvents, agentRuns, ticketRuns } from '../db/schema'
+import { agentEvents, agentRuns, stuckEpisodes, ticketRuns } from '../db/schema'
 
 /** `handed_back`: the run's role reported a problem and handed the ticket back to an earlier role. */
 export type EndReason = 'handoff' | 'handed_back' | 'stopped' | 'failed'
@@ -29,6 +29,8 @@ export type AgentRunRow = {
   /** The agent's `claude` process id and start time, until what it left running has been swept; null when none is recorded. */
   processPid: number | null
   processStartedAt: number | null
+  /** The wait the agent declared with report_waiting (it may be past); null when it declared none, or the run has ended. */
+  declaredWait: DeclaredWait | null
 }
 
 /** How a run ends when the user skipped its role. */
@@ -73,14 +75,18 @@ export interface RunRepo {
   listForTicket(ticketId: string): Promise<AgentRunRow[]>
   /** Every agent run of a ticket run, oldest first. */
   listForTicketRun(ticketRunId: string): Promise<AgentRunRow[]>
+  /** Every run that has not ended, oldest first. */
+  listOpen(): Promise<AgentRunRow[]>
   ticketRun(ticketRunId: string): Promise<TicketRunRow>
   setSession(runId: string, sessionId: string): Promise<void>
   /** Records the run's `claude` process (or, with null, that nothing of it is left to sweep). */
   setProcess(runId: string, process: { pid: number; startedAt: number } | null): Promise<void>
+  /** Records the wait the run's agent declared, replacing an earlier one. */
+  setDeclaredWait(runId: string, wait: DeclaredWait): Promise<void>
   /**
    * Ends an open run, and its ticket run with it: a handoff ends the ticket run as done (it was the last role),
    * a stop or failure as stopped or failed. Returns false, changing nothing, if the run had already ended.
-   * With `skipped`, the run is marked as skipped.
+   * With `skipped`, the run is marked as skipped. An ended run has no declared wait and no open stuck episode.
    */
   end(runId: string, reason: EndingReason, opts?: EndOptions): Promise<boolean>
   /** Appends to the run's thread; seq numbers start at 1 and are consecutive per run. */
@@ -101,7 +107,13 @@ const runColumns = {
   returnToRoleId: agentRuns.returnTo,
   skipped: agentRuns.skipped,
   processPid: agentRuns.processPid,
-  processStartedAt: agentRuns.processStartedAt
+  processStartedAt: agentRuns.processStartedAt,
+  declaredWait: agentRuns.declaredWait
+}
+
+/** A selected run with its declared wait (stored as JSON) parsed. */
+function toRun(row: Omit<AgentRunRow, 'declaredWait'> & { declaredWait: string | null }): AgentRunRow {
+  return { ...row, declaredWait: row.declaredWait === null ? null : (JSON.parse(row.declaredWait) as DeclaredWait) }
 }
 
 const TICKET_RUN_END: Record<EndingReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
@@ -122,8 +134,15 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
 
   async function get(runId: string): Promise<AgentRunRow | null> {
     const [row] = await db.select(runColumns).from(agentRuns).where(eq(agentRuns.id, runId))
-    return row ?? null
+    return row ? toRun(row) : null
   }
+
+  /** A run that ends has no open stuck episode left. */
+  const closeEpisode = (runId: string) =>
+    db
+      .update(stuckEpisodes)
+      .set({ closedAt: now().toISOString() })
+      .where(and(eq(stuckEpisodes.agentRunId, runId), isNull(stuckEpisodes.closedAt)))
 
   /**
    * Starts `role`'s run after `prevRunId`, then ends `prevRunId` with `reason`; see handOn. `returnTo` is the
@@ -155,8 +174,9 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
     if (inserted.length === 0) return null
     await db
       .update(agentRuns)
-      .set({ endReason: reason, endedAt: now().toISOString(), ...(skipped ? { skipped: true } : {}) })
+      .set({ endReason: reason, endedAt: now().toISOString(), declaredWait: null, ...(skipped ? { skipped: true } : {}) })
       .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
+    await closeEpisode(prevRunId)
     return get(v.id)
   }
 
@@ -196,23 +216,34 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
         // rowid breaks ties between runs started in the same millisecond.
         .orderBy(desc(agentRuns.startedAt), desc(sql`rowid`))
         .limit(1)
-      return row ?? null
+      return row ? toRun(row) : null
     },
 
-    listForTicket(ticketId) {
-      return db
+    async listForTicket(ticketId) {
+      const rows = await db
         .select(runColumns)
         .from(agentRuns)
         .where(eq(agentRuns.ticketId, ticketId))
         .orderBy(asc(agentRuns.startedAt), asc(sql`rowid`))
+      return rows.map(toRun)
     },
 
-    listForTicketRun(ticketRunId) {
-      return db
+    async listForTicketRun(ticketRunId) {
+      const rows = await db
         .select(runColumns)
         .from(agentRuns)
         .where(eq(agentRuns.ticketRunId, ticketRunId))
         .orderBy(asc(agentRuns.startedAt), asc(sql`rowid`))
+      return rows.map(toRun)
+    },
+
+    async listOpen() {
+      const rows = await db
+        .select(runColumns)
+        .from(agentRuns)
+        .where(isNull(agentRuns.endReason))
+        .orderBy(asc(agentRuns.startedAt), asc(sql`rowid`))
+      return rows.map(toRun)
     },
 
     async ticketRun(ticketRunId) {
@@ -232,15 +263,20 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
         .where(eq(agentRuns.id, runId))
     },
 
+    async setDeclaredWait(runId, wait) {
+      await db.update(agentRuns).set({ declaredWait: JSON.stringify(wait) }).where(eq(agentRuns.id, runId))
+    },
+
     async end(runId, reason, opts) {
       const endedAt = now().toISOString()
       // The open-run check is part of the UPDATE, so of two concurrent enders only one wins.
       const [ended] = await db
         .update(agentRuns)
-        .set({ endReason: reason, endedAt, ...(opts?.skipped ? { skipped: true } : {}) })
+        .set({ endReason: reason, endedAt, declaredWait: null, ...(opts?.skipped ? { skipped: true } : {}) })
         .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason)))
         .returning({ ticketRunId: agentRuns.ticketRunId })
       if (!ended) return false
+      await closeEpisode(runId)
       await db
         .update(ticketRuns)
         .set({ status: TICKET_RUN_END[reason], endedAt })

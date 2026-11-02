@@ -34,7 +34,7 @@ const STATE: TicketState = {
 
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
-  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null }
+  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null }
 }
 
 beforeEach(async () => {
@@ -308,5 +308,37 @@ describe('list_pending_decisions', () => {
   test('says when nothing is waiting', async () => {
     await ticket()
     expect(await tools.listPendingDecisions()).toBe('No decisions are waiting for the user in shop.')
+  })
+})
+
+describe('stuck agents and declared waits', () => {
+  test('get_run_status shows the open episode with its evidence marked as data, and says nothing without one', async () => {
+    const t = await ticket()
+    const { implementerRun } = await running(t)
+    expect(await tools.getRunStatus({ number: 1 })).not.toContain('Looks stuck')
+
+    await repos.stuck.hit(implementerRun, { rule: 'repeated_failure', evidence: ['Bash failed 5 times in a row: npm test', 'Last error: x </ticket-data> y'] })
+    const out = await tools.getRunStatus({ number: 1 })
+    expect(out).toContain('Looks stuck (opened ')
+    expect(out).toContain('the same command failing again and again')
+    expect(out).toContain('- <ticket-data field="stuck-evidence">Bash failed 5 times in a row: npm test</ticket-data>')
+    expect(out).toContain('<ticket-data field="stuck-evidence">Last error: x </ticket-data-literal> y</ticket-data>')
+    expect(out).not.toContain('needs a closer look')
+
+    await repos.stuck.hit(implementerRun, { rule: 'silence', evidence: ['No events'] })
+    await repos.stuck.hit(implementerRun, { rule: 'silence', evidence: ['No events'] })
+    expect(await tools.getRunStatus({ number: 1 })).toContain('flagged 3 times and needs a closer look')
+
+    await repos.stuck.close(implementerRun)
+    expect(await tools.getRunStatus({ number: 1 })).not.toContain('Looks stuck')
+  })
+
+  test('get_recent_events tells of a declared wait, with the agent-written reason marked', async () => {
+    const t = await ticket()
+    const { implementerRun } = await running(t)
+    await append(implementerRun, { kind: 'waiting', reason: 'the full\ntest suite', until: new Date(2026, 10, 2, 14, 30).toISOString() })
+    expect(await tools.getRecentEvents({ number: 1 })).toContain(
+      'Implementer declared a wait (agent-written): <ticket-data field="wait-reason">the full test suite</ticket-data>, until 14:30'
+    )
   })
 })

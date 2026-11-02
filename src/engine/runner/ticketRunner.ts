@@ -2,6 +2,7 @@ import type { EngineEvent } from '../../shared/api'
 import {
   ANSWERED_VIA,
   type AnsweredVia,
+  type DeclaredWait,
   type Decision,
   type DecisionAnswer,
   type Effort,
@@ -15,6 +16,7 @@ import {
 } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shared/events'
 import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
+import { clockTime } from '../../shared/waiting'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
 import { endedNotice, type ProcessRef, type ProcessSweeper } from '../processes/sweep'
@@ -23,7 +25,7 @@ import { guardReason } from '../permissions/guard'
 import { commandOf, describeRequest, isAllowed, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
-import { buildRolePrompt, data, firstMessage, type EarlierHandoff } from '../roles/prompt'
+import { buildRolePrompt, data, firstMessage, oneLine, type EarlierHandoff } from '../roles/prompt'
 import {
   ResumeFailedError,
   type AgentRuntime,
@@ -40,6 +42,8 @@ import type { Repos } from '../store'
 import type { DecisionAction } from '../store/decisions'
 import type { AgentRunRow } from '../store/runs'
 import { previousAttempt, skippedDigest, skipSummaryPrompt } from './digest'
+import { STUCK } from '../stuck/config'
+import type { RunObservation } from '../stuck/observation'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
 
 export interface RunnerDeps {
@@ -137,6 +141,12 @@ interface LiveRun extends ThreadTarget {
   stopping: Promise<void> | null
   /** The usage limit the agent last ran into, until a request is allowed again or a turn succeeds. */
   limit: UsageLimit | null
+  /** When the process was launched, and when it last did or was given anything (ms since the epoch): for the stuck detector. */
+  startedAt: number
+  lastActivityAt: number
+  /** When the turn under way began (a launch, message, answer or nudge), and whether it has not ended yet. */
+  turnStartedAt: number
+  inTurn: boolean
   /** Settles when the event pump has finished. */
   done: Promise<void>
 }
@@ -241,6 +251,33 @@ export class TicketRunner {
     const { state, run } = await this.inspect(ticketId, false)
     if (!run || run.endReason !== null) return null
     return { agentRunId: run.id, role: run.role, agentStatus: state.agentStatus, next: (await this.nextRole(run))?.name ?? null }
+  }
+
+  /**
+   * What the stuck detector needs to know about the ticket's open run; null when the ticket has none. Read
+   * outside the ticket's queue: it changes nothing.
+   */
+  async observeRun(ticketId: string): Promise<RunObservation | null> {
+    const { state, run } = await this.inspect(ticketId, false)
+    if (!run || run.endReason !== null) return null
+    const ticket = await this.repos.tickets.get(ticketId)
+    const events = await this.repos.runs.events(run.id)
+    const live = this.live.get(run.id)
+    return {
+      runId: run.id,
+      ticketId,
+      workspaceId: ticket.workspaceId,
+      role: run.role,
+      worktreePath: ticket.worktreePath,
+      state,
+      launching: this.isLaunching(ticketId),
+      usageLimited: this.limited.has(ticketId) || (live?.limit ?? null) !== null || endedOnUsageLimit(events),
+      declaredWait: run.declaredWait,
+      events,
+      live: live
+        ? { lastActivityAt: live.lastActivityAt, startedAt: live.startedAt, turnStartedAt: live.turnStartedAt, inTurn: live.inTurn }
+        : null
+    }
   }
 
   private async assertExpected(ticketId: string, expect: RunExpectation): Promise<void> {
@@ -962,6 +999,10 @@ export class TicketRunner {
         ended: false,
         stopping: null,
         limit: null,
+        startedAt: this.deps.now().getTime(),
+        lastActivityAt: this.deps.now().getTime(),
+        turnStartedAt: this.deps.now().getTime(),
+        inTurn: true,
         done: Promise.resolve()
       }
       this.live.set(runId, live)
@@ -1002,6 +1043,8 @@ export class TicketRunner {
   }
 
   private async onEvent(live: LiveRun, event: AgentEvent): Promise<void> {
+    live.lastActivityAt = this.deps.now().getTime()
+    if (event.kind === 'turn_end') live.inTurn = false
     if ((event.kind === 'message' || event.kind === 'thinking') && event.partial) {
       // Streaming previews are shown but never stored; the final event follows.
       const preview: StoredEvent = { runId: live.runId, seq: 0, at: this.deps.now().toISOString(), event }
@@ -1070,6 +1113,8 @@ export class TicketRunner {
     if (live.ended || live.stopping) return 'the agent has stopped'
     try {
       await this.deps.runtime.send(live.handle, text)
+      live.lastActivityAt = live.turnStartedAt = this.deps.now().getTime()
+      live.inTurn = true
       return null
     } catch (err) {
       return errorText(err)
@@ -1171,6 +1216,16 @@ export class TicketRunner {
           null,
           { kind: 'problem', fromRoleId: from.id, toRoleId: to?.id ?? null, details }
         )
+      },
+
+      reportWaiting: async ({ reason, until }) => {
+        if (!(await this.isOpen(target))) return RUN_ENDED
+        const wait = checkWait({ reason, until }, this.deps.now())
+        if (typeof wait === 'string') return wait
+        // Replaces the run's earlier wait: the one in force is always the latest.
+        await this.repos.runs.setDeclaredWait(target.runId, wait)
+        await this.record(target, { kind: 'waiting', ...wait })
+        return `Recorded: Mainbus expects you to be quiet until ${clockTime(wait.until)}. Calling report_waiting again replaces it, and handing off ends it. Go on with the wait now.`
       },
 
       checkCriterion: async ({ index }) => {
@@ -1532,6 +1587,38 @@ export function checkStartOptions(
   }
   const trimmed = extra?.trim() ?? ''
   return { roles, extraInstructions: trimmed === '' ? null : trimmed }
+}
+
+/** The most characters of a wait's reason that are kept. */
+const WAIT_REASON_MAX = 300
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+
+/**
+ * Checks the arguments of report_waiting: the declared wait, with `until` as a full ISO date-time, or the text
+ * that tells the agent why it was not recorded. `until` must be in the future and at most two hours from `now`.
+ */
+export function checkWait(a: { reason: unknown; until: unknown }, now: Date): DeclaredWait | string {
+  const reason = typeof a.reason === 'string' ? oneLine(a.reason).trim().slice(0, WAIT_REASON_MAX) : ''
+  if (reason === '') return 'Not recorded: say what you are waiting for.'
+  const until = typeof a.until === 'string' && ISO_DATE_TIME.test(a.until) ? Date.parse(a.until) : NaN
+  if (Number.isNaN(until)) return 'Not recorded: until must be an ISO date-time, such as 2026-11-02T14:30:00Z.'
+  if (until <= now.getTime()) return 'Not recorded: until is not in the future. Give the time the wait should end.'
+  if (until - now.getTime() > STUCK.maxWaitMs) {
+    return `Not recorded: until must be at most ${STUCK.maxWaitMs / 3_600_000} hours from now. For a longer wait, report again when this one ends.`
+  }
+  return { reason, until: new Date(until).toISOString() }
+}
+
+/** True when the run's thread ends on a usage limit: no turn has succeeded since one was reported. */
+function endedOnUsageLimit(events: StoredEvent[]): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]!.event
+    if (e.kind === 'turn_end' && e.ok) return false
+    if (e.kind === 'rate_limit') return limitFromEvent(e) !== null
+    if (e.kind === 'turn_end' && isUsageLimitText(e.error)) return true
+    if (e.kind === 'error' && isUsageLimitText(e.message)) return true
+  }
+  return false
 }
 
 /** There is nothing to push: an error when the user asked for it, nothing to do when it came after a handoff. */

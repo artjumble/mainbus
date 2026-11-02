@@ -86,6 +86,7 @@ function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
     askUser: vi.fn(async () => 'asked'),
     handoff: vi.fn(async () => 'handed off'),
     reportProblem: vi.fn(async () => 'reported'),
+    reportWaiting: vi.fn(async () => 'waiting'),
     checkCriterion: vi.fn(async () => 'checked')
   }
   return {
@@ -150,6 +151,7 @@ describe('SdkRuntime', () => {
       'mcp__mainbus__ask_user',
       'mcp__mainbus__handoff',
       'mcp__mainbus__report_problem',
+      'mcp__mainbus__report_waiting',
       'mcp__mainbus__check_criterion'
     ])
     expect(o.disallowedTools).toEqual(spec.disallowedTools)
@@ -395,17 +397,18 @@ describe('SdkRuntime', () => {
     expect(events.at(-1)).toEqual({ kind: 'turn_end', ok: true })
   })
 
-  test('registers the mainbus MCP server with its four role tools, always loaded', async () => {
+  test('registers the mainbus MCP server with its five role tools, always loaded', async () => {
     const f = fakeSdk()
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec())
     expect(f.servers).toHaveLength(1)
     expect(f.servers[0].name).toBe('mainbus')
     expect(f.servers[0].alwaysLoad).toBe(true)
-    expect(f.tools.map((t) => t.name)).toEqual(['ask_user', 'handoff', 'report_problem', 'check_criterion'])
+    expect(f.tools.map((t) => t.name)).toEqual(['ask_user', 'handoff', 'report_problem', 'report_waiting', 'check_criterion'])
     expect(Object.keys(f.tools[0].shape)).toEqual(['question', 'options', 'recommended'])
     expect(Object.keys(f.tools[1].shape)).toEqual(['summary', 'notes_for_next'])
     expect(Object.keys(f.tools[2].shape)).toEqual(['details'])
-    expect(Object.keys(f.tools[3].shape)).toEqual(['index'])
+    expect(Object.keys(f.tools[3].shape)).toEqual(['reason', 'until'])
+    expect(Object.keys(f.tools[4].shape)).toEqual(['index'])
     expect(Object.keys(f.calls[0].options.mcpServers)).toEqual(['mainbus'])
     expect(f.calls[0].options.mcpServers.mainbus.name).toBe('mainbus')
   })
@@ -439,6 +442,16 @@ describe('SdkRuntime', () => {
     const result = await reportProblem.handler({ details: 'tests fail' }, {})
     expect(spec.roleTools.reportProblem).toHaveBeenCalledWith({ details: 'tests fail' })
     expect(result).toEqual({ content: [{ type: 'text', text: 'reported' }] })
+  })
+
+  test('the report_waiting tool passes its reason and until through', async () => {
+    const f = fakeSdk()
+    const spec = makeSpec()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const reportWaiting = f.tools.find((t) => t.name === 'report_waiting')!
+    const result = await reportWaiting.handler({ reason: 'the test suite', until: '2026-11-02T14:30:00Z' }, {})
+    expect(spec.roleTools.reportWaiting).toHaveBeenCalledWith({ reason: 'the test suite', until: '2026-11-02T14:30:00Z' })
+    expect(result).toEqual({ content: [{ type: 'text', text: 'waiting' }] })
   })
 
   test('the check_criterion tool passes its index through', async () => {

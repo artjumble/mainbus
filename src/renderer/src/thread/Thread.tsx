@@ -4,6 +4,7 @@ import Markdown from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
+import { waitingText } from '../../../shared/waiting'
 import { ProposalCard } from '../orchestrator/ProposalCard'
 import { annotate, type Annotation } from './annotate'
 import { DecisionCard } from './DecisionCard'
@@ -284,6 +285,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return <Divider text={`Resumed ${lookup.role}`} />
     case 'process_exit':
       return <Divider text="The agent process ended" />
+    case 'waiting':
+      return (
+        <Text size="xs" c="dimmed" data-event="waiting" style={{ whiteSpace: 'pre-wrap' }}>
+          {waitingText(lookup.role, event.reason, event.until)}
+        </Text>
+      )
     case 'notice':
       return (
         <Text size="xs" c="dimmed" data-event="notice" style={{ whiteSpace: 'pre-wrap' }}>

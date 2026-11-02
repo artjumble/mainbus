@@ -287,3 +287,30 @@ export interface HoldOptions {
   until?: string
   reason?: string
 }
+
+/** What the stuck detector looks for. */
+export type StuckRule = 'repeated_failure' | 'no_progress' | 'silence' | 'long_turn' | 'dead_process'
+
+/** A stuck episode as the board and the ticket view show it. */
+export interface StuckEpisode {
+  id: string
+  agentRunId: string
+  /** The rule of the latest hit. */
+  rule: StuckRule
+  /** What the detector saw, one line each. */
+  evidence: string[]
+  hitCount: number
+  /** True from the third hit: the evidence asks for a closer look. */
+  needsCloserLook: boolean
+  openedAt: string
+  lastHitAt: string
+  /** When the episode reached its escalation count, or null. */
+  escalatedAt: string | null
+}
+
+/** A wait an agent declared with report_waiting: the stuck detector expects silence until `until`. */
+export interface DeclaredWait {
+  reason: string
+  /** ISO date-time. */
+  until: string
+}
