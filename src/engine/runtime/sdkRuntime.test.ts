@@ -128,12 +128,15 @@ describe('SdkRuntime', () => {
     const child = spawnClaude({
       command: process.execPath,
       args: ['-e', 'setInterval(() => {}, 1000)'],
-      cwd: process.cwd(),
+      cwd: tmpdir(),
       env: { ...process.env },
       signal: new AbortController().signal
     })
-    expect(started).toEqual([child.pid])
-    child.kill()
+    try {
+      expect(started).toEqual([child.pid])
+    } finally {
+      child.kill()
+    }
     await vi.waitFor(() => expect(exited).toEqual([child.pid]))
   })
 

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import os from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { descendantsOf, endedNotice, ProcessSweeper, type ProcessInfo } from './sweep'
 
@@ -72,44 +73,86 @@ describe('ProcessSweeper', () => {
 
 describe.runIf(process.platform === 'win32')('ProcessSweeper on Windows, with real processes', () => {
   it('ends a grandchild that outlived its parent, and nothing else', async () => {
-    const sleeper = "setInterval(() => {}, 1000)"
-    // The child starts a grandchild (which sleeps) and is then ended; the grandchild stays.
-    const child = spawn(
-      process.execPath,
-      ['-e', `require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(sleeper)}], { stdio: 'ignore', detached: true, windowsHide: true }); setInterval(() => {}, 1000)`],
-      { stdio: 'ignore', windowsHide: true }
-    )
-    const bystander = spawn(process.execPath, ['-e', sleeper], { stdio: 'ignore', windowsHide: true })
-    const sweeper = new ProcessSweeper()
-    // The same table, but ending nothing: it shows what a sweep would find.
-    const lookup = new ProcessSweeper(undefined, async () => {})
-    try {
-      const pid = child.pid!
-      let startedAt: number | null = null
-      let grandchild: number | undefined
-      for (let i = 0; i < 100 && grandchild === undefined; i++) {
-        await new Promise((r) => setTimeout(r, 200))
-        startedAt = await lookup.startTime(pid)
-        if (startedAt !== null) grandchild = (await lookup.sweep({ pid, startedAt })).find((p) => p.pid !== pid && /^node\.exe$/i.test(p.name))?.pid
-      }
-      expect(startedAt).not.toBeNull()
-      expect(grandchild).toBeDefined()
+    await runScenario({ failBeforeSweep: false })
+  }, 60_000)
 
-      child.kill()
-      await new Promise((r) => child.once('exit', r))
-      expect(isRunning(grandchild!)).toBe(true)
-
-      const ended = await sweeper.sweep({ pid, startedAt: startedAt! })
-
-      expect(ended.map((p) => p.pid)).toContain(grandchild)
-      await waitUntil(() => !isRunning(grandchild!))
-      expect(isRunning(bystander.pid!)).toBe(true)
-    } finally {
-      bystander.kill()
-      child.kill()
-    }
+  it('leaves none of the processes it started running when it fails before the sweep', async () => {
+    const started: { child: number; grandchild?: number; bystander: number } = { child: 0, bystander: 0 }
+    await expect(runScenario({ failBeforeSweep: true }, started)).rejects.toThrow('forced failure')
+    expect(started.grandchild).toBeDefined()
+    await waitUntil(() => !isRunning(started.child) && !isRunning(started.grandchild!) && !isRunning(started.bystander))
   }, 60_000)
 })
+
+const SLEEPER = 'setInterval(() => {}, 1000)'
+
+// Starts a child that starts a grandchild, then ends the child and sweeps. Whatever happens, every process
+// it started is ended. They all run in the system temp folder, so a leak cannot hold a worktree open.
+async function runScenario(
+  { failBeforeSweep }: { failBeforeSweep: boolean },
+  started: { child: number; grandchild?: number; bystander: number } = { child: 0, bystander: 0 }
+): Promise<void> {
+  const cwd = os.tmpdir()
+  // The child starts a grandchild (which sleeps), reports its id on stdout, and stays; it is then ended and the grandchild stays.
+  const childScript =
+    `const g = require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(SLEEPER)}], { stdio: 'ignore', detached: true, windowsHide: true });` +
+    `process.stdout.write('grandchild ' + g.pid + '\\n'); setInterval(() => {}, 1000)`
+  const child = spawn(process.execPath, ['-e', childScript], { cwd, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+  const bystander = spawn(process.execPath, ['-e', SLEEPER], { cwd, stdio: 'ignore', windowsHide: true })
+  started.child = child.pid!
+  started.bystander = bystander.pid!
+  let reported = ''
+  child.stdout!.on('data', (d) => {
+    reported += d
+    const m = /grandchild (\d+)/.exec(reported)
+    if (m) started.grandchild = Number(m[1])
+  })
+  const sweeper = new ProcessSweeper()
+  // The same table, but ending nothing: it shows what a sweep would find.
+  const lookup = new ProcessSweeper(undefined, async () => {})
+  let startedAt: number | null = null
+  let grandchildEnded = false
+  try {
+    const pid = child.pid!
+    let found: number | undefined
+    // Give up well inside the test's own limit, so this `finally` always runs before Vitest times the test out.
+    const deadline = Date.now() + 30_000
+    while (found === undefined && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200))
+      startedAt = await lookup.startTime(pid)
+      if (startedAt !== null && started.grandchild !== undefined) {
+        found = (await lookup.sweep({ pid, startedAt })).find((p) => p.pid === started.grandchild)?.pid
+      }
+    }
+    expect(startedAt).not.toBeNull()
+    expect(found).toBeDefined()
+    const grandchild = found!
+    if (failBeforeSweep) throw new Error('forced failure')
+
+    child.kill()
+    await new Promise((r) => child.once('exit', r))
+    expect(isRunning(grandchild)).toBe(true)
+
+    const ended = await sweeper.sweep({ pid, startedAt: startedAt! })
+    grandchildEnded = true
+
+    expect(ended.map((p) => p.pid)).toContain(grandchild)
+    await waitUntil(() => !isRunning(grandchild))
+    expect(isRunning(bystander.pid!)).toBe(true)
+  } finally {
+    bystander.kill()
+    child.kill()
+    if (startedAt !== null) await sweeper.sweep({ pid: child.pid!, startedAt }).catch(() => [])
+    // Only a grandchild still running, and not already ended by the sweep (its id may be reused), is ended directly.
+    if (!grandchildEnded && started.grandchild !== undefined && isRunning(started.grandchild)) {
+      try {
+        process.kill(started.grandchild)
+      } catch {
+        // already gone
+      }
+    }
+  }
+}
 
 function isRunning(pid: number): boolean {
   try {
