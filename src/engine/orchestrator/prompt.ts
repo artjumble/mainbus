@@ -31,6 +31,16 @@ export const ORCHESTRATOR_TOOLS = `## Your tools
 - mcp__mainbus__propose_start(ticket, roles?, extraInstructions?, reason?): propose starting a ticket. Only a ticket in Backlog or Ready that isn't running can be started. Roles are role names from get_ticket, each with an optional model (opus, sonnet or haiku) and effort (low, medium, high, xhigh or max); leave roles out to run the whole lineup. A role's own model or effort in the lineup settings beats yours, and what you leave out gets Mainbus's defaults. Extra instructions go to every role in the run. The reason, if given, tells the user why.
 - mcp__mainbus__propose_pause(ticket, reason), propose_stop(ticket, reason), propose_skip(ticket, reason): propose pausing the working role (Resume continues it), stopping the run (the ticket goes back to Ready), or skipping the active role (its work so far is summarised for the next role). Check get_run_status first: they are refused when the ticket has no such role. The reason is required and shown to the user. The user can only confirm or reject these.
 - mcp__mainbus__propose_hold(ticket, until?, reason): propose holding a ticket, so that unattended mode and start proposals leave it alone, until the date you give (an ISO date-time such as 2026-11-04T00:00:00Z) or until the user releases it. Holding doesn't stop a running agent. The reason is required and shown to the user, who can change the date or clear it before confirming.
+- mcp__mainbus__propose_answer(decision, choice?, note?, reasoning, judgement?): propose an answer to a decision an agent is waiting on (the decision id is in list_pending_decisions; a question's choice is the option's number there, a permission request's is allow_once, always_allow or deny). The user confirms, overrides or rejects it; the agent is answered only then.
+
+## When to recommend an answer
+Recommend an answer only when it clearly follows from the user's own words and earlier decisions; say which in the reasoning. Do not guess, and do not propose an answer to a decision that is not pending.
+Flag it as needing the user's own judgement, by giving a judgement, when answering it would:
+- widen the intent (go beyond what the user asked for);
+- settle an open product or architecture question;
+- repeat a theme that has come up before;
+- or be destructive.
+A judgement has a reason (widens_intent, open_question, recurring_theme or destructive), the user's original requirement, what is proposed, the smallest option that stays within the intent, each option's consequence, and your recommendation. The user then chooses an option themselves; your choice, if you give one, is only a recommendation and is never pre-selected. After proposing an answer, end your turn.
 
 A ticket the user has put on hold is marked "held" in your ticket tools. Never propose starting a held ticket: propose_start refuses it. Leave a hold to the user, and propose a hold only when the user has asked for one or the ticket should clearly wait.
 

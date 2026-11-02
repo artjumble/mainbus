@@ -8,7 +8,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer'
 
 /** Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress. */
 export type ProposalOrigin = 'orchestrator' | 'drag'
@@ -131,6 +131,64 @@ export interface HoldResult {
   number: number
   title: string
   until: string | null
+}
+
+/** What an answer proposal picks: a question's option by index (from 0), or a permission's choice. */
+export type AnswerChoice = number | 'allow_once' | 'always_allow' | 'deny'
+
+export type JudgementReason = 'widens_intent' | 'open_question' | 'recurring_theme' | 'destructive'
+
+export const JUDGEMENT_REASONS: readonly JudgementReason[] = ['widens_intent', 'open_question', 'recurring_theme', 'destructive']
+
+/** Why a decision needs the user's own judgement, laid out for them to decide. */
+export interface Judgement {
+  reason: JudgementReason
+  /** The user's requirement the decision is about. */
+  requirement: string
+  /** What the agent proposes. */
+  proposed: string
+  /** The smallest option that stays within the user's intent. */
+  smallest_option: string
+  consequences: { option: string; consequence: string }[]
+  recommendation: string
+}
+
+/**
+ * The payload of an answer proposal. The decision's own fields are copied when it is proposed, so the card can
+ * show it; `options` are the labels of the choices, in order.
+ */
+export interface AnswerPayload {
+  decisionId: string
+  ticketId: string
+  number: number
+  title: string
+  question: string
+  decisionKind: 'question' | 'permission'
+  options: string[]
+  allowAlways: boolean
+  /** The recommended answer; null for a judgement card that recommends none. */
+  choice: AnswerChoice | null
+  note: string | null
+  judgement: Judgement | null
+  /** Set by the user's own choice (an Override): a judgement is never answered without it. */
+  userChose?: true
+}
+
+/** What the user's choice sends for an answer proposal. */
+export interface AnswerOverride {
+  choice: AnswerChoice
+  note: string | null
+}
+
+export interface AnswerResult {
+  decisionId: string
+  ticketId: string
+  number: number
+  title: string
+  question: string
+  /** The label of the option answered with. */
+  answer: string
+  note: string | null
 }
 
 /** The result of a proposal that failed while being carried out. */

@@ -58,7 +58,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_pause',
   'mcp__mainbus__propose_stop',
   'mcp__mainbus__propose_skip',
-  'mcp__mainbus__propose_hold'
+  'mcp__mainbus__propose_hold',
+  'mcp__mainbus__propose_answer'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -563,6 +564,31 @@ export class SdkRuntime implements AgentRuntime {
             reason: z.string().describe('Why to hold it, shown to the user')
           },
           async (a) => toolText(await t.proposeHold(a))
+        ),
+        sdk.tool(
+          'propose_answer',
+          "Recommend an answer to a decision an agent is waiting on (list_pending_decisions shows its id). The user confirms, overrides or rejects it; the agent is answered only then. When the answer needs the user's own judgement, give a judgement: the user then chooses an option themselves. Then end your turn.",
+          {
+            decision: z.string().describe('The decision id from list_pending_decisions'),
+            choice: z
+              .union([z.number().int(), z.enum(['allow_once', 'always_allow', 'deny'])])
+              .optional()
+              .describe("A question's option number as list_pending_decisions numbers them (the first is 1), or a permission request's choice. Required unless you give a judgement"),
+            note: z.string().optional().describe('A note sent to the agent with the answer'),
+            reasoning: z.string().describe("Why this answer, shown to the user; cite the user's own words or earlier decisions it follows from"),
+            judgement: z
+              .strictObject({
+                reason: z.enum(['widens_intent', 'open_question', 'recurring_theme', 'destructive']),
+                requirement: z.string().describe("The user's original requirement"),
+                proposed: z.string().describe('What the agent proposes'),
+                smallest_option: z.string().describe('The smallest option that stays within the intent'),
+                consequences: z.array(z.strictObject({ option: z.string(), consequence: z.string() })).describe('The consequence of each option'),
+                recommendation: z.string().describe('What you recommend, and why')
+              })
+              .optional()
+              .describe("Give it when the decision needs the user's own judgement; the card then never pre-selects an option")
+          },
+          async (a) => toolText(await t.proposeAnswer(a))
         )
       ]
     })

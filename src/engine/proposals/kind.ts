@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { DraftColumn } from '../../shared/proposals'
-import type { Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Decision, DecisionAnswer, Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -38,6 +38,10 @@ export interface ExecContext {
   pauseTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
   stopTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
   skipTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
+  /** A decision and its ticket, or null when there is none. */
+  decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>
+  /** The shared answer path (the board's and the thread's too), from the orchestrator panel; refuses a decision already answered. */
+  answerDecision(id: string, answer: DecisionAnswer): Promise<void>
 }
 
 /** The role working, paused or waiting on a ticket's open run. */

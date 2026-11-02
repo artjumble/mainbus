@@ -41,6 +41,7 @@ export interface OrchestratorToolHandlers extends OrchestratorReadToolHandlers {
   proposeStop(a: unknown): Promise<string>
   proposeSkip(a: unknown): Promise<string>
   proposeHold(a: unknown): Promise<string>
+  proposeAnswer(a: unknown): Promise<string>
 }
 
 export interface RunSpec {

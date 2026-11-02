@@ -55,4 +55,16 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).toContain('Never propose starting a held ticket: propose_start refuses it')
     expect(prompt).toContain('tickets whose hold the user released')
   })
+
+  test("has the rubric for recommending an answer, and for flagging one that needs the user's judgement", () => {
+    expect(prompt).toContain('mcp__mainbus__propose_answer(decision, choice?, note?, reasoning, judgement?)')
+    expect(prompt).toContain("Recommend an answer only when it clearly follows from the user's own words and earlier decisions")
+    for (const trigger of ['widen the intent', 'settle an open product or architecture question', 'repeat a theme that has come up before', 'be destructive']) {
+      expect(prompt).toContain(trigger)
+    }
+    for (const field of ['widens_intent', 'open_question', 'recurring_theme', 'destructive', 'smallest option that stays within the intent']) {
+      expect(prompt).toContain(field)
+    }
+    expect(prompt).toContain('After proposing an answer, end your turn.')
+  })
 })

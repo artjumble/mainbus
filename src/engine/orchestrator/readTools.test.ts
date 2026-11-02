@@ -178,7 +178,7 @@ describe('get_run_status', () => {
   test('gives the roles in order with status, model and effort, the active role and pending decisions', async () => {
     const t = await ticket()
     const { implementerRun } = await running(t)
-    await repos.decisions.open({
+    const decision = await repos.decisions.open({
       ticketId: t.id,
       agentRunId: implementerRun,
       kind: 'question',
@@ -192,7 +192,7 @@ describe('get_run_status', () => {
     expect(out).toContain('2. Implementer: working (active) · model default, effort default')
     expect(out).toContain('Active role: Implementer')
     expect(out).toContain(
-      'question from the Implementer (agent-written): <ticket-data field="question">Which store?</ticket-data> · options: 1. <ticket-data field="option">Redis</ticket-data> 2. <ticket-data field="option">Memory</ticket-data> · recommended: 2'
+      `question (decision ${decision.id}) from the Implementer (agent-written): <ticket-data field="question">Which store?</ticket-data> · options: 1. <ticket-data field="option">Redis</ticket-data> 2. <ticket-data field="option">Memory</ticket-data> · recommended: 2`
     )
   })
 
@@ -272,7 +272,7 @@ describe('list_pending_decisions', () => {
     const t = await ticket()
     const { implementerRun } = await running(t)
     await ticket({ title: 'Quiet one' })
-    await repos.decisions.open({
+    const decision = await repos.decisions.open({
       ticketId: t.id,
       agentRunId: implementerRun,
       kind: 'permission',
@@ -284,7 +284,7 @@ describe('list_pending_decisions', () => {
     const out = await tools.listPendingDecisions()
     expect(out).toContain('Decisions waiting for the user (1):')
     expect(out).toContain(
-      '- #1 <ticket-data field="title">Rate-limit login</ticket-data>: permission request from the Implementer (agent-written): <ticket-data field="question">Run git push?</ticket-data> · options: Allow once, Deny'
+      `- #1 <ticket-data field="title">Rate-limit login</ticket-data>: permission request (decision ${decision.id}) from the Implementer (agent-written): <ticket-data field="question">Run git push?</ticket-data> · options: Allow once, Deny`
     )
     expect(out).not.toContain('Quiet one')
   })

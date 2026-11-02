@@ -1,4 +1,5 @@
 import type { ProposalKindName } from '../../shared/proposals'
+import { answer } from './answer'
 import { createTickets } from './createTickets'
 import { hold } from './hold'
 import type { ProposalKind } from './kind'
@@ -12,5 +13,6 @@ export const KINDS: Record<ProposalKindName, ProposalKind<any, any>> = {
   pause,
   stop,
   skip,
-  hold
+  hold,
+  answer
 }

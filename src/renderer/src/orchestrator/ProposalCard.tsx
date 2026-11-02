@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import type { Proposal, ProposalFailure, ProposalKindName } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { answerView } from './AnswerProposal'
 import { createTicketsView } from './CreateTicketsProposal'
 import { holdView } from './HoldProposal'
 import type { ProposalView } from './proposalView'
@@ -16,7 +17,8 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   pause: pauseView,
   stop: stopView,
   skip: skipView,
-  hold: holdView
+  hold: holdView,
+  answer: answerView
 }
 
 interface Props {
@@ -38,11 +40,14 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
   const editing = edit !== null
   const override = editing ? (view.toOverride?.(edit) ?? null) : null
 
-  async function decide(kind: 'confirm' | 'reject'): Promise<void> {
+  const choices = view.choices?.(proposal.payload) ?? null
+
+  async function decide(kind: 'confirm' | 'reject', chosen?: unknown): Promise<void> {
     if (busy) return
     setBusy(kind)
     try {
       if (kind === 'reject') await invoke('proposal.reject', proposal.id)
+      else if (chosen !== undefined) await invoke('proposal.confirm', proposal.id, chosen)
       else if (editing) await invoke('proposal.confirm', proposal.id, override)
       else await invoke('proposal.confirm', proposal.id)
     } catch (err) {
@@ -60,14 +65,20 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
         <Text size="sm" fw={600}>
           {summary}
         </Text>
-        {editing && view.Editor ? <view.Editor value={edit} onChange={setEdit} /> : <view.Body payload={proposal.payload} />}
+        {editing && view.Editor ? <view.Editor value={edit} onChange={setEdit} payload={proposal.payload} /> : <view.Body payload={proposal.payload} />}
         {proposal.evidence !== null && (
           <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }} data-evidence>
             {`Why: ${proposal.evidence}`}
           </Text>
         )}
         <Group gap="xs">
-          {editing ? (
+          {choices ? (
+            choices.map((c) => (
+              <Button key={c.label} size="xs" variant="default" disabled={busy !== null} onClick={() => void decide('confirm', c.override)}>
+                {c.label}
+              </Button>
+            ))
+          ) : editing ? (
             <>
               <Button size="xs" disabled={override === null || busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
                 Confirm with changes
