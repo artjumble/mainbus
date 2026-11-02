@@ -28,12 +28,12 @@ import {
   type RunHandle,
   type RunSpec
 } from '../runtime/types'
-import { currentState } from '../state/currentState'
+import { currentState, pausedByUser } from '../state/currentState'
 import { lineupStrip } from '../state/lineupStrip'
 import type { Repos } from '../store'
 import type { DecisionAction } from '../store/decisions'
 import type { AgentRunRow } from '../store/runs'
-import { previousAttempt } from './digest'
+import { previousAttempt, skippedDigest, skipSummaryPrompt } from './digest'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
 
 export interface RunnerDeps {
@@ -52,11 +52,20 @@ export interface RunnerDeps {
    * Mainbus runs it itself, after the handoff: it never goes through the agent's permissions.
    */
   pullRequests?: { publish(input: PublishInput): Promise<PublishResult> }
+  /** How long a skipped role's summary call may take before the digest is used instead (tests shorten it). */
+  summaryTimeoutMs?: number
 }
 
 export const NUDGE_TEXT =
   'You ended your turn without asking the user or handing off. If you are done, commit and call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
 const CONTINUE_TEXT = 'Continue where you left off.'
+/** What Resume sends to a role the user paused. */
+const RESUME_TEXT = 'Continue.'
+/** How long the summary call for a skipped role may take before the digest is used instead. */
+export const SKIP_SUMMARY_MS = 120_000
+const NOTHING_PAUSED = 'There is no paused agent to resume on this ticket'
+const PAUSED_BY_USER = 'You paused this agent: use Resume to continue it'
+const STILL_STOPPING = 'The agent is still stopping; try again in a moment'
 const ASK_RECORDED = 'Recorded. End your turn now; the answer will arrive as your next message.'
 const HANDED_OFF = 'Handed off. Your part is done; end your turn now.'
 const COMMIT_FIRST =
@@ -200,6 +209,25 @@ export class TicketRunner {
     return this.serial(ticketId, () => this.continueNow(ticketId))
   }
 
+  /** The user's Pause: interrupts the active role and stops its process; the run stays open until Resume. */
+  pause(ticketId: string): Promise<void> {
+    return this.serial(ticketId, () => this.pauseNow(ticketId))
+  }
+
+  /** The user's Resume of a role they paused: the same session, with "Continue.". Never resumes any other pause. */
+  resumePaused(ticketId: string): Promise<void> {
+    return this.serial(ticketId, () => this.resumeNow(ticketId))
+  }
+
+  /**
+   * The user's Skip to next role: ends the active role as handed off, with a summary of its log that Mainbus
+   * generates (or a digest, if that fails), and starts the next ticked role. Skipping the last role puts the
+   * ticket in Review, and the push and PR follow as after a handoff.
+   */
+  skip(ticketId: string): Promise<void> {
+    return this.serial(ticketId, () => this.skipNow(ticketId))
+  }
+
   /**
    * Pushes the ticket's branch and opens its pull request again, after a failure. The user's Retry only:
    * the agent intake has no way to it. It never forces the push.
@@ -229,13 +257,16 @@ export class TicketRunner {
   async boardView(
     ticketId: string,
     workspaceLineup: () => Promise<LineupRole[]>
-  ): Promise<{ state: TicketState; lineup: StripRole[] }> {
+  ): Promise<{ state: TicketState; lineup: StripRole[]; skipTo: string | null }> {
     const { state, run, roles } = await this.inspect(ticketId, true)
     if (!run || !roles) {
-      return { state, lineup: lineupStrip({ roles: await workspaceLineup(), runs: [], latestRunId: null, agentStatus: null }) }
+      const lineup = lineupStrip({ roles: await workspaceLineup(), runs: [], latestRunId: null, agentStatus: null })
+      return { state, lineup, skipTo: null }
     }
     const runs = await this.repos.runs.listForTicketRun(run.ticketRunId)
-    return { state, lineup: lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus }) }
+    // The role Skip would start, named in its confirmation.
+    const skipTo = run.endReason === null && state.column !== 'done' ? ((await this.nextRole(run))?.name ?? null) : null
+    return { state, lineup: lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus }), skipTo }
   }
 
   /**
@@ -458,7 +489,134 @@ export class TicketRunner {
     if (!run || run.endReason !== null || this.live.has(run.id)) {
       throw new Error('There is no paused agent to continue on this ticket')
     }
+    // Only Resume ends the user's own pause: unattended mode continues a usage-limit pause through here.
+    if (pausedByUser(await this.repos.runs.events(run.id))) throw new Error(PAUSED_BY_USER)
     await this.resume(run, CONTINUE_TEXT)
+  }
+
+  private async pauseNow(ticketId: string): Promise<void> {
+    const run = await this.repos.runs.latest(ticketId)
+    const live = run && run.endReason === null ? this.live.get(run.id) : undefined
+    if (!run || !live || live.ended) throw new Error(NOT_WORKING)
+    // From here the agent gets no nudge, and its process ending is neither reported nor a usage-limit pause.
+    live.ended = true
+    this.limited.delete(ticketId)
+    const ticket = await this.repos.tickets.get(ticketId)
+    // Recorded before the process goes, so the ticket shows Paused at once.
+    await this.record(this.target(run, ticket), { kind: 'paused' })
+    // The run stays open with its session, as after a restart: Resume continues it by session id.
+    await this.halt(live)
+    this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+  }
+
+  private async resumeNow(ticketId: string): Promise<void> {
+    if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run || run.endReason !== null || !pausedByUser(await this.repos.runs.events(run.id))) throw new Error(NOTHING_PAUSED)
+    // The paused process may still be going down.
+    const live = this.live.get(run.id)
+    if (live) await settleWithin(live.done, STOP_DRAIN_MS)
+    if (this.live.has(run.id)) throw new Error(STILL_STOPPING)
+    await this.resume(run, RESUME_TEXT)
+  }
+
+  private async skipNow(ticketId: string): Promise<void> {
+    if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    if (this.stopRequested.has(ticketId)) throw new Error(NOT_WORKING)
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run || run.endReason !== null) throw new Error(NOT_WORKING)
+    const ticket = await this.repos.tickets.get(ticketId)
+    const target = this.target(run, ticket)
+    const next = await this.nextRole(run)
+    // The ticket counts as working while the summary is written, so it never shows as paused or failed meanwhile.
+    this.handingOn.add(ticketId)
+    let launching = false
+    try {
+      this.limited.delete(ticketId)
+      // A handed-off role's process may still be ending its last turn; it is stopped along with the active one.
+      for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+
+      const { summary, source } = await this.skipSummary(run, next)
+      // The skipped agent's own handoff, a hand-back or a stop may have ended the run meanwhile: then that stands.
+      let nextRun: AgentRunRow | null = null
+      if (next) {
+        nextRun = await this.repos.runs.handOn(run.id, next, { skipped: true })
+        if (nextRun === null) return
+      } else if (!(await this.repos.runs.end(run.id, 'handoff', { skipped: true }))) {
+        return
+      }
+      await this.record(target, {
+        kind: 'handoff',
+        summary,
+        outcome: 'done',
+        notesForNext: '',
+        ...(next ? { to: next.name } : {}),
+        skipped: { by: 'user', source }
+      })
+      // The skipped role's process is gone, so nothing is left to receive any answer.
+      await this.expirePending(target, (d) => d.agentRunId === run.id)
+      if (nextRun) {
+        await this.record(this.target(nextRun, ticket), { kind: 'role_handoff', from: run.role, to: nextRun.role })
+        const prompt = run.returnToRoleId === null ? CONTINUE_TEXT : returnText(run.role, summary, '')
+        // This step holds the ticket's queue, so the next role launches here rather than behind it.
+        launching = true
+        await this.handOnNow(nextRun, prompt)
+      } else {
+        this.handingOn.delete(ticketId)
+        // In Review now: the push and PR run here, once, as after the last role's own handoff.
+        await this.publishNow(ticketId, false)
+      }
+    } finally {
+      if (!launching && !(await this.awaitingLaunch(ticketId, run.id))) this.handingOn.delete(ticketId)
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    }
+  }
+
+  /**
+   * True when a handoff or hand-back other than `runId`'s own ending has started a role whose launch is still
+   * queued: it keeps the ticket marked as handing on until that launch clears it.
+   */
+  private async awaitingLaunch(ticketId: string, runId: string): Promise<boolean> {
+    const latest = await this.repos.runs.latest(ticketId)
+    return latest !== null && latest.id !== runId && latest.endReason === null && !this.live.has(latest.id)
+  }
+
+  /**
+   * The handoff summary of a skipped role: written by a one-shot model call, through the runtime and the user's own
+   * `claude`, from the role's log in this ticket run; or, when that fails, is empty or takes too long, the digest.
+   */
+  private async skipSummary(run: AgentRunRow, next: LineupRole | null): Promise<{ summary: string; source: 'summary' | 'digest' }> {
+    const events: StoredEvent[] = []
+    for (const earlier of await this.repos.runs.listForTicketRun(run.ticketRunId)) {
+      if (earlier.roleId === run.roleId) events.push(...(await this.repos.runs.events(earlier.id)))
+      if (earlier.id === run.id) break
+    }
+    const decisions = await this.repos.decisions.forTicket(run.ticketId)
+    try {
+      const { worktree } = await this.prepare(run.ticketId)
+      const timeoutMs = this.deps.summaryTimeoutMs ?? SKIP_SUMMARY_MS
+      const call = this.deps.runtime.summarize({
+        cwd: worktree.path,
+        tempDir: worktree.scratch,
+        prompt: skipSummaryPrompt(events, decisions, run.role, next?.name ?? null),
+        timeoutMs
+      })
+      // Bounded here too, whatever the runtime does with its timeout.
+      const summary = (await withinMs(call, timeoutMs)).trim()
+      if (summary) return { summary, source: 'summary' }
+    } catch {
+      // The digest below stands in.
+    }
+    return { summary: skippedDigest(events, decisions, run.role), source: 'digest' }
+  }
+
+  /** Interrupts a live agent's turn and stops its process, letting its last events land (all bounded). */
+  private async halt(live: LiveRun): Promise<void> {
+    live.ended = true
+    if (!live.stopping) await settleWithin(this.deps.runtime.interrupt(live.handle).catch(() => {}), STOP_DRAIN_MS)
+    await this.stopProcess(live)
+    await settleWithin(live.done, STOP_DRAIN_MS)
   }
 
   private async moveToColumnNow(ticketId: string, column: 'backlog' | 'ready'): Promise<void> {
@@ -525,10 +683,14 @@ export class TicketRunner {
 
     const events = await this.repos.runs.events(run.id)
     const handoff = events.findLast((e) => e.event.kind === 'handoff')?.event
+    let handoffSummary = handoff?.kind === 'handoff' ? handoff.summary : null
+    if (handoff?.kind === 'handoff' && handoff.skipped) {
+      handoffSummary = `Generated by Mainbus because the ${run.role} was skipped.\n\n${handoff.summary}`
+    }
     const result = await publisher.publish({
       ticket: { ...ticket, branch, worktreePath },
       baseBranch: workspace.baseBranch,
-      handoffSummary: handoff?.kind === 'handoff' ? handoff.summary : null
+      handoffSummary
     })
     const target = this.target(run, ticket)
     if (result.ok) {
@@ -580,7 +742,8 @@ export class TicketRunner {
       handoffs.push({
         role: earlier.role,
         summary: event.summary,
-        ...(event.notesForNext !== undefined ? { notesForNext: event.notesForNext } : {})
+        ...(event.notesForNext !== undefined ? { notesForNext: event.notesForNext } : {}),
+        ...(event.skipped ? { skipped: event.skipped.source } : {})
       })
     }
     return handoffs
@@ -621,11 +784,17 @@ export class TicketRunner {
       }
       // The whole ticket's decisions, so a run made by Start again keeps the earlier runs' answers.
       const decisions = await this.repos.decisions.forTicket(run.ticketId)
+      if (pausedByUser(events)) {
+        // Whatever resumes it (Resume, a message, an answer), the user's pause is over.
+        if (this.stopRequested.has(run.ticketId) || this.shuttingDown) return
+        await this.record(this.target(current, launch.ticket), { kind: 'resumed' })
+      }
       const neverLaunched = [...before, ...events].every((e) => NOT_LAUNCHED_KINDS.has(e.event.kind))
       if (current.sessionId === null && neverLaunched) {
         const handedBy = events.find((e) => e.event.kind === 'role_handoff')?.event
         const first = firstMessage(launch.ticket, handedBy?.kind === 'role_handoff' ? handedBy.from : undefined)
-        await this.launch(launch, run.id, prompt === CONTINUE_TEXT ? first : `${first}\n\n${prompt}`, decisions)
+        const bare = prompt === CONTINUE_TEXT || prompt === RESUME_TEXT
+        await this.launch(launch, run.id, bare ? first : `${first}\n\n${prompt}`, decisions)
         return
       }
       if (current.sessionId !== null) {
@@ -1171,7 +1340,7 @@ function threadRun(target: ThreadTarget): ThreadRun {
 }
 
 /** What a role's thread can hold before its agent was ever launched: the handoff to it, and messages for it. */
-const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message'])
+const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message', 'paused', 'resumed'])
 
 /** The message a role gets when a later role hands a problem back to it. */
 function problemText(from: LineupRole, details: string): string {
@@ -1221,6 +1390,17 @@ function answerText(decision: Decision, a: Extract<DecisionAnswer, { kind: 'opti
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/** Settles as `p` does, or rejects once `ms` have passed. */
+async function withinMs<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<never>((_resolve, reject) => (timer = setTimeout(() => reject(new Error(`No answer within ${ms} ms`)), ms)))
+  try {
+    return await Promise.race([p, late])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /** Waits for `p`, but no longer than `ms`. */

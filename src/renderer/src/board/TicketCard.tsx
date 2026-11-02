@@ -39,6 +39,16 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   )
 }
 
+/** "Paused", beside the phase chip, while the user has paused the active role. */
+export function PausedChip({ state }: { state: TicketState }): ReactElement | null {
+  if (!state.pausedByUser) return null
+  return (
+    <Badge color="gray" variant="outline" size="sm" radius="sm">
+      Paused
+    </Badge>
+  )
+}
+
 /** "PR #N", opening the pull request in the user's browser (the main process sends new windows there). */
 export function PrLink({ pr, size = 'xs' }: { pr: PullRequest; size?: 'xs' | 'sm' }): ReactElement {
   return (
@@ -98,6 +108,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       </Text>
       <Group gap="xs">
         <PhaseChip state={state} />
+        <PausedChip state={state} />
         {source && <AgentBadge source={source} />}
         {ticket.pr && <PrLink pr={ticket.pr} />}
         {cleaningUp && (

@@ -1,0 +1,24 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "emit": { "kind": "message", "text": "Planner: reading the ticket." } },
+    { "waitForSend": true }
+  ],
+  "Planner resumed": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "emit": { "kind": "message", "text": "Planner: picking up where I was." } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "emit": { "kind": "message", "text": "Implementer: adding the file." } },
+    { "waitForSend": true },
+    { "callTool": "handoff", "args": { "summary": "Added hello.txt", "notesForNext": "Check the wording" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "emit": { "kind": "message", "text": "Reviewer: checking the change." } },
+    { "waitForSend": true }
+  ]
+}

@@ -13,7 +13,7 @@ import type { AgentEvent } from '../../shared/events'
 import { guardReason, type GuardContext } from '../permissions/guard'
 import { InputQueue } from './inputQueue'
 import { Normalizer } from './normalize'
-import { ResumeFailedError, type AgentRuntime, type RunHandle, type RunSpec } from './types'
+import { ResumeFailedError, type AgentRuntime, type RunHandle, type RunSpec, type SummaryRequest } from './types'
 
 /** The parts of the Agent SDK that the runtime uses; tests pass a fake. */
 export interface SdkApi {
@@ -41,6 +41,12 @@ interface Run {
   /** Settles when the query's message stream has ended (the child process is gone). */
   pumped: Promise<Error | null>
 }
+
+const SUMMARY_SYSTEM_PROMPT =
+  'You write handoff summaries for Mainbus, from the log of an agent that was stopped before it finished. ' +
+  'You have no tools. Answer with the summary only.'
+/** Every built-in tool is already off (`tools: []`); these are named as well, in case a setting turns one on. */
+const SUMMARY_DISALLOWED = ['Bash', 'Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Glob', 'Grep', 'Task']
 
 function userMessage(text: string): SDKUserMessage {
   return { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null }
@@ -180,6 +186,53 @@ export class SdkRuntime implements AgentRuntime {
 
   events(handle: RunHandle): AsyncIterable<AgentEvent> {
     return this.get(handle).events
+  }
+
+  /**
+   * One turn of the user's own `claude`, with its own login (childEnv drops any API key), no tools, no MCP
+   * servers and no settings files, and nothing saved as a session. Aborted after `req.timeoutMs`.
+   */
+  async summarize(req: SummaryRequest): Promise<string> {
+    const abortController = new AbortController()
+    const timer = setTimeout(() => abortController.abort(), req.timeoutMs)
+    try {
+      const q = this.sdk.query({
+        prompt: req.prompt,
+        options: {
+          pathToClaudeCodeExecutable: this.claudePath,
+          cwd: req.cwd,
+          systemPrompt: SUMMARY_SYSTEM_PROMPT,
+          tools: [],
+          allowedTools: [],
+          disallowedTools: SUMMARY_DISALLOWED,
+          mcpServers: {},
+          strictMcpConfig: true,
+          settingSources: [],
+          maxTurns: 1,
+          persistSession: false,
+          canUseTool: async () => ({ behavior: 'deny', message: 'No tools are available here' }),
+          env: childEnv(this.agentHome, req.tempDir),
+          abortController
+        }
+      })
+      let text: string | null = null
+      for await (const msg of q) {
+        const m = msg as { type?: unknown; subtype?: unknown; is_error?: unknown; result?: unknown }
+        if (m.type !== 'result') continue
+        if (m.subtype !== 'success' || m.is_error === true) {
+          throw new Error(`The summary failed: ${typeof m.result === 'string' && m.result ? m.result : String(m.subtype)}`)
+        }
+        text = typeof m.result === 'string' ? m.result.trim() : ''
+      }
+      if (abortController.signal.aborted) throw new Error(`No summary within ${req.timeoutMs} ms`)
+      if (!text) throw new Error('The summary was empty')
+      return text
+    } catch (err) {
+      if (abortController.signal.aborted) throw new Error(`No summary within ${req.timeoutMs} ms`)
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   private register(run: Run): RunHandle {

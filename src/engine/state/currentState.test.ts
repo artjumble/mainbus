@@ -51,7 +51,8 @@ const base: StateInput = {
   activePhase: 'implementing'
 }
 
-const cases: Array<{ name: string; input: StateInput; expected: TicketState }> = [
+/** `pausedByUser` is false unless a case says otherwise. */
+const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState, 'pausedByUser'> & { pausedByUser?: true } }> = [
   {
     name: 'no run, manualColumn ready',
     input: { ...base, ticket: { ...ticket, manualColumn: 'ready' } },
@@ -186,11 +187,47 @@ const cases: Array<{ name: string; input: StateInput; expected: TicketState }> =
     name: 'run not ended, process alive takes phase from activePhase',
     input: { ...base, activePhase: 'testing', run: { endReason: null, events: [] }, processAlive: true },
     expected: { column: 'in_progress', phase: 'testing', agentStatus: 'working', summary: null, canContinue: false }
+  },
+  {
+    name: 'paused by the user: paused with no Continue, even while the process is still going down',
+    input: { ...base, run: { endReason: null, events: [stored(1, { kind: 'paused' })] }, processAlive: true },
+    expected: {
+      column: 'in_progress',
+      phase: 'implementing',
+      agentStatus: 'paused',
+      summary: null,
+      canContinue: false,
+      pausedByUser: true
+    }
+  },
+  {
+    name: 'paused by the user and resumed since: working again',
+    input: {
+      ...base,
+      run: { endReason: null, events: [stored(1, { kind: 'paused' }), stored(2, { kind: 'resumed' })] },
+      processAlive: true
+    },
+    expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'working', summary: null, canContinue: false }
+  },
+  {
+    name: 'paused by the user with a question pending: the question wins',
+    input: {
+      ...base,
+      run: { endReason: null, events: [stored(1, { kind: 'paused' })] },
+      pendingDecisions: [pending('question', 'Which database?')]
+    },
+    expected: {
+      column: 'needs_you',
+      phase: 'waiting_on_you',
+      agentStatus: 'waiting_on_you',
+      summary: 'Which database?',
+      canContinue: false
+    }
   }
 ]
 
 describe('currentState', () => {
   test.each(cases)('$name', ({ input, expected }) => {
-    expect(currentState(input)).toEqual(expected)
+    expect(currentState(input)).toEqual({ pausedByUser: false, ...expected })
   })
 })

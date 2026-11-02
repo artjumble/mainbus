@@ -37,6 +37,17 @@ test('a Reviewer at work shows the blue working chip', () => {
   expect(screen.getByText('Reviewing').closest('.mantine-Badge-root')?.getAttribute('style')).toBe(workingColor)
 })
 
+test('a role the user paused shows a Paused chip beside the phase; another pause does not', () => {
+  const paused = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', pausedByUser: true })
+  const limited = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', canContinue: true })
+  const { unmount } = renderWithMantine(<TicketCard ticket={paused} onOpen={() => {}} />)
+  expect(screen.getByText('Implementing')).toBeInTheDocument()
+  expect(screen.getByText('Paused')).toBeInTheDocument()
+  unmount()
+  renderWithMantine(<TicketCard ticket={limited} onOpen={() => {}} />)
+  expect(screen.queryByText('Paused')).not.toBeInTheDocument()
+})
+
 test('the summary shows only for a Needs you card', () => {
   const needsYou = makeTicket({}, { column: 'needs_you', phase: 'waiting_on_you', summary: 'Which database?' })
   const review = makeTicket({}, { column: 'review', phase: 'ready_for_review', summary: 'Should stay hidden' })

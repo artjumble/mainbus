@@ -48,8 +48,28 @@ describe('run repo', () => {
       endReason: null,
       startedAt: FIXED_NOW.toISOString(),
       endedAt: null,
-      returnToRoleId: null
+      returnToRoleId: null,
+      skipped: false
     })
+  })
+
+  it('handOn and end mark the run they end as skipped only when asked', async () => {
+    const repo = createRunRepo(db, now)
+    const next = testRole({ id: 'r', name: 'Reviewer' })
+    const first = await repo.create(ticketId, [testRole(), next])
+    const second = (await repo.handOn(first, next, { skipped: true }))!
+    expect(second.skipped).toBe(false)
+    expect(await repo.end(second.id, 'handoff', { skipped: true })).toBe(true)
+    expect((await repo.listForTicket(ticketId)).map((r) => [r.endReason, r.skipped])).toEqual([
+      ['handoff', true],
+      ['handoff', true]
+    ])
+
+    const plain = await repo.create(ticketId, [testRole(), next])
+    const after = (await repo.handOn(plain, next))!
+    await repo.end(after.id, 'handoff')
+    const runs = await repo.listForTicketRun(after.ticketRunId)
+    expect(runs.map((r) => r.skipped)).toEqual([false, false])
   })
 
   it("create starts a ticket run holding a copy of its roles, and the first role's run", async () => {

@@ -24,6 +24,13 @@ export type AgentRunRow = {
   endedAt: string | null
   /** The snapshot id of the role this run's handoff returns to instead of the next role; null for the next role. */
   returnToRoleId: string | null
+  /** The user skipped the run's role: it ended as handed off, with a handoff summary Mainbus generated. */
+  skipped: boolean
+}
+
+/** How a run ends when the user skipped its role. */
+export interface EndOptions {
+  skipped?: boolean
 }
 
 export type TicketRunRow = {
@@ -44,9 +51,9 @@ export interface RunRepo {
    * one as handed off. Returns the new run, or null, changing nothing, if the previous run had already ended or
    * its ticket run is no longer running. The new run exists before the old one ends, so the ticket's latest run
    * is never a handed-off one mid-lineup. When `next` already ran in this ticket run, the new run carries on
-   * its latest run's session and return role.
+   * its latest run's session and return role. With `skipped`, the previous run is marked as skipped.
    */
-  handOn(prevRunId: string, next: LineupRole): Promise<AgentRunRow | null>
+  handOn(prevRunId: string, next: LineupRole, opts?: EndOptions): Promise<AgentRunRow | null>
   /**
    * Hands `prevRunId` back to `to`, an earlier role of the same ticket run, as `handOn` does, but ends the
    * previous run as handed back. The new run carries on `to`'s latest session, and its handoff returns to
@@ -63,8 +70,9 @@ export interface RunRepo {
   /**
    * Ends an open run, and its ticket run with it: a handoff ends the ticket run as done (it was the last role),
    * a stop or failure as stopped or failed. Returns false, changing nothing, if the run had already ended.
+   * With `skipped`, the run is marked as skipped.
    */
-  end(runId: string, reason: EndingReason): Promise<boolean>
+  end(runId: string, reason: EndingReason, opts?: EndOptions): Promise<boolean>
   /** Appends to the run's thread; seq numbers start at 1 and are consecutive per run. */
   append(runId: string, event: ThreadEvent): Promise<StoredEvent>
   events(runId: string): Promise<StoredEvent[]>
@@ -80,7 +88,8 @@ const runColumns = {
   endReason: agentRuns.endReason,
   startedAt: agentRuns.startedAt,
   endedAt: agentRuns.endedAt,
-  returnToRoleId: agentRuns.returnTo
+  returnToRoleId: agentRuns.returnTo,
+  skipped: agentRuns.skipped
 }
 
 const TICKET_RUN_END: Record<EndingReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
@@ -112,7 +121,8 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
     prevRunId: string,
     role: LineupRole,
     returnTo: string | 'inherit',
-    reason: 'handoff' | 'handed_back'
+    reason: 'handoff' | 'handed_back',
+    skipped = false
   ): Promise<AgentRunRow | null> {
     const prev = await get(prevRunId)
     if (!prev) return null
@@ -133,7 +143,7 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
     if (inserted.length === 0) return null
     await db
       .update(agentRuns)
-      .set({ endReason: reason, endedAt: now().toISOString() })
+      .set({ endReason: reason, endedAt: now().toISOString(), ...(skipped ? { skipped: true } : {}) })
       .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
     return get(v.id)
   }
@@ -153,8 +163,8 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       return run.id
     },
 
-    handOn(prevRunId, next) {
-      return passTo(prevRunId, next, 'inherit', 'handoff')
+    handOn(prevRunId, next, opts) {
+      return passTo(prevRunId, next, 'inherit', 'handoff', opts?.skipped === true)
     },
 
     handBack(prevRunId, to, returnToRoleId) {
@@ -198,12 +208,12 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       await db.update(agentRuns).set({ sessionId }).where(eq(agentRuns.id, runId))
     },
 
-    async end(runId, reason) {
+    async end(runId, reason, opts) {
       const endedAt = now().toISOString()
       // The open-run check is part of the UPDATE, so of two concurrent enders only one wins.
       const [ended] = await db
         .update(agentRuns)
-        .set({ endReason: reason, endedAt })
+        .set({ endReason: reason, endedAt, ...(opts?.skipped ? { skipped: true } : {}) })
         .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason)))
         .returning({ ticketRunId: agentRuns.ticketRunId })
       if (!ended) return false

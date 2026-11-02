@@ -154,6 +154,10 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       )
     case 'stopped':
       return <Divider text="Stopped" />
+    case 'paused':
+      return <Divider text={`Paused ${lookup.role}`} />
+    case 'resumed':
+      return <Divider text={`Resumed ${lookup.role}`} />
     case 'process_exit':
       return <Divider text="The agent process ended" />
     case 'notice':

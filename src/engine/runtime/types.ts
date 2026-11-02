@@ -42,6 +42,16 @@ export interface RunHandle {
   id: string
 }
 
+/** A one-shot summary, written by the model with no tools at all. */
+export interface SummaryRequest {
+  cwd: string
+  /** The ticket's scratch folder, as for a run. */
+  tempDir: string
+  prompt: string
+  /** The call is abandoned after this long. */
+  timeoutMs: number
+}
+
 export interface AgentRuntime {
   start(spec: RunSpec): Promise<RunHandle>
   send(run: RunHandle, text: string): Promise<void>
@@ -49,6 +59,11 @@ export interface AgentRuntime {
   stop(run: RunHandle): Promise<void>
   /** Ends when the process ends. */
   events(run: RunHandle): AsyncIterable<AgentEvent>
+  /**
+   * Answers `prompt` in one turn, through the same `claude` binary and login as the agents, with no tools.
+   * Rejects on an error, an empty answer or the timeout.
+   */
+  summarize(req: SummaryRequest): Promise<string>
 }
 
 /** `start()` with a `resumeSessionId` rejects with this when the session cannot be resumed. */

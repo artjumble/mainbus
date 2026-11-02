@@ -85,6 +85,96 @@ test('TicketView controls follow state: canContinue shows Continue, and Stop so 
   expect(screen.queryByRole('button', { name: /^Start/ })).not.toBeInTheDocument()
 })
 
+describe('Pause, Resume and Skip to next role', () => {
+  /** The Paused chip in the header, not the lineup strip's "Paused" for the role. */
+  const CHIP = { selector: '.mantine-Badge-label' }
+
+  test('a working role can be paused or skipped; a paused one resumed, skipped or stopped, and Continue is not offered', async () => {
+    const working = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    const { unmount } = renderWithMantine(<TicketView />)
+    expect(screen.queryByText('Paused', CHIP)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip to next role' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(mockInvoke).toHaveBeenCalledWith('agent.pause', working.id)
+    unmount()
+
+    const paused = show(
+      { phase: 'implementing', agentStatus: 'paused', column: 'in_progress', pausedByUser: true },
+      strip('i', 'paused')
+    )
+    renderWithMantine(<TicketView />)
+    // The header carries the Paused chip beside the phase.
+    expect(screen.getByText('Paused', CHIP)).toBeInTheDocument()
+    expect(screen.getByText('Implementing')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip to next role' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    expect(mockInvoke).toHaveBeenCalledWith('agent.resume', paused.id)
+  })
+
+  test('a pause by a usage limit offers Continue, not Resume', async () => {
+    show({ phase: 'implementing', agentStatus: 'paused', column: 'in_progress', canContinue: true }, strip('i', 'paused'))
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Paused', CHIP)).not.toBeInTheDocument()
+  })
+
+  test('Skip asks first, naming the next role, and skips only once confirmed', async () => {
+    const ticket = makeTicket(
+      { title: 'Add dark mode', number: 12, lineup: strip('p'), skipTo: 'Implementer' },
+      { phase: 'planning', agentStatus: 'working', column: 'in_progress' }
+    )
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Skip to next role' })
+    expect(within(dialog).getByText('Skip the Planner? Its work so far is summarised for the Implementer.')).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(mockInvoke).not.toHaveBeenCalledWith('agent.skip', ticket.id)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Skip' }))
+    expect(mockInvoke).toHaveBeenCalledWith('agent.skip', ticket.id)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  test('on the last role, Skip says the ticket goes to Review', async () => {
+    show({ phase: 'reviewing', agentStatus: 'working', column: 'in_progress' }, strip('r'))
+    renderWithMantine(<TicketView />)
+    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Skip the Reviewer? Its work so far is summarised and the ticket goes to Review.')).toBeInTheDocument()
+  })
+
+  test('a refused skip is reported and the dialog stays open', async () => {
+    show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'agent.skip') throw new Error('No agent is working on this ticket')
+      return undefined
+    })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Skip' }))
+    expect(await screen.findByText('No agent is working on this ticket')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  test('none of them show without an open run', () => {
+    show({ column: 'ready' })
+    renderWithMantine(<TicketView />)
+    for (const name of ['Pause', 'Resume', 'Skip to next role']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+  })
+})
+
 test('with no run, Start and a first-message composer show; the first send starts then sends', async () => {
   const ticket = show({ column: 'ready' })
   renderWithMantine(<TicketView />)

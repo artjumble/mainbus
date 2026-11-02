@@ -371,6 +371,37 @@ describe('unattended mode', () => {
     expect(h.awake).toMatchObject({ starts: 1, stops: 1 })
   })
 
+  it('pressing Pause on the queue’s ticket turns the mode off, and the ticket stays paused', async () => {
+    const h = await harness(runtimeFor({ 1: working }), ['ready', 'ready'])
+    await h.engine.invoke('unattended.set', true)
+    await waitForColumn(h, 1, 'in_progress')
+    await waitForState(h, { status: { kind: 'working', ticketNumber: 1 } })
+    await h.engine.invoke('agent.pause', h.tickets[0]!.id)
+    expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })
+    await new Promise((r) => setTimeout(r, 200))
+    expect(started(h)).toEqual([1])
+    const t1 = (await h.engine.invoke('board.get')).tickets.find((t) => t.number === 1)!
+    expect(t1.state).toMatchObject({ column: 'in_progress', agentStatus: 'paused', pausedByUser: true })
+    expect(h.awake).toMatchObject({ starts: 1, stops: 1 })
+  })
+
+  it('pausing a hand-started ticket leaves the mode on, and it starts the next Ready ticket', async () => {
+    const h = await harness(runtimeFor({ 1: working, 2: working }), ['ready', 'ready'])
+    await h.engine.invoke('agent.start', h.tickets[0]!.id)
+    await waitForColumn(h, 1, 'in_progress')
+    await h.engine.invoke('unattended.set', true)
+    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
+    expect(started(h)).toEqual([1])
+
+    // A paused ticket isn't working, so the queue goes on to ticket 2; ticket 1 stays paused.
+    await h.engine.invoke('agent.pause', h.tickets[0]!.id)
+    await waitForState(h, { on: true, status: { kind: 'working', ticketNumber: 2 } })
+    await waitForColumn(h, 2, 'in_progress')
+    expect(started(h)).toEqual([1, 2])
+    const t1 = (await h.engine.invoke('board.get')).tickets.find((t) => t.number === 1)!
+    expect(t1.state).toMatchObject({ agentStatus: 'paused', pausedByUser: true })
+  })
+
   it('a usage limit pauses the ticket, waits for the reset, and continues the same ticket', async () => {
     const resetsAt = Math.ceil(Date.now() / 1000) + 1
     const limited: FakeStep[] = [
@@ -417,7 +448,7 @@ describe('unattended mode', () => {
 
   it('is not reachable through the agent intake', async () => {
     const h = await harness(runtimeFor({}), ['ready'])
-    for (const method of ['unattended.set', 'unattended.get', 'agent.start']) {
+    for (const method of ['unattended.set', 'unattended.get', 'agent.start', 'agent.pause', 'agent.resume', 'agent.skip']) {
       await expect(h.engine.intake(method as never, { on: true } as never)).rejects.toThrow(`Unknown method: ${method}`)
     }
     expect(await h.engine.invoke('unattended.get')).toMatchObject({ on: false })
@@ -471,9 +502,10 @@ describe('UnattendedMode timing', () => {
     return { mode: new UnattendedMode(deps), runner, emitted, box }
   }
 
-  const ready: TicketState = { column: 'ready', phase: 'not_started', agentStatus: null, summary: null, canContinue: false }
-  const working: TicketState = { column: 'in_progress', phase: 'implementing', agentStatus: 'working', summary: null, canContinue: false }
-  const paused: TicketState = { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', summary: null, canContinue: true }
+  const none = { summary: null, canContinue: false, pausedByUser: false }
+  const ready: TicketState = { ...none, column: 'ready', phase: 'not_started', agentStatus: null }
+  const working: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'working' }
+  const paused: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'paused', canContinue: true }
 
   it('without a reset time, retries every 15 minutes', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })

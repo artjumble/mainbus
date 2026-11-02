@@ -150,6 +150,8 @@ export interface TicketState {
   agentStatus: AgentStatus | null
   summary: string | null
   canContinue: boolean
+  /** The user paused the active role: Resume continues it. Continue does not (it is for other pauses). */
+  pausedByUser: boolean
 }
 
 /** Where one role of a ticket run stands. `stopped` is a role whose run the user stopped. */
