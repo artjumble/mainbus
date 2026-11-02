@@ -1,22 +1,22 @@
 import path from 'node:path'
 import { guardReason } from '../permissions/guard'
-import { ORCHESTRATOR_BUILT_IN_TOOLS, ORCHESTRATOR_READ_TOOLS } from '../runtime/sdkRuntime'
+import { ORCHESTRATOR_BUILT_IN_TOOLS, ORCHESTRATOR_MAINBUS_TOOLS } from '../runtime/sdkRuntime'
 import type { PermissionVerdict } from '../runtime/types'
 import { grepScope } from './grepScope'
 
 export const ORCHESTRATOR_DENIED = 'The orchestrator only reads and proposes; it cannot do this.'
 
 /**
- * Whether the orchestrator may make a tool call. It never asks the user: the Mainbus read tools are allowed,
- * Read, Grep and Glob are allowed inside its own folder and the repo unless they could read a credential file,
- * and everything else is denied.
+ * Whether the orchestrator may make a tool call. It never asks the user: the Mainbus read and propose tools are
+ * allowed, Read, Grep and Glob are allowed inside its own folder and the repo unless they could read a credential
+ * file, and everything else is denied.
  */
 export async function orchestratorVerdict(
   toolName: string,
   input: Record<string, unknown>,
   folders: { cwd: string; repo: string }
 ): Promise<PermissionVerdict> {
-  if (ORCHESTRATOR_READ_TOOLS.includes(toolName)) return { allow: true }
+  if (ORCHESTRATOR_MAINBUS_TOOLS.includes(toolName)) return { allow: true }
   if (!ORCHESTRATOR_BUILT_IN_TOOLS.includes(toolName)) return { allow: false, message: ORCHESTRATOR_DENIED }
   // For these tools the guard checks only for credential files they name and reads outside the folders.
   const reason = guardReason(toolName, input, { worktree: folders.cwd, additionalDirectories: [folders.repo], ownBranch: '' })

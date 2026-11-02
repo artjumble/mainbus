@@ -3,6 +3,8 @@ import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement
 import Markdown from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
+import type { Proposal } from '../../../shared/proposals'
+import { ProposalCard } from '../orchestrator/ProposalCard'
 import { annotate, type Annotation } from './annotate'
 import { DecisionCard } from './DecisionCard'
 import { PermissionCard } from './PermissionCard'
@@ -18,7 +20,11 @@ interface Props {
   runs: Record<string, ThreadRun>
   /** Collapse each group of tool rows to one summary line, such as "Read 3 files", that expands to the rows. */
   summariseTools?: boolean
+  /** The orchestrator's proposals, by id: each one's card goes where it was proposed. */
+  proposals?: Record<string, Proposal>
 }
+
+const NO_PROPOSALS: Record<string, Proposal> = {}
 
 const NEAR_BOTTOM_PX = 48
 
@@ -26,14 +32,14 @@ const NEAR_BOTTOM_PX = 48
  * The ticket thread: agent messages and tool rows tagged with their role, thinking, dividers (handoffs between
  * roles, new runs) and inline decision cards. Follows new events while scrolled to the bottom.
  */
-export function Thread({ events, decisions, runs, summariseTools: summarise = false }: Props): ReactElement {
+export function Thread({ events, decisions, runs, summariseTools: summarise = false, proposals = NO_PROPOSALS }: Props): ReactElement {
   const scroller = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
   useEffect(() => {
     const el = scroller.current
     if (el && atBottom.current) el.scrollTop = el.scrollHeight
-  }, [events, decisions])
+  }, [events, decisions, proposals])
 
   function onScroll(): void {
     const el = scroller.current
@@ -73,6 +79,7 @@ export function Thread({ events, decisions, runs, summariseTools: summarise = fa
                   result={event.kind === 'tool_call' ? results.get(event.id) : undefined}
                   joined={event.kind === 'tool_result' && called.has(event.id)}
                   decision={event.kind === 'decision' ? decisionById.get(event.decisionId) : undefined}
+                  proposal={event.kind === 'proposal' ? proposals[event.proposalId] : undefined}
                 />
               )}
             </Fragment>
@@ -203,6 +210,8 @@ interface Lookup {
   joined: boolean
   /** For a decision event: the decision it points at. */
   decision: Decision | undefined
+  /** For a proposal event: the proposal it points at, once loaded. */
+  proposal: Proposal | undefined
 }
 
 function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
@@ -290,6 +299,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       if (!decision) return null
       return decision.kind === 'permission' ? <PermissionCard decision={decision} /> : <DecisionCard decision={decision} />
     }
+    case 'proposal':
+      return lookup.proposal ? (
+        <ProposalCard proposal={lookup.proposal} />
+      ) : (
+        <Loader size="xs" type="dots" aria-label="Loading the proposal" data-event="proposal" />
+      )
     default:
       // session, rate_limit, vcs_changed, turn_end, role_handoff and role_hand_back (the handoff or hand-back
       // before it shows it) and the engine-only kinds are not for the person. annotate.ts keeps the same list.

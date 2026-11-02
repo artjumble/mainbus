@@ -40,14 +40,18 @@ const ROLE_TOOLS = [
   'mcp__mainbus__report_problem',
   'mcp__mainbus__check_criterion'
 ]
-/** The orchestrator's Mainbus read tools, pre-approved like the role tools. */
-export const ORCHESTRATOR_READ_TOOLS = [
+/**
+ * The orchestrator's Mainbus tools, pre-approved like the role tools: the read tools, and the propose tools,
+ * which only store a proposal for the user to decide.
+ */
+export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__list_workspaces',
   'mcp__mainbus__list_tickets',
   'mcp__mainbus__get_ticket',
   'mcp__mainbus__get_run_status',
   'mcp__mainbus__get_recent_events',
-  'mcp__mainbus__list_pending_decisions'
+  'mcp__mainbus__list_pending_decisions',
+  'mcp__mainbus__propose_create_tickets'
 ]
 /** The only built-in tools the orchestrator has. */
 export const ORCHESTRATOR_BUILT_IN_TOOLS = ['Read', 'Grep', 'Glob']
@@ -436,7 +440,7 @@ export class SdkRuntime implements AgentRuntime {
    */
   private orchestratorOptions(spec: OrchestratorRunSpec, abortController: AbortController): Options {
     const sdk = this.sdk
-    const t = spec.readTools
+    const t = spec.tools
     const ticketNumber = z.number().int().describe('The ticket number, as in #12')
     const server = sdk.createSdkMcpServer({
       name: 'mainbus',
@@ -479,6 +483,27 @@ export class SdkRuntime implements AgentRuntime {
         ),
         sdk.tool('list_pending_decisions', 'Every decision waiting for the user, with its ticket.', {}, async () =>
           toolText(await t.listPendingDecisions())
+        ),
+        sdk.tool(
+          'propose_create_tickets',
+          "Propose new tickets. The user confirms, changes or rejects them; Mainbus creates them only then. Each ticket's intent is the user's message, filled in by Mainbus: put your own drafting in the spec. Then end your turn.",
+          {
+            tickets: z
+              .array(
+                // Strict, like the engine's own check: an intent from the agent is refused, not dropped.
+                z.strictObject({
+                  title: z.string().describe('A short title, one line'),
+                  spec: z.string().optional().describe('Your draft: the approach, the files involved, the details'),
+                  criteria: z.array(z.string()).optional().describe('Acceptance criteria, one per item'),
+                  labels: z.array(z.string()).optional().describe('Labels, one word or short phrase each')
+                })
+              )
+              .describe('The tickets, in the order to create them'),
+            column: z.enum(['backlog', 'ready']).optional().describe('Where they land: backlog (the default) or ready'),
+            evidence: z.string().optional().describe('What you read that led to this proposal, shown to the user')
+          },
+          // The engine validates it again, strictly: the SDK passes what the agent sent.
+          async (a) => toolText(await t.proposeCreateTickets(a))
         )
       ]
     })
@@ -523,7 +548,7 @@ export class SdkRuntime implements AgentRuntime {
       strictMcpConfig: true,
       includePartialMessages: true,
       disallowedTools: [...spec.disallowedTools],
-      allowedTools: ORCHESTRATOR_READ_TOOLS,
+      allowedTools: ORCHESTRATOR_MAINBUS_TOOLS,
       additionalDirectories: spec.additionalDirectories,
       mcpServers: { mainbus: server },
       hooks: { PreToolUse: [{ hooks: [policy] }] },

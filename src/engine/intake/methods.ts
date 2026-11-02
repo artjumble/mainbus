@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { z } from 'zod'
 import type { Column, NewTicketInput, Ticket, TicketState, Workspace } from '../../shared/domain'
+import { nonBlank, singleLine, text, ticketFields } from '../tickets/validate'
 import type {
   CreateParams,
   IntakeError,
@@ -42,18 +43,12 @@ export interface IntakeDeps {
 
 const COLUMNS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done'] as const satisfies readonly Column[]
 
-const LINE_BREAK = /[\r\n\u0085\u2028\u2029]/
-
-const text = (max: number) => z.string().min(1, 'must not be empty').max(max, `must be at most ${max} characters`)
-const nonBlank = (s: string) => s.trim() !== ''
-const singleLine = (s: string) => !LINE_BREAK.test(s)
-
 const createSchema = z.strictObject({
-  title: text(200).refine(nonBlank, 'must not be blank').refine(singleLine, 'must be a single line'),
+  title: ticketFields.title,
   intent: text(20_000).refine(nonBlank, 'must not be blank'),
-  spec: z.string().max(100_000, 'must be at most 100000 characters').optional(),
-  criteria: z.array(text(1_000)).max(50, 'must have at most 50 items').optional(),
-  labels: z.array(text(50).refine(singleLine, 'must be a single line')).max(20, 'must have at most 20 items').optional(),
+  spec: ticketFields.spec.optional(),
+  criteria: ticketFields.criteria.optional(),
+  labels: ticketFields.labels.optional(),
   repo: text(1_000).optional(),
   source: z.strictObject({
     agent: text(100).refine(singleLine, 'must be a single line'),

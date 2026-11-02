@@ -21,7 +21,16 @@ export function summariseTools(calls: { name: string }[]): string {
   const counts = new Map<string, number>()
   for (const { name } of calls) {
     const bare = name.startsWith(MCP_PREFIX) ? name.slice(MCP_PREFIX.length) : name
-    const kind = bare === 'Read' ? 'read' : bare === 'Grep' || bare === 'Glob' ? 'search' : BOARD_TOOLS.has(bare) ? 'board' : 'other'
+    const kind =
+      bare === 'Read'
+        ? 'read'
+        : bare === 'Grep' || bare === 'Glob'
+          ? 'search'
+          : BOARD_TOOLS.has(bare)
+            ? 'board'
+            : bare.startsWith('propose_')
+              ? 'propose'
+              : 'other'
     counts.set(kind, (counts.get(kind) ?? 0) + 1)
   }
   const parts = [...counts].map(([kind, n]) => {
@@ -32,6 +41,8 @@ export function summariseTools(calls: { name: string }[]): string {
         return 'searched the code'
       case 'board':
         return 'looked at the board'
+      case 'propose':
+        return `made ${plural(n, 'proposal', 'proposals')}`
       default:
         return `used ${plural(n, 'tool', 'tools')}`
     }

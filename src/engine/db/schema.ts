@@ -200,6 +200,31 @@ export const orchestratorEvents = sqliteTable(
   (t) => [primaryKey({ columns: [t.runId, t.seq] })]
 )
 
+/**
+ * What the orchestrator proposed: the user confirms (as it is, or overridden with changes) or rejects it, and
+ * engine code carries it out. Only a pending proposal can be decided.
+ */
+export const proposals = sqliteTable(
+  'proposals',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    orchestratorRunId: text('orchestrator_run_id')
+      .notNull()
+      .references(() => orchestratorRuns.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    payload: text('payload').notNull(), // JSON: the kind's payload, as proposed
+    evidence: text('evidence'),
+    status: text('status', { enum: ['pending', 'confirmed', 'overridden', 'rejected', 'failed'] }).notNull(),
+    result: text('result'), // JSON: the kind's result, or { error } when it failed
+    createdAt: text('created_at').notNull(),
+    decidedAt: text('decided_at')
+  },
+  (t) => [index('proposals_decided_idx').on(t.status, t.decidedAt)]
+)
+
 // Worktrees that still need removing; deliberately no foreign key, so a row can outlive its ticket.
 export const pendingCleanups = sqliteTable('pending_cleanups', {
   ticketId: text('ticket_id').primaryKey(),

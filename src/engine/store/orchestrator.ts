@@ -18,6 +18,8 @@ export interface OrchestratorRepo {
   /** Appends to the run's thread; seq numbers start at 1 and are consecutive per run. */
   append(runId: string, event: ThreadEvent): Promise<StoredEvent>
   events(runId: string): Promise<StoredEvent[]>
+  /** When the user's latest message was recorded, in any run; null before the first. */
+  lastUserMessageAt(): Promise<string | null>
 }
 
 const columns = {
@@ -85,6 +87,16 @@ export function createOrchestratorRepo(db: Db, now: () => Date): OrchestratorRep
         .where(eq(orchestratorEvents.runId, runId))
         .orderBy(asc(orchestratorEvents.seq))
       return rows.map((r) => ({ runId: r.runId, seq: r.seq, at: r.at, event: JSON.parse(r.json) as ThreadEvent }))
+    },
+
+    async lastUserMessageAt() {
+      const [row] = await db
+        .select({ at: orchestratorEvents.at })
+        .from(orchestratorEvents)
+        .where(sql`json_extract(${orchestratorEvents.json}, '$.kind') = 'user_message'`)
+        .orderBy(desc(orchestratorEvents.at))
+        .limit(1)
+      return row?.at ?? null
     }
   }
 }

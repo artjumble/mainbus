@@ -2,7 +2,7 @@ import type { BoardTicket } from '../../shared/api'
 import type { Column, Decision, Phase, RoleStatus, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
-import type { OrchestratorToolHandlers } from '../runtime/types'
+import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import type { Repos } from '../store'
 
 export interface ReadToolDeps {
@@ -158,7 +158,7 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
 }
 
 /** The orchestrator's read tools: plain text, scoped to the open workspace, with agent text marked as data. */
-export function createReadTools(deps: ReadToolDeps): OrchestratorToolHandlers {
+export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandlers {
   /** The open workspace and its board, or the text to answer with instead. */
   async function board(): Promise<{ ws: Workspace; tickets: BoardTicket[] } | string> {
     const ws = await deps.workspace()

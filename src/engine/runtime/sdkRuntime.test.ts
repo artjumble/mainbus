@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import path, { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
+import type { z } from 'zod'
 import type { AgentEvent } from '../../shared/events'
 import { Normalizer } from './normalize'
 import { SdkRuntime, type SdkApi } from './sdkRuntime'
@@ -606,13 +607,14 @@ describe('SdkRuntime: the orchestrator spec', () => {
   const REPO = 'C:\\code\\repo'
 
   function makeOrchestratorSpec(over: Partial<OrchestratorRunSpec> = {}): OrchestratorRunSpec {
-    const readTools: OrchestratorToolHandlers = {
+    const tools: OrchestratorToolHandlers = {
       listWorkspaces: vi.fn(async () => 'workspaces'),
       listTickets: vi.fn(async () => 'tickets'),
       getTicket: vi.fn(async () => 'ticket'),
       getRunStatus: vi.fn(async () => 'status'),
       getRecentEvents: vi.fn(async () => 'events'),
-      listPendingDecisions: vi.fn(async () => 'decisions')
+      listPendingDecisions: vi.fn(async () => 'decisions'),
+      proposeCreateTickets: vi.fn(async () => 'Proposed p1.')
     }
     return {
       kind: 'orchestrator',
@@ -623,13 +625,13 @@ describe('SdkRuntime: the orchestrator spec', () => {
       effort: 'medium',
       additionalDirectories: [REPO],
       disallowedTools: ['Bash', 'Edit', 'Agent'],
-      readTools,
+      tools,
       onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, repo: REPO }),
       ...over
     }
   }
 
-  test('limits built-in tools to Read, Grep and Glob, loads no settings, and pre-approves only the read tools', async () => {
+  test('limits built-in tools to Read, Grep and Glob, loads no settings, and pre-approves only the Mainbus tools', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test')
     const f = fakeSdk()
     const spec = makeOrchestratorSpec()
@@ -643,7 +645,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__get_ticket',
       'mcp__mainbus__get_run_status',
       'mcp__mainbus__get_recent_events',
-      'mcp__mainbus__list_pending_decisions'
+      'mcp__mainbus__list_pending_decisions',
+      'mcp__mainbus__propose_create_tickets'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -659,7 +662,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(o.env.ANTHROPIC_API_KEY).toBeUndefined()
   })
 
-  test('its MCP server has exactly the six read tools, and they call the handlers', async () => {
+  test('its MCP server has exactly the six read tools and the propose tool, and they call the handlers', async () => {
     const f = fakeSdk()
     const spec = makeOrchestratorSpec()
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
@@ -671,15 +674,27 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'get_ticket',
       'get_run_status',
       'get_recent_events',
-      'list_pending_decisions'
+      'list_pending_decisions',
+      'propose_create_tickets'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
       content: [{ type: 'text', text: 'events' }]
     })
-    expect(spec.readTools.getRecentEvents).toHaveBeenCalledWith({ number: 3, limit: 5 })
+    expect(spec.tools.getRecentEvents).toHaveBeenCalledWith({ number: 3, limit: 5 })
     await byName.get('list_tickets')!.handler({}, {})
-    expect(spec.readTools.listTickets).toHaveBeenCalledWith({})
+    expect(spec.tools.listTickets).toHaveBeenCalledWith({})
+
+    // The propose tool passes what the agent sent on whole; the engine validates it.
+    const propose = byName.get('propose_create_tickets')!
+    const args = { tickets: [{ title: 'Add login' }], column: 'ready' }
+    expect(await propose.handler(args, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p1.' }] })
+    expect(spec.tools.proposeCreateTickets).toHaveBeenCalledWith(args)
+    // Its schema has no intent: a ticket's intent is the user's message, and one from the agent is refused.
+    expect(Object.keys(propose.shape)).toEqual(['tickets', 'column', 'evidence'])
+    const tickets = propose.shape.tickets as z.ZodType
+    expect(tickets.safeParse([{ title: 'Add login', intent: 'The user said so' }]).success).toBe(false)
+    expect(tickets.safeParse([{ title: 'Add login', spec: 'Details' }]).success).toBe(true)
   })
 
   test('the PreToolUse hook denies a credential file inside the repo and allows other reads there', async () => {

@@ -97,7 +97,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           </Text>
         </Center>
       ) : (
-        <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} summariseTools />
+        <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} proposals={thread.proposals} summariseTools />
       )}
       {working && (
         <Group gap="xs" px="md" py={4} data-working>

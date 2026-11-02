@@ -1,0 +1,29 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-drafting" } },
+    { "emit": { "kind": "tool_call", "id": "d1", "name": "mcp__mainbus__propose_create_tickets", "input": {} } },
+    {
+      "callTool": "proposeCreateTickets",
+      "args": {
+        "tickets": [
+          {
+            "title": "Add a login page",
+            "spec": "Drafted by the orchestrator: a form at /login that posts to the session endpoint.",
+            "criteria": ["The form renders", "A wrong password is refused"],
+            "labels": ["auth"]
+          },
+          {
+            "title": "Add a logout button",
+            "spec": "Drafted by the orchestrator: a button in the header that ends the session."
+          }
+        ],
+        "evidence": "The README mentions accounts, and src/ has no auth code yet."
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "d1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "I've drafted two tickets for you to confirm." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

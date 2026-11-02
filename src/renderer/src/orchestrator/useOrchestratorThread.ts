@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EngineEvent } from '../../../shared/api'
 import type { OrchestratorStatus, StoredEvent, ThreadRun } from '../../../shared/events'
+import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { showError } from '../notify'
 import { mergeEvent } from '../thread/merge'
@@ -10,6 +11,8 @@ export interface OrchestratorThreadState {
   status: OrchestratorStatus
   /** Every orchestrator session, by id, as the thread names runs. */
   runs: Record<string, ThreadRun>
+  /** Every proposal it made, by id: their cards are in the thread. */
+  proposals: Record<string, Proposal>
 }
 
 /**
@@ -27,6 +30,7 @@ function apply(state: OrchestratorThreadState, e: EngineEvent): OrchestratorThre
     return { ...state, events: mergeEvent(state.events, e.event), runs }
   }
   if (e.type === 'orchestrator.status') return { ...state, status: e.status }
+  if (e.type === 'proposal.changed') return { ...state, proposals: { ...state.proposals, [e.proposal.id]: e.proposal } }
   return state
 }
 
@@ -52,13 +56,14 @@ export function useOrchestratorThread(): OrchestratorThreadState | null {
         loaded = true
         const events = history.events.reduce<StoredEvent[]>(mergeEvent, [])
         const runs = Object.fromEntries(history.runs.map((r) => [r.id, threadRun(r.id)]))
-        setState(held.reduce(apply, { events, status: history.status, runs }))
+        const proposals = Object.fromEntries(history.proposals.map((p) => [p.id, p]))
+        setState(held.reduce(apply, { events, status: history.status, runs, proposals }))
       },
       (err: unknown) => {
         if (cancelled) return
         loaded = true
         showError(err, 'Could not load the orchestrator')
-        setState({ events: [], status: 'idle', runs: {} })
+        setState({ events: [], status: 'idle', runs: {}, proposals: {} })
       }
     )
     return () => {

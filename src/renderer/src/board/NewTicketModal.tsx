@@ -10,7 +10,7 @@ interface Props {
 }
 
 /** One criterion per line; blank lines are dropped. */
-function splitCriteria(text: string): string[] {
+export function splitCriteria(text: string): string[] {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())

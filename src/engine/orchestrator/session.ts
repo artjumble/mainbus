@@ -3,12 +3,14 @@ import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import type { Workspace } from '../../shared/domain'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
+import type { ProposalKindName } from '../../shared/proposals'
+import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
   ResumeFailedError,
   type AgentRuntime,
+  type OrchestratorReadToolHandlers,
   type OrchestratorRunSpec,
-  type OrchestratorToolHandlers,
   type RunHandle
 } from '../runtime/types'
 import type { OrchestratorRepo } from '../store/orchestrator'
@@ -20,6 +22,13 @@ import { buildOrchestratorPrompt } from './prompt'
 export const EMPTY_MESSAGE = 'Type a message first'
 export const RESUME_FAILED_NOTICE =
   "Couldn't resume the earlier conversation; started a new one from a digest of its last messages."
+
+/** What a propose tool answers once the proposal is stored. */
+export function proposedText(id: string): string {
+  return `Proposed ${id}. The user will confirm, change or reject it, and you'll hear the outcome in your next turn. End your turn now.`
+}
+
+export const NO_TURN_MESSAGE = 'Mainbus could not tell which message of the user this turn answers, so nothing was stored.'
 
 /** How long shutdown waits for a queued message to finish starting, and for the last events to land. */
 const SHUTDOWN_SETTLE_MS = 5000
@@ -34,7 +43,8 @@ export interface OrchestratorDeps {
   /** The open workspace, or null; send() rejects with `workspaceRequired` when there is none. */
   workspace: () => Promise<Workspace | null>
   workspaceRequired: string
-  readTools: OrchestratorToolHandlers
+  readTools: OrchestratorReadToolHandlers
+  proposals: ProposalService
 }
 
 interface Live {
@@ -63,6 +73,11 @@ export class OrchestratorSession {
   private live: Live | null = null
   private chain: Promise<unknown> = Promise.resolve()
   private shuttingDown = false
+  /**
+   * The user's messages, as typed, of the turns the live session has yet to finish, oldest first: the first is
+   * the one the current turn answers. A message sent mid-turn is queued as a turn of its own.
+   */
+  private turnMessages: string[] = []
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -76,7 +91,8 @@ export class OrchestratorSession {
     return {
       status: this.status,
       runs: runs.map(({ id, startedAt, endedAt, endReason }) => ({ id, startedAt, endedAt, endReason })),
-      events
+      events,
+      proposals: await this.deps.proposals.list()
     }
   }
 
@@ -113,13 +129,23 @@ export class OrchestratorSession {
     if (this.shuttingDown) throw new Error('Mainbus is shutting down')
     const ws = await this.deps.workspace()
     if (!ws) throw new Error(this.deps.workspaceRequired)
+    // The proposals decided since the user's last message open this one; read before it is recorded.
+    const outcomes = await this.deps.proposals.outcomeBlock(await this.deps.repo.lastUserMessageAt())
+    const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
     const prompt = withHeader(ws, this.deps.now(), text)
 
     if (this.live) {
       // The panel shows what the user typed; the agent gets it with the header.
-      await this.record(this.live.runId, { kind: 'user_message', text })
+      const live = this.live
+      await this.record(live.runId, { kind: 'user_message', text })
       this.setStatus('working')
-      await this.deps.runtime.send(this.live.handle, prompt)
+      this.turnMessages.push(text)
+      try {
+        await this.deps.runtime.send(live.handle, opened(prompt))
+      } catch (err) {
+        if (this.turnMessages.at(-1) === text) this.turnMessages.pop()
+        throw err
+      }
       return
     }
 
@@ -128,10 +154,12 @@ export class OrchestratorSession {
     let runId = open?.id ?? (await this.deps.repo.create()).id
     const message = await this.record(runId, { kind: 'user_message', text })
     this.setStatus('working')
+    // No live session: no turn is under way, so this message starts the first one.
+    this.turnMessages = [text]
     try {
       if (open?.sessionId) {
         try {
-          await this.launch(runId, ws, prompt, open.sessionId)
+          await this.launch(runId, ws, opened(prompt), open.sessionId)
           return
         } catch (err) {
           if (!(err instanceof ResumeFailedError)) throw err
@@ -140,15 +168,36 @@ export class OrchestratorSession {
         await this.deps.repo.end(runId, 'resume_failed')
         runId = (await this.deps.repo.create()).id
         await this.record(runId, { kind: 'notice', text: RESUME_FAILED_NOTICE })
-        await this.launch(runId, ws, `${conversationDigest(earlier)}\n\n${prompt}`)
+        await this.launch(runId, ws, opened(`${conversationDigest(earlier)}\n\n${prompt}`))
         return
       }
-      await this.launch(runId, ws, prompt)
+      await this.launch(runId, ws, opened(prompt))
     } catch (err) {
+      this.turnMessages = []
       await this.record(runId, { kind: 'error', message: errorText(err) }).catch(() => {})
       this.setStatus('failed')
       throw err
     }
+  }
+
+  /**
+   * A propose tool: stores the proposal, made from the message the current turn answers, and puts its card in
+   * the thread here. An invalid one stores nothing, and the orchestrator is told why.
+   */
+  private async propose(kind: ProposalKindName, input: unknown): Promise<string> {
+    const live = this.live
+    const userMessage = this.turnMessages[0]
+    if (!live || userMessage === undefined) return NO_TURN_MESSAGE
+    const ws = await this.deps.workspace()
+    if (!ws) return `${this.deps.workspaceRequired}. Nothing was stored.`
+    const made = await this.deps.proposals.propose(kind, input, {
+      workspaceId: ws.id,
+      orchestratorRunId: live.runId,
+      userMessage
+    })
+    if (!made.ok) return `Invalid proposal: ${made.error}. Nothing was stored; fix it and propose again.`
+    await this.record(live.runId, { kind: 'proposal', proposalId: made.proposal.id })
+    return proposedText(made.proposal.id)
   }
 
   private async launch(runId: string, ws: Workspace, prompt: string, resumeSessionId?: string): Promise<void> {
@@ -163,7 +212,10 @@ export class OrchestratorSession {
       additionalDirectories: [ws.repoPath],
       disallowedTools: ORCHESTRATOR_DISALLOWED,
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
-      readTools: this.deps.readTools,
+      tools: {
+        ...this.deps.readTools,
+        proposeCreateTickets: (a) => this.propose('create_tickets', a)
+      },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, repo: ws.repoPath })
     }
     const handle = await this.deps.runtime.start(spec)
@@ -190,7 +242,11 @@ export class OrchestratorSession {
     } catch (err) {
       if (!this.shuttingDown) await this.record(live.runId, { kind: 'error', message: errorText(err) }).catch(() => {})
     }
-    if (this.live === live) this.live = null
+    if (this.live === live) {
+      this.live = null
+      // Its turns are over: the next message starts a new session.
+      this.turnMessages = []
+    }
     // Quitting ends the turn under way and records nothing more: the run stays open for the next launch.
     if (this.shuttingDown) return
     await this.record(live.runId, { kind: 'process_exit', code: null }).catch(() => {})
@@ -207,7 +263,11 @@ export class OrchestratorSession {
     }
     if (event.kind === 'session') await this.deps.repo.setSession(live.runId, event.sessionId)
     await this.record(live.runId, event)
-    if (event.kind === 'turn_end') this.setStatus(event.ok || event.interrupted ? 'idle' : 'failed')
+    if (event.kind === 'turn_end') {
+      // The next turn, if a message is queued, answers the next message.
+      this.turnMessages.shift()
+      this.setStatus(event.ok || event.interrupted ? 'idle' : 'failed')
+    }
   }
 
   private async record(runId: string, event: ThreadEvent): Promise<StoredEvent> {

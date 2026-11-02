@@ -19,6 +19,7 @@ import type {
   Workspace
 } from './domain'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
+import type { Proposal } from './proposals'
 
 /**
  * A ticket as the board shows it: its state, and its lineup strip (the latest ticket run's roles, or the
@@ -39,6 +40,8 @@ export type EngineEvent =
   /** An event of the orchestrator's thread; partial ones carry seq 0, as in a ticket's thread. */
   | { type: 'orchestrator.appended'; event: StoredEvent }
   | { type: 'orchestrator.status'; status: OrchestratorStatus }
+  /** A proposal was made, decided, carried out or failed. */
+  | { type: 'proposal.changed'; proposal: Proposal }
 
 /** Every command the renderer can send to the engine. A thrown error reaches the renderer as a rejected promise. */
 export interface EngineCommands {
@@ -108,6 +111,12 @@ export interface EngineCommands {
   'orchestrator.send'(text: string): void
   /** Interrupts the turn under way; the conversation goes on with the next message. */
   'orchestrator.stop'(): void
+  /**
+   * The orchestrator's proposals, decided once only. Confirm carries it out: as proposed, or with the user's
+   * `override` (validated like the proposal). A failure while carrying it out comes back as a failed proposal.
+   */
+  'proposal.confirm'(id: string, override?: unknown): Proposal
+  'proposal.reject'(id: string): Proposal
 }
 
 export type CommandName = keyof EngineCommands

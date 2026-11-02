@@ -1,5 +1,6 @@
 // Shared by the engine and the renderer: types only, no Node imports.
 import type { AgentStatus } from './domain'
+import type { Proposal } from './proposals'
 
 /** What an agent asks the user; the engine turns it into a stored Decision. */
 export interface DecisionDraft {
@@ -79,6 +80,8 @@ export type ThreadEvent =
   | { kind: 'paused' }
   /** The user's pause ended: Resume, or a message or answer that resumed the role. */
   | { kind: 'resumed' }
+  /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */
+  | { kind: 'proposal'; proposalId: string }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 
@@ -93,11 +96,12 @@ export interface OrchestratorRun {
   endReason: 'resume_failed' | null
 }
 
-/** The orchestrator's whole thread: every run, oldest first, and their events. */
+/** The orchestrator's whole thread: every run, oldest first, their events, and every proposal it made. */
 export interface OrchestratorThread {
   status: OrchestratorStatus
   runs: OrchestratorRun[]
   events: StoredEvent[]
+  proposals: Proposal[]
 }
 
 /** The agent run a thread event belongs to: its ticket run and its role's name. */

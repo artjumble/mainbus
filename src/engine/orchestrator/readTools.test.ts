@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
 import type { StripRole, Ticket, TicketState, Workspace } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
-import type { OrchestratorToolHandlers } from '../runtime/types'
+import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, openTestDb, testRole } from '../store/testDb'
 import { createReadTools, EVENTS_DEFAULT, EVENTS_MAX, NO_WORKSPACE } from './readTools'
@@ -12,7 +12,7 @@ let repos: Repos
 let ws: Workspace
 /** The board each ticket shows: its state and lineup strip, by ticket id. Unlisted tickets are in Backlog. */
 let views: Map<string, { state: Partial<TicketState>; lineup: StripRole[] }>
-let tools: OrchestratorToolHandlers
+let tools: OrchestratorReadToolHandlers
 
 const planner = testRole({ id: 'p', name: 'Planner', position: 1, activePhase: 'planning', model: 'opus', effort: 'high' })
 const implementer = testRole({ id: 'i', name: 'Implementer', position: 2 })

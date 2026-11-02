@@ -36,7 +36,10 @@ export async function openDb(
       backUp(sqlite, paths.backups, now())
     }
 
-    const db = drizzle((query, params, method) => Promise.resolve(run(sqlite, query, params, method)))
+    const db = drizzle(
+      (query, params, method) => Promise.resolve(run(sqlite, query, params, method)),
+      (queries) => Promise.resolve(runBatch(sqlite, queries))
+    )
     await migrate(
       db,
       async (queries) => {
@@ -90,6 +93,27 @@ function run(
     return { rows: stmt.get(...args) as unknown as any[] }
   }
   return { rows: stmt.all(...args) as unknown as any[][] }
+}
+
+/**
+ * `db.batch()`: all the queries or none. They run synchronously, so no other query can run in the middle of
+ * them, as one can between the awaits of `db.transaction()` on this single connection. A savepoint rather than
+ * BEGIN, so a batch inside a transaction that is already open still works.
+ */
+function runBatch(
+  sqlite: DatabaseSync,
+  queries: { sql: string; params: unknown[]; method: 'run' | 'all' | 'values' | 'get' }[]
+): { rows: any[] }[] {
+  sqlite.exec('SAVEPOINT batch')
+  try {
+    const results = queries.map((q) => run(sqlite, q.sql, q.params, q.method))
+    sqlite.exec('RELEASE batch')
+    return results
+  } catch (error) {
+    sqlite.exec('ROLLBACK TO batch')
+    sqlite.exec('RELEASE batch')
+    throw error
+  }
 }
 
 /** Migrations in the journal that the database hasn't applied yet. */
