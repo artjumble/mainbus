@@ -54,7 +54,9 @@ describe('decision repo', () => {
       status: 'pending',
       answer: null,
       createdAt: FIXED_NOW.toISOString(),
-      answeredAt: null
+      answeredAt: null,
+      answeredBy: null,
+      answeredVia: null
     })
     expect(await repo.get(d.id)).toEqual(d)
     expect(await repo.actionOf(d.id)).toBeNull()
@@ -88,28 +90,39 @@ describe('decision repo', () => {
     const repo = createDecisionRepo(db, now)
     const d = await repo.open({ ...question(), options: [...question().options] })
     clock = new Date('2026-10-30T12:05:00.000Z')
-    const answered = await repo.answer(d.id, { kind: 'option', index: 1, note: 'team uses it' })
+    const answered = await repo.answer(d.id, { kind: 'option', index: 1, note: 'team uses it' }, 'board')
     expect(answered).toMatchObject({
       status: 'answered',
       answer: { kind: 'option', index: 1, note: 'team uses it' },
-      answeredAt: '2026-10-30T12:05:00.000Z'
+      answeredAt: '2026-10-30T12:05:00.000Z',
+      answeredBy: 'user',
+      answeredVia: 'board'
     })
     expect(await repo.get(d.id)).toEqual(answered)
   })
 
-  it('answering a decision twice throws', async () => {
+  it('a pending decision has no answerer yet', async () => {
     const repo = createDecisionRepo(db, now)
     const d = await repo.open({ ...question(), options: [...question().options] })
-    await repo.answer(d.id, { kind: 'option', index: 0 })
-    await expect(repo.answer(d.id, { kind: 'option', index: 1 })).rejects.toThrow(/pending/i)
-    expect((await repo.get(d.id)).answer).toEqual({ kind: 'option', index: 0 })
+    expect(d).toMatchObject({ answeredBy: null, answeredVia: null })
+  })
+
+  it('answering a decision twice throws, naming where the first answer came from', async () => {
+    const repo = createDecisionRepo(db, now)
+    const d = await repo.open({ ...question(), options: [...question().options] })
+    await repo.answer(d.id, { kind: 'option', index: 0 }, 'board')
+    await expect(repo.answer(d.id, { kind: 'option', index: 1 }, 'thread')).rejects.toThrow('Already answered from the board')
+    await expect(repo.answer(d.id, { kind: 'option', index: 1 }, 'board')).rejects.toThrow('Already answered from the board')
+    const kept = await repo.get(d.id)
+    expect(kept.answer).toEqual({ kind: 'option', index: 0 })
+    expect(kept.answeredVia).toBe('board')
   })
 
   it('answering an expired decision throws', async () => {
     const repo = createDecisionRepo(db, now)
     const d = await repo.open({ ...question(), options: [...question().options] })
     await repo.expire(d.id)
-    await expect(repo.answer(d.id, { kind: 'option', index: 0 })).rejects.toThrow(/pending/i)
+    await expect(repo.answer(d.id, { kind: 'option', index: 0 }, 'thread')).rejects.toThrow(/pending/i)
   })
 
   it('expires a pending decision', async () => {
@@ -126,7 +139,7 @@ describe('decision repo', () => {
     const first = await repo.open(base)
     const second = await repo.open({ ...base, question: 'Which ORM?' })
     const third = await repo.open({ ...base, question: 'Which port?' })
-    await repo.answer(first.id, { kind: 'option', index: 0 })
+    await repo.answer(first.id, { kind: 'option', index: 0 }, 'thread')
     await repo.expire(third.id)
 
     expect((await repo.pending(ticketId)).map((d) => d.id)).toEqual([second.id])
@@ -139,7 +152,7 @@ describe('decision repo', () => {
     const first = await repo.open(base)
     const second = await repo.open({ ...base, question: 'Which ORM?' })
     const third = await repo.open({ ...base, question: 'Which port?' })
-    await repo.answer(first.id, { kind: 'option', index: 0 })
+    await repo.answer(first.id, { kind: 'option', index: 0 }, 'thread')
     await repo.expire(third.id)
 
     const all = await repo.forTicket(ticketId)

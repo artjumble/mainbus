@@ -71,6 +71,13 @@
       "when": 1793591142672,
       "tag": "0009_proposal_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793594015902,
+      "tag": "0010_decision_answered_via",
+      "breakpoints": true
     }
   ]
 }

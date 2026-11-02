@@ -119,6 +119,18 @@ export type DecisionAnswer =
   | { kind: 'option'; index: number; note?: string }
   | { kind: 'permission'; choice: 'allow_once' | 'always_allow' | 'deny'; note?: string }
 
+/** Where the user answered a decision: its board card, the orchestrator panel, or the ticket's thread. */
+export type AnsweredVia = 'board' | 'orchestrator' | 'thread'
+
+export const ANSWERED_VIA: readonly AnsweredVia[] = ['board', 'orchestrator', 'thread']
+
+/** How an answer's origin reads in a sentence: "from the board". */
+export const ANSWERED_VIA_LABELS: Record<AnsweredVia, string> = {
+  board: 'the board',
+  orchestrator: 'the orchestrator panel',
+  thread: 'the thread'
+}
+
 export interface Decision {
   id: string
   ticketId: string
@@ -133,6 +145,9 @@ export interface Decision {
   answer: DecisionAnswer | null
   createdAt: string
   answeredAt: string | null
+  /** Set with the answer: always the user so far. */
+  answeredBy: 'user' | null
+  answeredVia: AnsweredVia | null
 }
 
 export interface AllowRule {

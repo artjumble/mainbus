@@ -125,7 +125,7 @@ describe('createEngine', () => {
     expect(decisions[0]).toMatchObject({ question: 'Which?', status: 'pending' })
     expect(events.some((e) => e.event.kind === 'decision')).toBe(true)
 
-    await engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 })
+    await engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 }, 'thread')
     expect((await engine.invoke('thread.get', t.id)).decisions[0]!.status).toBe('answered')
   })
 
@@ -264,7 +264,7 @@ describe('createEngine', () => {
       () => engine.invoke('agent.start', t.id),
       () => engine.invoke('agent.send', t.id, 'hi'),
       () => engine.invoke('agent.continue', t.id),
-      () => engine.invoke('decision.answer', 'whatever', { kind: 'option', index: 0 })
+      () => engine.invoke('decision.answer', 'whatever', { kind: 'option', index: 0 }, 'thread')
     ]) {
       const err = await attempt().catch((e: unknown) => e)
       expect(err).toBeInstanceOf(SetupRequiredError)

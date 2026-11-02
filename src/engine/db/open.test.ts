@@ -274,6 +274,41 @@ describe('openDb', () => {
     expect(await createRunRepo(db, () => new Date()).latest('t1')).toMatchObject({ id: 'r1', endReason: 'handoff', skipped: false })
   })
 
+  it('backs up and makes existing answered decisions answered by the user from the thread', async () => {
+    // The migrations as they were before answered_via.
+    const first = await open(firstMigrations(10))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into ticket_runs (id, ticket_id, roles, status, started_at) values ('tr1', 't1', '[]', 'running', '2026-10-30T01:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into agent_runs (id, ticket_id, ticket_run_id, role_id, role, started_at)
+          values ('r1', 't1', 'tr1', 'role-i', 'Implementer', '2026-10-30T01:00:00.000Z')`
+    )
+    for (const [id, status] of [['d1', 'answered'], ['d2', 'pending'], ['d3', 'expired']]) {
+      await first.db.run(
+        sql`insert into decisions (id, ticket_id, agent_run_id, kind, question, options, status, created_at)
+            values (${id}, 't1', 'r1', 'question', 'Q?', '["a"]', ${status}, '2026-10-30T01:00:02.000Z')`
+      )
+    }
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 10, 1, 8, 30, 0))
+    expect(backupFiles()).toEqual(['mainbus-20261101-083000.db'])
+    const decisions = createDecisionRepo(db, () => new Date())
+    expect(await decisions.get('d1')).toMatchObject({ status: 'answered', answeredBy: 'user', answeredVia: 'thread' })
+    expect(await decisions.get('d2')).toMatchObject({ status: 'pending', answeredBy: null, answeredVia: null })
+    expect(await decisions.get('d3')).toMatchObject({ status: 'expired', answeredBy: null, answeredVia: null })
+  })
+
   it('backs up an existing database before applying pending migrations', async () => {
     const first = await open()
     await first.db.run(

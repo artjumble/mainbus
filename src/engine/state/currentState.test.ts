@@ -39,7 +39,9 @@ function pending(kind: Decision['kind'], question: string): Decision {
     status: 'pending',
     answer: null,
     createdAt: '2026-10-30T10:00:00.000Z',
-    answeredAt: null
+    answeredAt: null,
+    answeredBy: null,
+    answeredVia: null
   }
 }
 

@@ -81,7 +81,9 @@ test('the activity timeline lists run start, handoff, stop and answered decision
     makeDecision({
       status: 'answered',
       answer: { kind: 'option', index: 0 },
-      answeredAt: '2026-10-30T10:15:00.000Z'
+      answeredAt: '2026-10-30T10:15:00.000Z',
+      answeredBy: 'user',
+      answeredVia: 'board'
     })
   ]
   renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={decisions} />)
@@ -91,7 +93,7 @@ test('the activity timeline lists run start, handoff, stop and answered decision
     .map((li) => li.textContent ?? '')
   expect(items).toHaveLength(5)
   expect(items[0]).toMatch(/Run started/)
-  expect(items[1]).toMatch(/Answered: Which database\?.*SQLite/)
+  expect(items[1]).toMatch(/Decision: Which database\? → SQLite \(you, from the board\)/)
   expect(items[2]).toMatch(/Handed off.*All done/)
   expect(items[3]).toMatch(/Run started/)
   expect(items[4]).toMatch(/Stopped/)
@@ -146,4 +148,38 @@ test("the user's own tickets show no agent section or badge", () => {
   renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
   expect(screen.queryByRole('region', { name: 'From an agent' })).not.toBeInTheDocument()
   expect(screen.queryByText(/\(reported\)/)).not.toBeInTheDocument()
+})
+
+test.each([
+  ['board', 'the board'],
+  ['orchestrator', 'the orchestrator panel'],
+  ['thread', 'the thread']
+] as const)('the activity entry for an answer from %s says so', (answeredVia, from) => {
+  const decision = makeDecision({
+    status: 'answered',
+    answer: { kind: 'option', index: 1, note: 'scale' },
+    answeredAt: '2026-10-30T10:15:00.000Z',
+    answeredBy: 'user',
+    answeredVia
+  })
+  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[decision]} />)
+  const item = within(screen.getByRole('region', { name: 'Activity' })).getByRole('listitem')
+  expect(item.textContent).toContain(`Decision: Which database? → Postgres (you, from ${from})`)
+  expect(item.textContent).toContain('scale')
+})
+
+test('the activity entry for an answered permission names the choice and where it came from', () => {
+  const decision = makeDecision({
+    kind: 'permission',
+    question: 'Run pnpm install',
+    options: [],
+    status: 'answered',
+    answer: { kind: 'permission', choice: 'deny' },
+    answeredAt: '2026-10-30T10:15:00.000Z',
+    answeredBy: 'user',
+    answeredVia: 'board'
+  })
+  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[decision]} />)
+  const item = within(screen.getByRole('region', { name: 'Activity' })).getByRole('listitem')
+  expect(item.textContent).toContain('Decision: Run pnpm install → Denied (you, from the board)')
 })

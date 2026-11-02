@@ -1,6 +1,6 @@
 import { Button, Group, Paper, Stack, Text } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import type { Decision } from '../../../shared/domain'
+import type { AnsweredVia, Decision } from '../../../shared/domain'
 import { sendAnswer } from './DecisionCard'
 
 interface Props {
@@ -16,17 +16,41 @@ export const PERMISSION_ANSWERS: Record<Choice, string> = {
   deny: 'Denied'
 }
 
-/** A tool-permission request from the agent: Allow once, Always allow in this workspace (when offered), Deny. */
-export function PermissionCard({ decision }: Props): ReactElement {
+/** Allow once, Always allow in this workspace (when offered) and Deny: in the thread card and on the board card's popover. */
+export function PermissionChoices({
+  decision,
+  via,
+  onAnswered
+}: Props & { via: AnsweredVia; onAnswered?: () => void }): ReactElement {
   const [sending, setSending] = useState(false)
 
   async function choose(choice: Choice): Promise<void> {
     if (sending) return
     setSending(true)
-    await sendAnswer(decision, { kind: 'permission', choice })
+    const sent = await sendAnswer(decision, { kind: 'permission', choice }, via)
     setSending(false)
+    if (sent) onAnswered?.()
   }
 
+  return (
+    <Group gap="xs">
+      <Button disabled={sending} onClick={() => void choose('allow_once')}>
+        Allow once
+      </Button>
+      {decision.allowAlways && (
+        <Button variant="default" disabled={sending} onClick={() => void choose('always_allow')}>
+          Always allow in this workspace
+        </Button>
+      )}
+      <Button variant="default" disabled={sending} onClick={() => void choose('deny')}>
+        Deny
+      </Button>
+    </Group>
+  )
+}
+
+/** A tool-permission request from the agent, inline in the thread. */
+export function PermissionCard({ decision }: Props): ReactElement {
   return (
     <Paper withBorder p="sm" radius="md" data-event="permission" bg="var(--mantine-color-needs-0)">
       <Stack gap="xs">
@@ -34,19 +58,7 @@ export function PermissionCard({ decision }: Props): ReactElement {
           {decision.question}
         </Text>
         {decision.status === 'pending' ? (
-          <Group gap="xs">
-            <Button disabled={sending} onClick={() => void choose('allow_once')}>
-              Allow once
-            </Button>
-            {decision.allowAlways && (
-              <Button variant="default" disabled={sending} onClick={() => void choose('always_allow')}>
-                Always allow in this workspace
-              </Button>
-            )}
-            <Button variant="default" disabled={sending} onClick={() => void choose('deny')}>
-              Deny
-            </Button>
-          </Group>
+          <PermissionChoices decision={decision} via="thread" />
         ) : (
           <Text size="sm" c="dimmed">
             {outcome(decision)}

@@ -24,11 +24,11 @@ test('PermissionCard offers Allow once, Always allow in this workspace, Deny', a
   renderWithMantine(<PermissionCard decision={permission()} />)
   expect(screen.getByText('Implementer wants to run `pnpm install`')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Allow once' }))
-  expect(mockInvoke).toHaveBeenLastCalledWith('decision.answer', 'd1', { kind: 'permission', choice: 'allow_once' })
+  expect(mockInvoke).toHaveBeenLastCalledWith('decision.answer', 'd1', { kind: 'permission', choice: 'allow_once' }, 'thread')
   await userEvent.click(screen.getByRole('button', { name: 'Always allow in this workspace' }))
-  expect(mockInvoke).toHaveBeenLastCalledWith('decision.answer', 'd1', { kind: 'permission', choice: 'always_allow' })
+  expect(mockInvoke).toHaveBeenLastCalledWith('decision.answer', 'd1', { kind: 'permission', choice: 'always_allow' }, 'thread')
   await userEvent.click(screen.getByRole('button', { name: 'Deny' }))
-  expect(mockInvoke).toHaveBeenLastCalledWith('decision.answer', 'd1', { kind: 'permission', choice: 'deny' })
+  expect(mockInvoke).toHaveBeenLastCalledWith('decision.answer', 'd1', { kind: 'permission', choice: 'deny' }, 'thread')
 })
 
 test('with allowAlways false the Always allow button is not rendered', () => {
