@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { makeTicket, renderWithMantine } from '../test-utils'
+import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
 import { TicketCard } from './TicketCard'
 
 test('TicketCard shows number, title and phase chip only', () => {
@@ -66,16 +66,40 @@ test('the summary shows only for a Needs you card', () => {
   expect(screen.queryByText('Should stay hidden')).not.toBeInTheDocument()
 })
 
-test('clicking or pressing Enter opens the ticket', async () => {
+test('the title button opens the ticket by click, Enter and Space, once each', async () => {
   const onOpen = vi.fn()
   const ticket = makeTicket({ title: 'Open me' })
   renderWithMantine(<TicketCard ticket={ticket} onOpen={onOpen} />)
-  const card = screen.getByRole('button', { name: /Open me/ })
-  await userEvent.click(card)
+  const title = screen.getByRole('button', { name: 'Open me' })
+  await userEvent.click(title)
+  expect(onOpen).toHaveBeenCalledTimes(1)
   expect(onOpen).toHaveBeenCalledWith(ticket.id)
-  card.focus()
+  title.focus()
   await userEvent.keyboard('{Enter}')
   expect(onOpen).toHaveBeenCalledTimes(2)
+  await userEvent.keyboard(' ')
+  expect(onOpen).toHaveBeenCalledTimes(3)
+})
+
+test('a click on the empty area of the card opens the ticket', async () => {
+  const onOpen = vi.fn()
+  const ticket = makeTicket({ number: 9, title: 'Open me' })
+  renderWithMantine(<TicketCard ticket={ticket} onOpen={onOpen} />)
+  await userEvent.click(screen.getByText('#9'))
+  expect(onOpen).toHaveBeenCalledWith(ticket.id)
+})
+
+test('the card is not itself a button: the title is the only tab stop, and no button contains another control', () => {
+  const ticket = makeTicket(
+    { title: 'Open me', pr: { url: 'https://github.com/o/r/pull/12', number: 12 }, pendingDecisions: [makeDecision()] },
+    { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' }
+  )
+  renderWithMantine(<TicketCard ticket={ticket} onOpen={() => {}} />)
+  const buttons = screen.getAllByRole('button')
+  expect(buttons.map((b) => b.textContent)).toEqual(['Open me', 'Answer'])
+  for (const b of buttons) expect(b.querySelector('button, a, [role="button"], [tabindex]')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Open me' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'PR #12' })).toBeInTheDocument()
 })
 
 test('a ticket an agent filed shows "from <agent> (reported)" with the folder in a tooltip', async () => {
