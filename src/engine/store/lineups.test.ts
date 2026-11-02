@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { LineupRole, LineupRoleInput } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { createLineupRepo, lineupProblem, type LineupRepo } from './lineups'
+import { createLineupRepo, defaultLineup, lineupProblem, type LineupRepo } from './lineups'
 import { FIXED_NOW, openTestDb } from './testDb'
 import { createWorkspaceRepo } from './workspaces'
 
@@ -36,6 +36,18 @@ function newRole(id: string, name: string, extra: Partial<LineupRoleInput> = {})
     ...extra
   }
 }
+
+describe('default lineup', () => {
+  it('tells the Implementer to run related tests and the full type check, and the Reviewer to run everything', () => {
+    const [planner, implementer, reviewer] = defaultLineup()
+    expect(implementer!.instructions).toContain('run only the tests that cover the code you changed')
+    expect(implementer!.instructions).toContain('full type check (or its build, if it has no type check)')
+    expect(implementer!.instructions).toContain('say which tests you ran')
+    expect(implementer!.instructions).toContain("Don't tick a criterion about the full test suite: the Reviewer runs it.")
+    expect(reviewer!.instructions).toContain('run the full test suite, every kind the project has (end-to-end tests included)')
+    expect(planner!.instructions).toMatch(/^Read the ticket and the code it touches./)
+  })
+})
 
 describe('lineup repo', () => {
   it('reorders, renames and edits roles, keeping their ids', async () => {

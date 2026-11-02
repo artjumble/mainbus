@@ -85,6 +85,13 @@
       "when": 1793597821937,
       "tag": "0011_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793600000000,
+      "tag": "0012_test_instructions",
+      "breakpoints": true
     }
   ]
 }

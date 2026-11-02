@@ -24,7 +24,7 @@ export interface LineupRepo {
 const CHANGE: Lineup = 'change'
 
 // The ids here only link the defaults to each other; saving gives every role a fresh one.
-// Migration 0002 has its own copy of the Planner and Reviewer texts, as they were when it was written.
+// Migrations 0002 and 0012 have their own copies of these texts, as they were when each was written.
 /** The lineup every new workspace starts with: Planner → Implementer → Reviewer. */
 export function defaultLineup(): LineupRoleInput[] {
   return [
@@ -47,7 +47,10 @@ export function defaultLineup(): LineupRoleInput[] {
       name: 'Implementer',
       instructions:
         'Make the change and its tests, following the plan from the previous role unless the code shows it is ' +
-        'wrong (then say why in your handoff). Run the tests. Commit your work on the branch before handing off.',
+        'wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. ' +
+        "Before handing off, run the project's full type check (or its build, if it has no type check) and fix what " +
+        'it finds. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran. ' +
+        "Don't tick a criterion about the full test suite: the Reviewer runs it.",
       activePhase: 'implementing',
       onProblem: 'hand_back',
       handBackTo: 'planner',
@@ -60,7 +63,8 @@ export function defaultLineup(): LineupRoleInput[] {
       name: 'Reviewer',
       instructions:
         "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against " +
-        'the base branch, run the tests, and check each criterion. If something is wrong or missing, report it as ' +
+        'the base branch, run the full test suite, every kind the project has (end-to-end tests included), and ' +
+        'check each criterion. If something is wrong or missing, report it as ' +
         "a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change " +
         "any files. When it's right, hand off with a short review summary.",
       activePhase: 'reviewing',
