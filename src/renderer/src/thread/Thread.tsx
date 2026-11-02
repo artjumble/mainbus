@@ -1,20 +1,23 @@
-import { Anchor, Box, Button, Paper, Stack, Text, Typography } from '@mantine/core'
+import { Anchor, Badge, Box, Button, Collapse, Group, Loader, Paper, Stack, Text, Typography, UnstyledButton } from '@mantine/core'
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import Markdown from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
-import { annotate } from './annotate'
+import { annotate, type Annotation } from './annotate'
 import { DecisionCard } from './DecisionCard'
 import { PermissionCard } from './PermissionCard'
 import { ThinkingBlock } from './ThinkingBlock'
 import classes from './Thread.module.css'
 import { ToolRow } from './ToolRow'
+import { summariseTools } from './toolSummary'
 
 interface Props {
   events: StoredEvent[]
   decisions: Decision[]
   /** The agent runs the events belong to, by id: they name each event's role and ticket run. */
   runs: Record<string, ThreadRun>
+  /** Collapse each group of tool rows to one summary line, such as "Read 3 files", that expands to the rows. */
+  summariseTools?: boolean
 }
 
 const NEAR_BOTTOM_PX = 48
@@ -23,7 +26,7 @@ const NEAR_BOTTOM_PX = 48
  * The ticket thread: agent messages and tool rows tagged with their role, thinking, dividers (handoffs between
  * roles, new runs) and inline decision cards. Follows new events while scrolled to the bottom.
  */
-export function Thread({ events, decisions, runs }: Props): ReactElement {
+export function Thread({ events, decisions, runs, summariseTools: summarise = false }: Props): ReactElement {
   const scroller = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
@@ -45,6 +48,7 @@ export function Thread({ events, decisions, runs }: Props): ReactElement {
   }
   const decisionById = new Map(decisions.map((d) => [d.id, d]))
   const notes = useMemo(() => annotate(events, runs), [events, runs])
+  const groups = useToolGroups(events, notes, results, called, summarise)
 
   return (
     <Box ref={scroller} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -53,18 +57,24 @@ export function Thread({ events, decisions, runs }: Props): ReactElement {
           const { event } = stored
           // The thread holds every ticket run of the ticket, oldest first; mark where each later one starts.
           const note = notes[i]!
+          const group = note.toolGroup === undefined ? undefined : groups.get(note.toolGroup)
           return (
-            <Fragment key={`${stored.runId}:${stored.seq}:${event.kind}`}>
+            <Fragment key={eventKey(stored)}>
               {note.newRun && <Divider text="New run" />}
-              <EventRow
-                event={event}
-                role={note.role}
-                toolGroupStart={note.toolGroupStart}
-                handoffLabel={note.handoffLabel}
-                result={event.kind === 'tool_call' ? results.get(event.id) : undefined}
-                joined={event.kind === 'tool_result' && called.has(event.id)}
-                decision={event.kind === 'decision' ? decisionById.get(event.decisionId) : undefined}
-              />
+              {group ? (
+                // The group's first row shows the whole group; its other rows are inside it.
+                note.toolGroup === i && <ToolGroup role={note.role} items={group} />
+              ) : (
+                <EventRow
+                  event={event}
+                  role={note.role}
+                  toolGroupStart={note.toolGroupStart}
+                  handoffLabel={note.handoffLabel}
+                  result={event.kind === 'tool_call' ? results.get(event.id) : undefined}
+                  joined={event.kind === 'tool_result' && called.has(event.id)}
+                  decision={event.kind === 'decision' ? decisionById.get(event.decisionId) : undefined}
+                />
+              )}
             </Fragment>
           )
         })}
@@ -74,6 +84,100 @@ export function Thread({ events, decisions, runs }: Props): ReactElement {
 }
 
 type ToolResult = { ok: boolean; summary: string }
+
+const eventKey = (stored: StoredEvent): string => `${stored.runId}:${stored.seq}:${stored.event.kind}`
+
+/** One tool row inside a summarised group. */
+interface ToolItem {
+  key: string
+  name: string
+  input: unknown
+  result: ToolResult | undefined
+}
+
+/**
+ * With `on`, the tool rows of each group by the index of the row starting it. A group whose rows have not changed
+ * keeps the same array, so the memoized ToolGroup is skipped when other events arrive.
+ */
+function useToolGroups(
+  events: StoredEvent[],
+  notes: Annotation[],
+  results: Map<string, ToolResult>,
+  called: Set<string>,
+  on: boolean
+): Map<number, ToolItem[]> {
+  const kept = useRef(new Map<string, ToolItem[]>())
+  const groups = new Map<number, ToolItem[]>()
+  if (!on) return groups
+  events.forEach((stored, i) => {
+    const start = notes[i]!.toolGroup
+    const { event } = stored
+    if (start === undefined) return
+    let item: ToolItem
+    if (event.kind === 'tool_call') {
+      item = { key: eventKey(stored), name: event.name, input: event.input, result: results.get(event.id) }
+    } else if (event.kind === 'tool_result' && !called.has(event.id)) {
+      item = { key: eventKey(stored), name: 'Tool', input: undefined, result: event }
+    } else {
+      return
+    }
+    const items = groups.get(start)
+    if (items) items.push(item)
+    else groups.set(start, [item])
+  })
+
+  const next = new Map<string, ToolItem[]>()
+  for (const [start, items] of groups) {
+    const key = eventKey(events[start]!)
+    const prev = kept.current.get(key)
+    const same =
+      prev !== undefined &&
+      prev.length === items.length &&
+      prev.every((p, j) => p.key === items[j]!.key && p.input === items[j]!.input && p.result === items[j]!.result)
+    const group = same ? prev : items
+    groups.set(start, group)
+    next.set(key, group)
+  }
+  kept.current = next
+  return groups
+}
+
+/** A group of tool rows of one run as one collapsed line, such as "Read 3 files, looked at the board". */
+const ToolGroup = memo(function ToolGroup({ role, items }: { role: string; items: ToolItem[] }): ReactElement {
+  const [opened, setOpened] = useState(false)
+  const running = items.some((t) => t.result === undefined)
+  const failed = items.some((t) => t.result && !t.result.ok)
+  return (
+    <Stack gap={2}>
+      <RoleTag role={role} />
+      <Paper withBorder radius="sm" data-event="tool_group">
+        <UnstyledButton w="100%" px="xs" py={6} aria-expanded={opened} onClick={() => setOpened((o) => !o)}>
+          <Group gap="xs" wrap="nowrap">
+            <Text size="xs" c="dimmed">
+              {opened ? '▾' : '▸'}
+            </Text>
+            <Text size="sm" c="dimmed" truncate style={{ flex: 1, minWidth: 0 }}>
+              {summariseTools(items)}
+            </Text>
+            {running && <Loader size={12} type="dots" />}
+            {failed && (
+              <Badge color="needs" variant="light" size="sm">
+                Failed
+              </Badge>
+            )}
+          </Group>
+        </UnstyledButton>
+        <Collapse expanded={opened} keepMounted={false}>
+          <Stack gap={4} p="xs" pt={0}>
+            {items.map((t) => (
+              <ToolRow key={t.key} name={t.name} input={t.input} result={t.result} />
+            ))}
+          </Stack>
+        </Collapse>
+      </Paper>
+    </Stack>
+  )
+})
 
 interface RowProps extends Lookup {
   event: ThreadEvent

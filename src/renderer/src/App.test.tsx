@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke, onEngineEvent } from './api'
 import { App } from './App'
@@ -22,6 +22,7 @@ function answer(setup: unknown, ws: unknown, tickets: unknown[] = []): void {
     if (command === 'board.get') return { tickets }
     if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
+    if (command === 'orchestrator.get') return { status: 'idle', runs: [], events: [] }
     throw new Error(`unexpected ${command}`)
   })
 }
@@ -52,6 +53,33 @@ test('with a workspace, the app shows the board, and a card opens the ticket vie
   expect(await screen.findByText('Source: Local')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: '← mainbus board' }))
   expect(screen.getByText('Backlog')).toBeInTheDocument()
+})
+
+test('the orchestrator panel is beside the board and the ticket view, and not on the setup screens', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, workspace, [makeTicket({ title: 'First ticket' })])
+  renderWithMantine(<App />)
+  const panel = await screen.findByRole('complementary', { name: 'Orchestrator' })
+  await userEvent.type(within(panel).getByRole('textbox', { name: 'Message the orchestrator' }), 'draft')
+
+  await userEvent.click(screen.getByRole('button', { name: /First ticket/ }))
+  expect(await screen.findByText('Source: Local')).toBeInTheDocument()
+  // The same panel, not a new one: what was typed is still there.
+  expect(screen.getByRole('complementary', { name: 'Orchestrator' })).toBe(panel)
+  expect(within(panel).getByRole('textbox', { name: 'Message the orchestrator' })).toHaveValue('draft')
+})
+
+test('the setup screens have no orchestrator panel', async () => {
+  answer({ ok: false, reason: 'not_found', detail: '' }, null)
+  const { unmount } = renderWithMantine(<App />)
+  await screen.findByText(/Claude Code isn't installed/)
+  expect(screen.queryByRole('complementary', { name: 'Orchestrator' })).not.toBeInTheDocument()
+  unmount()
+
+  useMainbus.setState(initial, true)
+  answer({ ok: true, path: 'claude', version: '2' }, null)
+  renderWithMantine(<App />)
+  await screen.findByRole('button', { name: 'Open a repo folder' })
+  expect(screen.queryByRole('complementary', { name: 'Orchestrator' })).not.toBeInTheDocument()
 })
 
 test('a failing first load shows an error with Try again instead of an endless loader', async () => {

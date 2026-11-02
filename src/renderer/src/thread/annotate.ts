@@ -8,6 +8,8 @@ export interface Annotation {
   newRun: boolean
   /** A tool row that starts a group of tool rows of one agent run: it carries the role tag. */
   toolGroupStart: boolean
+  /** For a tool row that is shown: the index of the row that starts its group. */
+  toolGroup: number | undefined
   /** For a handoff: who handed off to whom, such as "Planner → Implementer". */
   handoffLabel: string | undefined
 }
@@ -45,6 +47,7 @@ export function annotate(events: StoredEvent[], runs: Record<string, ThreadRun>)
   const seen = new Set<string>()
   // The agent run of the last row shown, when that row was a tool row.
   let toolRun: string | null = null
+  let groupStart = 0
   return events.map((stored, i) => {
     const { event } = stored
     const role = roleOf(stored)
@@ -55,10 +58,13 @@ export function annotate(events: StoredEvent[], runs: Record<string, ThreadRun>)
     seen.add(ticketRun)
 
     let toolGroupStart = false
+    let toolGroup: number | undefined
     const hidden = HIDDEN.has(event.kind) || (event.kind === 'tool_result' && called.has(event.id))
     if (!hidden) {
       const toolRow = event.kind === 'tool_call' || event.kind === 'tool_result'
       toolGroupStart = toolRow && (newRun || toolRun !== stored.runId)
+      if (toolGroupStart) groupStart = i
+      if (toolRow) toolGroup = groupStart
       toolRun = toolRow ? stored.runId : null
     }
 
@@ -72,7 +78,7 @@ export function annotate(events: StoredEvent[], runs: Record<string, ThreadRun>)
         handoffLabel = to === undefined ? `${role} handed off` : `${role} → ${to}`
       }
     }
-    return { role, newRun, toolGroupStart, handoffLabel }
+    return { role, newRun, toolGroupStart, toolGroup, handoffLabel }
   })
 }
 

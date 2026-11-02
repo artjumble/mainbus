@@ -1,7 +1,9 @@
 import { AppShell, Button, Center, Group, Loader, Stack, Text, Title } from '@mantine/core'
-import { useEffect, type ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { Board } from './board/Board'
 import { showError } from './notify'
+import { OrchestratorPanel, PANEL_WIDTH, STRIP_WIDTH } from './orchestrator/OrchestratorPanel'
+import { readPanelOpen, writePanelOpen } from './orchestrator/panelState'
 import { SetupScreen } from './setup/SetupScreen'
 import { startSync, useMainbus } from './store'
 import { TicketView } from './ticket/TicketView'
@@ -14,11 +16,24 @@ export function App(): ReactElement {
   const loadError = useMainbus((s) => s.loadError)
   const load = useMainbus((s) => s.load)
   const currentTicketId = useMainbus((s) => s.currentTicketId)
+  const [panelOpen, setPanelOpen] = useState(readPanelOpen)
 
   useEffect(() => startSync((err) => showError(err, 'Could not load Mainbus')), [])
 
+  // The orchestrator sits beside the board and the ticket view; it stays mounted between them, so its thread is kept.
+  const withPanel = !loadError && setup?.ok === true && workspaceLoaded && workspace !== null
+
+  function onPanelOpenChange(open: boolean): void {
+    setPanelOpen(open)
+    writePanelOpen(open)
+  }
+
   return (
-    <AppShell header={{ height: 48 }}>
+    <AppShell
+      header={{ height: 48 }}
+      // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
+      aside={withPanel ? { width: panelOpen ? PANEL_WIDTH : STRIP_WIDTH, breakpoint: 0 } : undefined}
+    >
       <AppShell.Header>
         <Group h="100%" px="md">
           <Title order={1} size="h4">
@@ -27,6 +42,11 @@ export function App(): ReactElement {
         </Group>
       </AppShell.Header>
       <AppShell.Main>{screen()}</AppShell.Main>
+      {withPanel && (
+        <AppShell.Aside aria-label="Orchestrator">
+          <OrchestratorPanel open={panelOpen} onOpenChange={onPanelOpenChange} />
+        </AppShell.Aside>
+      )}
     </AppShell>
   )
 

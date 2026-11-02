@@ -277,3 +277,40 @@ test('a tool call without its result yet shows as running, and its result later 
   await userEvent.click(screen.getByRole('button', { name: /Bash/ }))
   expect(screen.getByText('listed')).toBeVisible()
 })
+
+/** A group of reads and a board tool, then a message, then another read: two groups. */
+function toolEvents(): StoredEvent[] {
+  return [
+    ev({ kind: 'tool_call', id: 'a', name: 'Read', input: { file_path: 'a.ts' } }),
+    ev({ kind: 'tool_result', id: 'a', ok: true, summary: 'Read a.ts' }),
+    ev({ kind: 'usage', inputTokens: 1, outputTokens: 1 }),
+    ev({ kind: 'tool_call', id: 'b', name: 'Read', input: { file_path: 'b.ts' } }),
+    ev({ kind: 'tool_call', id: 'c', name: 'Read', input: { file_path: 'c.ts' } }),
+    ev({ kind: 'tool_call', id: 'd', name: 'mcp__mainbus__list_tickets', input: {} }),
+    ev({ kind: 'message', text: 'Here is the board.' }),
+    ev({ kind: 'tool_call', id: 'e', name: 'Read', input: { file_path: 'e.ts' } })
+  ]
+}
+
+test('with summariseTools, each group of tool rows is one collapsed line that expands to the rows', async () => {
+  const { container } = renderWithMantine(<Thread events={toolEvents()} decisions={[]} summariseTools />)
+  const groups = container.querySelectorAll('[data-event="tool_group"]')
+  expect(groups).toHaveLength(2)
+  expect(groups[0]).toHaveTextContent('Read 3 files, looked at the board')
+  expect(groups[1]).toHaveTextContent('Read 1 file')
+  expect(container.querySelector('[data-event="tool"]')).toBeNull()
+
+  const summary = screen.getByRole('button', { name: /Read 3 files/ })
+  expect(summary).toHaveAttribute('aria-expanded', 'false')
+  await userEvent.click(summary)
+  expect(summary).toHaveAttribute('aria-expanded', 'true')
+  expect(await screen.findByText('Read a.ts')).toBeVisible()
+  expect(groups[0]!.querySelectorAll('[data-event="tool"]')).toHaveLength(4)
+  expect(screen.getByText('mcp__mainbus__list_tickets')).toBeInTheDocument()
+})
+
+test('without summariseTools, tool rows show one by one', () => {
+  const { container } = renderWithMantine(<Thread events={toolEvents()} decisions={[]} />)
+  expect(container.querySelector('[data-event="tool_group"]')).toBeNull()
+  expect(container.querySelectorAll('[data-event="tool"]')).toHaveLength(5)
+})

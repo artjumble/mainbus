@@ -62,14 +62,14 @@ test('ticket goes from idea to review with a question, a permission and a restar
     //    second message, so "Add hello file is implementing" holds steadily until we send it.
     await page.getByRole('button', { name: /Add hello file/ }).click()
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByRole('heading', { name: 'Add hello file' })).toBeVisible()
     await expect(page.getByText('Implementing', { exact: true })).toBeVisible()
     await expect(page.getByText('Looking at the repo before I add hello.txt.')).toBeVisible()
     // The composer clears only once the first send has gone through; filling before then would lose the text.
     await expect(page.getByLabel('Message the Implementer')).toHaveValue('')
     await page.getByLabel('Message the Implementer').fill('Go ahead')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
 
     // 3. Answer the question with option 1.
     const question = page.locator('[data-event="decision"]')

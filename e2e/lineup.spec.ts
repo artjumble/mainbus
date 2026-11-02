@@ -190,9 +190,9 @@ test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and
 
       const composer = page.getByLabel(`Message the ${role}`)
       await composer.fill(`Go on, ${phase}`)
-      await page.getByRole('button', { name: 'Send' }).click()
+      await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
       // The composer clears once the message has gone through (its label then names the next role).
-      await expect(page.getByRole('textbox', { name: /^Message/ })).toHaveValue('')
+      await expect(page.getByRole('main').getByRole('textbox', { name: /^Message/ })).toHaveValue('')
     }
 
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
@@ -230,7 +230,7 @@ test('the Reviewer ticks a criterion and hands a problem back once, and the tick
     const newline = page.getByRole('checkbox', { name: 'It ends with a newline' })
     await expect(exists).not.toBeChecked()
     await page.getByLabel('Message the Reviewer').fill('Go on')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
 
     // The checklist updates live, and the thread says who checked what.
     await expect(exists).toBeChecked()
@@ -282,7 +282,7 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
     await expectStrip(page, ['Implementer Working', 'Reviewer Not started'])
     await expect(page.getByText('IMPLEMENTER', { exact: true })).toBeVisible()
     await page.getByLabel('Message the Implementer').fill('Go on')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
 
     // The handoff divider names both roles, with the summary collapsed under it.
     const handoff = page.getByRole('group', { name: 'Implementer → Reviewer' })
@@ -293,7 +293,7 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
 
     await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
     await page.getByLabel('Message the Reviewer').fill('Go on')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
 
     // Start again runs the whole lineup as a new run, with a divider where it begins.
@@ -357,7 +357,7 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
 
     // The Implementer hands off as usual; skipping the Reviewer, the last role, sends the ticket to Review.
     await page.getByLabel('Message the Implementer').fill('Go on')
-    await page.getByRole('button', { name: 'Send' }).click()
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
     await page.getByRole('button', { name: 'Skip to next role' }).click()
     await expect(dialog.getByText('Skip the Reviewer? Its work so far is summarised and the ticket goes to Review.')).toBeVisible()

@@ -48,3 +48,44 @@ test('a placeholder labels the box', () => {
   renderWithMantine(<Composer onSend={async () => {}} placeholder="First message (starts the lineup)" />)
   expect(screen.getByPlaceholderText('First message (starts the lineup)')).toBeInTheDocument()
 })
+
+test('with enterSends, Enter sends and clears the box', async () => {
+  const onSend = vi.fn(async () => {})
+  renderWithMantine(<Composer onSend={onSend} enterSends />)
+  await userEvent.type(screen.getByRole('textbox'), 'hello{Enter}')
+  expect(onSend).toHaveBeenCalledWith('hello')
+  expect(screen.getByRole('textbox')).toHaveValue('')
+})
+
+test('with enterSends, Shift+Enter starts a new line and does not send', async () => {
+  const onSend = vi.fn(async () => {})
+  renderWithMantine(<Composer onSend={onSend} enterSends />)
+  await userEvent.type(screen.getByRole('textbox'), 'one{Shift>}{Enter}{/Shift}two')
+  expect(onSend).not.toHaveBeenCalled()
+  expect(screen.getByRole('textbox')).toHaveValue('one\ntwo')
+  await userEvent.keyboard('{Enter}')
+  expect(onSend).toHaveBeenCalledWith('one\ntwo')
+})
+
+test('with enterSends, Enter on blank text sends nothing', async () => {
+  const onSend = vi.fn(async () => {})
+  renderWithMantine(<Composer onSend={onSend} enterSends />)
+  await userEvent.type(screen.getByRole('textbox'), '   {Enter}')
+  expect(onSend).not.toHaveBeenCalled()
+})
+
+test('while working, the button is Stop, typing goes on, and Enter does not send', async () => {
+  const onSend = vi.fn(async () => {})
+  const onStop = vi.fn(async () => {})
+  renderWithMantine(<Composer onSend={onSend} enterSends working onStop={onStop} />)
+  expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument()
+  const stop = screen.getByRole('button', { name: 'Stop' })
+  expect(stop).toBeEnabled()
+
+  await userEvent.type(screen.getByRole('textbox'), 'next{Enter}')
+  expect(onSend).not.toHaveBeenCalled()
+  expect(screen.getByRole('textbox')).toHaveValue('next')
+
+  await userEvent.click(stop)
+  expect(onStop).toHaveBeenCalledTimes(1)
+})

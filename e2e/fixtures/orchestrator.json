@@ -1,0 +1,12 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-orchestrator" } },
+    { "emit": { "kind": "thinking", "text": null, "durationMs": 1200 } },
+    { "emit": { "kind": "tool_call", "id": "o1", "name": "mcp__mainbus__list_tickets", "input": {} } },
+    { "emit": { "kind": "tool_result", "id": "o1", "ok": true, "summary": "1 ticket" } },
+    { "emit": { "kind": "message", "text": "The board has **one** ticket." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}
