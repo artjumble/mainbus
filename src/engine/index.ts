@@ -145,6 +145,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       ...(cfg.stuck?.intervalMs !== undefined ? { intervalMs: cfg.stuck.intervalMs } : {}),
       observe: (ticketId) => runner.observeRun(ticketId),
       failIfExhausted: (ticketId, runId) => runner.failIfExhausted(ticketId, runId),
+      noteStuck: (ticketId, runId, note) => runner.noteStuck(ticketId, runId, note),
       newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
     })
     await worktrees.recoverPendingCleanups()
@@ -292,12 +293,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         },
         pauseTicket,
         openStuckEpisode: (runId) => repos.stuck.open(runId),
-        redirectTicket: (ticketId, expect, message) => {
+        redirectTicket: (ticketId, expect, message, proposalId) => {
           requireRuntime()
           return runner.redirect(ticketId, { agentRunId: expect.agentRunId }, message, async () => {
             const open = await repos.stuck.open(expect.agentRunId)
             return open?.id === expect.episodeId && (await repos.stuck.markRedirected(expect.episodeId))
-          })
+          }, proposalId)
         },
         replaceTicket: (ticketId, expect, request) => {
           requireRuntime()

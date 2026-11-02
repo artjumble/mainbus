@@ -102,7 +102,7 @@ describe('redirect: execute', () => {
   test('interrupts through the engine with the message and the episode', async () => {
     const c = ctx()
     expect(await redirect.execute(PAYLOAD, target, c)).toEqual({ ticketId: 't12', number: 12, title: 'Rate-limit login', role: 'Implementer', message: MESSAGE })
-    expect(c.redirectTicket).toHaveBeenCalledWith('t12', { agentRunId: 'r1', episodeId: 'e1' }, MESSAGE)
+    expect(c.redirectTicket).toHaveBeenCalledWith('t12', { agentRunId: 'r1', episodeId: 'e1' }, MESSAGE, 'p1')
   })
 
   test.each([

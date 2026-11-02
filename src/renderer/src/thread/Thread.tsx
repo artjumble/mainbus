@@ -1,5 +1,5 @@
 import { Anchor, Badge, Box, Button, Collapse, Group, Loader, Paper, Stack, Text, Typography, UnstyledButton } from '@mantine/core'
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
@@ -25,6 +25,10 @@ interface Props {
   proposals?: Record<string, Proposal>
   /** A proposal whose card to scroll into view, once per `n`; it is tried again as the card arrives. */
   reveal?: { id: string; n: number } | null
+  /** Opens a run's thread on its own, read-only: the "View previous run" link of a replacement. Absent: no link. */
+  onViewRun?: (runId: string) => void
+  /** A past run's thread: no link to another run, and no card that asks the user anything. */
+  readOnly?: boolean
 }
 
 const NO_PROPOSALS: Record<string, Proposal> = {}
@@ -35,7 +39,16 @@ const NEAR_BOTTOM_PX = 48
  * The ticket thread: agent messages and tool rows tagged with their role, thinking, dividers (handoffs between
  * roles, new runs) and inline decision cards. Follows new events while scrolled to the bottom.
  */
-export function Thread({ events, decisions, runs, summariseTools: summarise = false, proposals = NO_PROPOSALS, reveal = null }: Props): ReactElement {
+export function Thread({
+  events,
+  decisions,
+  runs,
+  summariseTools: summarise = false,
+  proposals = NO_PROPOSALS,
+  reveal = null,
+  onViewRun,
+  readOnly = false
+}: Props): ReactElement {
   const scroller = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
@@ -86,6 +99,9 @@ export function Thread({ events, decisions, runs, summariseTools: summarise = fa
                 <EventRow
                   event={event}
                   role={note.role}
+                  runId={stored.runId}
+                  onViewRun={readOnly ? undefined : onViewRun}
+                  readOnly={readOnly}
                   toolGroupStart={note.toolGroupStart}
                   handoffLabel={note.handoffLabel}
                   result={event.kind === 'tool_call' ? results.get(event.id) : undefined}
@@ -212,6 +228,12 @@ const EventRow = memo(function EventRow({ event, ...lookup }: RowProps): ReactEl
 interface Lookup {
   /** The name of the role whose run the event belongs to. */
   role: string
+  /** The run the event belongs to. */
+  runId: string
+  /** For a replacement: opens the replaced run's thread. Absent: no link. */
+  onViewRun: ((runId: string) => void) | undefined
+  /** A past run: nothing in the row asks the user anything. */
+  readOnly: boolean
   /** For a tool row: it starts a group of tool rows, so it carries the role tag. */
   toolGroupStart: boolean
   /** For a handoff: "Planner → Implementer". */
@@ -259,14 +281,21 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
         </Paper>
       )
     case 'replaced':
-      // Mainbus's own entry: the user replaced this agent, and its successor starts from this summary.
+      // Where the replacement starts: the old agent's summary, collapsed, and the way to its run. The event is the old run's last.
       return (
-        <Paper withBorder p="sm" radius="md" maw="80%" data-event="replaced" style={{ alignSelf: 'flex-end', whiteSpace: 'pre-wrap' }}>
-          <Text size="xs" c="dimmed" fw={600} mb={2}>
-            {`Mainbus · Replaced ${event.role}${event.source === 'digest' ? ' (summary from the log digest)' : ''}`}
-          </Text>
-          <Text size="sm">{event.summary}</Text>
-        </Paper>
+        <HandoffDivider
+          kind="replaced"
+          label={`${event.role} replaced`}
+          toggle={{ show: 'Handoff from the previous run', hide: 'Handoff from the previous run' }}
+          text={event.summary}
+          note={event.source === 'digest' ? 'Summary from the log digest' : undefined}
+        >
+          {lookup.onViewRun && (
+            <Anchor component="button" type="button" size="xs" onClick={() => lookup.onViewRun?.(lookup.runId)}>
+              View previous run
+            </Anchor>
+          )}
+        </HandoffDivider>
       )
     case 'thinking':
       return <ThinkingBlock text={event.text} durationMs={event.durationMs} partial={event.partial} />
@@ -287,10 +316,20 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return <Divider text={event.text} />
     case 'handoff':
       return (
-        <HandoffDivider kind="handoff" label={lookup.handoffLabel ?? `${lookup.role} handed off`} what="summary" text={event.summary} />
+        <HandoffDivider
+          kind="handoff"
+          label={lookup.handoffLabel ?? `${lookup.role} handed off`}
+          toggle={{ show: 'Show summary', hide: 'Hide summary' }}
+          text={event.summary}
+        />
       )
     case 'hand_back':
-      return <HandoffDivider kind="hand_back" label={`${event.from} handed back to ${event.to}`} what="details" text={event.details} />
+      return <HandoffDivider
+          kind="hand_back"
+          label={`${event.from} handed back to ${event.to}`}
+          toggle={{ show: 'Show details', hide: 'Hide details' }}
+          text={event.details}
+        />
     case 'criterion_checked':
       return (
         <Text size="xs" c="dimmed" data-event="criterion_checked" style={{ whiteSpace: 'pre-wrap' }}>
@@ -335,6 +374,14 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
     case 'decision': {
       const { decision } = lookup
       if (!decision) return null
+      // A past run's thread has no controls: a question still open is only told.
+      if (lookup.readOnly && (decision.status === 'pending' || decision.status === 'deferred')) {
+        return (
+          <Text size="xs" c="dimmed" data-event="decision" style={{ whiteSpace: 'pre-wrap' }}>
+            {`Asked the user: ${decision.question}`}
+          </Text>
+        )
+      }
       return decision.kind === 'permission' ? <PermissionCard decision={decision} /> : <DecisionCard decision={decision} />
     }
     case 'proposal':
@@ -345,7 +392,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       )
     default:
       // session, rate_limit, vcs_changed, turn_end, role_handoff and role_hand_back (the handoff or hand-back
-      // before it shows it) and the engine-only kinds are not for the person. annotate.ts keeps the same list.
+      // before it shows it), stuck and stuck_failed (the Activity list tells them) and the engine-only kinds are not for the person. annotate.ts keeps the same list.
       return null
   }
 }
@@ -378,37 +425,47 @@ function Divider({ text }: { text: string }): ReactElement {
 }
 
 /**
- * Where one role handed off to the next, or handed a problem back to an earlier one, with what it said
- * (its summary, or the problem's details) collapsed under it.
+ * Where one role handed off to the next, handed a problem back to an earlier one, or was replaced by a fresh agent,
+ * with what it said (its summary, or the problem's details) collapsed under it.
  */
 function HandoffDivider({
   kind,
   label,
-  what,
-  text
+  toggle,
+  text,
+  note,
+  children
 }: {
-  kind: 'handoff' | 'hand_back'
+  kind: 'handoff' | 'hand_back' | 'replaced'
   label: string
-  what: 'summary' | 'details'
+  /** The toggle's words when the text is hidden and when it is shown. */
+  toggle: { show: string; hide: string }
   text: string
+  /** Dimmed words above the text when it is open. */
+  note?: string
+  /** Beside the toggle. */
+  children?: ReactNode
 }): ReactElement {
   const [open, setOpen] = useState(false)
+  const replaced = kind === 'replaced'
   return (
     <Stack gap={4} role="group" aria-label={label}>
       <div data-event={kind} className={`${classes.divider} ${classes.handoff}`}>
         <span className={classes.label}>{label}</span>
       </div>
-      <Button
-        variant="subtle"
-        size="compact-xs"
-        style={{ alignSelf: 'center' }}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        {open ? `Hide ${what}` : `Show ${what}`}
-      </Button>
+      <Group gap="xs" justify="center">
+        <Button variant="subtle" size="compact-xs" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {replaced ? `${open ? '▾' : '▸'} ${toggle.show}` : open ? toggle.hide : toggle.show}
+        </Button>
+        {children}
+      </Group>
       {open && (
         <Paper withBorder p="sm" radius="md">
+          {note && (
+            <Text size="xs" c="dimmed" mb={4}>
+              {note}
+            </Text>
+          )}
           <AgentText text={text} />
         </Paper>
       )}

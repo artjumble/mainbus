@@ -3,7 +3,7 @@ import type { RoleStatus, StripRole } from '../../../shared/domain'
 import { renderWithMantine } from '../test-utils'
 import { LineupStrip } from './LineupStrip'
 
-const role = (id: string, name: string, status: RoleStatus, active = false): StripRole => ({ id, name, status, active })
+const role = (id: string, name: string, status: RoleStatus, active = false): StripRole => ({ id, name, status, active, replacements: 0 })
 
 test('shows each role in order with its status, and marks the active one as the current step', () => {
   renderWithMantine(
@@ -34,4 +34,11 @@ test.each<[RoleStatus, string]>([
 test('with no active role, no step is current', () => {
   renderWithMantine(<LineupStrip roles={[role('p', 'Planner', 'not_started'), role('i', 'Implementer', 'not_started')]} />)
   expect(screen.queryByRole('listitem', { current: 'step' })).not.toBeInTheDocument()
+})
+
+test('a role replaced once or more carries a small "replaced ×n" marker, and one never replaced has none', () => {
+  renderWithMantine(<LineupStrip roles={[role('p', 'Planner', 'handed_off'), { ...role('i', 'Implementer', 'working', true), replacements: 2 }]} />)
+  const items = within(screen.getByRole('list', { name: 'Lineup' })).getAllByRole('listitem')
+  expect(items[0]).not.toHaveTextContent('replaced')
+  expect(items[1]).toHaveTextContent('Workingreplaced ×2')
 })

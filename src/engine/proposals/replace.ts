@@ -93,7 +93,14 @@ export const replace: ProposalKind<ReplacePayload, ReplaceResult> = {
       const episode = await ctx.openStuckEpisode(p.agentRunId)
       if (!episode || episode.id !== p.episodeId) throw new Error(`The ${p.role} on #${p.number} is no longer stuck: that episode has closed. ${nothing}`)
     }
-    await ctx.replaceTicket(p.ticketId, { agentRunId: p.agentRunId }, { model: p.model, effort: p.effort, extraInstructions: p.extraInstructions })
+    await ctx.replaceTicket(p.ticketId, { agentRunId: p.agentRunId }, {
+      model: p.model,
+      effort: p.effort,
+      extraInstructions: p.extraInstructions,
+      proposalId: target.proposalId,
+      // An episode is absent exactly when the user's Replace… button made the proposal.
+      suggestedBy: p.episodeId === null ? 'user' : 'orchestrator'
+    })
     return { ticketId: p.ticketId, number: p.number, title: p.title, role: p.role, model: p.model, effort: p.effort }
   },
 

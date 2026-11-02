@@ -148,7 +148,14 @@ describe('propose_replace', () => {
     // Its stuck episode ended with it, and the orchestrator hears what happened.
     expect((await s.board()).stuck).toBeNull()
     const events = (await s.engine.invoke('thread.get', s.ticket.id)).events.map((e) => e.event)
-    expect(events).toContainEqual({ kind: 'replaced', role: 'Planner', summary: FAKE_SUMMARY, source: 'summary' })
+    expect(events).toContainEqual({
+      kind: 'replaced',
+      role: 'Planner',
+      summary: FAKE_SUMMARY,
+      source: 'summary',
+      proposalId: (await s.proposals())[1]!.id,
+      suggestedBy: 'orchestrator'
+    })
     expect(await s.tools.getRecentEvents({ number: s.ticket.number })).toContain('The user replaced the Planner')
   })
 
@@ -197,6 +204,8 @@ describe('the Replace… button', () => {
     await s.agentsStuck(2)
     expect(s.runtime.specs[1]!.prompt).toContain('Handoff from the previous run')
     expect((await s.threadRuns()).length).toBe(2)
+    const events = (await s.engine.invoke('thread.get', s.ticket.id)).events.map((e) => e.event)
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'replaced', proposalId: p.id, suggestedBy: 'user' }))
   })
 
   test('is refused for a ticket with no open run', async () => {
@@ -223,6 +232,9 @@ describe('a role replaced twice that gets stuck again', () => {
     expect(board.stuck).toBeNull()
     expect(board.state.summary).toContain('replaced 2 times')
     const errors = (await s.engine.invoke('thread.get', s.ticket.id)).events.flatMap((e) => (e.event.kind === 'error' ? [e.event.message] : []))
+    const events = (await s.engine.invoke('thread.get', s.ticket.id)).events.map((e) => e.event.kind)
+    // The Failed outcome is its own entry, just before the error that explains it.
+    expect(events.slice(-2)).toEqual(['stuck_failed', 'error'])
     expect(errors.at(-1)).toContain('It looked stuck (the same command failing again and again)')
     expect(errors.at(-1)).toContain('It was then replaced by a fresh agent.')
     expect(await s.tools.proposeReplace({ ticket: 1, reason: 'x', evidence: 'y' })).toMatch(/no active role/)

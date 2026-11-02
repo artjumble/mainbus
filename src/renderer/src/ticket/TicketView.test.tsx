@@ -29,7 +29,8 @@ function strip(active: string | null, status: RoleStatus = 'working'): StripRole
     id: r.id,
     name: r.name,
     status: i === at ? status : i < at ? 'handed_off' : 'not_started',
-    active: i === at
+    active: i === at,
+    replacements: 0
   }))
 }
 
@@ -583,5 +584,55 @@ describe('Replace…', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Replace…' }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.proposeReplace', expect.any(String)))
     expect(useMainbus.getState().revealedProposal).toBeNull()
+  })
+})
+
+describe('View previous run', () => {
+  const OLD: ThreadRun = { id: 'old', ticketRunId: 'tr1', role: 'Implementer' }
+  const NEW: ThreadRun = { id: 'new', ticketRunId: 'tr1', role: 'Implementer' }
+
+  async function openReplaced(): Promise<void> {
+    show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' })
+    thread = {
+      events: [
+        makeEvent({ kind: 'message', text: 'The old agent looped.' }, { runId: 'old' }),
+        makeEvent({ kind: 'replaced', role: 'Implementer', summary: 'It tried X.', source: 'summary' }, { runId: 'old' }),
+        makeEvent({ kind: 'message', text: 'The new agent starts afresh.' }, { runId: 'new' })
+      ],
+      decisions: [],
+      runs: [OLD, NEW]
+    }
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByText('The new agent starts afresh.')).toBeInTheDocument()
+    // The thread's link comes after the Activity's in the page.
+    await userEvent.click(screen.getAllByRole('button', { name: 'View previous run' }).at(-1)!)
+  }
+
+  test('opens the old run read-only: its events only, with no composer and no controls, and a way back', async () => {
+    await openReplaced()
+    const view = screen.getByRole('region', { name: 'Previous run of the Implementer' })
+    expect(within(view).getByText('Previous run of the Implementer · read-only')).toBeInTheDocument()
+    expect(within(view).getByText('The old agent looped.')).toBeInTheDocument()
+    expect(screen.queryByText('The new agent starts afresh.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /^Message/ })).not.toBeInTheDocument()
+    for (const name of ['Stop', 'Pause', 'Replace…', 'Send']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+    expect(within(view).queryByRole('button', { name: 'View previous run' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Lineup' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '← Back to the live thread' }))
+    expect(screen.getByText('The new agent starts afresh.')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Previous run of the Implementer' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /^Message/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+  })
+
+  test('the Activity link to the previous run opens it too', async () => {
+    await openReplaced()
+    await userEvent.click(screen.getByRole('button', { name: '← Back to the live thread' }))
+    const activity = screen.getByRole('region', { name: 'Activity' })
+    await userEvent.click(within(activity).getByRole('button', { name: 'View previous run' }))
+    expect(screen.getByRole('region', { name: 'Previous run of the Implementer' })).toBeInTheDocument()
   })
 })

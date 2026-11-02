@@ -185,6 +185,8 @@ export interface StripRole {
   status: RoleStatus
   /** True for the role whose agent run is open: at most one. */
   active: boolean
+  /** How many of the role's agents were replaced in this ticket run. */
+  replacements: number
 }
 
 export type NewTicketInput = {

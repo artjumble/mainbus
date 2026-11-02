@@ -64,7 +64,7 @@ export const redirect: ProposalKind<RedirectPayload, RedirectResult> = {
     }
     if (episode.redirectedAt !== null) throw new Error(`The ${p.role} on #${p.number}: ${ALREADY_REDIRECTED}. ${nothing}`)
     if (active.agentStatus !== 'working') throw new Error(`The ${p.role} on #${p.number} is not working now (${active.agentStatus}). ${nothing}`)
-    await ctx.redirectTicket(p.ticketId, { agentRunId: p.agentRunId, episodeId: p.episodeId }, p.message)
+    await ctx.redirectTicket(p.ticketId, { agentRunId: p.agentRunId, episodeId: p.episodeId }, p.message, target.proposalId)
     return { ticketId: p.ticketId, number: p.number, title: p.title, role: p.role, message: p.message }
   },
 

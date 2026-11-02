@@ -1,5 +1,5 @@
 import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
 import { HoldChip } from '../board/HoldChip'
@@ -15,6 +15,7 @@ import { AdjustStartModal } from './AdjustStartModal'
 import { ContextPane } from './ContextPane'
 import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
+import { PreviousRunView } from './PreviousRunView'
 import { SkipModal } from './SkipModal'
 
 const HEADER_HEIGHT = 48
@@ -108,6 +109,8 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
   const started = useRef(false)
   const [skipping, setSkipping] = useState(false)
+  // A replaced run opened on its own, read-only; null for the live thread.
+  const [viewing, setViewing] = useState<string | null>(null)
   const proposeReplace = useMainbus((s) => s.proposeReplace)
   const { agentStatus, canContinue, phase, pausedByUser } = ticket.state
   const isDone = phase === 'done'
@@ -188,6 +191,12 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     return guarded(() => proposeReplace(ticket.id), 'Could not propose a replacement')
   }
 
+  /** Opens a replaced run's thread; any other run is the live one, so the link goes back to it. */
+  const viewRun = useCallback(
+    (runId: string) => setViewing(thread?.events.some((e) => e.runId === runId && e.event.kind === 'replaced') ? runId : null),
+    [thread]
+  )
+
   const activeRole = ticket.lineup.find((r) => r.active)
   const composerPlaceholder = ended
     ? 'Message to start a new run'
@@ -200,93 +209,97 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   return (
     <Flex flex={1} mih={0}>
       <Box w={CONTEXT_WIDTH} style={{ flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--mantine-color-default-border)' }}>
-        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} />
+        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} onViewRun={viewRun} />
       </Box>
-      <Flex direction="column" flex={1} miw={0}>
-        <LineupStrip roles={ticket.lineup} />
-        <Group px="md" py="xs" gap="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
-          {activeRole && (
-            <Text size="sm" fw={600}>
-              {activeRole.name}
-            </Text>
-          )}
-          {runOpen && (
-            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
-              Stop
-            </Button>
-          )}
-          {agentStatus === 'working' && (
-            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.pause', 'Could not pause')}>
-              Pause
-            </Button>
-          )}
-          {pausedByUser && (
-            <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
-              Resume
-            </Button>
-          )}
-          {runOpen && activeRole && (
-            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
-              Skip to next role
-            </Button>
-          )}
-          {runOpen && activeRole && (
-            <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void replace()}>
-              Replace…
-            </Button>
-          )}
-          {canContinue && (
-            <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.continue', 'Could not continue')}>
-              Continue
-            </Button>
-          )}
-          {canStart && (
-            <Button size="compact-sm" disabled={busy || moving} onClick={() => void control('agent.start', 'Could not start')}>
-              {ended ? 'Start again' : 'Start'}
-            </Button>
-          )}
-          {canStart && (
-            <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
-              Adjust before starting
-            </Button>
-          )}
-          {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
-          {ticket.hold && (
-            <Button
-              size="compact-sm"
-              variant="default"
-              disabled={busy}
-              onClick={() => void guarded(() => invoke('ticket.unhold', ticket.id), 'Could not unhold')}
-            >
-              Unhold
-            </Button>
-          )}
-        </Group>
-        <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} />
-        <SkipModal
-          opened={skipping && runOpen && activeRole !== undefined}
-          role={activeRole?.name ?? ''}
-          next={ticket.skipTo}
-          onClose={() => setSkipping(false)}
-          onSkip={skip}
-        />
-        {thread ? (
-          <Thread events={thread.events} decisions={thread.decisions} runs={thread.runs} />
-        ) : (
-          <Center flex={1}>
-            <Loader />
-          </Center>
-        )}
-        <Box p="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
-          {isDone ? (
-            <Text size="sm" c="dimmed">
-              This ticket is done.
-            </Text>
+      {viewing !== null && thread ? (
+        <PreviousRunView runId={viewing} thread={thread} onBack={() => setViewing(null)} />
+      ) : (
+        <Flex direction="column" flex={1} miw={0}>
+          <LineupStrip roles={ticket.lineup} />
+          <Group px="md" py="xs" gap="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+            {activeRole && (
+              <Text size="sm" fw={600}>
+                {activeRole.name}
+              </Text>
+            )}
+            {runOpen && (
+              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
+                Stop
+              </Button>
+            )}
+            {agentStatus === 'working' && (
+              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.pause', 'Could not pause')}>
+                Pause
+              </Button>
+            )}
+            {pausedByUser && (
+              <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
+                Resume
+              </Button>
+            )}
+            {runOpen && activeRole && (
+              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
+                Skip to next role
+              </Button>
+            )}
+            {runOpen && activeRole && (
+              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void replace()}>
+                Replace…
+              </Button>
+            )}
+            {canContinue && (
+              <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.continue', 'Could not continue')}>
+                Continue
+              </Button>
+            )}
+            {canStart && (
+              <Button size="compact-sm" disabled={busy || moving} onClick={() => void control('agent.start', 'Could not start')}>
+                {ended ? 'Start again' : 'Start'}
+              </Button>
+            )}
+            {canStart && (
+              <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
+                Adjust before starting
+              </Button>
+            )}
+            {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
+            {ticket.hold && (
+              <Button
+                size="compact-sm"
+                variant="default"
+                disabled={busy}
+                onClick={() => void guarded(() => invoke('ticket.unhold', ticket.id), 'Could not unhold')}
+              >
+                Unhold
+              </Button>
+            )}
+          </Group>
+          <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} />
+          <SkipModal
+            opened={skipping && runOpen && activeRole !== undefined}
+            role={activeRole?.name ?? ''}
+            next={ticket.skipTo}
+            onClose={() => setSkipping(false)}
+            onSkip={skip}
+          />
+          {thread ? (
+            <Thread events={thread.events} decisions={thread.decisions} runs={thread.runs} onViewRun={viewRun} />
           ) : (
-            <Composer onSend={send} placeholder={composerPlaceholder} />
+            <Center flex={1}>
+              <Loader />
+            </Center>
           )}
-        </Box>
-      </Flex>
+          <Box p="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+            {isDone ? (
+              <Text size="sm" c="dimmed">
+                This ticket is done.
+              </Text>
+            ) : (
+              <Composer onSend={send} placeholder={composerPlaceholder} />
+            )}
+          </Box>
+        </Flex>
+      )}
     </Flex>
   )
 }

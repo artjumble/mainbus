@@ -58,10 +58,13 @@ test('the user replaces the working agent from the ticket view: the card opens, 
     await expect(panel.locator('[data-proposal="receipt"]')).toContainText('Replaced the Planner on #1')
 
     // The old agent's summary is in the thread, and a fresh Planner is at work.
-    await expect(page.locator('[data-event="replaced"]')).toContainText('Mainbus · Replaced Planner')
-    await expect(page.locator('[data-event="replaced"]')).toContainText('A summary the fake runtime wrote.')
+    await expect(page.locator('[data-event="replaced"]')).toContainText('Planner replaced')
+    // The summary is in a block under the divider, collapsed until opened.
+    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(1) // the Activity's clipped copy only
+    await page.getByRole('button', { name: /Handoff from the previous run/ }).click()
+    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(2)
     await expect(page.getByText('Planner at work on the flaky test.')).toHaveCount(2)
-    await expect(page.getByText('Replaced Planner (confirmed by you)')).toHaveCount(1)
+    await expect(page.getByText('Replaced Planner (suggested by you with Replace…, confirmed by you)')).toHaveCount(1)
   } finally {
     await app?.close().catch(() => {})
     try {

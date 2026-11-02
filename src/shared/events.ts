@@ -1,5 +1,5 @@
 // Shared by the engine and the renderer: types only, no Node imports.
-import type { AgentStatus } from './domain'
+import type { AgentStatus, StuckRule } from './domain'
 import type { Proposal } from './proposals'
 
 /** What an agent asks the user; the engine turns it into a stored Decision. */
@@ -81,9 +81,24 @@ export type ThreadEvent =
   /** The user's pause ended: Resume, or a message or answer that resumed the role. */
   | { kind: 'resumed' }
   /** The user confirmed the orchestrator's redirect of the run's role: its turn was interrupted and `text` sent as its next message. */
-  | { kind: 'redirected'; role: string; text: string }
+  | { kind: 'redirected'; role: string; text: string; proposalId?: string }
   /** The user replaced the run's role: this run ended, and `summary` (generated from its log, or the digest) goes to its successor. */
-  | { kind: 'replaced'; role: string; summary: string; source: 'summary' | 'digest' }
+  | {
+      kind: 'replaced'
+      role: string
+      summary: string
+      source: 'summary' | 'digest'
+      proposalId?: string
+      /** Who proposed it: the orchestrator, or the user with the Replace… button. Absent on replacements recorded before it was kept. */
+      suggestedBy?: 'orchestrator' | 'user'
+    }
+  /**
+   * The stuck detector's news about the run's role: an episode `opened`, `escalated` to needing a closer look, or
+   * `fired_again` after the redirect. `count` is how many times the same command failed, for repeated_failure.
+   */
+  | { kind: 'stuck'; role: string; change: 'opened' | 'escalated' | 'fired_again'; episodeId: string; rule: StuckRule; evidence: string[]; count?: number }
+  /** The run's role got stuck again after being replaced as often as allowed: Mainbus marked it Failed. An error event follows. */
+  | { kind: 'stuck_failed'; role: string; replacements: number }
   /** The run's role declared a wait with report_waiting: the stuck detector expects silence until `until` (ISO). */
   | { kind: 'waiting'; reason: string; until: string }
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */

@@ -48,6 +48,11 @@ export function LineupStrip({ roles }: { roles: StripRole[] }): ReactElement {
             <Text size="xs" c={statusColor(role.status)} lh={1.3}>
               {ROLE_STATUS_LABELS[role.status]}
             </Text>
+            {role.replacements > 0 && (
+              <Text size="xs" c="dimmed" lh={1.3} data-replaced>
+                {`replaced ×${role.replacements}`}
+              </Text>
+            )}
           </Paper>
         </Fragment>
       ))}

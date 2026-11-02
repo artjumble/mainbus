@@ -5,7 +5,7 @@ import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { FakeClock } from '../holds/clock'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, openTestDb, testRole } from '../store/testDb'
-import { StuckDetector } from './detector'
+import { StuckDetector, type StuckNote } from './detector'
 import type { RunObservation } from './observation'
 
 const MIN = 60_000
@@ -17,6 +17,7 @@ let clock: FakeClock
 let ticketId: string
 let runId: string
 let emitted: EngineEvent[]
+let notes: StuckNote[]
 let detector: StuckDetector
 
 /** What the fake runner reports, and the newest file change the fake probe finds. */
@@ -84,6 +85,7 @@ beforeEach(async () => {
   ).id
   runId = await repos.runs.create(ticketId, [testRole()])
   emitted = []
+  notes = []
   scene = () => ({ live: live() })
   files = null
   detector = new StuckDetector({
@@ -106,6 +108,7 @@ beforeEach(async () => {
       ...scene()
     }),
     failIfExhausted: async () => false,
+    noteStuck: async (_t, _r, note) => void notes.push(note),
     newestChange: async () => files
   })
 })
@@ -217,6 +220,31 @@ describe('not stuck', () => {
     await detector.check()
     expect(await repos.stuck.hadDeadProcess(runId)).toBe(false)
     expect(await episode()).toBeNull()
+  })
+})
+
+describe('telling the thread', () => {
+  test('notes an opened episode, with the count of the repeated failure, and the escalation, but not a plain repeat', async () => {
+    useScenario('repeated_failure')
+    for (let hit = 1; hit <= 4; hit++) {
+      await detector.check()
+      await clock.advance(5 * MIN)
+    }
+    expect(notes.map((n) => n.change)).toEqual(['opened', 'escalated'])
+    expect(notes[0]).toMatchObject({ episode: { rule: 'repeated_failure' }, count: expect.any(Number) })
+  })
+
+  test('notes the first hit after the redirect as firing again, once', async () => {
+    useScenario('repeated_failure')
+    await detector.check()
+    const opened = (await episode())!
+    await repos.stuck.markRedirected(opened.id)
+    await clock.advance(5 * MIN)
+    await detector.check()
+    await clock.advance(5 * MIN)
+    await detector.check()
+    // The third hit escalates; it is not a second "fired again".
+    expect(notes.map((n) => n.change)).toEqual(['opened', 'fired_again', 'escalated'])
   })
 })
 

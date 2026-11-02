@@ -45,7 +45,7 @@ export interface ExecContext {
    * message, recording the redirect on the open episode and the run. Fails, interrupting nothing, if the run has
    * ended or its episode has closed or was already redirected.
    */
-  redirectTicket(ticketId: string, expect: { agentRunId: string; episodeId: string }, message: string): Promise<void>
+  redirectTicket(ticketId: string, expect: { agentRunId: string; episodeId: string }, message: string, proposalId: string): Promise<void>
   /**
    * The same path as the ticket view's Replace…: ends the run's agent as replaced, with a handoff summary generated from its
    * log, and starts a fresh agent of the same role with it. Fails, changing nothing, if the run has moved on.
@@ -53,7 +53,7 @@ export interface ExecContext {
   replaceTicket(
     ticketId: string,
     expect: { agentRunId: string },
-    request: { model: string; effort: Effort; extraInstructions: string | null }
+    request: { model: string; effort: Effort; extraInstructions: string | null; proposalId: string; suggestedBy: 'orchestrator' | 'user' }
   ): Promise<void>
   /** A decision and its ticket, or null when there is none. */
   decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>

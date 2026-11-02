@@ -142,7 +142,11 @@ describe('replace: execute', () => {
     const c = ctx()
     const p = { ...PAYLOAD, model: 'haiku', effort: 'low' as const, extraInstructions: 'Be careful' }
     expect(await replace.execute(p, target, c)).toEqual({ ticketId: 't12', number: 12, title: 'Rate-limit login', role: 'Implementer', model: 'haiku', effort: 'low' })
-    expect(c.replaceTicket).toHaveBeenCalledWith('t12', { agentRunId: 'r1' }, { model: 'haiku', effort: 'low', extraInstructions: 'Be careful' })
+    expect(c.replaceTicket).toHaveBeenCalledWith('t12', { agentRunId: 'r1' }, { model: 'haiku', effort: 'low', extraInstructions: 'Be careful', proposalId: 'p1', suggestedBy: 'orchestrator' })
+    // A proposal with no episode is the user's own Replace… button.
+    const button = ctx({ episode: null })
+    await replace.execute({ ...p, episodeId: null }, target, button)
+    expect(button.replaceTicket).toHaveBeenCalledWith('t12', { agentRunId: 'r1' }, expect.objectContaining({ proposalId: 'p1', suggestedBy: 'user' }))
   })
 
   test('the button’s proposal needs no episode to still be open', async () => {

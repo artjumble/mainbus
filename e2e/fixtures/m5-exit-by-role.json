@@ -1,0 +1,366 @@
+{
+  "Planner": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-planner"
+      }
+    },
+    {
+      "emit": {
+        "kind": "message",
+        "text": "Planner: the plan is to fix the flaky test."
+      }
+    },
+    {
+      "callTool": "handoff",
+      "args": {
+        "summary": "Plan: fix the flaky test",
+        "notesForNext": "Run npm test"
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    }
+  ],
+  "Implementer": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-implementer-1"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t1",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t1",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t2",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t2",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t3",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t3",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t4",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t4",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t5",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t5",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "waitForSend": true
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t6",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t6",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t7",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t7",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t8",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t8",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t9",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t9",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t10",
+        "name": "Bash",
+        "input": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t10",
+        "ok": false,
+        "summary": "Error: test timed out after 5000ms"
+      }
+    },
+    {
+      "waitForSend": true
+    }
+  ],
+  "Implementer #2": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-implementer-2"
+      }
+    },
+    {
+      "expectPrompt": "A summary the fake runtime wrote."
+    },
+    {
+      "emit": {
+        "kind": "message",
+        "text": "Picked up from the handoff; fixing the fixtures."
+      }
+    },
+    {
+      "callTool": "handoff",
+      "args": {
+        "summary": "Fixed the fixtures",
+        "notesForNext": "Check the tests"
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    }
+  ],
+  "Reviewer": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-reviewer"
+      }
+    },
+    {
+      "emit": {
+        "kind": "message",
+        "text": "Reviewer: the fix looks right."
+      }
+    },
+    {
+      "callTool": "handoff",
+      "args": {
+        "summary": "Reviewed: looks right",
+        "notesForNext": "none"
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    }
+  ],
+  "Orchestrator": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-m5-exit"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "a1",
+        "name": "mcp__mainbus__propose_redirect",
+        "input": {}
+      }
+    },
+    {
+      "callTool": "proposeRedirect",
+      "args": {
+        "ticket": 1,
+        "message": "Timeouts are ruled out; check the shared fixtures instead.",
+        "evidence": "npm test failed 5 times in a row with the same timeout."
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "a1",
+        "ok": true,
+        "summary": "Proposed"
+      }
+    },
+    {
+      "emit": {
+        "kind": "message",
+        "text": "I've proposed a redirect."
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    },
+    {
+      "waitForSend": true
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "a2",
+        "name": "mcp__mainbus__propose_replace",
+        "input": {}
+      }
+    },
+    {
+      "callTool": "proposeReplace",
+      "args": {
+        "ticket": 1,
+        "reason": "The redirect did not help; the same command is failing again.",
+        "evidence": "npm test failed 10 times in a row."
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "a2",
+        "ok": true,
+        "summary": "Proposed"
+      }
+    },
+    {
+      "emit": {
+        "kind": "message",
+        "text": "I've proposed a replacement."
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    },
+    {
+      "waitForSend": true
+    }
+  ]
+}
