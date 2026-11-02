@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path, { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
@@ -693,6 +693,36 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(code).toEqual({})
     const bash = await hook({ tool_name: 'Bash', tool_input: { command: 'ls' } }, 't3', { signal })
     expect(bash.hookSpecificOutput.permissionDecision).toBe('deny')
+  })
+
+  test('the PreToolUse hook denies a Grep over a repo with a credential file ripgrep would search', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'mainbus-orch-grep-'))
+    try {
+      const repo = path.join(dir, 'repo')
+      const clean = path.join(dir, 'clean')
+      for (const d of [repo, clean]) {
+        mkdirSync(path.join(d, 'src'), { recursive: true })
+        writeFileSync(path.join(d, 'src', 'index.ts'), 'export {}\n')
+      }
+      writeFileSync(path.join(repo, '.npmrc'), '//registry.npmjs.org/:_authToken=FAKE_TOKEN_123\n')
+      const f = fakeSdk()
+      await new SdkRuntime(CLAUDE_PATH, f.sdk).start(
+        makeOrchestratorSpec({
+          additionalDirectories: [dir],
+          onPermission: async (r) => orchestratorVerdict(r.toolName, r.input, { cwd: ORCH_CWD, repo: dir })
+        })
+      )
+      const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
+      const signal = new AbortController().signal
+      const grep = (input: Record<string, unknown>) => hook({ tool_name: 'Grep', tool_input: { pattern: 'authToken', output_mode: 'content', ...input } }, 't', { signal })
+      const secret = await grep({ path: repo })
+      expect(secret.hookSpecificOutput).toMatchObject({ permissionDecision: 'deny' })
+      expect(secret.hookSpecificOutput.permissionDecisionReason).toContain('.npmrc')
+      expect(await grep({ path: repo, glob: '*.ts' })).toEqual({})
+      expect(await grep({ path: clean })).toEqual({})
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('canUseTool maps a deny, and denies when the policy throws', async () => {
