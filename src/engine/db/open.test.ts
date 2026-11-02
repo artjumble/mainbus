@@ -8,6 +8,7 @@ import { openDb } from './open'
 import { createDecisionRepo } from '../store/decisions'
 import { createLineupRepo, defaultLineup } from '../store/lineups'
 import { createRunRepo } from '../store/runs'
+import { createHoldRepo } from '../store/holds'
 import { criteria, lineupRoles, tickets, workspaces } from './schema'
 
 const realMigrations = path.join(import.meta.dirname, 'migrations')
@@ -464,6 +465,26 @@ describe('openDb', () => {
     // Nothing landed: reopening with the real migrations has nothing pending and no orphan row.
     const { db } = await open()
     expect(await db.select({ n: count() }).from(criteria)).toEqual([{ n: 0 }])
+  })
+
+  it('backs up an existing database before adding the holds table, which allows one unreleased hold per target', async () => {
+    // The migrations as they were before holds.
+    const first = await open(firstMigrations(11))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 10, 1, 9, 30, 0))
+    expect(backupFiles()).toEqual(['mainbus-20261101-093000.db'])
+    const holds = createHoldRepo(db, () => new Date(2026, 10, 1))
+    await holds.place('ticket', 't1', {})
+    await holds.place('decision', 'd1', {})
+    await expect(
+      db.run(sql`insert into holds (id, target_kind, target_id, created_by, created_at) values ('x', 'ticket', 't1', 'user', 'now')`)
+    ).rejects.toThrow()
   })
 
   it('enforces foreign keys', async () => {

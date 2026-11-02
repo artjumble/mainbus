@@ -8,7 +8,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold'
 
 /** Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress. */
 export type ProposalOrigin = 'orchestrator' | 'drag'
@@ -110,6 +110,27 @@ export interface RoleControlResult {
   role: string
   /** Skip only: the role that started, or null when the ticket went to Review. */
   next: string | null
+}
+
+/** The payload of a hold proposal; `until` is an ISO date-time, absent for a hold with no date. */
+export interface HoldPayload {
+  ticketId: string
+  number: number
+  title: string
+  until: string | null
+  reason: string
+}
+
+/** What the user's Override sends for a hold: the date, or null to hold with no date. */
+export interface HoldOverride {
+  until: string | null
+}
+
+export interface HoldResult {
+  ticketId: string
+  number: number
+  title: string
+  until: string | null
 }
 
 /** The result of a proposal that failed while being carried out. */

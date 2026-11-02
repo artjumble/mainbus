@@ -6,6 +6,7 @@ import type { Ticket, Workspace } from '../../shared/domain'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
+import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
@@ -50,6 +51,8 @@ export interface OrchestratorDeps {
   proposals: ProposalService
   /** The decisions the user answered since `since` in the open workspace, for the start of a message. */
   answeredSince: (workspaceId: string, since: string | null) => Promise<AnsweredDecision[]>
+  /** The tickets whose hold was released since `since` in the open workspace, by hand, by a start or by their date. */
+  releasedSince: (workspaceId: string, since: string | null) => Promise<ReleasedHold[]>
 }
 
 interface Live {
@@ -138,7 +141,8 @@ export class OrchestratorSession {
     const since = await this.deps.repo.lastUserMessageAt()
     const blocks = [
       await this.deps.proposals.outcomeBlock(since),
-      answeredBlock(await this.deps.answeredSince(ws.id, since))
+      answeredBlock(await this.deps.answeredSince(ws.id, since)),
+      releasedHoldsBlock(await this.deps.releasedSince(ws.id, since))
     ].filter((b) => b !== null)
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
@@ -255,7 +259,8 @@ export class OrchestratorSession {
         proposeStart: (a) => this.propose('start_lineup', a),
         proposePause: (a) => this.propose('pause', a),
         proposeStop: (a) => this.propose('stop', a),
-        proposeSkip: (a) => this.propose('skip', a)
+        proposeSkip: (a) => this.propose('skip', a),
+        proposeHold: (a) => this.propose('hold', a)
       },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, repo: ws.repoPath })
     }

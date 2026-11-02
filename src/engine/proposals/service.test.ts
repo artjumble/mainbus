@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { EngineEvent } from '../../shared/api'
-import type { Workspace } from '../../shared/domain'
+import type { Hold, Workspace } from '../../shared/domain'
 import type { Proposal } from '../../shared/proposals'
 import { KINDS } from './registry'
 import type { Db } from '../db/open'
@@ -48,7 +48,9 @@ beforeEach(async () => {
     activeRole: async () => null,
     pauseTicket: async () => {},
     stopTicket: async () => {},
-    skipTicket: async () => {}
+    skipTicket: async () => {},
+    now: () => clock,
+    holdTicket: async () => ({}) as Hold
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })
 })

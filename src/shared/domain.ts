@@ -255,3 +255,30 @@ export interface StartOptions {
   /** Added to every role's prompt in this run. */
   extraInstructions?: string
 }
+
+/** What a hold is on. Tickets for now; "Later…" on decisions uses the same table. */
+export type HoldTarget = 'ticket' | 'decision'
+
+/**
+ * A hold the user put on a ticket: it isn't started by unattended mode or a start proposal while it is held. It
+ * is released by hand, by starting the ticket by hand, or when `until` passes. A target has at most one unreleased hold.
+ */
+export interface Hold {
+  id: string
+  targetKind: HoldTarget
+  targetId: string
+  reason: string | null
+  /** ISO date-time the hold ends by itself, or null for no date. */
+  until: string | null
+  createdBy: 'user'
+  createdAt: string
+  /** Null while held. */
+  releasedAt: string | null
+}
+
+/** What the user chooses when holding a ticket. */
+export interface HoldOptions {
+  /** ISO date-time; absent for a hold with no date. Must be in the future. */
+  until?: string
+  reason?: string
+}

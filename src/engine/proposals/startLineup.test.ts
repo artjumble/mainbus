@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { LineupRole, StartOptions, Ticket, Workspace } from '../../shared/domain'
+import type { Hold, LineupRole, StartOptions, Ticket, Workspace } from '../../shared/domain'
 import type { StartLineupPayload } from '../../shared/proposals'
 import { testRole } from '../store/testDb'
 import { ProposalInvalid, type ExecContext } from './kind'
@@ -29,6 +29,8 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
     pauseTicket: async () => {},
     stopTicket: async () => {},
     skipTicket: async () => {},
+    now: () => new Date('2026-10-30T12:00:00.000Z'),
+    holdTicket: async () => ({}) as Hold,
     /** Changes what whyNotStartable says from now on. */
     setWhy: (w: string | null) => (why = w)
   }
