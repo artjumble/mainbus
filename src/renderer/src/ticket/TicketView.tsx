@@ -1,5 +1,6 @@
 import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
+import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
 import { PausedChip, PhaseChip, PrLink } from '../board/TicketCard'
 import { showError } from '../notify'
@@ -156,9 +157,9 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   }
 
   /** Adjust before starting: runs only the ticked roles. Resolves true once started. */
-  function startRoles(roleIds: string[]): Promise<boolean> {
+  function startRoles(opts: StartOptions): Promise<boolean> {
     return guarded(async () => {
-      await invoke('agent.start', ticket.id, { roleIds })
+      await invoke('agent.start', ticket.id, opts)
       started.current = false
     }, 'Could not start')
   }

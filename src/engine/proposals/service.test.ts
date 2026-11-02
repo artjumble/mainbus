@@ -30,7 +30,11 @@ beforeEach(async () => {
   events = []
   exec = {
     workspace: () => repos.workspaces.get(),
-    createTickets: (w, inputs) => repos.tickets.createMany(inputs.map((i) => ({ ...i, workspaceId: w.id })))
+    createTickets: (w, inputs) => repos.tickets.createMany(inputs.map((i) => ({ ...i, workspaceId: w.id }))),
+    lineup: (workspaceId) => repos.lineups.get(workspaceId),
+    ticketByNumber: (workspaceId, n) => repos.tickets.byNumber(workspaceId, n),
+    whyNotStartable: async () => null,
+    startTicket: async () => {}
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })
 })
@@ -69,6 +73,20 @@ describe('proposal service', () => {
     expect(await service.propose('create_tickets', { ...TWO, evidence: 3 }, at)).toEqual({ ok: false, error: 'evidence: must be text' })
     expect(await service.list()).toEqual([])
     expect(events).toEqual([])
+  })
+
+  test("a kind's own evidence field becomes the evidence: a start's reason", async () => {
+    const t = await repos.tickets.create({ workspaceId: ws.id, title: 'Login', intent: 'x', spec: '', criteria: [], labels: [], column: 'backlog' })
+    const at = { workspaceId: ws.id, orchestratorRunId: runId, userMessage: MESSAGE }
+    const made = await service.propose('start_lineup', { ticket: t.number, reason: 'It is small and ready' }, at)
+    expect(made).toMatchObject({ ok: true, proposal: { kind: 'start_lineup', evidence: 'It is small and ready' } })
+    expect(made.ok && made.proposal.payload).toMatchObject({ ticketId: t.id, number: t.number })
+    // Its evidence is the reason, so `evidence` is no field of it.
+    expect(await service.propose('start_lineup', { ticket: t.number, evidence: 'x' }, at)).toEqual({
+      ok: false,
+      error: 'Unknown field: evidence'
+    })
+    expect(await service.propose('start_lineup', { ticket: t.number, reason: 3 }, at)).toEqual({ ok: false, error: 'reason: must be text' })
   })
 
   test('confirm creates the tickets and records them as the result', async () => {

@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import type { NewTicketInput, Ticket, Workspace } from '../../shared/domain'
+import type { LineupRole, NewTicketInput, StartOptions, Ticket, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -15,12 +15,21 @@ export interface ExecContext {
   workspace(): Promise<Workspace | null>
   /** The same path as ticket.create: creates them all in order, or none, and emits board.changed once. */
   createTickets(ws: Workspace, inputs: Omit<NewTicketInput, 'workspaceId'>[]): Promise<Ticket[]>
+  /** The workspace's lineup, in order. */
+  lineup(workspaceId: string): Promise<LineupRole[]>
+  ticketByNumber(workspaceId: string, number: number): Promise<Ticket | null>
+  /** Why the ticket can't be started now (it is running, or not in Backlog or Ready), or null when it can. */
+  whyNotStartable(ticket: Ticket): Promise<string | null>
+  /** The same path as the ticket view's Start. */
+  startTicket(ticketId: string, opts: StartOptions): Promise<void>
 }
 
 /** What the turn a proposal is made in gives it. */
 export interface Turn {
   /** The user's message that started the turn, verbatim. */
   userMessage: string
+  /** The workspace the proposal is made for. */
+  workspaceId: string
 }
 
 /**
@@ -31,8 +40,13 @@ export interface Turn {
 export interface ProposalKind<P, R> {
   /** In the orchestrator's outcome block, as in "Proposal 3f… (create tickets)". */
   label: string
-  /** Validates what the orchestrator sent and fills in the engine's own fields. Throws ProposalInvalid. */
-  propose(input: unknown, turn: Turn): P
+  /** The orchestrator's field the card shows as its evidence; 'evidence' when absent. */
+  evidenceKey?: string
+  /**
+   * Validates what the orchestrator sent, against the board where it must, and fills in the engine's own fields.
+   * Throws ProposalInvalid.
+   */
+  propose(input: unknown, turn: Turn, ctx: ExecContext): P | Promise<P>
   /** Validates the user's override the same way; the engine's fields come from `stored`. Throws ProposalInvalid. */
   override(stored: P, input: unknown): P
   /** Carries it out; a throw makes the proposal failed, with the error as its result. */

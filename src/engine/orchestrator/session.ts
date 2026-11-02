@@ -214,7 +214,8 @@ export class OrchestratorSession {
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
       tools: {
         ...this.deps.readTools,
-        proposeCreateTickets: (a) => this.propose('create_tickets', a)
+        proposeCreateTickets: (a) => this.propose('create_tickets', a),
+        proposeStart: (a) => this.propose('start_lineup', a)
       },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, repo: ws.repoPath })
     }

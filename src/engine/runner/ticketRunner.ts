@@ -2,6 +2,7 @@ import type { EngineEvent } from '../../shared/api'
 import type {
   Decision,
   DecisionAnswer,
+  Effort,
   LineupRole,
   Phase,
   StartOptions,
@@ -11,6 +12,7 @@ import type {
   Workspace
 } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shared/events'
+import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
 import { credentialReason } from '../permissions/credentials'
@@ -136,6 +138,8 @@ interface Launch extends Prepared {
   ticketRunId: string
   /** What the earlier roles of the run's ticket run said when they handed off. */
   handoffs: EarlierHandoff[]
+  /** The ticket run's extra instructions, for every role in it, or null. */
+  extraInstructions: string | null
 }
 
 type PermissionWaiter = (a: DecisionAnswer | null) => void
@@ -351,8 +355,14 @@ export class TicketRunner {
       throw new Error('This ticket already has an agent; continue or stop it instead')
     }
     const { workspaceId } = await this.repos.tickets.get(ticketId)
-    // Copied into the ticket run, so editing the lineup later never changes this run.
-    const roles = pickRoles(await this.repos.lineups.get(workspaceId), opts?.roleIds)
+    // Copied into the ticket run, so editing the lineup later never changes this run. Each role's model and
+    // effort are resolved now, so every launch of the run uses the same ones.
+    const picked = pickRoles(await this.repos.lineups.get(workspaceId), opts?.roleIds)
+    const { roles: chosen, extraInstructions } = checkStartOptions(picked, opts)
+    const roles = picked.map((role) => {
+      const { model, effort } = resolveModelEffort(role, { user: chosen[role.id] })
+      return { ...role, model, effort }
+    })
     await this.whileLaunching(ticketId, async () => {
       const prepared = await this.prepare(ticketId)
       if (this.stopRequested.has(ticketId) || this.shuttingDown) return
@@ -365,11 +375,16 @@ export class TicketRunner {
         prompt = `${digest}\n\n${prompt}`
         answered = decisions.filter((d) => d.status === 'answered')
       }
-      const runId = await this.repos.runs.create(ticketId, roles)
+      const runId = await this.repos.runs.create(ticketId, roles, extraInstructions)
       // This step holds the ticket's queue and no agent of it is open, so the latest run is the one just created.
       const created = await this.repos.runs.latest(ticketId)
       if (!created || created.id !== runId) throw new Error(`Run ${runId} is not the ticket's latest`)
-      await this.launch({ ...prepared, role: roles[0]!, ticketRunId: created.ticketRunId, handoffs: [] }, runId, prompt, answered)
+      await this.launch(
+        { ...prepared, role: roles[0]!, ticketRunId: created.ticketRunId, handoffs: [], extraInstructions },
+        runId,
+        prompt,
+        answered
+      )
     })
   }
 
@@ -712,11 +727,6 @@ export class TicketRunner {
     return { ticket, workspace, worktree }
   }
 
-  /** The run's role, from its ticket run's snapshot. */
-  private async roleOf(run: AgentRunRow): Promise<LineupRole> {
-    return roleIn((await this.repos.runs.ticketRun(run.ticketRunId)).roles, run)
-  }
-
   /**
    * The role the run's handoff goes to: the role waiting on it after reporting a problem, else the role after
    * the run's own in its ticket run, or null when the run's role is the last.
@@ -773,8 +783,14 @@ export class TicketRunner {
     if (!current || current.id !== run.id || current.endReason !== null || this.live.has(run.id)) return
     await this.whileLaunching(run.ticketId, async () => {
       const prepared = await this.prepare(run.ticketId)
-      const role = await this.roleOf(current)
-      const launch: Launch = { ...prepared, role, ticketRunId: current.ticketRunId, handoffs: await this.handoffsBefore(current) }
+      const ticketRun = await this.repos.runs.ticketRun(current.ticketRunId)
+      const launch: Launch = {
+        ...prepared,
+        role: roleIn(ticketRun.roles, current),
+        ticketRunId: current.ticketRunId,
+        handoffs: await this.handoffsBefore(current),
+        extraInstructions: ticketRun.extraInstructions
+      }
       const events = await this.repos.runs.events(run.id)
       // A role handed a problem back, or returned to, worked in its earlier runs of this ticket run too.
       const before: StoredEvent[] = []
@@ -844,15 +860,17 @@ export class TicketRunner {
       workspaceId: ticket.workspaceId,
       role: role.name
     }
+    // Ticket runs started before models were resolved at start hold nulls: those get the default table.
+    const fallback = defaultFor(role.name)
     const spec: RunSpec = {
       role: role.name,
       cwd: worktree.path,
       tempDir: worktree.scratch,
       ownBranch: worktree.branch,
       prompt,
-      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs),
-      ...(role.model !== null ? { model: role.model } : {}),
-      ...(role.effort !== null ? { effort: role.effort } : {}),
+      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs, launch.extraInstructions),
+      model: role.model ?? fallback.model,
+      effort: role.effort ?? fallback.effort,
       toolProfile: role.toolProfile,
       disallowedTools: DISALLOWED_TOOLS,
       // Edits and simple file commands in the scratch folder run without asking, as in the worktree.
@@ -1364,6 +1382,39 @@ function pickRoles(lineup: LineupRole[], roleIds: string[] | undefined): LineupR
   const unknown = roleIds.find((id) => !ids.has(id))
   if (unknown !== undefined) throw new Error(`There is no role ${JSON.stringify(unknown)} in this lineup`)
   return lineup.filter((r) => roleIds.includes(r.id))
+}
+
+/**
+ * Checks a start's model, effort and extra instructions against the `picked` roles. Returns the user's choices by
+ * role id, and the extra instructions trimmed, or null when there are none.
+ */
+export function checkStartOptions(
+  picked: LineupRole[],
+  opts: StartOptions
+): { roles: Record<string, { model?: string; effort?: Effort }>; extraInstructions: string | null } {
+  const roles: Record<string, { model?: string; effort?: Effort }> = {}
+  if (opts.roles !== undefined) {
+    if (typeof opts.roles !== 'object' || opts.roles === null) throw new Error('The roles to start are not valid')
+    for (const [id, choice] of Object.entries(opts.roles)) {
+      const role = picked.find((r) => r.id === id)
+      if (!role) throw new Error(`There is no role ${JSON.stringify(id)} in this start`)
+      const { model, effort } = choice ?? {}
+      if (model !== undefined && (typeof model !== 'string' || !modelAllowed(role, model))) {
+        throw new Error(`${role.name} has an unknown model: ${JSON.stringify(model)}`)
+      }
+      if (effort !== undefined && !EFFORTS.includes(effort)) {
+        throw new Error(`${role.name} has an unknown effort: ${JSON.stringify(effort)}`)
+      }
+      roles[id] = { ...(model !== undefined ? { model } : {}), ...(effort !== undefined ? { effort } : {}) }
+    }
+  }
+  const extra = opts.extraInstructions
+  if (extra !== undefined && typeof extra !== 'string') throw new Error('Extra instructions must be text')
+  if (extra !== undefined && extra.length > EXTRA_INSTRUCTIONS_MAX) {
+    throw new Error(`Extra instructions must be at most ${EXTRA_INSTRUCTIONS_MAX} characters`)
+  }
+  const trimmed = extra?.trim() ?? ''
+  return { roles, extraInstructions: trimmed === '' ? null : trimmed }
 }
 
 /** There is nothing to push: an error when the user asked for it, nothing to do when it came after a handoff. */

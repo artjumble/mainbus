@@ -1,0 +1,32 @@
+{
+  "*": [
+    { "emit": { "kind": "message", "text": "Working on it." } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "emit": { "kind": "message", "text": "Implementer: adding the file." } },
+    { "waitForSend": true }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-start" } },
+    { "emit": { "kind": "tool_call", "id": "s1", "name": "mcp__mainbus__propose_start", "input": {} } },
+    {
+      "callTool": "proposeStart",
+      "args": {
+        "ticket": 1,
+        "roles": [
+          { "role": "Planner", "model": "opus", "effort": "high" },
+          { "role": "Implementer", "model": "sonnet", "effort": "medium" },
+          { "role": "Reviewer", "model": "haiku", "effort": "low" }
+        ],
+        "extraInstructions": "Keep the change to one file.",
+        "reason": "#1 is specced and nothing is running."
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "s1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "I've proposed starting #1." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

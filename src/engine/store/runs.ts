@@ -38,14 +38,19 @@ export type TicketRunRow = {
   ticketId: string
   /** The roles ticked at start, in lineup order, as they were then. */
   roles: LineupRole[]
+  /** Added to every role's prompt in this run, as confirmed by the user at start; null for none. */
+  extraInstructions: string | null
   status: TicketRunStatus
   startedAt: string
   endedAt: string | null
 }
 
 export interface RunRepo {
-  /** Starts a ticket run of `roles` (in order, at least one) and its first role's agent run; returns that run's id. */
-  create(ticketId: string, roles: LineupRole[]): Promise<string>
+  /**
+   * Starts a ticket run of `roles` (in order, at least one) and its first role's agent run; returns that run's id.
+   * `extraInstructions` go to every role of the run.
+   */
+  create(ticketId: string, roles: LineupRole[], extraInstructions?: string | null): Promise<string>
   /**
    * Hands `prevRunId` on to `next`, a role of the same ticket run: starts its agent run, then ends the previous
    * one as handed off. Returns the new run, or null, changing nothing, if the previous run had already ended or
@@ -149,15 +154,20 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
   }
 
   return {
-    async create(ticketId, roles) {
+    async create(ticketId, roles, extraInstructions = null) {
       const first = roles[0]
       if (!first) throw new Error('A ticket run needs at least one role')
       const ticketRunId = randomUUID()
       const run = agentRunValues(ticketId, ticketRunId, first)
       await db.transaction(async (tx) => {
-        await tx
-          .insert(ticketRuns)
-          .values({ id: ticketRunId, ticketId, roles: JSON.stringify(roles), status: 'running', startedAt: run.startedAt })
+        await tx.insert(ticketRuns).values({
+          id: ticketRunId,
+          ticketId,
+          roles: JSON.stringify(roles),
+          extraInstructions,
+          status: 'running',
+          startedAt: run.startedAt
+        })
         await tx.insert(agentRuns).values(run)
       })
       return run.id

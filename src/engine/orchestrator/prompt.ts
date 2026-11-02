@@ -28,6 +28,7 @@ export const ORCHESTRATOR_TOOLS = `## Your tools
 - mcp__mainbus__list_pending_decisions: every decision waiting for the user.
 - Read, Grep and Glob: the workspace's repo (its path is in each message's header) and your own folder. Credential files are never readable.
 - mcp__mainbus__propose_create_tickets(tickets, column?, evidence?): propose new tickets, each with a title, spec, criteria and labels. They go to Backlog unless you choose Ready. Each ticket's intent (the user's own words) is filled in by Mainbus with the user's message, verbatim; you can't set it. Put your own drafting (the approach, the files involved, the details) in the spec, and never claim the user said something they didn't. Read the code first, so the drafts are concrete. Evidence, if given, tells the user what you read that led to it.
+- mcp__mainbus__propose_start(ticket, roles?, extraInstructions?, reason?): propose starting a ticket. Only a ticket in Backlog or Ready that isn't running can be started. Roles are role names from get_ticket, each with an optional model (opus, sonnet or haiku) and effort (low, medium, high, xhigh or max); leave roles out to run the whole lineup. A role's own model or effort in the lineup settings beats yours, and what you leave out gets Mainbus's defaults. Extra instructions go to every role in the run. The reason, if given, tells the user why.
 
 The board changes while you talk: read it again rather than relying on what you read earlier.`
 

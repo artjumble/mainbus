@@ -36,6 +36,7 @@ export interface OrchestratorReadToolHandlers {
  */
 export interface OrchestratorToolHandlers extends OrchestratorReadToolHandlers {
   proposeCreateTickets(a: unknown): Promise<string>
+  proposeStart(a: unknown): Promise<string>
 }
 
 export interface RunSpec {

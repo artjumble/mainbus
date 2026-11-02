@@ -17,7 +17,7 @@ import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
 import type { HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
-import { createReadTools } from './orchestrator/readTools'
+import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import { OrchestratorSession } from './orchestrator/session'
 import { createProposalService } from './proposals/service'
 import { TicketRunner } from './runner/ticketRunner'
@@ -199,7 +199,26 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const proposals = createProposalService({
       repo: repos.proposals,
       emit,
-      exec: { workspace: () => repos.workspaces.get(), createTickets }
+      exec: {
+        workspace: () => repos.workspaces.get(),
+        createTickets,
+        lineup: (workspaceId) => repos.lineups.get(workspaceId),
+        ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
+        async whyNotStartable(ticket) {
+          // Checked before the column: a running ticket is In progress or Needs you, and is said to be running.
+          const latest = await repos.runs.latest(ticket.id)
+          if ((latest && latest.endReason === null) || runner.isLaunching(ticket.id)) {
+            return `#${ticket.number} is already running`
+          }
+          const { column } = await runner.stateOf(ticket.id)
+          if (column === 'backlog' || column === 'ready') return null
+          return `#${ticket.number} is in ${COLUMNS[column]}; only Backlog or Ready tickets can be started`
+        },
+        startTicket: (ticketId, opts) => {
+          requireRuntime()
+          return runner.start(ticketId, opts)
+        }
+      }
     })
 
     // The intake's tickets need only their state; the board's carry their lineup strip as well.

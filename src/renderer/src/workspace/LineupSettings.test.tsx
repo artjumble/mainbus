@@ -2,7 +2,7 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LineupRole, LineupRoleInput } from '../../../shared/domain'
 import { invoke } from '../api'
-import { makeLineup, renderWithMantine } from '../test-utils'
+import { makeLineup, optionLabels, renderWithMantine } from '../test-utils'
 import { LineupSettings } from './LineupSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -34,8 +34,6 @@ const roleNames = (): string[] =>
   within(screen.getByRole('list', { name: 'Roles' }))
     .getAllByRole('button', { name: /^Edit / })
     .map((b) => b.getAttribute('aria-label')!.replace(/^Edit /, ''))
-const optionLabels = (select: HTMLElement): string[] =>
-  within(select).getAllByRole('option').map((o) => o.textContent ?? '')
 /** The roles of the last lineup.save call. */
 const lastSaved = (): LineupRoleInput[] => {
   const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'lineup.save')
@@ -59,8 +57,17 @@ test('shows the lineup in order, with the first role open for editing', async ()
   expect(screen.getByLabelText('Tool profile')).toHaveValue('read_only')
   expect(screen.getByRole('radio', { name: 'Ask me' })).toBeChecked()
   expect(screen.queryByLabelText('Hand back to')).not.toBeInTheDocument()
-  expect(optionLabels(screen.getByLabelText('Model'))).toEqual(['Orchestrator decides', 'Opus', 'Sonnet'])
+  expect(optionLabels(screen.getByLabelText('Model'))).toEqual(['Orchestrator decides', 'Opus', 'Sonnet', 'Haiku'])
+  expect(screen.getByLabelText('Model')).toHaveValue('')
   expect(optionLabels(screen.getByLabelText('Effort'))).toEqual(['Orchestrator decides', 'Low', 'Medium', 'High'])
+  expect(screen.getByLabelText('Effort')).toHaveValue('')
+  // What "Orchestrator decides" means, with the default table.
+  expect(
+    screen.getByText(
+      '"Orchestrator decides" lets the orchestrator choose when it proposes a start. Otherwise Mainbus\'s defaults apply: ' +
+        'Planner Opus, high effort; Reviewer Opus, medium effort; Implementer Sonnet, medium effort; any other role Sonnet, medium effort.'
+    )
+  ).toBeInTheDocument()
   expect(saveButton()).toBeDisabled()
 })
 

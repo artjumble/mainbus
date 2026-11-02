@@ -49,15 +49,15 @@ function errorText(err: unknown): string {
   return err.message
 }
 
-/** Takes the optional evidence off the orchestrator's input; the rest is the kind's payload. */
-function splitEvidence(input: unknown): { evidence: string | null; payload: unknown } {
-  if (typeof input !== 'object' || input === null || Array.isArray(input) || !Object.hasOwn(input, 'evidence')) {
+/** Takes the optional evidence (the `key` field) off the orchestrator's input; the rest is the kind's payload. */
+function splitEvidence(input: unknown, key: string): { evidence: string | null; payload: unknown } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input) || !Object.hasOwn(input, key)) {
     return { evidence: null, payload: input }
   }
-  const { evidence, ...payload } = input as Record<string, unknown>
+  const { [key]: evidence, ...payload } = input as Record<string, unknown>
   if (evidence === undefined || evidence === null) return { evidence: null, payload }
-  if (typeof evidence !== 'string') throw new ProposalInvalid('evidence: must be text')
-  if (evidence.length > EVIDENCE_MAX) throw new ProposalInvalid(`evidence: must be at most ${EVIDENCE_MAX} characters`)
+  if (typeof evidence !== 'string') throw new ProposalInvalid(`${key}: must be text`)
+  if (evidence.length > EVIDENCE_MAX) throw new ProposalInvalid(`${key}: must be at most ${EVIDENCE_MAX} characters`)
   return { evidence: evidence.trim() === '' ? null : evidence, payload }
 }
 
@@ -99,9 +99,9 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
       let payload: unknown
       let evidence: string | null
       try {
-        const split = splitEvidence(input)
+        const split = splitEvidence(input, kind.evidenceKey ?? 'evidence')
         evidence = split.evidence
-        payload = kind.propose(split.payload, { userMessage: at.userMessage })
+        payload = await kind.propose(split.payload, { userMessage: at.userMessage, workspaceId: at.workspaceId }, deps.exec)
       } catch (err) {
         if (err instanceof ProposalInvalid) return { ok: false, error: err.message }
         throw err

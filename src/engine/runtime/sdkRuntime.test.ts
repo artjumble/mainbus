@@ -614,7 +614,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       getRunStatus: vi.fn(async () => 'status'),
       getRecentEvents: vi.fn(async () => 'events'),
       listPendingDecisions: vi.fn(async () => 'decisions'),
-      proposeCreateTickets: vi.fn(async () => 'Proposed p1.')
+      proposeCreateTickets: vi.fn(async () => 'Proposed p1.'),
+      proposeStart: vi.fn(async () => 'Proposed p2.')
     }
     return {
       kind: 'orchestrator',
@@ -646,7 +647,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__get_run_status',
       'mcp__mainbus__get_recent_events',
       'mcp__mainbus__list_pending_decisions',
-      'mcp__mainbus__propose_create_tickets'
+      'mcp__mainbus__propose_create_tickets',
+      'mcp__mainbus__propose_start'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -662,7 +664,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(o.env.ANTHROPIC_API_KEY).toBeUndefined()
   })
 
-  test('its MCP server has exactly the six read tools and the propose tool, and they call the handlers', async () => {
+  test('its MCP server has exactly the six read tools and the propose tools, and they call the handlers', async () => {
     const f = fakeSdk()
     const spec = makeOrchestratorSpec()
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
@@ -675,7 +677,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'get_run_status',
       'get_recent_events',
       'list_pending_decisions',
-      'propose_create_tickets'
+      'propose_create_tickets',
+      'propose_start'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
@@ -695,6 +698,15 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const tickets = propose.shape.tickets as z.ZodType
     expect(tickets.safeParse([{ title: 'Add login', intent: 'The user said so' }]).success).toBe(false)
     expect(tickets.safeParse([{ title: 'Add login', spec: 'Details' }]).success).toBe(true)
+
+    const start = byName.get('propose_start')!
+    const startArgs = { ticket: 4, roles: [{ role: 'Implementer', model: 'opus', effort: 'high' }], reason: 'It is ready' }
+    expect(await start.handler(startArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p2.' }] })
+    expect(spec.tools.proposeStart).toHaveBeenCalledWith(startArgs)
+    expect(Object.keys(start.shape)).toEqual(['ticket', 'roles', 'extraInstructions', 'reason'])
+    const roles = start.shape.roles as z.ZodType
+    expect(roles.safeParse([{ role: 'Planner', model: 'haiku', effort: 'max' }]).success).toBe(true)
+    expect(roles.safeParse([{ role: 'Planner', model: 'gpt' }]).success).toBe(false)
   })
 
   test('the PreToolUse hook denies a credential file inside the repo and allows other reads there', async () => {
