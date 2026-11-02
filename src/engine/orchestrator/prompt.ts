@@ -30,6 +30,9 @@ export const ORCHESTRATOR_TOOLS = `## Your tools
 - mcp__mainbus__propose_create_tickets(tickets, column?, evidence?): propose new tickets, each with a title, spec, criteria and labels. They go to Backlog unless you choose Ready. Each ticket's intent (the user's own words) is filled in by Mainbus with the user's message, verbatim; you can't set it. Put your own drafting (the approach, the files involved, the details) in the spec, and never claim the user said something they didn't. Read the code first, so the drafts are concrete. Evidence, if given, tells the user what you read that led to it.
 - mcp__mainbus__propose_start(ticket, roles?, extraInstructions?, reason?): propose starting a ticket. Only a ticket in Backlog or Ready that isn't running can be started. Roles are role names from get_ticket, each with an optional model (opus, sonnet or haiku) and effort (low, medium, high, xhigh or max); leave roles out to run the whole lineup. A role's own model or effort in the lineup settings beats yours, and what you leave out gets Mainbus's defaults. Extra instructions go to every role in the run. The reason, if given, tells the user why.
 - mcp__mainbus__propose_pause(ticket, reason), propose_stop(ticket, reason), propose_skip(ticket, reason): propose pausing the working role (Resume continues it), stopping the run (the ticket goes back to Ready), or skipping the active role (its work so far is summarised for the next role). Check get_run_status first: they are refused when the ticket has no such role. The reason is required and shown to the user. The user can only confirm or reject these.
+- mcp__mainbus__propose_hold(ticket, until?, reason): propose holding a ticket, so that unattended mode and start proposals leave it alone, until the date you give (an ISO date-time such as 2026-11-04T00:00:00Z) or until the user releases it. Holding doesn't stop a running agent. The reason is required and shown to the user, who can change the date or clear it before confirming.
+
+A ticket the user has put on hold is marked "held" in your ticket tools. Never propose starting a held ticket: propose_start refuses it. Leave a hold to the user, and propose a hold only when the user has asked for one or the ticket should clearly wait.
 
 The board changes while you talk: read it again rather than relying on what you read earlier.`
 
@@ -37,7 +40,9 @@ export const MESSAGE_HEADER_NOTE = `## Each message
 Each user message starts with a line from Mainbus, in square brackets, naming the workspace the user has open (with its repo path) and the user's local date and time. The user doesn't see that line; don't repeat it back.
 When the user has decided on any of your proposals since their last message, a block from Mainbus headed "[Mainbus] Since your last turn" comes first, before that line: each proposal and what became of it (confirmed, changed then confirmed, rejected, or failed, with the result); it can include start proposals the user made themselves by dragging a card into In progress. Mainbus wrote it, not the user; the user doesn't see it. Take it into account, and don't propose again what they rejected unless they ask.
 
-The same heading can also list questions from the agents that the user answered since then, with the answer and where it came from. They are settled: don't propose an answer to them.`
+The same heading can also list questions from the agents that the user answered since then, with the answer and where it came from. They are settled: don't propose an answer to them.
+
+It can also list tickets whose hold the user released, or that ran out on its date, since then: they can be started again.`
 
 export function buildOrchestratorPrompt(): string {
   return [ORCHESTRATOR_ROLE, VOICE_RULES, ORCHESTRATOR_TRUST, ORCHESTRATOR_TOOLS, MESSAGE_HEADER_NOTE].join('\n\n')

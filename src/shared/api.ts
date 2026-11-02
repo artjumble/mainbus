@@ -8,6 +8,8 @@ import type {
   Decision,
   DecisionAnswer,
   GhStatus,
+  Hold,
+  HoldOptions,
   LineupRole,
   LineupRoleInput,
   NewTicketInput,
@@ -33,6 +35,8 @@ export type BoardTicket = Ticket & {
   skipTo: string | null
   /** The ticket's open decisions, oldest first: the card's Answer control answers the first. */
   pendingDecisions: Decision[]
+  /** The user's hold on the ticket, or null. */
+  hold: Hold | null
 }
 
 /**
@@ -70,6 +74,13 @@ export interface EngineCommands {
   'ticket.appendIntent'(id: string, text: string): Ticket
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
   'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done'): 'moved' | 'dirty'
+  /**
+   * Holds the ticket, optionally until a date (ISO, in the future): unattended mode and start proposals leave it
+   * alone. It doesn't touch a running agent. A held ticket keeps its hold and takes the new date and reason.
+   */
+  'ticket.hold'(id: string, opts?: HoldOptions): Hold
+  /** Releases the ticket's hold; nothing happens when it has none. */
+  'ticket.unhold'(id: string): void
   /** Retry: pushes the branch of a ticket in Review again and opens its PR if it has none. Never forces. */
   'ticket.openPr'(id: string): void
   /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */

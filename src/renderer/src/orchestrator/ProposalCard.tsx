@@ -4,6 +4,7 @@ import type { Proposal, ProposalFailure, ProposalKindName } from '../../../share
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { createTicketsView } from './CreateTicketsProposal'
+import { holdView } from './HoldProposal'
 import type { ProposalView } from './proposalView'
 import { pauseView, skipView, stopView } from './RoleControlProposal'
 import { startLineupView } from './StartLineupProposal'
@@ -14,7 +15,8 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   start_lineup: startLineupView,
   pause: pauseView,
   stop: stopView,
-  skip: skipView
+  skip: skipView,
+  hold: holdView
 }
 
 interface Props {

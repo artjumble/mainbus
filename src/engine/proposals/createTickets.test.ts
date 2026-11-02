@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { Ticket, Workspace } from '../../shared/domain'
+import type { Hold, Ticket, Workspace } from '../../shared/domain'
 import type { CreateTicketsPayload } from '../../shared/proposals'
 import { createTickets, listJoin } from './createTickets'
 import { ProposalInvalid, type ExecContext } from './kind'
@@ -84,7 +84,9 @@ describe('create_tickets: execute and outcome', () => {
       activeRole: async () => null,
       pauseTicket: async () => {},
       stopTicket: async () => {},
-      skipTicket: async () => {}
+      skipTicket: async () => {},
+      now: () => new Date(),
+      holdTicket: async () => ({}) as Hold
     }
   }
 

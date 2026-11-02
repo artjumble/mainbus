@@ -2,6 +2,7 @@ import type { Db } from '../db/open'
 import { createAllowRuleRepo, type AllowRuleRepo } from './allowRules'
 import { createCleanupRepo, type PendingCleanupRepo } from './cleanups'
 import { createDecisionRepo, type DecisionRepo } from './decisions'
+import { createHoldRepo, type HoldRepo } from './holds'
 import { createLineupRepo, type LineupRepo } from './lineups'
 import { createOrchestratorRepo, type OrchestratorRepo } from './orchestrator'
 import { createProposalRepo, type ProposalRepo } from './proposals'
@@ -19,6 +20,7 @@ export interface Repos {
   cleanups: PendingCleanupRepo
   orchestrator: OrchestratorRepo
   proposals: ProposalRepo
+  holds: HoldRepo
 }
 
 export function createRepos(db: Db, now: () => Date): Repos {
@@ -31,6 +33,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     decisions: createDecisionRepo(db, now),
     cleanups: createCleanupRepo(db, now),
     orchestrator: createOrchestratorRepo(db, now),
-    proposals: createProposalRepo(db, now)
+    proposals: createProposalRepo(db, now),
+    holds: createHoldRepo(db, now)
   }
 }

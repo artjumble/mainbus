@@ -134,7 +134,7 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
       const kind = kindOf(stored.kind)
       // Validated before claiming, so an invalid override leaves the proposal pending.
       if (override !== undefined && !kind.override) throw new ProposalInvalid(NO_OVERRIDE)
-      const payload = override === undefined ? stored.payload : kind.override!(stored.payload, override)
+      const payload = override === undefined ? stored.payload : kind.override!(stored.payload, override, deps.exec.now())
       const claimed = changed(await deps.repo.claim(id, override === undefined ? 'confirmed' : 'overridden'))
       try {
         const result = await kind.execute(payload, { workspaceId: claimed.workspaceId, proposalId: id }, deps.exec)

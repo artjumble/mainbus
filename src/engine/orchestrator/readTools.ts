@@ -67,6 +67,13 @@ function title(t: BoardTicket): string {
   return `#${t.number} ${data('title', oneLine(t.title), true)}`
 }
 
+/** " · held until 2026-11-04" for a held ticket, else nothing. */
+function heldText(t: BoardTicket): string {
+  if (!t.hold) return ''
+  const until = t.hold.until === null ? 'until the user releases it' : `until ${t.hold.until.slice(0, 10)}`
+  return ` · held by the user ${until} (don't propose starting it)`
+}
+
 function activeRole(t: BoardTicket): string {
   return t.lineup.find((r) => r.active)?.name ?? 'none'
 }
@@ -222,6 +229,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const lines = tickets.map(
         (t) =>
           `- ${title(t)} · ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]} · active role: ${activeRole(t)} · labels: ${labels(t)}` +
+          heldText(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
       )
       return `Tickets${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${lines.join('\n')}`
@@ -242,7 +250,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           `Not started. The lineup's roles, in order: ${t.lineup.map((r) => oneLine(r.name)).join(', ') || 'none'}.`
       const pr = t.pr ? oneLine(t.pr.url) : 'none'
       const sections = [
-        `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nColumn: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}`,
+        `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nColumn: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}`,
         ...intentSections(t),
         t.spec ? `## Spec${byAgent}\n${data('spec', t.spec)}` : `## Spec\nNone.`,
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,

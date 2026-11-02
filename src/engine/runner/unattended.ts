@@ -19,6 +19,8 @@ export interface UnattendedDeps {
   }
   /** The open workspace's tickets; none without a workspace. */
   tickets: () => Promise<Ticket[]>
+  /** The ids of the held tickets: a held ticket in Ready is not started. */
+  held?: () => Promise<Set<string>>
   /** Throws, with the reason for the user, when agents can't run (Claude Code not set up, no workspace). */
   checkCanRun: () => Promise<void>
   emit: (e: EngineEvent) => void
@@ -42,7 +44,7 @@ type Outcome =
   | { kind: 'taken' }
 
 /**
- * Unattended mode: starts the lowest-numbered Ready ticket, waits until it reaches Review or is blocked,
+ * Unattended mode: starts the lowest-numbered Ready ticket that isn't held, waits until it reaches Review or is blocked,
  * then starts the next. With Ready empty it stays on and waits for a ticket to arrive there. It starts a
  * ticket only while no ticket in the workspace is working, its own or one started by hand, through the
  * runner's own start and continue, and never merges, pushes or moves a ticket. It is driven by the engine's
@@ -208,6 +210,7 @@ export class UnattendedMode {
   /** Starts the lowest-numbered Ready ticket, unless some ticket is working; otherwise waits for the board to change. */
   private async startNext(): Promise<void> {
     const tickets = [...(await this.deps.tickets())].sort((a, b) => a.number - b.number)
+    const held = (await this.deps.held?.()) ?? new Set<string>()
     let next: Ticket | null = null
     let skippedReady = false
     for (const ticket of tickets) {
@@ -219,7 +222,7 @@ export class UnattendedMode {
         return
       }
       if (state.column !== 'ready') continue
-      if (this.setAside.has(ticket.id)) continue
+      if (this.setAside.has(ticket.id) || held.has(ticket.id)) continue
       if (this.skipped.has(ticket.id)) skippedReady = true
       else next ??= ticket
     }

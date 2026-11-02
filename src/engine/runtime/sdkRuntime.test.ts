@@ -618,7 +618,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       proposeStart: vi.fn(async () => 'Proposed p2.'),
       proposePause: vi.fn(async () => 'Proposed p3.'),
       proposeStop: vi.fn(async () => 'Proposed p4.'),
-      proposeSkip: vi.fn(async () => 'Proposed p5.')
+      proposeSkip: vi.fn(async () => 'Proposed p5.'),
+      proposeHold: vi.fn(async () => 'Proposed p6.')
     }
     return {
       kind: 'orchestrator',
@@ -654,7 +655,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__propose_start',
       'mcp__mainbus__propose_pause',
       'mcp__mainbus__propose_stop',
-      'mcp__mainbus__propose_skip'
+      'mcp__mainbus__propose_skip',
+      'mcp__mainbus__propose_hold'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -687,7 +689,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'propose_start',
       'propose_pause',
       'propose_stop',
-      'propose_skip'
+      'propose_skip',
+      'propose_hold'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({
@@ -720,6 +723,11 @@ describe('SdkRuntime: the orchestrator spec', () => {
       expect(await tool.handler({ ticket: 4, reason: 'Stuck' }, {})).toEqual({ content: [{ type: 'text', text: `Proposed ${text}.` }] })
       expect(spec.tools[handler]).toHaveBeenCalledWith({ ticket: 4, reason: 'Stuck' })
     }
+    const hold = byName.get('propose_hold')!
+    const holdArgs = { ticket: 4, until: '2026-11-04T00:00:00.000Z', reason: 'Wait for the release' }
+    expect(Object.keys(hold.shape)).toEqual(['ticket', 'until', 'reason'])
+    expect(await hold.handler(holdArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p6.' }] })
+    expect(spec.tools.proposeHold).toHaveBeenCalledWith(holdArgs)
     const roles = start.shape.roles as z.ZodType
     expect(roles.safeParse([{ role: 'Planner', model: 'haiku', effort: 'max' }]).success).toBe(true)
     expect(roles.safeParse([{ role: 'Planner', model: 'gpt' }]).success).toBe(false)

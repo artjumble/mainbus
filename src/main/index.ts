@@ -7,6 +7,7 @@ import { app, BrowserWindow, dialog, powerSaveBlocker, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runCommand, type CommandRunner } from '../engine/git/command'
 import { FakeGh } from '../engine/git/fakeGh'
+import { FakeClock } from '../engine/holds/clock'
 import { runGit } from '../engine/git/git'
 import { invocationDir, resolveHome } from '../engine/home'
 import { intakeEndpoint } from '../engine/intake/endpoint'
@@ -19,7 +20,7 @@ import { isAppUrl, isExternalWebUrl } from './appUrl'
 import { fakeClaudeExec } from './fakeExec'
 import { registerIpc } from './ipc'
 import { agentLauncher } from './launcher'
-import { testRepoFromEnv } from './testHooks'
+import { testClockStartFromEnv, testRepoFromEnv } from './testHooks'
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
@@ -139,6 +140,10 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(async () => {
       const { runtime, exec, commands } = await chooseRuntime()
+      // End-to-end tests only: a clock that moves when the test says (`__mainbusClock.advance(ms)` from the main process).
+      const clockStart = testClockStartFromEnv(process.env)
+      const clock = clockStart ? new FakeClock(clockStart) : undefined
+      if (clock) (globalThis as { __mainbusClock?: FakeClock }).__mainbusClock = clock
       engine = await createEngine({
         paths: home,
         migrationsDir: app.isPackaged
@@ -155,7 +160,8 @@ if (!app.requestSingleInstanceLock()) {
           home: process.env['MAINBUS_HOME'] ? home.root : null
         }),
         intakeError: () => intakeError,
-        keepAwake
+        keepAwake,
+        ...(clock ? { clock } : {})
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))

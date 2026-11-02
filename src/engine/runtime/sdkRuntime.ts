@@ -57,7 +57,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_start',
   'mcp__mainbus__propose_pause',
   'mcp__mainbus__propose_stop',
-  'mcp__mainbus__propose_skip'
+  'mcp__mainbus__propose_skip',
+  'mcp__mainbus__propose_hold'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -552,6 +553,16 @@ export class SdkRuntime implements AgentRuntime {
           "Propose skipping a ticket's active role: it ends with a summary of its work so far and the next role starts (or the ticket goes to Review). The user confirms or rejects it; Mainbus skips only then. Check get_run_status first. Then end your turn.",
           { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to skip it, shown to the user') },
           async (a) => toolText(await t.proposeSkip(a))
+        ),
+        sdk.tool(
+          'propose_hold',
+          "Propose holding a ticket, so that unattended mode and start proposals leave it alone, until a date or until the user releases it. Holding doesn't stop a running agent. The user confirms, changes the date or rejects it; Mainbus holds only then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            until: z.string().optional().describe('When the hold ends, as an ISO date-time in the future; leave out to hold until the user releases it'),
+            reason: z.string().describe('Why to hold it, shown to the user')
+          },
+          async (a) => toolText(await t.proposeHold(a))
         )
       ]
     })
