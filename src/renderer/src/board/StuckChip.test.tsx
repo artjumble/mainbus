@@ -22,6 +22,7 @@ function episode(over: Partial<StuckEpisode> = {}): StuckEpisode {
     openedAt: '2026-11-02T09:00:00.000Z',
     lastHitAt: '2026-11-02T09:00:00.000Z',
     escalatedAt: null,
+    redirectedAt: null,
     ...over
   }
 }

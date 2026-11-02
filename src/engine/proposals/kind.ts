@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { DraftColumn } from '../../shared/proposals'
-import type { Decision, DecisionAnswer, Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { StuckEpisode, Decision, DecisionAnswer, Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -38,6 +38,14 @@ export interface ExecContext {
   pauseTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
   stopTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
   skipTicket(ticketId: string, expect: { agentRunId: string }): Promise<void>
+  /** The open stuck episode of an agent run, or null. */
+  openStuckEpisode(agentRunId: string): Promise<StuckEpisode | null>
+  /**
+   * Interrupts the run's current turn (as Pause does, but keeping its process) and sends `message` as its next
+   * message, recording the redirect on the open episode and the run. Fails, interrupting nothing, if the run has
+   * ended or its episode has closed or was already redirected.
+   */
+  redirectTicket(ticketId: string, expect: { agentRunId: string; episodeId: string }, message: string): Promise<void>
   /** A decision and its ticket, or null when there is none. */
   decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>
   /** The shared answer path (the board's and the thread's too), from the orchestrator panel; refuses a decision already answered. */

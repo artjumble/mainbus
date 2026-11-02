@@ -24,6 +24,11 @@ export interface StuckRepo {
   open(runId: string): Promise<StuckEpisode | null>
   /** Closes the run's open episode; false when it had none. */
   close(runId: string): Promise<boolean>
+  /**
+   * Records that a redirect was delivered for the episode, and counts it on its run, in one transaction. False,
+   * changing nothing, when the episode is closed or was already redirected.
+   */
+  markRedirected(episodeId: string): Promise<boolean>
   /** True when a dead process was ever reported on the run, open or closed: it is reported once per run. */
   hadDeadProcess(runId: string): Promise<boolean>
   /** The open episodes of every ticket's open run, by ticket id. */
@@ -44,7 +49,8 @@ function toEpisode(row: Row): StuckEpisode {
     needsCloserLook: row.escalatedAt !== null || row.hitCount >= STUCK.escalateAtHit,
     openedAt: row.openedAt,
     lastHitAt: row.lastHitAt,
-    escalatedAt: row.escalatedAt
+    escalatedAt: row.escalatedAt,
+    redirectedAt: row.redirectedAt
   }
 }
 
@@ -90,6 +96,22 @@ export function createStuckRepo(db: Db, now: () => Date): StuckRepo {
         .where(openOf(runId))
         .returning({ id: stuckEpisodes.id })
       return closed.length > 0
+    },
+
+    async markRedirected(episodeId) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(stuckEpisodes)
+          .set({ redirectedAt: now().toISOString() })
+          .where(and(eq(stuckEpisodes.id, episodeId), isNull(stuckEpisodes.closedAt), isNull(stuckEpisodes.redirectedAt)))
+          .returning({ runId: stuckEpisodes.agentRunId })
+        if (!row) return false
+        await tx
+          .update(agentRuns)
+          .set({ redirectCount: sql`${agentRuns.redirectCount} + 1` })
+          .where(eq(agentRuns.id, row.runId))
+        return true
+      })
     },
 
     async hadDeadProcess(runId) {

@@ -320,3 +320,12 @@ test('a declared wait reads "<role> is waiting: <reason>, until <time>"', () => 
   const { container } = renderWithMantine(<Thread events={[ev({ kind: 'waiting', reason: 'the full test suite', until })]} decisions={[]} />)
   expect(container.querySelector('[data-event="waiting"]')).toHaveTextContent('Implementer is waiting: the full test suite, until 14:30')
 })
+
+test('a redirect is a Mainbus entry naming the role, not the user own message', () => {
+  const events = [ev({ kind: 'redirected', role: 'Implementer', text: 'Timeouts are ruled out; check the shared fixtures instead.' })]
+  renderWithMantine(<Thread events={events} decisions={[]} />)
+  const entry = screen.getByText('Timeouts are ruled out; check the shared fixtures instead.').closest('[data-event="redirected"]') as HTMLElement
+  expect(entry).not.toBeNull()
+  expect(within(entry).getByText('Mainbus · Redirected Implementer')).toBeInTheDocument()
+  expect(document.querySelector('[data-event="user_message"]')).toBeNull()
+})

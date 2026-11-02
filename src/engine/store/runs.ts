@@ -31,6 +31,8 @@ export type AgentRunRow = {
   processStartedAt: number | null
   /** The wait the agent declared with report_waiting (it may be past); null when it declared none, or the run has ended. */
   declaredWait: DeclaredWait | null
+  /** How many redirects the user confirmed for this run. */
+  redirectCount: number
 }
 
 /** How a run ends when the user skipped its role. */
@@ -108,7 +110,8 @@ const runColumns = {
   skipped: agentRuns.skipped,
   processPid: agentRuns.processPid,
   processStartedAt: agentRuns.processStartedAt,
-  declaredWait: agentRuns.declaredWait
+  declaredWait: agentRuns.declaredWait,
+  redirectCount: agentRuns.redirectCount
 }
 
 /** A selected run with its declared wait (stored as JSON) parsed. */

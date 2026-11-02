@@ -306,6 +306,8 @@ export interface StuckEpisode {
   lastHitAt: string
   /** When the episode reached its escalation count, or null. */
   escalatedAt: string | null
+  /** When a redirect was delivered for this episode, or null. An episode is redirected once. */
+  redirectedAt: string | null
 }
 
 /** A wait an agent declared with report_waiting: the stuck detector expects silence until `until`. */

@@ -63,7 +63,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_stop',
   'mcp__mainbus__propose_skip',
   'mcp__mainbus__propose_hold',
-  'mcp__mainbus__propose_answer'
+  'mcp__mainbus__propose_answer',
+  'mcp__mainbus__propose_redirect'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -635,6 +636,16 @@ export class SdkRuntime implements AgentRuntime {
               .describe("Give it when the decision needs the user's own judgement; the card then never pre-selects an option")
           },
           async (a) => toolText(await t.proposeAnswer(a))
+        ),
+        sdk.tool(
+          'propose_redirect',
+          "Propose interrupting a stuck agent with one corrective message. Only for a ticket whose agent has an open stuck episode (get_run_status shows it), and once per episode. The user confirms, edits the message or rejects it; the agent is interrupted only then, and gets the message as its next one. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            message: z.string().describe('The one corrective message for the agent, concrete and drawn from the evidence'),
+            evidence: z.string().describe('What you read that shows why this will help, shown to the user')
+          },
+          async (a) => toolText(await t.proposeRedirect(a))
         )
       ]
     })

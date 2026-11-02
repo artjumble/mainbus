@@ -126,7 +126,9 @@ export const agentRuns = sqliteTable(
     processPid: integer('process_pid'),
     processStartedAt: integer('process_started_at'),
     /** JSON: { reason, until }. A wait the agent declared with report_waiting; the stuck detector honours it until `until`. */
-    declaredWait: text('declared_wait')
+    declaredWait: text('declared_wait'),
+    /** How many times the user's confirmed redirects interrupted this run (at most one per stuck episode). */
+    redirectCount: integer('redirect_count').notNull().default(0)
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )
@@ -150,6 +152,8 @@ export const stuckEpisodes = sqliteTable(
     lastHitAt: text('last_hit_at').notNull(),
     /** When the hit count reached the escalation count: the episode asks for a closer look. */
     escalatedAt: text('escalated_at'),
+    /** When a redirect was delivered for this episode; an episode is redirected once. */
+    redirectedAt: text('redirected_at'),
     closedAt: text('closed_at')
   },
   (t) => [

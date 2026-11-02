@@ -62,6 +62,12 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).toContain('tickets whose hold the user released')
   })
 
+  test('works up the stuck ladder one step at a time: a redirect first, a replacement only after a redirected episode fires again', () => {
+    expect(prompt).toContain('mcp__mainbus__propose_redirect(ticket, message, evidence)')
+    expect(prompt).toContain('First propose a redirect: one concrete corrective message drawn from the evidence')
+    expect(prompt).toContain('Propose a replacement only after a redirected episode fires again')
+  })
+
   test("has the rubric for recommending an answer, and for flagging one that needs the user's judgement", () => {
     expect(prompt).toContain('mcp__mainbus__propose_answer(decision, choice?, note?, reasoning, judgement?)')
     expect(prompt).toContain("Recommend an answer only when it clearly follows from the user's own words and earlier decisions")

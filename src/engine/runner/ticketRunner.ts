@@ -86,6 +86,7 @@ const HANDED_OFF = 'Handed off. Your part is done; end your turn now.'
 const COMMIT_FIRST =
   'Not handed off: the worktree has uncommitted changes. Commit all your work on the current branch, then call mcp__mainbus__handoff again.'
 const RUN_ENDED = 'This run has ended.'
+const REDIRECT_STALE = 'The agent is no longer stuck in that episode, or it was already redirected'
 const NOT_WORKING = 'No agent is working on this ticket'
 export const MOVED_ON = 'The ticket has moved on: that role is no longer the active one'
 
@@ -292,6 +293,15 @@ export class TicketRunner {
   /** The user's Pause: interrupts the active role and stops its process; the run stays open until Resume. */
   pause(ticketId: string, expect?: RunExpectation): Promise<void> {
     return this.serial(ticketId, () => this.pauseNow(ticketId, expect))
+  }
+
+  /**
+   * The user's confirmed redirect: interrupts the role's current turn, keeping its process and session, and sends
+   * `message` as its next message. `claim` is asked once everything else checks out, and says whether the
+   * redirect is still allowed (it records it); a false answer fails, with nothing interrupted.
+   */
+  redirect(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>): Promise<void> {
+    return this.serial(ticketId, () => this.redirectNow(ticketId, expect, message, claim))
   }
 
   /** The user's Resume of a role they paused: the same session, with "Continue.". Never resumes any other pause. */
@@ -605,6 +615,22 @@ export class TicketRunner {
     // The run stays open with its session, as after a restart: Resume continues it by session id.
     await this.halt(live)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+  }
+
+  private async redirectNow(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>): Promise<void> {
+    if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    if (this.stopRequested.has(ticketId)) throw new Error(NOT_WORKING)
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run || run.id !== expect.agentRunId || run.endReason !== null) throw new Error(MOVED_ON)
+    const live = this.live.get(run.id)
+    if (!live || live.ended || live.stopping) throw new Error(NOT_WORKING)
+    if (!(await claim())) throw new Error(REDIRECT_STALE)
+    // Logged before the interrupt, so it precedes anything the agent does in response.
+    await this.record(live, { kind: 'redirected', role: live.role, text: message })
+    live.silentTurns = 0
+    await settleWithin(this.deps.runtime.interrupt(live.handle).catch(() => {}), STOP_DRAIN_MS)
+    const failure = await this.deliver(live, message)
+    if (failure !== null) throw new Error(`The message was not delivered: ${failure}`)
   }
 
   private async resumeNow(ticketId: string): Promise<void> {

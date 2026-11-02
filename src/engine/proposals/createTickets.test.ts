@@ -88,6 +88,8 @@ describe('create_tickets: execute and outcome', () => {
       now: () => new Date(),
       holdTicket: async () => ({}) as Hold,
       decision: async () => null,
+      openStuckEpisode: async () => null,
+      redirectTicket: async () => {},
       answerDecision: async () => {}
     }
   }

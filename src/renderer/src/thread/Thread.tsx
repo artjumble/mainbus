@@ -248,6 +248,16 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           <Text size="sm">{event.text}</Text>
         </Paper>
       )
+    case 'redirected':
+      // Mainbus's own entry, not the user's message: the orchestrator suggested it and the user confirmed it.
+      return (
+        <Paper withBorder p="sm" radius="md" maw="80%" data-event="redirected" style={{ alignSelf: 'flex-end', whiteSpace: 'pre-wrap' }}>
+          <Text size="xs" c="dimmed" fw={600} mb={2}>
+            {`Mainbus · Redirected ${lookup.role}`}
+          </Text>
+          <Text size="sm">{event.text}</Text>
+        </Paper>
+      )
     case 'thinking':
       return <ThinkingBlock text={event.text} durationMs={event.durationMs} partial={event.partial} />
     case 'tool_call':

@@ -161,7 +161,8 @@ if (!app.requestSingleInstanceLock()) {
         }),
         intakeError: () => intakeError,
         keepAwake,
-        ...(clock ? { clock } : {})
+        // With the test clock, the stuck detector's once-a-minute check moves with it.
+        ...(clock ? { clock, stuck: { timer: clock } } : {})
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))
