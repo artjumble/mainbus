@@ -24,6 +24,21 @@ export type RemoveDir = (dir: string) => Promise<void>
 
 const removeDir: RemoveDir = (dir) => fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
 
+const NOT_A_WORKTREE = (dir: string) =>
+  `${dir} is no longer a git worktree but still holds files, so Mainbus left it alone. It needs looking at: check what is in it, then delete it or move the files out.`
+
+const HELD_OPEN = (contentsRemoved: boolean) =>
+  "Windows wouldn't delete the ticket's folder because a program still has it open: a terminal, an editor, or a process an agent left running. Close it, then try Move to Done again. " +
+  (contentsRemoved
+    ? "Git had already removed the folder's contents, so trying again will finish it."
+    : 'Git had not removed the folder yet.')
+
+/** True for the failures Windows gives when a program has the folder open. */
+function isLockError(err: unknown): boolean {
+  const text = err instanceof Error ? `${(err as NodeJS.ErrnoException).code ?? ''} ${err.message}` : String(err)
+  return /permission denied|being used by another process|in use|EBUSY|EPERM|EACCES/i.test(text)
+}
+
 export class WorktreeManager {
   constructor(
     private readonly git: GitRunner,
@@ -84,11 +99,25 @@ export class WorktreeManager {
     opts: { discard: boolean }
   ): Promise<'removed' | 'dirty'> {
     const present = await exists(wtPath)
-    if (present && !opts.discard && (await this.hasUncommitted(wtPath))) return 'dirty'
+    // A folder git no longer lists is what a half-done removal leaves behind. Don't ask git about it:
+    // `git status` there would answer for whatever repository contains the folder.
+    const registered = present && (await this.isRegistered(repoPath, wtPath))
+    if (present && !registered && !(await this.isEmptyDir(wtPath))) throw new Error(NOT_A_WORKTREE(wtPath))
+    if (registered && !opts.discard && (await this.hasUncommitted(wtPath))) return 'dirty'
 
     // Record the decision first so an interrupted removal is finished on next launch.
     await this.cleanups.add(ticketId, repoPath, wtPath, branch)
-    if (present) {
+    if (present && !registered) {
+      try {
+        await fs.rmdir(wtPath)
+      } catch (err) {
+        // Gone after all is fine; otherwise it is still there and the row would only force it through later.
+        if (await exists(wtPath)) {
+          if (!opts.discard) await this.cleanups.done(ticketId)
+          throw isLockError(err) ? new Error(HELD_OPEN(true)) : err
+        }
+      }
+    } else if (present) {
       const removed = await this.git(
         ['worktree', 'remove', ...(opts.discard ? ['--force'] : []), wtPath],
         repoPath
@@ -97,7 +126,12 @@ export class WorktreeManager {
         // Without `discard` the user never agreed to lose files that appeared since the check,
         // so don't leave a row that recovery would force through.
         if (!opts.discard) await this.cleanups.done(ticketId)
-        throw new Error(`git worktree remove failed: ${removed.stderr.trim()}`)
+        const detail = removed.stderr.trim()
+        if (isLockError(detail)) {
+          // Git drops the worktree from its list before deleting the folder, so unlisted means it got that far.
+          throw new Error(HELD_OPEN(!(await this.isRegistered(repoPath, wtPath))))
+        }
+        throw new Error(`git worktree remove failed: ${detail}`)
       }
     }
     await this.run(['worktree', 'prune'], repoPath)
@@ -112,7 +146,13 @@ export class WorktreeManager {
     for (const row of await this.cleanups.list()) {
       try {
         // The row means removal was already decided, so force.
-        if (await exists(row.path)) await this.git(['worktree', 'remove', '--force', row.path], row.repoPath)
+        if (await exists(row.path)) {
+          if (await this.isRegistered(row.repoPath, row.path)) {
+            await this.git(['worktree', 'remove', '--force', row.path], row.repoPath)
+          } else if (await this.isEmptyDir(row.path)) {
+            await fs.rmdir(row.path)
+          }
+        }
         if (await exists(row.path)) continue
         await this.git(['worktree', 'prune'], row.repoPath)
         await this.removeScratch(row.path)
@@ -133,6 +173,10 @@ export class WorktreeManager {
     } catch (err) {
       this.warn(`Mainbus could not remove the scratch folder ${scratch}: ${err instanceof Error ? err.message : String(err)}`)
     }
+  }
+
+  private async isEmptyDir(dir: string): Promise<boolean> {
+    return (await fs.readdir(dir).catch(() => ['?'])).length === 0
   }
 
   private async isRegistered(repoPath: string, wtPath: string): Promise<boolean> {

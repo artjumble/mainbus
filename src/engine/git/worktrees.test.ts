@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -238,6 +239,69 @@ describe('WorktreeManager', () => {
     expect(await manager.hasUncommitted(wt)).toBe(true)
     expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('dirty')
     expect(await exists(wt)).toBe(true)
+  })
+
+  describe('a worktree git already removed', () => {
+    /** Git forgets the worktree; the folder is recreated at the same path, as a half-done removal leaves it. */
+    async function unregister(wt: string) {
+      await git(['worktree', 'remove', '--force', wt])
+      await fs.mkdir(wt)
+    }
+
+    it('has its empty folder deleted and the removal finishes', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      await unregister(wt)
+
+      expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+      expect(await exists(wt)).toBe(false)
+      expect(await exists(scratch)).toBe(false)
+      expect(await cleanups.list()).toEqual([])
+      expect(await git(['branch', '--list', branch])).toContain(branch)
+    })
+
+    it('keeps a folder that still holds files, and says so', async () => {
+      const { path: wt, branch } = await manager.ensure(ws, ticket)
+      await unregister(wt)
+      await fs.writeFile(path.join(wt, 'keep.txt'), 'x')
+
+      await expect(manager.remove(ticket.id, repoPath, wt, branch, { discard: true })).rejects.toThrow(
+        /no longer a git worktree/
+      )
+      expect(await exists(path.join(wt, 'keep.txt'))).toBe(true)
+      expect(await cleanups.list()).toEqual([])
+    })
+
+    it('is finished by startup recovery when only the empty folder is left', async () => {
+      const { path: wt, branch } = await manager.ensure(ws, ticket)
+      await unregister(wt)
+      await cleanups.add(ticket.id, repoPath, wt, branch)
+
+      expect(await manager.recoverPendingCleanups()).toEqual([ticket.id])
+      expect(await exists(wt)).toBe(false)
+      expect(await cleanups.list()).toEqual([])
+    })
+  })
+
+  it.runIf(process.platform === 'win32')('says a program holds the folder open, and succeeds once it is closed', async () => {
+    const { path: wt, branch } = await manager.ensure(ws, ticket)
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: wt, stdio: 'ignore' })
+    try {
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve)
+        child.once('error', reject)
+      })
+
+      await expect(manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).rejects.toThrow(
+        /a program still has it open/
+      )
+    } finally {
+      const exited = new Promise((resolve) => child.once('exit', resolve))
+      child.kill()
+      await exited
+    }
+
+    expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+    expect(await exists(wt)).toBe(false)
   })
 
   describe('when git fails mid-removal', () => {
