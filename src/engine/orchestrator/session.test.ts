@@ -1,0 +1,259 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import type { EngineEvent } from '../../shared/api'
+import { runGit } from '../git/git'
+import { resolveHome, type HomePaths } from '../home'
+import { createEngine, type Engine } from '../index'
+import { makeRepo } from '../intake/testBoard'
+import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
+import type { ExecFn } from '../runtime/resolveClaude'
+import type { AgentRuntime } from '../runtime/types'
+import { RESUME_FAILED_NOTICE } from './session'
+
+const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
+const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
+
+let tmp: string
+let repoPath: string
+let paths: HomePaths
+let engines: Engine[]
+
+beforeEach(async () => {
+  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-orchestrator-'))
+  repoPath = await makeRepo(path.join(tmp, 'repo'))
+  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  engines = []
+})
+
+afterEach(async () => {
+  for (const e of engines) await e.dispose()
+  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
+
+async function makeEngine(runtime: AgentRuntime | null, open = true): Promise<{ engine: Engine; events: EngineEvent[] }> {
+  const engine = await createEngine({ paths, migrationsDir, runtime, git: runGit, exec })
+  engines.push(engine)
+  if (open) await engine.invoke('workspace.open', repoPath)
+  const events: EngineEvent[] = []
+  engine.on((e) => events.push(e))
+  return { engine, events }
+}
+
+const say = (text: string): FakeStep => ({ emit: { kind: 'message', text } })
+const turnEnd = (ok = true): FakeStep => ({ emit: { kind: 'turn_end', ok } })
+
+/** Two turns: a session id, a streamed reply, then a second reply after the next message. */
+const TWO_TURNS: FakeStep[] = [
+  { emit: { kind: 'session', sessionId: 'sess-1' } },
+  { emit: { kind: 'message', text: 'Hel', partial: true } },
+  say('Hello'),
+  turnEnd(),
+  { waitForSend: true },
+  say('Second'),
+  turnEnd()
+]
+
+async function status(engine: Engine) {
+  return (await engine.invoke('orchestrator.get')).status
+}
+
+describe('orchestrator.send', () => {
+  test('rejects empty text, a missing workspace and a missing runtime', async () => {
+    const { engine } = await makeEngine(new FakeRuntime([]), false)
+    await expect(engine.invoke('orchestrator.send', '')).rejects.toThrow('Type a message first')
+    await expect(engine.invoke('orchestrator.send', '  \n ')).rejects.toThrow('Type a message first')
+    await expect(engine.invoke('orchestrator.send', 'Hi')).rejects.toThrow('Open a workspace first')
+    await engine.dispose()
+
+    const { engine: noClaude } = await makeEngine(null)
+    await expect(noClaude.invoke('orchestrator.send', 'Hi')).rejects.toThrow(/Claude Code is not set up/)
+  })
+
+  test('starts one orchestrator session in <home>\\orchestrator with the repo readable and a header on the message', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: TWO_TURNS })
+    const { engine } = await makeEngine(runtime)
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 1, 14, 5) })
+    try {
+      await engine.invoke('orchestrator.send', 'What needs me?')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const folder = path.join(paths.root, 'orchestrator')
+    expect((await fs.stat(folder)).isDirectory()).toBe(true)
+    expect(runtime.specs).toHaveLength(0)
+    expect(runtime.orchestratorSpecs).toHaveLength(1)
+    const spec = runtime.orchestratorSpecs[0]!
+    expect(spec).toMatchObject({ kind: 'orchestrator', cwd: folder, additionalDirectories: [repoPath], model: 'opus', effort: 'medium' })
+    expect(spec.resumeSessionId).toBeUndefined()
+    expect(spec.prompt).toBe(`[Mainbus] Workspace: repo (${repoPath}) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?`)
+    expect(spec.appendSystemPrompt).toContain('Mainbus orchestrator')
+    for (const tool of ['Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'AskUserQuestion', 'Agent', 'Task', 'EnterWorktree', 'CronCreate']) {
+      expect(spec.disallowedTools).toContain(tool)
+    }
+    // Its permissions: reads in the repo, never a credential file, never anything else.
+    const ask = (toolName: string, input: Record<string, unknown>) =>
+      spec.onPermission({ toolName, input, toolUseId: 't', signal: new AbortController().signal })
+    expect(await ask('Read', { file_path: path.join(repoPath, 'README.md') })).toEqual({ allow: true })
+    expect((await ask('Read', { file_path: path.join(repoPath, '.env') })).allow).toBe(false)
+    expect((await ask('Bash', { command: 'ls' })).allow).toBe(false)
+    // Its read tools answer from this board.
+    expect(await spec.readTools.listWorkspaces()).toContain(`- repo: repo ${repoPath}, base branch main`)
+  })
+
+  test('stores and pushes its events, streams partials unstored, and keeps one live session', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: TWO_TURNS })
+    const { engine, events } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'First')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+
+    const pushed = events.filter((e) => e.type === 'orchestrator.appended').map((e) => e.event)
+    expect(pushed.map((e) => [e.seq, e.event.kind])).toEqual([
+      [1, 'user_message'],
+      [2, 'session'],
+      [0, 'message'],
+      [3, 'message'],
+      [4, 'turn_end']
+    ])
+    const statuses = events.filter((e) => e.type === 'orchestrator.status').map((e) => e.status)
+    expect(statuses).toEqual(['working', 'idle'])
+
+    await engine.invoke('orchestrator.send', 'Next one')
+    await vi.waitFor(async () => {
+      const thread = await engine.invoke('orchestrator.get')
+      expect(thread.events.at(-1)?.event.kind).toBe('turn_end')
+      expect(thread.events.map((e) => e.event.kind)).toContain('user_message')
+      expect(thread.events.length).toBe(7)
+    })
+    expect(runtime.orchestratorSpecs).toHaveLength(1)
+    expect(runtime.sent).toHaveLength(1)
+    expect(runtime.sent[0]).toMatch(/^\[Mainbus\] Workspace: repo .*\n\nNext one$/)
+
+    const thread = await engine.invoke('orchestrator.get')
+    expect(thread.status).toBe('idle')
+    expect(thread.runs).toHaveLength(1)
+    expect(thread.events.filter((e) => e.event.kind === 'user_message').map((e) => e.event)).toEqual([
+      { kind: 'user_message', text: 'First' },
+      { kind: 'user_message', text: 'Next one' }
+    ])
+    // The orchestrator is not a ticket: no board change, and unattended mode never hears of it.
+    expect(events.some((e) => e.type === 'board.changed' || e.type === 'unattended.changed')).toBe(false)
+    expect((await engine.invoke('unattended.get')).on).toBe(false)
+  })
+
+  test('a failing turn leaves it failed, and the next message works again', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [turnEnd(false), { waitForSend: true }, say('Back'), turnEnd()]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Hi')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('failed'))
+    await engine.invoke('orchestrator.send', 'Again')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+  })
+
+  test('a process that ends mid-turn leaves it failed, and the next message resumes the session', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: (spec) =>
+        spec.resumeSessionId ? [say('Resumed'), turnEnd()] : [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { exit: 1 }]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Hi')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('failed'))
+    const kinds = (await engine.invoke('orchestrator.get')).events.map((e) => e.event.kind)
+    expect(kinds).toEqual(['user_message', 'session', 'process_exit'])
+
+    await engine.invoke('orchestrator.send', 'Still there?')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    expect(runtime.orchestratorSpecs.map((s) => s.resumeSessionId)).toEqual([undefined, 'sess-1'])
+  })
+})
+
+describe('orchestrator.stop', () => {
+  test('interrupts the turn under way and keeps the session', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }, say('Later'), turnEnd()] })
+    const { engine } = await makeEngine(runtime)
+    // Nothing to stop yet.
+    await engine.invoke('orchestrator.stop')
+    expect(runtime.interrupted).toEqual([])
+
+    await engine.invoke('orchestrator.send', 'Think hard')
+    expect(await status(engine)).toBe('working')
+    await engine.invoke('orchestrator.stop')
+    expect(runtime.interrupted).toHaveLength(1)
+
+    await engine.invoke('orchestrator.send', 'Never mind')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    expect(runtime.orchestratorSpecs).toHaveLength(1)
+    expect(runtime.sent).toHaveLength(1)
+  })
+})
+
+describe('after a restart', () => {
+  async function firstSession(): Promise<void> {
+    const { engine } = await makeEngine(new FakeRuntime([], { orchestrator: TWO_TURNS }))
+    await engine.invoke('orchestrator.send', 'Plan the week')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.dispose()
+  }
+
+  test('the next message resumes the session by id', async () => {
+    await firstSession()
+    const runtime = new FakeRuntime([], { orchestrator: [say('Welcome back'), turnEnd()] })
+    const { engine } = await makeEngine(runtime)
+    const before = await engine.invoke('orchestrator.get')
+    expect(before.status).toBe('idle')
+    expect(before.events.map((e) => e.event.kind)).toEqual(['user_message', 'session', 'message', 'turn_end'])
+
+    await engine.invoke('orchestrator.send', 'Where were we?')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    expect(runtime.orchestratorSpecs).toHaveLength(1)
+    expect(runtime.orchestratorSpecs[0]!.resumeSessionId).toBe('sess-1')
+    expect(runtime.orchestratorSpecs[0]!.prompt).toMatch(/\n\nWhere were we\?$/)
+    const after = await engine.invoke('orchestrator.get')
+    expect(after.runs).toHaveLength(1)
+    expect(after.events.at(-2)?.event).toEqual({ kind: 'message', text: 'Welcome back' })
+  })
+
+  test('when the resume fails, a fresh session starts from a digest, with a notice', async () => {
+    await firstSession()
+    const runtime = new FakeRuntime([], { rejectResume: true, orchestrator: [say('Fresh start'), turnEnd()] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Where were we?')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+
+    expect(runtime.orchestratorSpecs.map((s) => s.resumeSessionId)).toEqual(['sess-1', undefined])
+    const fresh = runtime.orchestratorSpecs[1]!.prompt
+    expect(fresh).toContain("Mainbus couldn't resume your earlier conversation")
+    expect(fresh).toContain('<ticket-data field="previous-conversation">\nUser: Plan the week\nOrchestrator: Hello\n</ticket-data>')
+    // The new message is not part of the digest; it comes after it, with its header.
+    expect(fresh.indexOf('Where were we?')).toBeGreaterThan(fresh.indexOf('</ticket-data>'))
+    expect(fresh).toMatch(/\[Mainbus\] Workspace: repo .*\n\nWhere were we\?$/)
+
+    const thread = await engine.invoke('orchestrator.get')
+    expect(thread.runs.map((r) => r.endReason)).toEqual(['resume_failed', null])
+    const second = thread.events.filter((e) => e.runId === thread.runs[1]!.id).map((e) => e.event)
+    expect(second[0]).toEqual({ kind: 'notice', text: RESUME_FAILED_NOTICE })
+    expect(second).toContainEqual({ kind: 'message', text: 'Fresh start' })
+  })
+
+  test('quitting mid-turn just ends the turn: nothing more is recorded and the run stays open', async () => {
+    const { engine } = await makeEngine(
+      new FakeRuntime([], { orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, say('Thinking about it')] })
+    )
+    await engine.invoke('orchestrator.send', 'Big question')
+    await vi.waitFor(async () =>
+      expect((await engine.invoke('orchestrator.get')).events.at(-1)?.event).toEqual({ kind: 'message', text: 'Thinking about it' })
+    )
+    await engine.dispose()
+
+    const runtime = new FakeRuntime([])
+    const { engine: next } = await makeEngine(runtime)
+    const thread = await next.invoke('orchestrator.get')
+    expect(thread.status).toBe('idle')
+    expect(thread.runs).toEqual([expect.objectContaining({ endReason: null })])
+    expect(thread.events.map((e) => e.event.kind)).toEqual(['user_message', 'session', 'message'])
+  })
+})

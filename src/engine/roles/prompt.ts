@@ -23,7 +23,7 @@ const LINE_BREAKS = new RegExp('[\r\n\u0085\u2028\u2029]+')
 
 // Split, trim and join instead of one `\s*[\r\n]+\s*` regex: that pattern backtracks
 // quadratically on long whitespace runs.
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   const parts = text.split(LINE_BREAKS)
   if (parts.length === 1) return text
   const last = parts.length - 1
@@ -68,7 +68,7 @@ export const AGENT_FILED_SUFFIX = "(written by the agent that filed this ticket,
  * The intent, split by who wrote it: only entries without a source are the user's own words.
  * Entries filed by a local agent go under their own heading, with the agent's self-reported name.
  */
-function intentSections(ticket: Ticket): string[] {
+export function intentSections(ticket: Ticket): string[] {
   const user: string[] = []
   const agent: string[] = []
   ticket.intent.forEach((entry, i) => {

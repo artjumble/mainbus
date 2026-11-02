@@ -11,7 +11,7 @@ import { runGit } from '../engine/git/git'
 import { invocationDir, resolveHome } from '../engine/home'
 import { intakeEndpoint } from '../engine/intake/endpoint'
 import { startIntakeServer, type IntakeServer } from '../engine/intake/server'
-import { FakeRuntime, scriptFromFile, type FakeScriptFile } from '../engine/runtime/fakeRuntime'
+import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeScriptFile } from '../engine/runtime/fakeRuntime'
 import { execFileNode, resolveClaude, type ExecFn } from '../engine/runtime/resolveClaude'
 import { SdkRuntime } from '../engine/runtime/sdkRuntime'
 import type { AgentRuntime } from '../engine/runtime/types'
@@ -105,7 +105,8 @@ async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: Ex
   const fake = process.env['MAINBUS_RUNTIME']
   if (fake?.startsWith('fake:') && process.env['MAINBUS_HOME']) {
     const script = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), fake.slice('fake:'.length)), 'utf8')) as FakeScriptFile
-    return { runtime: new FakeRuntime(scriptFromFile(script)), exec: fakeClaudeExec, commands: new FakeGh().runner(runCommand) }
+    const runtime = new FakeRuntime(scriptFromFile(script), { orchestrator: orchestratorScriptFromFile(script) })
+    return { runtime, exec: fakeClaudeExec, commands: new FakeGh().runner(runCommand) }
   }
   const setup = await resolveClaude(execFileNode)
   return {

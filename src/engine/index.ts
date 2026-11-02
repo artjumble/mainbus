@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
   SETUP_REQUIRED,
+  type BoardTicket,
   type CommandArgs,
   type CommandName,
   type CommandResult,
@@ -16,6 +17,8 @@ import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
 import type { HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
+import { createReadTools } from './orchestrator/readTools'
+import { OrchestratorSession } from './orchestrator/session'
 import { TicketRunner } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -196,6 +199,26 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return ticket && { ...ticket, state: await runner.stateOf(ticket.id) }
     }
 
+    const boardView = async (ws: Workspace): Promise<BoardTicket[]> => {
+      const tickets = await repos.tickets.list(ws.id)
+      // Read once, for every ticket that hasn't run yet.
+      let lineup: Promise<LineupRole[]> | undefined
+      const workspaceLineup = () => (lineup ??= repos.lineups.get(ws.id))
+      return Promise.all(tickets.map(async (t) => ({ ...t, ...(await runner.boardView(t.id, workspaceLineup)) })))
+    }
+
+    // Its events never reach unattended mode as board changes: the orchestrator is not a ticket.
+    const orchestrator = new OrchestratorSession({
+      repo: repos.orchestrator,
+      runtime: cfg.runtime ?? missingRuntime,
+      homeRoot: cfg.paths.root,
+      now,
+      emit,
+      workspace: () => repos.workspaces.get(),
+      workspaceRequired: WORKSPACE_REQUIRED,
+      readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView })
+    })
+
     const handlers: Handlers = {
       'setup.check': async () => {
         const setup = await resolveClaude(cfg.exec)
@@ -217,14 +240,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'board.get': async () => {
         const ws = await repos.workspaces.get()
-        if (!ws) return { tickets: [] }
-        const tickets = await repos.tickets.list(ws.id)
-        // Read once, for every ticket that hasn't run yet.
-        let lineup: Promise<LineupRole[]> | undefined
-        const workspaceLineup = () => (lineup ??= repos.lineups.get(ws.id))
-        return {
-          tickets: await Promise.all(tickets.map(async (t) => ({ ...t, ...(await runner.boardView(t.id, workspaceLineup)) })))
-        }
+        return { tickets: ws ? await boardView(ws) : [] }
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
@@ -317,7 +333,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       // Reached only through `invoke` (the renderer's IPC); the intake handler below has no way to it.
       'unattended.get': () => mode.get(),
-      'unattended.set': (on) => mode.set(on === true)
+      'unattended.set': (on) => mode.set(on === true),
+
+      // Reached only through `invoke` (the renderer's IPC). Like Stop, stopping and reading need no runtime.
+      'orchestrator.get': () => orchestrator.get(),
+      'orchestrator.send': (text) => {
+        requireRuntime()
+        return orchestrator.send(text)
+      },
+      'orchestrator.stop': () => orchestrator.stop()
     }
 
     const intake = createIntakeHandler({
@@ -350,7 +374,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           try {
             // First, so the queue starts nothing while the agents are stopped.
             mode.dispose()
-            await runner.shutdown()
+            await Promise.all([runner.shutdown(), orchestrator.shutdown()])
           } finally {
             listeners.clear()
             handle.close()
