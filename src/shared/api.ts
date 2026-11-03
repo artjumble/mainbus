@@ -112,7 +112,7 @@ export interface EngineCommands {
   /** The tickets of the workspace (the focused one unless given). */
   'board.get'(workspaceId?: string): { tickets: BoardTicket[] }
   /** The user's own ticket: a source can only come in through agent intake. */
-  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source'>, workspaceId?: string): Ticket
+  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded'>, workspaceId?: string): Ticket
   'ticket.update'(id: string, p: TicketPatch): Ticket
   'ticket.appendIntent'(id: string, text: string): Ticket
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */

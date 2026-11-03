@@ -35,6 +35,24 @@ export function resolveWorkspaceRef(
   return { ok: false, text: `${why} The workspaces are: ${all.length ? workspaceChoices(all) : 'none open'}.` }
 }
 
+/**
+ * The workspace create_tickets puts tickets in. Never the focused one by default: with more than one open, `ref` must
+ * name one, and the orchestrator is told to infer it from the conversation or ask. With one open it may be left out.
+ */
+export function resolveTargetWorkspace(all: Workspace[], ref?: string): { ok: true; ws: Workspace } | { ok: false; text: string } {
+  if (ref === undefined || ref.trim() === '') {
+    if (all.length === 0) return { ok: false, text: NO_WORKSPACE }
+    if (all.length === 1) return { ok: true, ws: all[0]! }
+    return {
+      ok: false,
+      text:
+        `More than one workspace is open: ${workspaceChoices(all)}. Name one with workspace: infer it from the user's words or ` +
+        `the recent conversation; if they don't make it clear, ask the user which one and end your turn.`
+    }
+  }
+  return resolveWorkspaceRef(all, null, ref)
+}
+
 /** " (workspace app)" after a ticket's title, so a ticket number is never ambiguous across workspaces; nothing when unknown. */
 export function wsTag(workspace?: string): string {
   return workspace === undefined ? '' : ` (workspace ${JSON.stringify(oneLine(workspace))})`

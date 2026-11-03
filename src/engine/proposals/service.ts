@@ -1,5 +1,5 @@
 import type { EngineEvent } from '../../shared/api'
-import type { Decision } from '../../shared/domain'
+import type { Decision, IntentAddition } from '../../shared/domain'
 import type { AnswerPayload, Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
 import { oneLine } from '../roles/prompt'
 import type { ProposalRepo } from '../store/proposals'
@@ -35,7 +35,7 @@ export interface ProposalService {
   propose(
     kind: ProposalKindName,
     input: unknown,
-    at: { workspaceId: string; orchestratorRunId: string; userMessage: string | null; origin?: ProposalOrigin }
+    at: { workspaceId: string; orchestratorRunId: string; userMessage: string | null; followUps?: IntentAddition[]; origin?: ProposalOrigin }
   ): Promise<ProposeResult>
   /**
    * Confirms a pending proposal (overridden when `override` is given) and carries it out. An invalid override
@@ -140,7 +140,13 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
         const split = splitEvidence(input, kind.evidenceKey ?? 'evidence')
         evidence = split.evidence
         if (kind.evidenceRequired && evidence === null) throw new ProposalInvalid(`${kind.evidenceKey ?? 'evidence'}: required`)
-        payload = await kind.propose(split.payload, { userMessage: at.userMessage, workspaceId: at.workspaceId, ...(at.origin ? { origin: at.origin } : {}) }, deps.exec)
+        const turn = {
+          userMessage: at.userMessage,
+          workspaceId: at.workspaceId,
+          ...(at.followUps?.length ? { followUps: at.followUps } : {}),
+          ...(at.origin ? { origin: at.origin } : {})
+        }
+        payload = await kind.propose(split.payload, turn, deps.exec)
       } catch (err) {
         if (err instanceof ProposalInvalid) return { ok: false, error: err.message }
         throw err

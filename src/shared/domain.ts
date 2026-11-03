@@ -101,6 +101,17 @@ export interface IntentEntry {
   at: string // ISO time
   /** Absent on the user's own words (the New Ticket form, "Add to your words"). */
   source?: IntentSource
+  /**
+   * On the first entry only: the orchestrator created the ticket at the user's request, without a card. The words are
+   * still the user's own.
+   */
+  via?: 'orchestrator'
+}
+
+/** A later message of the user's that belongs to the same request, verbatim, with when they sent it. */
+export interface IntentAddition {
+  text: string
+  at: string // ISO time
 }
 
 export interface Criterion {
@@ -231,6 +242,10 @@ export type NewTicketInput = {
   kind?: TicketKind
   /** Set only by agent intake: marks the first intent entry as agent-written. */
   source?: IntentSource
+  /** The user's later messages of the same request, appended after `intent` as entries of their own. */
+  intentAdded?: IntentAddition[]
+  /** Set only when the orchestrator created it directly: marks the first intent entry. */
+  via?: 'orchestrator'
   /** The user asked the orchestrator to propose starting the ticket once it is in Ready (now, if it was created there). */
   startWhenReady?: boolean
 }

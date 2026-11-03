@@ -43,6 +43,17 @@ describe('ticket repo', () => {
     expect([a.number, b.number, c.number]).toEqual([1, 2, 1])
   })
 
+  it("appends the user's later messages after the intent, each with its own time, and marks only the first as the orchestrator's", async () => {
+    const repo = createTicketRepo(db, now)
+    const later = [
+      { text: 'website', at: '2026-01-01T00:00:00.000Z' },
+      { text: 'and logout', at: '2026-01-01T00:01:00.000Z' }
+    ]
+    const t = await repo.create(input({ intentAdded: later, via: 'orchestrator' }))
+    expect(t.intent).toEqual([{ text: 'Let people log in', at: FIXED_NOW.toISOString(), via: 'orchestrator' }, ...later])
+    expect((await repo.create(input())).intent).toEqual([{ text: 'Let people log in', at: FIXED_NOW.toISOString() }])
+  })
+
   it('keeps the kind (change unless asked) and saves a report', async () => {
     const repo = createTicketRepo(db, now)
     expect((await repo.create(input())).kind).toBe('change')

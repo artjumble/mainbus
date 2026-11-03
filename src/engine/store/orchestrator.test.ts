@@ -26,6 +26,23 @@ describe('orchestrator repo', () => {
     ])
   })
 
+  test("recentUserMessages is the user's last messages in any run, oldest first, with their times", async () => {
+    expect(await repo.recentUserMessages(2)).toEqual([])
+    const a = await repo.create()
+    const b = await repo.create()
+    const at = FIXED_NOW.toISOString()
+    await repo.append(a.id, { kind: 'user_message', text: 'one' })
+    await repo.append(a.id, { kind: 'message', text: 'reply' })
+    await repo.append(a.id, { kind: 'user_message', text: 'two' })
+    // A resume that failed leaves the earlier messages in the old run.
+    await repo.append(b.id, { kind: 'user_message', text: 'three' })
+    expect(await repo.recentUserMessages(2)).toEqual([
+      { text: 'two', at },
+      { text: 'three', at }
+    ])
+    expect((await repo.recentUserMessages(5)).map((m) => m.text)).toEqual(['one', 'two', 'three'])
+  })
+
   test('latestOpen is the latest run while it is open, with its session', async () => {
     expect(await repo.latestOpen()).toBeNull()
     const a = await repo.create()

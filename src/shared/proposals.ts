@@ -1,5 +1,5 @@
 // Shared by the engine and the renderer: types only, no Node imports.
-import type { Effort, TicketKind } from './domain'
+import type { Effort, IntentAddition, TicketKind } from './domain'
 import type { ModelSource } from './models'
 
 /**
@@ -49,6 +49,8 @@ export type DraftColumn = 'backlog' | 'ready'
 /** The payload of a create_tickets proposal. `intent` is filled in by Mainbus: the user's message, verbatim. */
 export interface CreateTicketsPayload {
   intent: string
+  /** The user's later messages when the request spanned turns, verbatim; absent on proposals stored before it was kept. */
+  intentAdded?: IntentAddition[]
   tickets: TicketDraft[]
   column: DraftColumn
 }

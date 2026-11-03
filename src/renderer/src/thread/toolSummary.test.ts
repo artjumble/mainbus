@@ -25,6 +25,13 @@ test('the propose tools count the proposals made', () => {
   )
 })
 
+test('create_tickets reads as creating tickets', () => {
+  expect(summariseTools(calls('mcp__mainbus__create_tickets'))).toBe('Created tickets')
+  expect(summariseTools(calls('mcp__mainbus__list_workspaces', 'mcp__mainbus__create_tickets', 'mcp__mainbus__create_tickets'))).toBe(
+    'Looked at the board, created tickets'
+  )
+})
+
 test('other tools are counted', () => {
   expect(summariseTools(calls('WebFetch'))).toBe('Used 1 tool')
   expect(summariseTools(calls('Read', 'WebFetch', 'Bash'))).toBe('Read 1 file, used 2 tools')

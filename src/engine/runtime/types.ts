@@ -40,6 +40,8 @@ export interface OrchestratorReadToolHandlers {
  * whatever the agent sent.
  */
 export interface OrchestratorToolHandlers extends OrchestratorReadToolHandlers {
+  /** Creates tickets in a workspace's Backlog at once, at the user's request. */
+  createTickets(a: unknown): Promise<string>
   proposeCreateTickets(a: unknown): Promise<string>
   proposeStart(a: unknown): Promise<string>
   proposePause(a: unknown): Promise<string>

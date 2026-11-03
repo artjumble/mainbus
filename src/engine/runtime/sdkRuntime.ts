@@ -54,8 +54,9 @@ function roleTools(endsWithReport: boolean | undefined): string[] {
     : ROLE_TOOLS
 }
 /**
- * The orchestrator's Mainbus tools, pre-approved like the role tools: the read tools, and the propose tools,
- * which only store a proposal for the user to decide.
+ * The orchestrator's Mainbus tools, pre-approved like the role tools: the read tools, create_tickets, which only
+ * creates tickets in a Backlog (where nothing runs), and the propose tools, which only store a proposal for the user
+ * to decide.
  */
 export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__list_workspaces',
@@ -64,6 +65,7 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__get_run_status',
   'mcp__mainbus__get_recent_events',
   'mcp__mainbus__list_pending_decisions',
+  'mcp__mainbus__create_tickets',
   'mcp__mainbus__propose_create_tickets',
   'mcp__mainbus__propose_start',
   'mcp__mainbus__propose_pause',
@@ -520,8 +522,8 @@ export class SdkRuntime implements AgentRuntime {
   }
 
   /**
-   * The orchestrator reads and never changes anything: only Read, Grep and Glob among the built-in tools, the
-   * Mainbus read tools, and no settings files. Every call it makes goes through `spec.onPermission`, which never
+   * The orchestrator reads and changes nothing but a Backlog's new tickets: only Read, Grep and Glob among the built-in
+   * tools, the Mainbus read tools, create_tickets and the propose tools, and no settings files. Every call it makes goes through `spec.onPermission`, which never
    * raises a card.
    */
   private orchestratorOptions(spec: OrchestratorRunSpec, abortController: AbortController): Options {
@@ -529,6 +531,28 @@ export class SdkRuntime implements AgentRuntime {
     const t = spec.tools
     const ticketNumber = z.number().int().describe('The ticket number, as in #12')
     const workspace = z.string().optional().describe('The workspace, by name or id; the focused one when left out')
+    const drafts = z
+      .array(
+        // Strict, like the engine's own check: an intent from the agent is refused, not dropped.
+        z.strictObject({
+          title: z.string().describe('A short title, one line'),
+          spec: z.string().optional().describe('Your draft: the approach, the files involved, the details'),
+          criteria: z.array(z.string()).optional().describe('Acceptance criteria, one per item'),
+          labels: z.array(z.string()).optional().describe('Labels, one word or short phrase each'),
+          kind: z
+            .enum(['change', 'investigate'])
+            .optional()
+            .describe('change (the default) to change code, or investigate to look into something and write up a report without changing code')
+        })
+      )
+      .describe('The tickets, in the order to create them')
+    const requestMessagesBack = z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        "Which of the user's messages was the request: 0 (the default) is this turn's, 1 the one before, up to 5. The intent is that message and every later one, verbatim"
+      )
     const server = sdk.createSdkMcpServer({
       name: 'mainbus',
       alwaysLoad: true,
@@ -574,25 +598,26 @@ export class SdkRuntime implements AgentRuntime {
           toolText(await t.listPendingDecisions(a.workspace !== undefined ? { workspace: a.workspace } : {}))
         ),
         sdk.tool(
+          'create_tickets',
+          "Create new tickets in a workspace's Backlog now, with no card. Each ticket's intent is the user's request, filled in by Mainbus: put your own drafting in the spec. Then tell the user which workspace they went into.",
+          {
+            workspace: z
+              .string()
+              .optional()
+              .describe('The workspace to create them in, by name or id. Required when more than one workspace is open; there is no default to the focused one'),
+            tickets: drafts,
+            request_messages_back: requestMessagesBack
+          },
+          // The engine validates it again, strictly: the SDK passes what the agent sent.
+          async (a) => toolText(await t.createTickets(a))
+        ),
+        sdk.tool(
           'propose_create_tickets',
-          "Propose new tickets. The user confirms, changes or rejects them; Mainbus creates them only then. Each ticket's intent is the user's message, filled in by Mainbus: put your own drafting in the spec. Then end your turn.",
+          "Propose new tickets. The user confirms, changes or rejects them; Mainbus creates them only then. Each ticket's intent is the user's request, filled in by Mainbus: put your own drafting in the spec. Then end your turn.",
           {
             workspace: z.string().optional().describe('The workspace to create them in, by name or id; the focused one when left out'),
-            tickets: z
-              .array(
-                // Strict, like the engine's own check: an intent from the agent is refused, not dropped.
-                z.strictObject({
-                  title: z.string().describe('A short title, one line'),
-                  spec: z.string().optional().describe('Your draft: the approach, the files involved, the details'),
-                  criteria: z.array(z.string()).optional().describe('Acceptance criteria, one per item'),
-                  labels: z.array(z.string()).optional().describe('Labels, one word or short phrase each'),
-                  kind: z
-                    .enum(['change', 'investigate'])
-                    .optional()
-                    .describe('change (the default) to change code, or investigate to look into something and write up a report without changing code')
-                })
-              )
-              .describe('The tickets, in the order to create them'),
+            tickets: drafts,
+            request_messages_back: requestMessagesBack,
             column: z.enum(['backlog', 'ready']).optional().describe('Where they land: backlog (the default) or ready'),
             evidence: z.string().optional().describe('What you read that led to this proposal, shown to the user')
           },

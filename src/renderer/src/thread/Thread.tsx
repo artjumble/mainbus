@@ -5,6 +5,7 @@ import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { waitingText } from '../../../shared/waiting'
+import { CreatedTicketsReceipt } from '../orchestrator/CreatedTicketsReceipt'
 import { ProposalCard } from '../orchestrator/ProposalCard'
 import { annotate, type Annotation } from './annotate'
 import { DecisionCard } from './DecisionCard'
@@ -409,6 +410,8 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       ) : (
         <Loader size="xs" type="dots" role="status" aria-label="Loading the proposal" data-event="proposal" />
       )
+    case 'tickets_created':
+      return <CreatedTicketsReceipt event={event} />
     default:
       // session, rate_limit, vcs_changed, turn_end, role_handoff and role_hand_back (the handoff or hand-back
       // before it shows it), stuck and stuck_failed (the Activity list tells them) and the engine-only kinds are not for the person. annotate.ts keeps the same list.

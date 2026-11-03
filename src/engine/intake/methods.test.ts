@@ -70,9 +70,16 @@ describe('intake create', () => {
     const input = { title: 'Mine', intent: 'My words', spec: '', criteria: [], labels: [], column: 'ready' as const }
     const mine = await engine.invoke('ticket.create', { ...input, source: { kind: 'agent', agent: 'x', cwd: '' } } as typeof input)
     expect(mine.intent[0]).not.toHaveProperty('source')
+    // Nor is it marked as the orchestrator's, or given words the user didn't type in it.
+    const marked = await engine.invoke('ticket.create', {
+      ...input,
+      via: 'orchestrator',
+      intentAdded: [{ text: 'Not mine', at: '2026-01-01T00:00:00.000Z' }]
+    } as typeof input)
+    expect(marked.intent).toEqual([{ text: 'My words', at: expect.any(String) }])
 
     await engine.intake('create', valid)
-    const agentTicket = (await engine.invoke('board.get')).tickets.find((t) => t.number === 2)!
+    const agentTicket = (await engine.invoke('board.get')).tickets.find((t) => t.number === 3)!
     const appended = await engine.invoke('ticket.appendIntent', agentTicket.id, 'My addition')
     expect(appended.intent[0]!.source?.agent).toBe('codex')
     expect(appended.intent[1]).not.toHaveProperty('source')

@@ -107,6 +107,8 @@ export type ThreadEvent =
   | { kind: 'waiting'; reason: string; until: string }
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */
   | { kind: 'proposal'; proposalId: string; from?: 'drag' | 'button' }
+  /** The orchestrator created these tickets directly in the workspace's Backlog, at the user's request; the panel shows a receipt. */
+  | { kind: 'tickets_created'; workspaceId: string; workspace: string; tickets: { id: string; number: number; title: string }[] }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 

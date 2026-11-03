@@ -669,6 +669,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         usage: () => gate.state()
       }),
       proposals,
+      createTickets: (ws, inputs) => createTickets(ws, inputs),
       answeredSince: async (since) => {
         const answered: AnsweredDecision[] = []
         for (const ws of await repos.workspaces.list()) {
@@ -802,7 +803,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ticket = await createTicket(await requireWorkspace(workspaceId), {
           ...input,
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
-          source: undefined
+          source: undefined,
+          via: undefined,
+          intentAdded: undefined
         })
         if (input.column === 'ready') await proposeStartIfAsked(ticket.id)
         return ticket
