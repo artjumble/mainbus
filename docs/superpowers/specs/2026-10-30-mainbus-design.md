@@ -2,7 +2,8 @@
 
 Date: 2026-10-30
 Status: approved by the user on 2026-10-30
-Wireframes: https://claude.ai/artifact/9mhfeoZCnpNBcoxud2V5MB (private to the owner). Artboards: Board, Ticket detail, Orchestrator starts an agent, A decision shown in three places, Replacing a stuck agent, Creating a ticket, Empty states, Workspace agent lineup.
+As built: v1 (M0–M7) is complete. [Appendix C](#appendix-c-as-built-v1) lists where the built app differs from this design or fills it in.
+Wireframes: https://claude.ai/artifact/9mhfeoZCnpNBcoxud2V5MB (private to the owner). PNG exports of every artboard are in [`docs/wireframes/`](../../wireframes/): [Board](<../../wireframes/Board@1x.png>), [Ticket detail (split view)](<../../wireframes/Ticket detail (split view)@1x.png>), [Orchestrator starts an agent](<../../wireframes/Orchestrator starts an agent@1x.png>), [A decision, shown in three places](<../../wireframes/A decision, shown in three places@1x.png>), [Replacing a stuck agent](<../../wireframes/Replacing a stuck agent@1x.png>), [Creating a ticket](<../../wireframes/Creating a ticket@1x.png>), [Empty states](<../../wireframes/Empty states@1x.png>), [Workspace agent lineup](<../../wireframes/Workspace agent lineup@1x.png>). Artboards: Board, Ticket detail, Orchestrator starts an agent, A decision shown in three places, Replacing a stuck agent, Creating a ticket, Empty states, Workspace agent lineup.
 
 ## 1. Intent
 
@@ -490,3 +491,31 @@ Source: https://github.com/kunchenguid/firstmate at commit `2520dfb` (read 2026-
 - **Windows workarounds and harness breadth:** process-ancestry locks and Cygwin PID bridging, the many-harness adapter matrix, and quota-based routing across providers.
 - **Out of scope here:** PR, merge and landing machinery, remote homes, chat-platform relays, voice, and the nautical persona.
 - **Its avoidance of native resume:** that was a limitation of driving a terminal UI. SDK resume is supported.
+
+## Appendix C. As built (v1)
+
+This design is the record of what was decided at the start, and it is left as written. This appendix lists the decisions made later that change it or fill it in. Ticket numbers are board tickets; "M1" means it was built directly, before the board existed. Where the code and this document disagree, the code is right.
+
+| Decision | Section | Ticket |
+|---|---|---|
+| Decisions have a status `expired`. A permission decision still pending when Mainbus restarts expires at launch, because the agent that asked is gone. | §6, §10 | M1 |
+| The orchestrator panel pins a **Waiting on you** group, with open decisions as cards, under the fleet line and above the conversation. | §10, §11 | #23 |
+| The panel also pins a collapsed **Deferred** group for decisions put off with **Later…**. | §10, §11 | #25 |
+| `report_waiting` is capped at 2 hours. A longer wait is not recorded, and the agent is told to report again when the wait ends. | §9 | #32 |
+| The recovery ladder ends in Failed after two replacements: when a replaced agent gets stuck again, the ticket is marked Failed and comes to the user. | §12 | #34 |
+| A handoff keeps its slot under the concurrency cap, so the next role starts without queuing behind other tickets. | §12a | #39 |
+| On restart, runs the user paused stay paused, and so do runs waiting on a decision, runs stopped by a usage limit and queued runs. Only working agents resume. A ticket whose folder is gone gets a **Recreate** or **Stop the run** decision. | §10 | #40 |
+| Unattended mode is remembered across restarts, and it is per workspace. It starts the lowest-numbered Ready ticket that isn't held, one at a time per workspace. | §15a, §12a | #6, #44 |
+| The orchestrator takes a wake turn for failures, stuck agents, holds released on their date and resurfaced decisions. A hold released by hand wakes nothing, and a finished report raises no wake. | §6, §11 | #38 |
+| Roles may not run background commands or use the Monitor tool. Long commands run in the foreground, with a timeout of up to 30 minutes. | §7 | #37 |
+| The orchestrator can read each workspace's ticket folders as well as its repository. | §11 | #31 |
+| The orchestrator is one session across all workspaces. | §11 | #44 |
+| The `mainbus` CLI and MCP server file a ticket into the workspace whose repository or ticket folders contain the caller's folder, and refuse if none does. | §15a | #44 |
+| Closing the window hides Mainbus to the tray only while agents are open; otherwise it quits. A setting, **When I close the window**, can make it always quit. The packaged build keeps a Start Menu shortcut so Windows shows notifications, and dev runs and tests don't create one. | §5, §14 | #47 |
+| Ticket dependencies ("depends on …") are not in v1. The wireframe shows them. | §6, §13 | #49 |
+| Lineup settings stay in the workspace settings drawer, made wider, rather than a full page. | §13 | #49 |
+| The rail and the orchestrator panel stay open when a ticket is opened, instead of collapsing to a strip. | §13 | #49 |
+| A ticket created in Backlog can carry a flag that has the orchestrator propose a start once it reaches Ready. | §13 | #49 |
+| Promote makes the new Change ticket's spec with a one-shot call from the report, and uses the report itself if that call fails. It works once, from Review or Done. | §9 | #43 |
+
+For the differences between each wireframe artboard and the app, and what was done about each, see [`docs/superpowers/plans/m7-wireframe-pass.md`](../plans/m7-wireframe-pass.md).
