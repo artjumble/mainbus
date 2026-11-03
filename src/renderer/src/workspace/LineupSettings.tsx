@@ -11,10 +11,11 @@ import {
   ActionIcon,
   Alert,
   Button,
+  Collapse,
   Group,
   NativeSelect,
   Paper,
-  Radio,
+  SimpleGrid,
   Stack,
   Tabs,
   Text,
@@ -24,7 +25,7 @@ import {
   UnstyledButton
 } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { ROLE_PHASES, type Effort, type Lineup, type LineupRole, type OnProblem, type RolePhase, type ToolProfile } from '../../../shared/domain'
+import { ROLE_PHASES, type Effort, type Lineup, type LineupRole, type RolePhase, type ToolProfile } from '../../../shared/domain'
 import { DEFAULT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS, OTHER_ROLE_DEFAULT, modelLabel } from '../../../shared/models'
 import { invoke } from '../api'
 import { phaseLabel } from '../board/TicketCard'
@@ -47,6 +48,15 @@ const TOOL_PROFILES: { value: ToolProfile; label: string }[] = [
   { value: 'edit', label: 'Can edit files' }
 ]
 
+/** What a role does, in a line: the first sentence of its instructions. */
+export function firstSentence(instructions: string): string {
+  const text = instructions.trim().replace(/\s+/g, ' ')
+  if (text === '') return 'No instructions yet'
+  const end = text.search(/[.!?](\s|$)/)
+  const sentence = end === -1 ? text : text.slice(0, end + 1)
+  return sentence.length > 100 ? `${sentence.slice(0, 99)}…` : sentence
+}
+
 /** The name to show for a role, even while its name field is empty. */
 function displayName(role: DraftRole, index: number): string {
   return role.name.trim() || `Role ${index + 1}`
@@ -60,6 +70,12 @@ const LINEUP_TEXT: Record<Lineup, string> = {
   change: 'Change tickets are worked by these roles in turn, top to bottom. Drag a role, or use its arrows, to reorder.',
   investigate:
     'Investigate tickets are worked by these roles in turn, top to bottom. The last role ends with a report instead of a handoff. Drag a role, or use its arrows, to reorder.'
+}
+
+/** What happens to the ticket when the last role is done. */
+const AFTER_LAST: Record<Lineup, string> = {
+  change: 'Ticket moves to Ready for review, waiting on you.',
+  investigate: 'The report is saved and the ticket moves to Review, waiting on you.'
 }
 
 /** The workspace's lineups, one tab each. Both editors stay mounted, so unsaved edits survive a tab switch. */
@@ -192,37 +208,51 @@ export function LineupEditor({ opened, lineup: kind }: Props & { lineup: Lineup 
         {LINEUP_TEXT[kind]}
       </Text>
 
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <Stack component="ol" gap={6} ref={listRef} style={{ listStyle: 'none', margin: 0, padding: 0 }} aria-label="Roles">
-          {roles.map((role, i) => (
-            <RoleRow
-              key={role.id}
-              role={role}
-              index={i}
-              count={roles.length}
-              selected={role.id === selectedId}
-              onSelect={() => setSelectedId(role.id)}
-              onMove={(to) => move(i, to)}
-              onRemove={() => remove(role.id)}
-            />
-          ))}
+      {/* The roles on the left, the open role's form on the right. */}
+      <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+        <Stack gap="sm" miw={0}>
+          <Text size="xs" fw={700} tt="uppercase" lts="0.04em" c="dimmed">
+            Roles, in order
+          </Text>
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            <Stack component="ol" gap={6} ref={listRef} style={{ listStyle: 'none', margin: 0, padding: 0 }} aria-label="Roles">
+              {roles.map((role, i) => (
+                <RoleRow
+                  key={role.id}
+                  role={role}
+                  index={i}
+                  count={roles.length}
+                  selected={role.id === selectedId}
+                  onSelect={() => setSelectedId(role.id)}
+                  onMove={(to) => move(i, to)}
+                  onRemove={() => remove(role.id)}
+                />
+              ))}
+            </Stack>
+          </DndContext>
+          <Button variant="default" fullWidth onClick={add} styles={{ root: { borderStyle: 'dashed' } }}>
+            <span aria-hidden>+ </span>Add role
+          </Button>
+          <Paper withBorder p="sm" radius="md" data-after-last-role>
+            <Text size="xs" fw={700} tt="uppercase" lts="0.04em" c="dimmed" mb={2}>
+              After the last role
+            </Text>
+            <Text size="sm">{AFTER_LAST[kind]}</Text>
+          </Paper>
         </Stack>
-      </DndContext>
-      <Group>
-        <Button variant="default" size="xs" onClick={add}>
-          Add role
-        </Button>
-      </Group>
 
-      {selected && (
-        <RoleForm
-          key={selected.id}
-          role={selected}
-          index={selectedIndex}
-          earlier={roles.slice(0, selectedIndex)}
-          onChange={(patch) => update(selected.id, patch)}
-        />
-      )}
+        {selected && (
+          <RoleForm
+            key={selected.id}
+            role={selected}
+            index={selectedIndex}
+            earlier={roles.slice(0, selectedIndex)}
+            canRemove={roles.length > 1}
+            onRemove={() => remove(selected.id)}
+            onChange={(patch) => update(selected.id, patch)}
+          />
+        )}
+      </SimpleGrid>
 
       {error && (
         <Alert color="needs" title="Could not save the lineup">
@@ -275,23 +305,32 @@ function RoleRow({ role, index, count, selected, onSelect, onMove, onRemove }: R
       }}
     >
       {/* Small buttons side by side sit 44 px apart centre to centre, so their hit areas don't overlap. */}
-      <Group gap={16} wrap="nowrap">
+      <Group gap={16} wrap="nowrap" align="flex-start">
         {/* Pointer-only: by keyboard, the Move up and Move down buttons reorder, so the handle is not a tab stop. */}
         <ActionIcon variant="subtle" color="gray" aria-label={`Drag ${name}`} style={{ cursor: 'grab' }} {...drag.attributes} {...drag.listeners} tabIndex={-1}>
           <span aria-hidden>⠿</span>
         </ActionIcon>
-        {/* The button holds only the name, so its label "Edit <role>" contains its visible text. */}
-        <Text size="sm" c="dimmed">
-          {index + 1}.
-        </Text>
-        <UnstyledButton onClick={onSelect} aria-label={`Edit ${name}`} aria-pressed={selected} style={{ flex: 1, minWidth: 0 }}>
-          <Text size="sm" fw={500} truncate>
-            {name}
+        <Stack gap={0} flex={1} miw={0}>
+          <Group gap={6} wrap="nowrap">
+            {/* The button holds only the name, so its label "Edit <role>" contains its visible text. */}
+            <Text size="sm" c="dimmed">
+              {index + 1}.
+            </Text>
+            <UnstyledButton onClick={onSelect} aria-label={`Edit ${name}`} aria-pressed={selected} style={{ flex: 1, minWidth: 0 }}>
+              <Text size="sm" fw={500} truncate>
+                {name}
+              </Text>
+            </UnstyledButton>
+            {selected && (
+              <Text size="xs" c="dimmed" data-editing>
+                Editing
+              </Text>
+            )}
+          </Group>
+          <Text size="xs" c="dimmed" lineClamp={2}>
+            {`${firstSentence(role.instructions)} · ticket shows ${phaseLabel(role.activePhase)}`}
           </Text>
-        </UnstyledButton>
-        <Text size="xs" c="dimmed">
-          {phaseLabel(role.activePhase)}
-        </Text>
+        </Stack>
         <ActionIcon variant="subtle" color="gray" aria-label={`Move ${name} up`} data-move="up" disabled={index === 0} onClick={() => onMove(index - 1)}>
           <span aria-hidden>↑</span>
         </ActionIcon>
@@ -318,76 +357,105 @@ interface FormProps {
   index: number
   /** The roles before this one: the ones it can hand back to. */
   earlier: DraftRole[]
+  canRemove: boolean
+  onRemove: () => void
   onChange: (patch: Partial<DraftRole>) => void
 }
 
-function RoleForm({ role, index, earlier, onChange }: FormProps): ReactElement {
+/** "If it finds problems": Ask me, the previous role (the default), or any earlier role. */
+const ASK_ME = 'ask_me'
+const PREVIOUS = 'previous'
+
+function RoleForm({ role, index, earlier, canRemove, onRemove, onChange }: FormProps): ReactElement {
+  const [modelsOpen, setModelsOpen] = useState(false)
   const model = role.model ?? DEFAULT
   const effort = role.effort ?? DEFAULT
+  const previous = earlier.at(-1)
+  const problem =
+    role.onProblem === 'ask_me' ? ASK_ME : role.handBackTo === null || role.handBackTo === previous?.id ? PREVIOUS : role.handBackTo
+  const problemOptions = [
+    {
+      value: PREVIOUS,
+      label: previous ? `Hand back to ${displayName(previous, earlier.length - 1)} (previous role)` : 'Hand back to the previous role'
+    },
+    ...earlier.slice(0, -1).map((r, i) => ({ value: r.id, label: `Hand back to ${displayName(r, i)}` })),
+    { value: ASK_ME, label: 'Ask me' }
+  ]
   return (
-    <Stack gap="sm" component="section" aria-label={`${displayName(role, index)} settings`}>
-      <TextInput label="Name" value={role.name} onChange={(e) => onChange({ name: e.currentTarget.value })} />
-      <Textarea
-        label="Instructions"
-        autosize
-        minRows={5}
-        maxRows={14}
-        value={role.instructions}
-        onChange={(e) => onChange({ instructions: e.currentTarget.value })}
-      />
-      <NativeSelect
-        label="Phase while active"
-        data={PHASES}
-        value={role.activePhase}
-        onChange={(e) => onChange({ activePhase: e.currentTarget.value as RolePhase })}
-      />
-      <NativeSelect
-        label="Tool profile"
-        data={TOOL_PROFILES}
-        value={role.toolProfile}
-        onChange={(e) => onChange({ toolProfile: e.currentTarget.value as ToolProfile })}
-      />
-      <Radio.Group
-        label="On a problem"
-        value={role.onProblem}
-        onChange={(value) =>
-          onChange(value === 'ask_me' ? { onProblem: 'ask_me', handBackTo: null } : { onProblem: value as OnProblem })
-        }
-      >
-        <Group gap="lg" mt={4}>
-          <Radio value="hand_back" label="Hand back" />
-          <Radio value="ask_me" label="Ask me" />
-        </Group>
-      </Radio.Group>
-      {role.onProblem === 'hand_back' && (
-        <NativeSelect
-          label="Hand back to"
-          data={[
-            { value: DEFAULT, label: 'Previous role' },
-            ...earlier.map((r, i) => ({ value: r.id, label: displayName(r, i) }))
-          ]}
-          value={role.handBackTo ?? DEFAULT}
-          onChange={(e) => onChange({ handBackTo: e.currentTarget.value === DEFAULT ? null : e.currentTarget.value })}
+    <Paper withBorder p="md" radius="md" component="section" aria-label={`${displayName(role, index)} settings`}>
+      <Stack gap="sm" h="100%">
+        <Title order={4}>{displayName(role, index)}</Title>
+        <TextInput label="Role name" value={role.name} onChange={(e) => onChange({ name: e.currentTarget.value })} />
+        <Textarea
+          label="Instructions"
+          autosize
+          minRows={5}
+          maxRows={14}
+          value={role.instructions}
+          onChange={(e) => onChange({ instructions: e.currentTarget.value })}
         />
-      )}
-      <NativeSelect
-        label="Model"
-        data={withCurrent(MODELS, model)}
-        value={model}
-        onChange={(e) => onChange({ model: e.currentTarget.value === DEFAULT ? null : e.currentTarget.value })}
-      />
-      <NativeSelect
-        label="Effort"
-        data={withCurrent(EFFORTS, effort)}
-        value={effort}
-        onChange={(e) =>
-          onChange({ effort: e.currentTarget.value === DEFAULT ? null : (e.currentTarget.value as Effort) })
-        }
-      />
-      <Text size="sm" c="dimmed">
-        "Orchestrator decides" lets the orchestrator choose when it proposes a start. Otherwise Mainbus's defaults
-        apply: {DEFAULTS_TEXT}.
-      </Text>
-    </Stack>
+        <NativeSelect
+          label="Ticket phase while this role works"
+          data={PHASES}
+          value={role.activePhase}
+          onChange={(e) => onChange({ activePhase: e.currentTarget.value as RolePhase })}
+        />
+        <NativeSelect
+          label="Tool profile"
+          data={TOOL_PROFILES}
+          value={role.toolProfile}
+          onChange={(e) => onChange({ toolProfile: e.currentTarget.value as ToolProfile })}
+        />
+        <NativeSelect
+          label="If it finds problems"
+          data={problemOptions}
+          value={problem}
+          onChange={(e) => {
+            const value = e.currentTarget.value
+            onChange(
+              value === ASK_ME
+                ? { onProblem: 'ask_me', handBackTo: null }
+                : { onProblem: 'hand_back', handBackTo: value === PREVIOUS ? null : value }
+            )
+          }}
+        />
+        <Stack gap={6}>
+          <UnstyledButton
+            aria-expanded={modelsOpen}
+            onClick={() => setModelsOpen((o) => !o)}
+            style={{ fontSize: 'var(--mantine-font-size-sm)', fontWeight: 500 }}
+          >
+            <span aria-hidden>{modelsOpen ? '▼' : '▶'}</span> Model and effort (default: orchestrator decides)
+          </UnstyledButton>
+          <Collapse expanded={modelsOpen}>
+            <Stack gap="sm">
+              <NativeSelect
+                label="Model"
+                data={withCurrent(MODELS, model)}
+                value={model}
+                onChange={(e) => onChange({ model: e.currentTarget.value === DEFAULT ? null : e.currentTarget.value })}
+              />
+              <NativeSelect
+                label="Effort"
+                data={withCurrent(EFFORTS, effort)}
+                value={effort}
+                onChange={(e) =>
+                  onChange({ effort: e.currentTarget.value === DEFAULT ? null : (e.currentTarget.value as Effort) })
+                }
+              />
+              <Text size="sm" c="dimmed">
+                "Orchestrator decides" lets the orchestrator choose when it proposes a start. Otherwise Mainbus's
+                defaults apply: {DEFAULTS_TEXT}.
+              </Text>
+            </Stack>
+          </Collapse>
+        </Stack>
+        <Group mt="auto" pt="sm">
+          <Button variant="default" disabled={!canRemove} onClick={onRemove}>
+            Remove role
+          </Button>
+        </Group>
+      </Stack>
+    </Paper>
   )
 }

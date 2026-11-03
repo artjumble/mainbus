@@ -48,7 +48,7 @@ export function WorkspaceSettings({ opened, onClose }: Props): ReactElement {
   }
 
   return (
-    <Drawer opened={opened} onClose={onClose} position="right" size="lg" title="Workspace settings">
+    <Drawer opened={opened} onClose={onClose} position="right" size="xl" title="Workspace settings">
       <Stack gap="xl">
         <GeneralSettings opened={opened} />
 
