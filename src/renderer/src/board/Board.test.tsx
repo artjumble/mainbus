@@ -294,6 +294,21 @@ describe('moving a card without dragging', () => {
     await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.move', ticket.id, 'done'))
   })
 
+  test.each([['Escape', '{Escape}'], ['choosing an item', null]])('focus goes back to the card after the menu closes by %s', async (_how, key) => {
+    const ticket = makeTicket({ title: 'Menu me' })
+    showBoard(ticket)
+    mockInvoke.mockImplementation(async (command: string) => (command === 'ticket.move' ? 'moved' : { tickets: [ticket] }))
+    renderWithMantine(<Board />)
+    const title = screen.getByRole('button', { name: /Menu me/ })
+    title.focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    const item = await screen.findByRole('menuitem', { name: 'Move to Ready' })
+    if (key) await userEvent.keyboard(key)
+    else await userEvent.click(item)
+    // The card may have moved column, which makes it a new element.
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: /Menu me/ })).toHaveFocus())
+  })
+
   test('the context-menu key and a right-click open it too', async () => {
     const ticket = makeTicket({ title: 'Menu me' })
     showBoard(ticket)

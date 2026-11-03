@@ -146,8 +146,18 @@ export function Board(): ReactElement {
     const shown = tickets.filter((t) => matchesSearch(t, search))
     return new Map(COLUMNS.map((c) => [c.id, shown.filter((t) => (pendingMoves[t.id] ?? t.state.column) === c.id)]))
   }, [tickets, pendingMoves, search])
+  // The empty state's New ticket button is gone once the first ticket exists, so focus has nowhere to return to
+  // after the dialog closes: send it to the header's New ticket button instead.
+  const closeNewTicket = useCallback((): void => {
+    setCreating(false)
+    setTimeout(() => {
+      const active = document.activeElement
+      if (!active || active === document.body) newTicketRef.current?.focus()
+    }, 100)
+  }, [])
   const filtering = search.trim() !== ''
   const searchRef = useRef<HTMLInputElement>(null)
+  const newTicketRef = useRef<HTMLButtonElement>(null)
   const focusSearch = (): void => searchRef.current?.focus()
   useHotkeys([
     ['mod+K', focusSearch],
@@ -227,7 +237,11 @@ export function Board(): ReactElement {
             <span aria-hidden>⚙</span>
           </ActionIcon>
           {/* The empty board offers its own New ticket button. */}
-          {!empty && <Button onClick={() => setCreating(true)}>New ticket</Button>}
+          {!empty && (
+            <Button ref={newTicketRef} onClick={() => setCreating(true)}>
+              New ticket
+            </Button>
+          )}
         </Group>
       </Group>
 
@@ -277,7 +291,7 @@ export function Board(): ReactElement {
       </DndContext>
       )}
 
-      <NewTicketModal opened={creating} onClose={() => setCreating(false)} />
+      <NewTicketModal opened={creating} onClose={closeNewTicket} />
     </Stack>
   )
 }
@@ -399,7 +413,11 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, change
         setMenuOpen(false)
         const back = opener.current
         opener.current = null
-        if (back instanceof HTMLElement) setTimeout(() => back.focus(), 0)
+        // A card moved to another column is a new element: find its title again.
+        setTimeout(() => {
+          const target = back instanceof HTMLElement && back.isConnected ? back : document.querySelector<HTMLElement>(`[data-card-title="${ticket.id}"]`)
+          target?.focus()
+        }, 0)
       }}
       position="bottom-start"
       withinPortal

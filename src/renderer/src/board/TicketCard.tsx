@@ -145,6 +145,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       </Group>
       <UnstyledButton
         mb={6}
+        data-card-title={ticket.id}
         style={{ display: 'block', textAlign: 'left', width: '100%' }}
         onClick={(e) => {
           e.stopPropagation()

@@ -7,6 +7,7 @@ import {
   Loader,
   Menu,
   Modal,
+  Popover,
   UnstyledButton,
   type CSSVariablesResolver,
   type MantineColorsTuple,
@@ -110,6 +111,8 @@ export const theme: MantineThemeOverride = {
     Loader: Loader.extend({ classNames: { root: targets.loader } }),
     // Mantine's close buttons have no name of their own.
     Modal: Modal.extend({ defaultProps: { closeButtonProps: { 'aria-label': 'Close' } } }),
+    // Esc closes a popover, and focus goes back to what opened it.
+    Popover: Popover.extend({ defaultProps: { returnFocus: true } }),
     Drawer: Drawer.extend({ defaultProps: { closeButtonProps: { 'aria-label': 'Close' } } })
   }
 }

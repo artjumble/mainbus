@@ -42,3 +42,87 @@ test('a card whose move the engine has not answered cannot be picked up', async 
   renderWithMantine(<Board />)
   expect(await dragBy(/Drag me/)).toBe('')
 })
+
+describe('moving a card by keyboard', () => {
+  const COLUMN_IDS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done']
+
+  /** jsdom has no layout: give each column a rectangle, side by side, and every other element none. */
+  function layOutColumns(): void {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const labelled = this.getAttribute('aria-labelledby')
+      const at = labelled ? COLUMN_IDS.indexOf(labelled.replace('column-', '')) : -1
+      if (at >= 0) return new DOMRect(at * 240, 0, 220, 600)
+      // A card sits in its column, 10 px from the left.
+      const column = this.closest('section')?.getAttribute('aria-labelledby')
+      const inColumn = column ? COLUMN_IDS.indexOf(column.replace('column-', '')) : -1
+      return inColumn >= 0 ? new DOMRect(inColumn * 240 + 10, 50, 200, 80) : new DOMRect(0, 0, 0, 0)
+    })
+  }
+
+  // jsdom has no scrollIntoView, which dnd-kit calls when a keyboard drag starts.
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const handle = (n: number): HTMLElement => screen.getByRole('button', { name: `Move ticket #${n}` })
+  const announced = (): string => document.body.querySelector('[aria-live]')?.textContent ?? ''
+
+  function show(): ReturnType<typeof makeTicket> {
+    const ticket = makeTicket({ title: 'Drag me' }, { column: 'backlog' })
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket] }, true)
+    return ticket
+  }
+
+  test('Space on the handle picks the card up and announces it, and Escape cancels, announced', async () => {
+    const ticket = show()
+    renderWithMantine(<Board />)
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(announced()).toBe(`Picked up ticket #${ticket.number} Drag me.`))
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(announced()).toMatch(/cancelled; it stays where it was/))
+  })
+
+  test('Enter on the title opens the ticket and does not pick the card up', async () => {
+    const ticket = show()
+    renderWithMantine(<Board />)
+    screen.getByRole('button', { name: /Drag me/ }).focus()
+    await userEvent.keyboard('{Enter}')
+    expect(useMainbus.getState().currentTicketId).toBe(ticket.id)
+    expect(announced()).toBe('')
+  })
+
+  test('the handle has the name Move ticket #N, which does not carry the title', () => {
+    const ticket = show()
+    renderWithMantine(<Board />)
+    expect(handle(ticket.number).getAttribute('aria-label')).not.toMatch(/Drag me/)
+  })
+
+  test('Space, Arrow Right, Space moves the card to the next column that takes drops', async () => {
+    const ticket = show()
+    const move = vi.fn().mockResolvedValue('moved')
+    useMainbus.setState({ moveTicket: move })
+    layOutColumns()
+    renderWithMantine(<Board />)
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}')
+    await vi.waitFor(() => expect(announced()).toMatch(/is over Ready/))
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(move).toHaveBeenCalledWith(ticket.id, 'ready'))
+    expect(announced()).toMatch(/was dropped on Ready/)
+  })
+
+  test('Arrow Right skips the columns that take no drops', async () => {
+    const ticket = show()
+    layOutColumns()
+    renderWithMantine(<Board />)
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}')
+    await vi.waitFor(() => expect(announced()).toMatch(/is over In progress, which proposes starting it/))
+    await userEvent.keyboard('{ArrowRight}')
+    await vi.waitFor(() => expect(announced()).toMatch(/is over Done/))
+  })
+})

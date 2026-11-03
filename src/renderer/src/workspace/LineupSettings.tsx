@@ -275,7 +275,8 @@ function RoleRow({ role, index, count, selected, onSelect, onMove, onRemove }: R
       }}
     >
       <Group gap="xs" wrap="nowrap">
-        <ActionIcon variant="subtle" color="gray" aria-label={`Drag ${name}`} style={{ cursor: 'grab' }} {...drag.attributes} {...drag.listeners}>
+        {/* Pointer-only: by keyboard, the Move up and Move down buttons reorder, so the handle is not a tab stop. */}
+        <ActionIcon variant="subtle" color="gray" aria-label={`Drag ${name}`} style={{ cursor: 'grab' }} {...drag.attributes} {...drag.listeners} tabIndex={-1}>
           <span aria-hidden>⠿</span>
         </ActionIcon>
         <UnstyledButton onClick={onSelect} aria-label={`Edit ${name}`} aria-pressed={selected} style={{ flex: 1, minWidth: 0 }}>
