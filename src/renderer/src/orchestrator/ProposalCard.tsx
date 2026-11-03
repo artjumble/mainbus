@@ -4,6 +4,7 @@ import type { Proposal, ProposalFailure, ProposalKindName } from '../../../share
 import { invoke } from '../api'
 import { asOwnChange } from '../board/ownChanges'
 import { showError } from '../notify'
+import { useMainbus } from '../store'
 import { answerView } from './AnswerProposal'
 import { createTicketsView } from './CreateTicketsProposal'
 import { holdView } from './HoldProposal'
@@ -42,10 +43,12 @@ export function ProposalCard({ proposal }: Props): ReactElement {
 }
 
 function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any> }): ReactElement {
-  const [edit, setEdit] = useState<unknown>(null)
+  const [edit, setEdit] = useState<unknown>(() => (view.inline && view.initialEdit ? view.initialEdit(proposal.payload) : null))
+  const workspaceName = useMainbus((s) => s.workspace?.name ?? '')
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null)
   const editing = edit !== null
   const override = editing ? (view.toOverride?.(edit) ?? null) : null
+  const inline = view.inline === true && editing
 
   const choices = view.choices?.(proposal.payload) ?? null
 
@@ -78,6 +81,9 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
   return (
     <Paper withBorder p="sm" radius="md" data-proposal="pending" data-proposal-id={proposal.id} role="group" aria-label={`Proposal: ${summary}`}>
       <Stack gap="xs">
+        <Text size="xs" tt="uppercase" c="dimmed" lts="0.04em" data-proposal-heading>
+          {view.heading?.(proposal.payload, workspaceName) ?? 'Proposed action'}
+        </Text>
         <Text size="sm" fw={600}>
           {summary}
         </Text>
@@ -87,8 +93,25 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
             {`Why: ${proposal.evidence}`}
           </Text>
         )}
-        <Group gap="xs">
-          {choices ? (
+        <Group gap="xs" data-proposal-actions>
+          {inline ? (
+            <>
+              <Button size="xs" disabled={override === null || busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
+                {view.inlineConfirmLabel?.(edit) ?? confirmLabel}
+              </Button>
+              {view.alternatives?.(edit).map((alt) => (
+                <Button
+                  key={alt.label}
+                  size="xs"
+                  variant="default"
+                  disabled={view.toOverride?.(alt.edit) == null || busy !== null}
+                  onClick={() => void decide('confirm', view.toOverride?.(alt.edit))}
+                >
+                  {alt.label}
+                </Button>
+              ))}
+            </>
+          ) : choices ? (
             choices.map((c) => (
               <Button key={c.label} size="xs" variant="default" disabled={busy !== null} onClick={() => void decide('confirm', c.override)}>
                 {c.label}
@@ -97,10 +120,24 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
           ) : editing ? (
             <>
               <Button size="xs" disabled={override === null || busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
-                {`${confirmLabel} with changes`}
+                {view.overrideConfirmLabel ?? `${confirmLabel} with changes`}
               </Button>
               <Button size="xs" variant="default" disabled={busy !== null} onClick={() => setEdit(null)}>
                 Cancel
+              </Button>
+            </>
+          ) : view.confirmLast ? (
+            <>
+              <Button size="xs" variant="default" disabled={busy !== null} loading={busy === 'reject'} onClick={() => void decide('reject')}>
+                {view.rejectLabel ?? 'Reject'}
+              </Button>
+              {view.Editor && view.initialEdit && (
+                <Button size="xs" variant="default" disabled={busy !== null} onClick={() => setEdit(view.initialEdit!(proposal.payload))}>
+                  Override
+                </Button>
+              )}
+              <Button size="xs" color="dark" fullWidth disabled={busy !== null} loading={busy === 'confirm'} onClick={() => void decide('confirm')}>
+                {confirmLabel}
               </Button>
             </>
           ) : (
@@ -115,9 +152,11 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
               )}
             </>
           )}
-          <Button size="xs" variant="subtle" color="gray" disabled={busy !== null} loading={busy === 'reject'} onClick={() => void decide('reject')}>
-            {view.rejectLabel ?? 'Reject'}
-          </Button>
+          {(!view.confirmLast || editing) && (
+            <Button size="xs" variant="subtle" color="gray" disabled={busy !== null} loading={busy === 'reject'} onClick={() => void decide('reject')}>
+              {view.rejectLabel ?? 'Reject'}
+            </Button>
+          )}
         </Group>
       </Stack>
     </Paper>

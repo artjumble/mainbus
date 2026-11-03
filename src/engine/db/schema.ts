@@ -70,6 +70,8 @@ export const tickets = sqliteTable(
     report: text('report'),
     /** The Investigate ticket this Change ticket was promoted from. */
     promotedFrom: text('promoted_from'),
+    /** "Ask the orchestrator to start an agent once it's in Ready": set at creation, cleared when the start is proposed. */
+    startWhenReady: integer('start_when_ready', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },

@@ -4,7 +4,7 @@ import type { WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
-import { initials, WorkspaceRail } from './WorkspaceRail'
+import { initials, railStatus, WorkspaceRail } from './WorkspaceRail'
 
 vi.mock('../api', () => ({
   invoke: vi.fn(),
@@ -17,8 +17,8 @@ const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 const mockOpenFolder = openFolder as unknown as ReturnType<typeof vi.fn>
 const initial = useMainbus.getState()
 
-const alpha: WorkspaceSummary = { ...workspace, id: 'a', name: 'alpha-repo', repoPath: '/r/alpha', active: true, needsYou: 1 }
-const bravo: WorkspaceSummary = { ...workspace, id: 'b', name: 'bravo', repoPath: '/r/bravo', active: false, needsYou: 0 }
+const alpha: WorkspaceSummary = { ...workspace, id: 'a', name: 'alpha-repo', repoPath: '/r/alpha', active: true, needsYou: 1, working: 0, waiting: 0, idle: 0 }
+const bravo: WorkspaceSummary = { ...workspace, id: 'b', name: 'bravo', repoPath: '/r/bravo', active: false, needsYou: 0, working: 0, waiting: 0, idle: 0 }
 
 /** The engine as the rail sees it: focus moves, and summaries are what `summaries` holds. */
 function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
@@ -171,4 +171,12 @@ describe('accessibility', () => {
     await screen.findByRole('dialog')
     await expectNoAxeViolations()
   })
+})
+
+test('each entry has a status line: working, waiting on you or idle', () => {
+  const w = (over: Partial<WorkspaceSummary>): WorkspaceSummary => ({ ...bravo, ...over })
+  expect(railStatus(w({ working: 2, needsYou: 1 }))).toBe('• 2 working')
+  expect(railStatus(w({ needsYou: 1 }))).toBe('◆ Waiting on you')
+  expect(railStatus(w({ waiting: 1 }))).toBe('◆ Waiting on you')
+  expect(railStatus(w({ idle: 1 }))).toBe('○ Idle')
 })

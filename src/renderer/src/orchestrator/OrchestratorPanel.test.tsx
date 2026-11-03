@@ -82,13 +82,32 @@ test('an empty thread invites the first message', async () => {
   expect(EMPTY_TEXT).toBe("Ask me to draft tickets, or about what's happening on the board.")
 })
 
+test('the header says which workspace is focused, and the Fleet line counts agents across all of them', async () => {
+  history()
+  useMainbus.setState({
+    workspace,
+    workspaces: [
+      { ...workspace, active: true, needsYou: 1, working: 2, waiting: 1, idle: 0 },
+      { ...workspace, id: 'w2', name: 'other', active: true, needsYou: 0, working: 1, waiting: 0, idle: 3 }
+    ]
+  })
+  renderWithMantine(<Panel />)
+  await screen.findByText(EMPTY_TEXT)
+  expect(screen.getByText(`All workspaces · focused on ${workspace.name}`)).toBeInTheDocument()
+  expect(screen.getByText('Fleet: 3 working · 1 need you · 3 idle')).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Message the orchestrator' })).toHaveAttribute(
+    'placeholder',
+    'Ask for status, create tickets, start or stop agents'
+  )
+})
+
 test('it collapses to a strip with the needs-you count, expands on click, and remembers which it was', async () => {
   history()
   // Counted across workspaces, whichever one is on the board.
   useMainbus.setState({
     workspaces: [
-      { ...workspace, active: false, needsYou: 1 },
-      { ...workspace, id: 'w2', name: 'other', active: true, needsYou: 1 }
+      { ...workspace, active: false, needsYou: 1, working: 0, waiting: 0, idle: 0 },
+      { ...workspace, id: 'w2', name: 'other', active: true, needsYou: 1, working: 0, waiting: 0, idle: 0 }
     ]
   })
   const { unmount } = renderWithMantine(<Panel />)
@@ -277,9 +296,13 @@ describe('Waiting on you', () => {
     const cards = within(group).getAllByText(/^Question /)
     expect(cards.map((c) => c.textContent)).toEqual(['Question early?', 'Question late?'])
     expect(within(group).getByText(/Reviewer/)).toBeInTheDocument()
-    await userEvent.click(within(group).getByRole('button', { name: `#${a.number} Login` }))
+    expect(within(group).getByText(/^◆ Logout/)).toBeInTheDocument()
+    // The oldest first: Logout's, then Login's.
+    const links = within(group).getAllByRole('button', { name: 'Open ticket for full context' })
+    await userEvent.click(links[1]!)
     expect(useMainbus.getState().currentTicketId).toBe(a.id)
-    expect(within(group).getByRole('button', { name: `#${b.number} Logout` })).toBeInTheDocument()
+    expect(links).toHaveLength(2)
+    expect(b.number).not.toBe(a.number)
   })
 
   test('answers one via the orchestrator, and drops one answered elsewhere; hides when empty', async () => {
@@ -293,8 +316,10 @@ describe('Waiting on you', () => {
     expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'late', { kind: 'option', index: 1 }, 'orchestrator')
 
     // The engine's board now has it answered; the permission one was answered on the board.
-    act(() => useMainbus.setState({ tickets: [{ ...a, pendingDecisions: [] }, b] }))
+    act(() => useMainbus.setState({ tickets: [{ ...a, pendingDecisions: [], state: { ...a.state, phase: 'implementing' } }, b] }))
     expect(within(group).queryByText('Question late?')).not.toBeInTheDocument()
+    // A receipt says what was answered and where the ticket went.
+    expect(screen.getByText('✓ Answered: No. Login is back in Implementing.')).toBeInTheDocument()
     await userEvent.click(within(group).getByRole('button', { name: 'Deny' }))
     expect(mockInvoke).toHaveBeenCalledWith('decision.answer', 'early', { kind: 'permission', choice: 'deny' }, 'orchestrator')
 
@@ -391,7 +416,7 @@ describe('accessibility', () => {
 
   test('the collapsed strip has no axe violations', async () => {
     history()
-    useMainbus.setState({ workspaces: [{ ...workspace, active: true, needsYou: 2 }] })
+    useMainbus.setState({ workspaces: [{ ...workspace, active: true, needsYou: 2, working: 0, waiting: 0, idle: 0 }] })
     renderWithMantine(<Panel />)
     await userEvent.click(await screen.findByRole('button', { name: 'Collapse orchestrator panel' }))
     await expectNoAxeViolations()

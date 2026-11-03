@@ -237,3 +237,23 @@ describe('accessibility', () => {
     await expectNoAxeViolations()
   })
 })
+
+test.each([
+  ['not_started', 'backlog', null, '– Not started'],
+  ['implementing', 'in_progress', 'working', '• Implementing'],
+  ['waiting_on_you', 'needs_you', 'waiting_on_you', '◆ Waiting on you'],
+  ['ready_for_review', 'review', null, '○ Ready for review'],
+  ['done', 'done', null, '✓ Done'],
+  ['testing', 'needs_you', 'failed', '✕ Failed in Testing']
+] as const)('the %s chip leads with a symbol: "%s %s" reads %s', (phase, column, agentStatus, text) => {
+  const { container } = renderWithMantine(<TicketCard ticket={makeTicket({}, { phase, column, agentStatus })} onOpen={() => {}} />)
+  expect(container.querySelector('.mantine-Badge-root')).toHaveTextContent(text)
+})
+
+test('a failed card has a dashed border and a Needs you card an orange one', () => {
+  const failed = renderWithMantine(<TicketCard ticket={makeTicket({}, { column: 'needs_you', phase: 'testing', agentStatus: 'failed' })} onOpen={() => {}} />)
+  expect(failed.container.querySelector<HTMLElement>('.mantine-Paper-root')!.style.border).toContain('dashed')
+  failed.unmount()
+  const needs = renderWithMantine(<TicketCard ticket={makeTicket({}, { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' })} onOpen={() => {}} />)
+  expect(needs.container.querySelector<HTMLElement>('.mantine-Paper-root')!.style.border).toContain('needs-6')
+})

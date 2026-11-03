@@ -1,4 +1,4 @@
-import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
+import { Alert, Anchor, Badge, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
@@ -10,6 +10,7 @@ import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { showAgentError } from '../thread/agentError'
 import { Composer } from '../thread/Composer'
+import { liveLine } from '../thread/liveLine'
 import { Thread } from '../thread/Thread'
 import { useThread } from '../thread/useThread'
 import { AdjustStartModal } from './AdjustStartModal'
@@ -48,8 +49,8 @@ export function TicketView(): ReactElement {
   return (
     <Flex direction="column" h={`calc(100vh - ${HEADER_HEIGHT}px)`}>
       <Stack gap={4} px="md" py="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
-        {back}
         <Group gap="sm" align="baseline">
+          {back}
           <Text c="dimmed">#{ticket.number}</Text>
           <Title order={2} size="h3">
             {ticket.title}
@@ -61,9 +62,9 @@ export function TicketView(): ReactElement {
           <HoldChip hold={ticket.hold} />
           <StuckChip stuck={ticket.stuck} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
-          <Text size="sm" c="dimmed" ml="auto">
+          <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" ml="auto">
             Source: Local
-          </Text>
+          </Badge>
         </Group>
         {ticket.state.pausedByLimit && ticket.state.summary && (
           <Text size="sm" c="dimmed">
@@ -122,6 +123,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // A replaced run opened on its own, read-only; null for the live thread.
   const [viewing, setViewing] = useState<string | null>(null)
   const proposeReplace = useMainbus((s) => s.proposeReplace)
+  const workspace = useMainbus((s) => s.workspace)
   const { agentStatus, canContinue, phase, pausedByUser, pausedByLimit } = ticket.state
   const isDone = phase === 'done'
   // An Investigate ticket's report can become a Change ticket, once.
@@ -211,18 +213,21 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   )
 
   const activeRole = ticket.lineup.find((r) => r.active)
-  const composerPlaceholder = ended
+  // No run has happened: the thread is replaced by the panel that offers Start (so the controls row doesn't).
+  const emptyPanel = thread !== null && thread.events.length === 0 && canStart && !ended
+  const composerLabel = ended
     ? 'Message to start a new run'
     : canStart
       ? 'First message (starts the lineup)'
       : activeRole
         ? `Message the ${activeRole.name}`
         : 'Message the agent'
+  const composerPlaceholder = canStart && !ended ? 'Optional instructions for the lineup' : 'Steer it, answer a question, add context'
 
   return (
     <Flex flex={1} mih={0}>
       <Box w={CONTEXT_WIDTH} style={{ flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--mantine-color-default-border)' }}>
-        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} onViewRun={viewRun} />
+        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} runs={thread?.runs} onViewRun={viewRun} />
       </Box>
       {viewing !== null && thread ? (
         <PreviousRunView runId={viewing} thread={thread} onBack={() => setViewing(null)} />
@@ -230,68 +235,78 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
         <Flex direction="column" flex={1} miw={0}>
           <LineupStrip roles={ticket.lineup} />
           {/* When the buttons wrap, rows 18 px apart keep each button's 44 px hit area clear of the next row's. */}
-          <Group px="md" py="xs" gap="sm" style={{ rowGap: 18, borderBottom: '1px solid var(--mantine-color-default-border)' }}>
-            {activeRole && (
-              <Text size="sm" fw={600}>
-                {activeRole.name}
+          <Group
+            px="md"
+            py="xs"
+            gap="sm"
+            justify="space-between"
+            style={{ rowGap: 18, borderBottom: '1px solid var(--mantine-color-default-border)' }}
+          >
+            {activeRole ? (
+              <Text size="sm" c="dimmed">
+                {`Controls apply to the ${activeRole.name}`}
               </Text>
+            ) : (
+              <span />
             )}
-            {runOpen && (
-              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
-                Stop
-              </Button>
-            )}
-            {agentStatus === 'working' && (
-              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.pause', 'Could not pause')}>
-                Pause
-              </Button>
-            )}
-            {(pausedByUser || pausedByLimit) && (
-              <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
-                Resume
-              </Button>
-            )}
-            {runOpen && activeRole && (
-              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
-                Skip to next role
-              </Button>
-            )}
-            {runOpen && activeRole && (
-              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void replace()}>
-                Replace…
-              </Button>
-            )}
-            {canContinue && (
-              <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.continue', 'Could not continue')}>
-                Continue
-              </Button>
-            )}
-            {canStart && (
-              <Button size="compact-sm" disabled={busy || moving} onClick={() => void control('agent.start', 'Could not start')}>
-                {ended ? 'Start again' : 'Start'}
-              </Button>
-            )}
-            {canStart && (
-              <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
-                Adjust before starting
-              </Button>
-            )}
-            {canPromote && (
-              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setPromoting(true)}>
-                Promote
-              </Button>
-            )}
-            {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
-            {ticket.hold && (
-              <Button
-                size="compact-sm"
-                variant="default"
-                disabled={busy}
-                onClick={() => void guarded(() => invoke('ticket.unhold', ticket.id), 'Could not unhold')}
-              >
-                Unhold
-              </Button>
-            )}
+            <Group gap="sm" style={{ rowGap: 18 }}>
+              {agentStatus === 'working' && (
+                <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.pause', 'Could not pause')}>
+                  Pause
+                </Button>
+              )}
+              {(pausedByUser || pausedByLimit) && (
+                <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
+                  Resume
+                </Button>
+              )}
+              {runOpen && (
+                <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
+                  Stop
+                </Button>
+              )}
+              {runOpen && activeRole && (
+                <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
+                  {`Skip to ${ticket.skipTo ?? 'next role'}`}
+                </Button>
+              )}
+              {runOpen && activeRole && (
+                <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void replace()}>
+                  Replace…
+                </Button>
+              )}
+              {canContinue && (
+                <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.continue', 'Could not continue')}>
+                  Continue
+                </Button>
+              )}
+              {canStart && thread !== null && !emptyPanel && (
+                <Button size="compact-sm" disabled={busy || moving} onClick={() => void control('agent.start', 'Could not start')}>
+                  {ended ? 'Start again' : 'Start'}
+                </Button>
+              )}
+              {canStart && thread !== null && !emptyPanel && (
+                <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
+                  Adjust before starting
+                </Button>
+              )}
+              {canPromote && (
+                <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setPromoting(true)}>
+                  Promote
+                </Button>
+              )}
+              {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
+              {ticket.hold && (
+                <Button
+                  size="compact-sm"
+                  variant="default"
+                  disabled={busy}
+                  onClick={() => void guarded(() => invoke('ticket.unhold', ticket.id), 'Could not unhold')}
+                >
+                  Unhold
+                </Button>
+              )}
+            </Group>
           </Group>
           <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} lineup={ticket.kind} />
           <PromoteModal opened={promoting && canPromote} ticketId={ticket.id} onClose={() => setPromoting(false)} />
@@ -302,24 +317,83 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
             onClose={() => setSkipping(false)}
             onSkip={skip}
           />
-          {thread ? (
+          {emptyPanel ? (
+            <NobodyWorking
+              workspaceName={workspace?.name ?? 'workspace'}
+              roles={ticket.lineup.map((r) => r.name)}
+              busy={busy || moving}
+              onStart={() => void control('agent.start', 'Could not start')}
+              onAdjust={() => setAdjusting(true)}
+            />
+          ) : thread ? (
             <Thread events={thread.events} decisions={thread.decisions} runs={thread.runs} onViewRun={viewRun} />
           ) : (
             <Center flex={1}>
               <Loader />
             </Center>
           )}
+          {/* Always mounted, so a screen reader announces the line when it appears, politely. */}
+          <div role="status">
+            {agentStatus === 'working' && activeRole && thread && (
+              <Group gap="xs" px="md" py={4} data-live-line>
+                <Loader size={12} type="dots" aria-hidden />
+                <Text size="sm" c="dimmed" fs="italic">
+                  {liveLine(thread.events, activeRole.name, ticket.worktreePath)}
+                </Text>
+              </Group>
+            )}
+          </div>
           <Box p="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
             {isDone ? (
               <Text size="sm" c="dimmed">
                 This ticket is done.
               </Text>
             ) : (
-              <Composer onSend={send} placeholder={composerPlaceholder} />
+              <Composer onSend={send} label={composerLabel} placeholder={composerPlaceholder} sendLabel={canStart && !ended ? 'Send and start' : 'Send'} />
             )}
           </Box>
         </Flex>
       )}
     </Flex>
+  )
+}
+
+/** In place of an empty thread: nobody has worked this ticket yet, and how to start. */
+function NobodyWorking({
+  workspaceName,
+  roles,
+  busy,
+  onStart,
+  onAdjust
+}: {
+  workspaceName: string
+  roles: string[]
+  busy: boolean
+  onStart: () => void
+  onAdjust: () => void
+}): ReactElement {
+  return (
+    // mih 0 and its own scrolling, so a short window scrolls this panel and the composer stays on screen.
+    <Center flex={1} mih={0} p="md" data-nobody-working style={{ overflowY: 'auto' }}>
+      <Stack align="center" gap="sm" maw={460} ta="center">
+        <Title order={3} size="h4">
+          Nobody is working on this yet
+        </Title>
+        <Text c="dimmed">
+          {`Starting runs the ${workspaceName} lineup: ${roles.join(' → ')}. You can adjust it before it begins.`}
+        </Text>
+        <Group gap="sm" justify="center">
+          <Button disabled={busy} onClick={onStart}>
+            Start
+          </Button>
+          <Button variant="default" disabled={busy} onClick={onAdjust}>
+            Adjust before starting
+          </Button>
+        </Group>
+        <Text size="xs" c="dimmed">
+          Past runs on this ticket appear in the activity timeline.
+        </Text>
+      </Stack>
+    </Center>
   )
 }

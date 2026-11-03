@@ -35,6 +35,10 @@ export type WorkspaceSummary = Workspace & {
   active: boolean
   /** How many of its tickets are in Needs you. */
   needsYou: number
+  /** Agents working, waiting on you, and open but paused or queued: what the rail's status line and the Fleet line count. */
+  working: number
+  waiting: number
+  idle: number
 }
 
 /**

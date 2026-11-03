@@ -82,3 +82,9 @@ test.each([
   renderWithMantine(<DecisionCard decision={makeDecision(over as never)} />)
   await expectNoAxeViolations()
 })
+
+test('a pending question is headed by the role that is waiting, and its note says who reads it', () => {
+  renderWithMantine(<DecisionCard decision={makeDecision()} role="Planner" />)
+  expect(screen.getByText('◆ Planner is waiting on you')).toBeInTheDocument()
+  expect(screen.getByLabelText('Note to agent (optional)')).toHaveAttribute('placeholder', 'Anything it should know')
+})

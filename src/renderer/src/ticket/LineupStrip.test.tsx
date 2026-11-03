@@ -14,7 +14,7 @@ test('shows each role in order with its status, and marks the active one as the 
   const list = screen.getByRole('list', { name: 'Lineup' })
   const items = within(list).getAllByRole('listitem')
   expect(items).toHaveLength(3)
-  expect(items.map((li) => li.textContent)).toEqual(['PlannerHanded off', 'ImplementerWaiting on you', 'ReviewerNot started'])
+  expect(items.map((li) => li.textContent)).toEqual(['Planner✓ Handed off', 'Implementer◆ Waiting on you', 'Reviewer○ Not started'])
   expect(within(list).getByRole('listitem', { current: 'step' })).toHaveTextContent('Implementer')
 })
 
@@ -35,7 +35,7 @@ test.each<[RoleStatus, string]>([
 test('a queued role shows its place in the queue', () => {
   renderWithMantine(<LineupStrip roles={[role('p', 'Planner', 'handed_off'), { ...role('i', 'Implementer', 'queued', true), queuePosition: 2 }]} />)
   const items = within(screen.getByRole('list', { name: 'Lineup' })).getAllByRole('listitem')
-  expect(items.map((li) => li.textContent)).toEqual(['PlannerHanded off', 'ImplementerQueued · 2nd'])
+  expect(items.map((li) => li.textContent)).toEqual(['Planner✓ Handed off', 'Implementer○ Queued · 2nd'])
 })
 
 test('with no active role, no step is current', () => {

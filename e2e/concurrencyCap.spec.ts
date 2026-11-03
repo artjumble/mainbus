@@ -77,7 +77,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
     await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.getByText('Queued · 1st').first()).toBeVisible()
     await expect(page.getByRole('list', { name: 'Lineup' }).getByRole('listitem')).toHaveText(
-      ['Planner Queued · 1st', 'Implementer Not started', 'Reviewer Not started'],
+      ['Planner ○ Queued · 1st', 'Implementer ○ Not started', 'Reviewer ○ Not started'],
       { useInnerText: true }
     )
     await page.getByRole('button', { name: /board/ }).click()
@@ -99,7 +99,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
     await expect(page.getByText(/^Queued/)).toHaveCount(0)
     await expect(page.getByRole('list', { name: 'Lineup' }).getByRole('listitem')).toHaveText(
-      ['Planner Handed off', 'Implementer Working', 'Reviewer Not started'],
+      ['Planner ✓ Handed off', 'Implementer • Working', 'Reviewer ○ Not started'],
       { useInnerText: true }
     )
   } finally {

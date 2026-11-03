@@ -21,6 +21,21 @@ export interface ProposalView<P, R, E> {
   choices?(payload: P): { label: string; override: unknown }[] | null
   /** The label of the button that confirms, from the payload; 'Confirm' when absent. */
   confirmLabel?(payload: P): string
+  /** The small heading above the card, from the payload and the focused workspace's name; "Proposed action" when absent. */
+  heading?(payload: P, workspaceName: string): string
+  /**
+   * The card opens with the editor showing and no Override or Cancel button: the editor's own controls are the
+   * way to change the proposal, and the confirm button sends what it holds. Needs `Editor`, `initialEdit` and `toOverride`.
+   */
+  inline?: boolean
+  /** With `inline`: the confirm button's label from what the editor holds, such as "Create 2 tickets". */
+  inlineConfirmLabel?(edit: E): string
+  /** With `inline`: other buttons that confirm a variation of what the editor holds, such as "Put in Ready instead". */
+  alternatives?(edit: E): { label: string; edit: E }[]
+  /** The confirm button is full width, dark and last, after Override and Reject (replacing a stuck agent). */
+  confirmLast?: boolean
+  /** The label of the button that confirms an Override; `${confirmLabel} with changes` when absent. */
+  overrideConfirmLabel?: string
   /** The label of the button that rejects; 'Reject' when absent. */
   rejectLabel?: string
   /** The receipt once carried out, such as "Created #21 and #22". */

@@ -20,7 +20,7 @@ function answer(setup: unknown, ws: unknown, tickets: unknown[] = []): void {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'setup.check') return setup
     if (command === 'workspace.get') return ws
-    if (command === 'workspace.summaries') return ws ? [{ ...(ws as object), active: false, needsYou: 0 }] : []
+    if (command === 'workspace.summaries') return ws ? [{ ...(ws as object), active: false, needsYou: 0, working: 0, waiting: 0, idle: 0 }] : []
     if (command === 'board.get') return { tickets }
     if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
@@ -110,7 +110,7 @@ test('a failing first load shows an error with Try again instead of an endless l
 
   answer({ ok: true, path: 'claude', version: '2' }, workspace, [])
   await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  expect(await screen.findByText('No tickets yet')).toBeInTheDocument()
+  expect(await screen.findByText(/No tickets in .* yet/)).toBeInTheDocument()
   expect(screen.queryByText('database is locked')).not.toBeInTheDocument()
 })
 

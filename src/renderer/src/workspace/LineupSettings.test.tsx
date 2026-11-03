@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { LineupRole, LineupRoleInput } from '../../../shared/domain'
 import { invoke } from '../api'
 import { expectNoAxeViolations, makeLineup, optionLabels, renderWithMantine } from '../test-utils'
-import { LineupEditor, LineupSettings } from './LineupSettings'
+import { firstSentence, LineupEditor, LineupSettings } from './LineupSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
 
@@ -45,18 +45,32 @@ async function renderLoaded(): Promise<void> {
   await screen.findByRole('button', { name: 'Edit Planner' })
 }
 
+/** The Model and effort section starts collapsed. */
+async function openModels(): Promise<void> {
+  await userEvent.click(screen.getByRole('button', { name: /Model and effort/ }))
+  await screen.findByLabelText('Model')
+}
+
 test('shows the lineup in order, with the first role open for editing', async () => {
   await renderLoaded()
   expect(roleNames()).toEqual(['Planner', 'Implementer', 'Reviewer'])
   const list = screen.getByRole('list', { name: 'Roles' })
-  expect(within(list).getByText('Reviewing')).toBeInTheDocument()
-  expect(screen.getByLabelText('Name')).toHaveValue('Planner')
+  // Each row says what the role does, in the first sentence of its instructions, and what the ticket shows meanwhile.
+  expect(within(list).getByText('Be the Planner. · ticket shows Planning')).toBeInTheDocument()
+  expect(within(list).getByText(/ticket shows Reviewing/)).toBeInTheDocument()
+  expect(within(list).getByText('Editing')).toBeInTheDocument()
+  expect(screen.getByText('Roles, in order')).toBeInTheDocument()
+  expect(screen.getByText('After the last role')).toBeInTheDocument()
+  expect(screen.getByText('Ticket moves to Ready for review, waiting on you.')).toBeInTheDocument()
+  expect(screen.getByLabelText('Role name')).toHaveValue('Planner')
   expect(screen.getByLabelText('Instructions')).toHaveValue('Be the Planner.')
-  expect(optionLabels(screen.getByLabelText('Phase while active'))).toEqual(['Planning', 'Implementing', 'Testing', 'Reviewing'])
-  expect(screen.getByLabelText('Phase while active')).toHaveValue('planning')
+  expect(optionLabels(screen.getByLabelText('Ticket phase while this role works'))).toEqual(['Planning', 'Implementing', 'Testing', 'Reviewing'])
+  expect(screen.getByLabelText('Ticket phase while this role works')).toHaveValue('planning')
   expect(screen.getByLabelText('Tool profile')).toHaveValue('read_only')
-  expect(screen.getByRole('radio', { name: 'Ask me' })).toBeChecked()
-  expect(screen.queryByLabelText('Hand back to')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('If it finds problems')).toHaveValue('ask_me')
+  // Model and effort start collapsed.
+  expect(screen.getByRole('button', { name: /Model and effort \(default: orchestrator decides\)/ })).toHaveAttribute('aria-expanded', 'false')
+  await openModels()
   expect(optionLabels(screen.getByLabelText('Model'))).toEqual(['Orchestrator decides', 'Opus', 'Sonnet', 'Haiku'])
   expect(screen.getByLabelText('Model')).toHaveValue('')
   expect(optionLabels(screen.getByLabelText('Effort'))).toEqual(['Orchestrator decides', 'Low', 'Medium', 'High'])
@@ -74,13 +88,14 @@ test('shows the lineup in order, with the first role open for editing', async ()
 test('edits a role and saves the whole lineup', async () => {
   await renderLoaded()
   await userEvent.click(screen.getByRole('button', { name: 'Edit Implementer' }))
-  const name = screen.getByLabelText('Name')
+  const name = screen.getByLabelText('Role name')
   await userEvent.clear(name)
   await userEvent.type(name, 'Builder')
   await userEvent.clear(screen.getByLabelText('Instructions'))
   await userEvent.type(screen.getByLabelText('Instructions'), 'Build it.')
-  await userEvent.selectOptions(screen.getByLabelText('Phase while active'), 'Testing')
+  await userEvent.selectOptions(screen.getByLabelText('Ticket phase while this role works'), 'Testing')
   await userEvent.selectOptions(screen.getByLabelText('Tool profile'), 'Read only (no file edits)')
+  await openModels()
   await userEvent.selectOptions(screen.getByLabelText('Model'), 'Opus')
   await userEvent.selectOptions(screen.getByLabelText('Effort'), 'High')
   expect(roleNames()).toEqual(['Planner', 'Builder', 'Reviewer'])
@@ -96,7 +111,7 @@ test('edits a role and saves the whole lineup', async () => {
     strip(reviewer!)
   ])
   // The saved lineup stays on screen, with the same role still open.
-  expect(screen.getByLabelText('Name')).toHaveValue('Builder')
+  expect(screen.getByLabelText('Role name')).toHaveValue('Builder')
 
   // Choosing "Orchestrator decides" again saves null.
   await userEvent.selectOptions(screen.getByLabelText('Model'), 'Orchestrator decides')
@@ -108,15 +123,15 @@ test('edits a role and saves the whole lineup', async () => {
 test('Hand back to offers only earlier roles, defaulting to the previous role, and Ask me clears it', async () => {
   await renderLoaded()
   await userEvent.click(screen.getByRole('button', { name: 'Edit Reviewer' }))
-  expect(screen.getByRole('radio', { name: 'Hand back' })).toBeChecked()
-  const handBack = screen.getByLabelText('Hand back to')
-  expect(optionLabels(handBack)).toEqual(['Previous role', 'Planner', 'Implementer'])
-  expect(handBack).toHaveValue('i')
-  await userEvent.selectOptions(handBack, 'Planner')
-  await userEvent.click(screen.getByRole('radio', { name: 'Ask me' }))
-  expect(screen.queryByLabelText('Hand back to')).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('radio', { name: 'Hand back' }))
-  expect(screen.getByLabelText('Hand back to')).toHaveValue('')
+  const problems = screen.getByLabelText('If it finds problems')
+  // The previous role first (the default), then the earlier ones, then Ask me.
+  expect(optionLabels(problems)).toEqual(['Hand back to Implementer (previous role)', 'Hand back to Planner', 'Ask me'])
+  expect(problems).toHaveValue('previous')
+  await userEvent.selectOptions(problems, 'Hand back to Planner')
+  expect(problems).toHaveValue('p')
+  await userEvent.selectOptions(problems, 'Ask me')
+  await userEvent.selectOptions(problems, 'Hand back to Implementer (previous role)')
+  expect(problems).toHaveValue('previous')
 
   await userEvent.click(saveButton())
   await vi.waitFor(() => expect(lastSaved()[2]).toMatchObject({ onProblem: 'hand_back', handBackTo: null }))
@@ -139,7 +154,7 @@ test('Move up and Move down reorder the roles and keep the focus on the moved ro
 
   // The Implementer now comes before the Planner it handed back to, so it falls back to the previous role.
   await userEvent.click(screen.getByRole('button', { name: 'Edit Implementer' }))
-  expect(screen.getByLabelText('Hand back to')).toHaveValue('')
+  expect(screen.getByLabelText('If it finds problems')).toHaveValue('previous')
 
   await userEvent.click(saveButton())
   await vi.waitFor(() => expect(lastSaved().map((r) => r.name)).toEqual(['Implementer', 'Reviewer', 'Planner']))
@@ -167,19 +182,19 @@ test('adds a role with a name of its own, and saves it as new', async () => {
   await renderLoaded()
   await userEvent.click(screen.getByRole('button', { name: 'Add role' }))
   expect(roleNames()).toEqual(['Planner', 'Implementer', 'Reviewer', 'New role'])
-  expect(screen.getByLabelText('Name')).toHaveValue('New role')
+  expect(screen.getByLabelText('Role name')).toHaveValue('New role')
   await userEvent.click(screen.getByRole('button', { name: 'Add role' }))
   expect(roleNames()).toEqual(['Planner', 'Implementer', 'Reviewer', 'New role', 'New role 2'])
   await userEvent.click(screen.getByRole('button', { name: 'Remove New role 2' }))
 
-  await userEvent.type(screen.getByLabelText('Name'), ' for docs')
+  await userEvent.type(screen.getByLabelText('Role name'), ' for docs')
   await userEvent.type(screen.getByLabelText('Instructions'), 'Update the docs.')
   await userEvent.click(saveButton())
   await vi.waitFor(() => expect(lastSaved()).toHaveLength(4))
   expect(lastSaved()[3]).toMatchObject({ id: expect.stringMatching(/^new-/), name: 'New role for docs', instructions: 'Update the docs.' })
   // After the save the new role has its real id and is still the one open.
   await vi.waitFor(() => expect(saveButton()).toBeDisabled())
-  expect(screen.getByLabelText('Name')).toHaveValue('New role for docs')
+  expect(screen.getByLabelText('Role name')).toHaveValue('New role for docs')
 })
 
 test('removes roles, but never the last one', async () => {
@@ -187,8 +202,8 @@ test('removes roles, but never the last one', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Remove Planner' }))
   expect(roleNames()).toEqual(['Implementer', 'Reviewer'])
   // The open role was removed, so the next one opens; it handed back to the Planner, so now to the previous role.
-  expect(screen.getByLabelText('Name')).toHaveValue('Implementer')
-  expect(screen.getByLabelText('Hand back to')).toHaveValue('')
+  expect(screen.getByLabelText('Role name')).toHaveValue('Implementer')
+  expect(screen.getByLabelText('If it finds problems')).toHaveValue('previous')
   await userEvent.click(screen.getByRole('button', { name: 'Remove Reviewer' }))
   expect(roleNames()).toEqual(['Implementer'])
   expect(screen.getByRole('button', { name: 'Remove Implementer' })).toBeDisabled()
@@ -200,7 +215,7 @@ test('removes roles, but never the last one', async () => {
 test('shows why lineup.save refused, keeps the edits, and clears the message on the next edit', async () => {
   await renderLoaded()
   await userEvent.click(screen.getByRole('button', { name: 'Edit Reviewer' }))
-  const name = screen.getByLabelText('Name')
+  const name = screen.getByLabelText('Role name')
   await userEvent.clear(name)
   await userEvent.type(name, 'planner')
   mockInvoke.mockRejectedValueOnce(
@@ -221,7 +236,7 @@ test('shows why lineup.save refused, keeps the edits, and clears the message on 
 
 test('a role whose name is cleared is still listed by its place', async () => {
   await renderLoaded()
-  await userEvent.clear(screen.getByLabelText('Name'))
+  await userEvent.clear(screen.getByLabelText('Role name'))
   expect(roleNames()).toEqual(['Role 1', 'Implementer', 'Reviewer'])
 })
 
@@ -247,7 +262,7 @@ test('has a tab for each lineup; the Investigate tab loads and saves the Investi
   expect(screen.getByText(/The last role ends with a report instead of a handoff/)).toBeVisible()
   await userEvent.click(await screen.findByRole('button', { name: 'Edit Investigator' }))
   // The Change panel stays mounted, hidden, with a Name field of its own.
-  const name = within(screen.getByRole('tabpanel', { name: 'Investigate' })).getByLabelText('Name')
+  const name = within(screen.getByRole('tabpanel', { name: 'Investigate' })).getByLabelText('Role name')
   await userEvent.clear(name)
   await userEvent.type(name, 'Detective')
   await userEvent.click(saveButton())
@@ -260,4 +275,19 @@ test('has a tab for each lineup; the Investigate tab loads and saves the Investi
 test('the lineup editor has no axe violations', async () => {
   await renderLoaded()
   await expectNoAxeViolations()
+})
+
+test('firstSentence takes the first sentence of the instructions, clipped', () => {
+  expect(firstSentence('Breaks the ticket into steps. Then hands off.')).toBe('Breaks the ticket into steps.')
+  expect(firstSentence('  No full stop here\nbut two lines ')).toBe('No full stop here but two lines')
+  expect(firstSentence('')).toBe('No instructions yet')
+  expect(firstSentence('x'.repeat(150))).toBe(`${'x'.repeat(99)}…`)
+})
+
+test('the form has a Remove role button, and the Investigate lineup says where the report goes', async () => {
+  renderWithMantine(<LineupEditor opened lineup="investigate" />)
+  await screen.findByRole('button', { name: 'Edit Planner' })
+  expect(screen.getByText('The report is saved and the ticket moves to Review, waiting on you.')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Remove role' }))
+  expect(roleNames()).toEqual(['Implementer', 'Reviewer'])
 })

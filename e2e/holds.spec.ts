@@ -48,7 +48,7 @@ test('a Ready ticket held until tomorrow is released when the fake clock passes 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Wait for the API')
     await page.getByLabel('In your words').fill('Build it once the API lands')
-    await page.getByLabel('Put it in Ready (otherwise Backlog)').check()
+    await page.getByLabel('Column').selectOption('ready')
     await page.getByRole('button', { name: 'Create' }).click()
     const ready = page.getByRole('region', { name: 'Ready' })
     await expect(ready.getByText('Wait for the API')).toBeVisible()

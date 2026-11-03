@@ -9,6 +9,7 @@ import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
 import { HoldChip } from './HoldChip'
 import { StuckChip } from './StuckChip'
+import { WRAPPING_CHIP } from './chipStyles'
 import classes from './TicketCard.module.css'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
@@ -31,19 +32,47 @@ export function phaseLabel(phase: Phase): string {
   )
 }
 
-function chipColor({ phase, agentStatus, deferredUntil }: TicketState): string {
-  // Only deferred decisions: the person isn't needed until the date.
-  if (deferredUntil !== null) return 'gray'
-  if (phase === 'waiting_on_you' || agentStatus === 'failed') return 'needs'
-  if (phase === 'planning' || phase === 'implementing' || phase === 'testing' || phase === 'reviewing') return 'working'
-  return 'gray'
+interface Chip {
+  color: string
+  variant: 'light' | 'filled' | 'outline'
+  /** Drawn before the label, so the state doesn't rest on colour alone. */
+  symbol: string
+  label: string
 }
 
-/** The phase chip: orange when the person is needed, blue while an agent works, grey otherwise. */
+function chipFor({ phase, agentStatus, deferredUntil }: TicketState): Chip {
+  // Only deferred decisions: the person isn't needed until the date.
+  if (deferredUntil !== null) {
+    return { color: 'gray', variant: 'light', symbol: '–', label: waitingLabel(deferredUntil, new Date()) }
+  }
+  if (agentStatus === 'failed') {
+    return { color: 'dark', variant: 'filled', symbol: '✕', label: `Failed in ${phaseLabel(phase)}` }
+  }
+  if (phase === 'waiting_on_you') return { color: 'needs', variant: 'filled', symbol: '◆', label: phaseLabel(phase) }
+  if (phase === 'planning' || phase === 'implementing' || phase === 'testing' || phase === 'reviewing') {
+    return { color: 'working', variant: 'light', symbol: '•', label: phaseLabel(phase) }
+  }
+  const symbol = phase === 'done' ? '✓' : phase === 'ready_for_review' ? '○' : '–'
+  return { color: 'gray', variant: 'outline', symbol, label: phaseLabel(phase) }
+}
+
+/**
+ * The phase chip, led by a symbol: ◆ filled orange when the person is needed, • light blue while an agent works,
+ * ✕ dark when it failed, and an outline otherwise.
+ */
 export function PhaseChip({ state }: { state: TicketState }): ReactElement {
+  const chip = chipFor(state)
   return (
-    <Badge color={chipColor(state)} variant="light" size="sm" radius="sm">
-      {state.deferredUntil !== null ? waitingLabel(state.deferredUntil, new Date()) : phaseLabel(state.phase)}
+    // Sentence case, and the text wraps rather than being cut off: in a narrow column the state must stay readable.
+    <Badge
+      color={chip.color}
+      variant={chip.variant}
+      size="sm"
+      radius="sm"
+      {...WRAPPING_CHIP}
+    >
+      <span aria-hidden>{chip.symbol} </span>
+      <span>{chip.label}</span>
     </Badge>
   )
 }
@@ -52,7 +81,7 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
 export function PausedChip({ state }: { state: TicketState }): ReactElement | null {
   if (!state.pausedByUser && !state.pausedByLimit) return null
   return (
-    <Badge color="gray" variant="outline" size="sm" radius="sm">
+    <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
       Paused
     </Badge>
   )
@@ -62,7 +91,7 @@ export function PausedChip({ state }: { state: TicketState }): ReactElement | nu
 export function QueuedChip({ state }: { state: TicketState }): ReactElement | null {
   if (state.agentStatus !== 'queued') return null
   return (
-    <Badge color="gray" variant="outline" size="sm" radius="sm" tt="none">
+    <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
       {queuedLabel(state.queuePosition)}
     </Badge>
   )
@@ -129,8 +158,18 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
     <Paper
       withBorder
       p="sm"
+      // Narrow sides: in a narrow column the title keeps room for its 44 px hit area beside the handle.
+      px={6}
       radius="md"
       shadow="xs"
+      // Orange border when the person is needed; a dashed one when the agent failed.
+      bd={
+        state.agentStatus === 'failed'
+          ? '1px dashed var(--mantine-color-dark-6)'
+          : state.column === 'needs_you'
+            ? '1px solid var(--mantine-color-needs-6)'
+            : undefined
+      }
       className={recent ? (reducedMotion ? classes.recentStill : classes.recent) : undefined}
       data-recently-changed={recent ? (reducedMotion ? 'still' : 'fade') : undefined}
       // Resumes the fade where it was when the card is shown again part-way through.
@@ -163,7 +202,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <HoldChip hold={ticket.hold} />
         <StuckChip stuck={ticket.stuck} />
         {ticket.kind === 'investigate' && (
-          <Badge color="gray" variant="outline" size="sm" radius="sm">
+          <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
             Investigate
           </Badge>
         )}

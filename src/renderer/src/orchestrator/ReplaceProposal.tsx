@@ -15,15 +15,18 @@ interface ReplaceEdit {
 }
 
 function Body({ payload }: { payload: ReplacePayload }): ReactElement {
+  const ticket = useMainbus((s) => s.tickets.find((t) => t.id === payload.ticketId))
+  const lineup = ticket?.lineup ?? []
+  // The roles before the stuck one: their work is kept.
+  const earlier = lineup.slice(0, Math.max(0, lineup.findIndex((r) => r.name === payload.role))).map((r) => r.name)
   return (
     <Stack gap={4}>
-      <Text size="sm">{`#${payload.number} ${payload.title}`}</Text>
       {payload.episodeEvidence.length > 0 && (
         <>
           <Text size="sm">{`The ${payload.role} looks stuck, and a redirect did not help:`}</Text>
-          <Stack gap={0} aria-label="Why it looks stuck" data-stuck-evidence>
+          <Stack gap={0} component="ul" aria-label="Why it looks stuck" data-stuck-evidence style={{ margin: 0, paddingInlineStart: 20 }}>
             {payload.episodeEvidence.map((line, i) => (
-              <Text key={i} size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: 'pre-wrap' }}>
+              <Text key={i} component="li" size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>
                 {line}
               </Text>
             ))}
@@ -31,7 +34,9 @@ function Body({ payload }: { payload: ReplacePayload }): ReactElement {
         </>
       )}
       <Text size="sm" data-replace-plan>
-        {`Its agent ends. A fresh ${payload.role} (${modelLabel(payload.model)} · ${effortLabel(payload.effort)}) starts in the same worktree, from a summary of what the first one tried, what failed and what wasn't checked.`}
+        {`The new ${payload.role} gets the plan, decisions so far, and a handoff of what was tried.${
+          earlier.length > 0 ? ` The ${earlier.join(' and ')}'s work is kept.` : ''
+        }`}
       </Text>
       {payload.extraInstructions !== null && (
         <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }} data-extra-instructions>
@@ -92,7 +97,8 @@ function Receipt({ result }: { result: ReplaceResult }): ReactElement {
 }
 
 export const replaceView: ProposalView<ReplacePayload, ReplaceResult, ReplaceEdit> = {
-  summary: (p) => `Replace the ${p.role} on #${p.number} ${p.title}`,
+  summary: (p) => `Replace the ${p.role} on ${p.title}`,
+  confirmLast: true,
   confirmLabel: (p) => `Replace ${p.role}`,
   rejectLabel: 'Keep current',
   Body,

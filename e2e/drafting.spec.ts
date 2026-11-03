@@ -61,12 +61,12 @@ test('the orchestrator drafts two tickets; the user edits one title in Override 
     const backlog = page.getByRole('region', { name: 'Backlog' })
     await expect(backlog.getByRole('button', { name: /Add a login page/ })).toHaveCount(0)
 
-    // Override: edit the first title, then confirm with the changes.
-    await card.getByRole('button', { name: 'Override' }).click()
+    // Edit the first draft's title in place, then create both.
+    await card.getByRole('button', { name: 'Edit Add a login page' }).click()
     const title = card.getByRole('group', { name: 'Draft 1' }).getByRole('textbox', { name: 'Title' })
     await expect(title).toHaveValue('Add a login page')
     await title.fill('Add a sign-in page')
-    await card.getByRole('button', { name: 'Confirm with changes' }).click()
+    await card.getByRole('button', { name: 'Create 2 tickets' }).click()
 
     // The card collapses to its receipt.
     const receipt = panel.locator('[data-proposal="receipt"]')

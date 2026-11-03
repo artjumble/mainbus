@@ -1,0 +1,53 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-1" } },
+    { "emit": { "kind": "message", "text": "Planner: reading the repo." } },
+    { "waitForSend": true }
+  ],
+  "Planner #2": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-2" } },
+    { "callTool": "askUser", "args": { "question": "Exponential or fixed backoff for webhook retries?", "options": ["Exponential, capped at 5 min", "Fixed, every 30 s"], "recommended": 0 } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Planner #3": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-3" } },
+    { "emit": { "kind": "turn_end", "ok": false, "error": "Build failed: missing env var" } },
+    { "emit": { "kind": "turn_end", "ok": false, "error": "Build failed: missing env var" } }
+  ],
+  "Planner #4": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-4" } },
+    { "callTool": "handoff", "args": { "summary": "Plan: check the endpoint", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-i" } },
+    { "callTool": "handoff", "args": { "summary": "Checked it", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-r" } },
+    { "callTool": "handoff", "args": { "summary": "Reviewed: fine", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-board-o" } },
+    { "emit": { "kind": "tool_call", "id": "s1", "name": "mcp__mainbus__propose_start", "input": {} } },
+    {
+      "callTool": "proposeStart",
+      "args": {
+        "ticket": 2,
+        "roles": [
+          { "role": "Planner", "model": "opus", "effort": "high" },
+          { "role": "Implementer", "model": "sonnet", "effort": "medium" },
+          { "role": "Reviewer", "model": "haiku", "effort": "low" }
+        ],
+        "reason": "#2 is specced and nothing is running."
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "s1", "ok": true, "summary": "Proposed" } },
+    { "emit": { "kind": "message", "text": "Only Rate-limit login qualifies." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

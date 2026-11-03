@@ -14,6 +14,18 @@ export const ROLE_STATUS_LABELS: Record<RoleStatus, string> = {
   stopped: 'Stopped'
 }
 
+/** Drawn before the status, so where a role stands doesn't rest on colour alone. */
+const STATUS_SYMBOLS: Record<RoleStatus, string> = {
+  not_started: '○',
+  queued: '○',
+  working: '•',
+  waiting_on_you: '◆',
+  handed_off: '✓',
+  paused: '–',
+  failed: '✕',
+  stopped: '–'
+}
+
 function statusColor(status: RoleStatus): string {
   if (status === 'waiting_on_you' || status === 'failed') return 'needs.7'
   if (status === 'working') return 'working.7'
@@ -44,17 +56,20 @@ export function LineupStrip({ roles }: { roles: StripRole[] }): ReactElement {
                 : undefined
             }
           >
-            <Text size="sm" fw={role.active ? 700 : 500} lh={1.3}>
-              {role.name}
-            </Text>
-            <Text size="xs" c={statusColor(role.status)} lh={1.3}>
-              {role.status === 'queued' ? queuedLabel(role.queuePosition) : ROLE_STATUS_LABELS[role.status]}
-            </Text>
-            {role.replacements > 0 && (
-              <Text size="xs" c="dimmed" lh={1.3} data-replaced>
-                {`replaced ×${role.replacements}`}
+            <Group gap={6} wrap="nowrap">
+              <Text size="sm" fw={role.active ? 700 : 500} lh={1.3}>
+                {role.name}
               </Text>
-            )}
+              <Text size="xs" c={statusColor(role.status)} lh={1.3}>
+                <span aria-hidden>{STATUS_SYMBOLS[role.status]} </span>
+                {role.status === 'queued' ? queuedLabel(role.queuePosition) : ROLE_STATUS_LABELS[role.status]}
+              </Text>
+              {role.replacements > 0 && (
+                <Text size="xs" c="dimmed" lh={1.3} data-replaced>
+                  {`replaced ×${role.replacements}`}
+                </Text>
+              )}
+            </Group>
           </Paper>
         </Fragment>
       ))}

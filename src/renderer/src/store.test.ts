@@ -8,7 +8,7 @@ vi.mock('./api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: v
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 const initial = useMainbus.getState()
-const summary = { ...workspace, active: false, needsYou: 0 }
+const summary = { ...workspace, active: false, needsYou: 0, working: 0, waiting: 0, idle: 0 }
 
 beforeEach(() => {
   useMainbus.setState(initial, true)

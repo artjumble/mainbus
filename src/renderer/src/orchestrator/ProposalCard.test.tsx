@@ -41,17 +41,19 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
 }
 
 describe('pending', () => {
-  test('shows the summary, each draft and the evidence, with Confirm, Override and Reject', () => {
+  test('shows the heading, each draft and the evidence, with Create, Put in Ready instead and Reject', () => {
+    useMainbus.setState({ workspace: { ...initial.workspace!, name: 'web-app' } })
     renderWithMantine(<ProposalCard proposal={proposal()} />)
     const card = screen.getByRole('group', { name: 'Proposal: Create 2 tickets in Backlog' })
     expect(card).toHaveAttribute('data-proposal', 'pending')
+    expect(within(card).getByText('Proposed action · create 2 tickets in web-app → Backlog')).toBeInTheDocument()
     expect(within(card).getByText('Login')).toBeInTheDocument()
     expect(within(card).getByText('A form on /login')).toBeInTheDocument()
-    expect(within(card).getByText('2 criteria')).toBeInTheDocument()
-    expect(within(card).getByText('auth')).toBeInTheDocument()
+    expect(within(card).getByText('2 acceptance criteria · labels: auth')).toBeInTheDocument()
     expect(within(card).getByText('Logout')).toBeInTheDocument()
     expect(within(card).getByText('Why: src/ has no auth module')).toBeInTheDocument()
-    for (const name of ['Confirm', 'Override', 'Reject']) expect(within(card).getByRole('button', { name })).toBeEnabled()
+    for (const name of ['Create 2 tickets', 'Put in Ready instead', 'Reject']) expect(within(card).getByRole('button', { name })).toBeEnabled()
+    expect(within(card).queryByRole('button', { name: 'Override' })).not.toBeInTheDocument()
   })
 
   test('no evidence, no "Why"', () => {
@@ -59,10 +61,22 @@ describe('pending', () => {
     expect(screen.queryByText(/^Why:/)).not.toBeInTheDocument()
   })
 
-  test('Confirm confirms it as proposed', async () => {
+  test('Create confirms the drafts as proposed', async () => {
     renderWithMantine(<ProposalCard proposal={proposal()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }))
-    expect(mockInvoke).toHaveBeenCalledWith('proposal.confirm', 'p1')
+    await userEvent.click(screen.getByRole('button', { name: 'Create 2 tickets' }))
+    expect(mockInvoke).toHaveBeenCalledWith('proposal.confirm', 'p1', {
+      tickets: [
+        { title: 'Login', spec: 'A form on /login', criteria: ['form renders', 'bad password refused'], labels: ['auth'] },
+        { title: 'Logout', spec: '', criteria: [], labels: [] }
+      ],
+      column: 'backlog'
+    })
+  })
+
+  test('Put in Ready instead creates them in Ready', async () => {
+    renderWithMantine(<ProposalCard proposal={proposal()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Put in Ready instead' }))
+    expect(mockInvoke).toHaveBeenCalledWith('proposal.confirm', 'p1', expect.objectContaining({ column: 'ready' }))
   })
 
   test('Reject rejects it', async () => {
@@ -74,42 +88,38 @@ describe('pending', () => {
   test('a refused decision is shown, and the card stays as it is', async () => {
     mockInvoke.mockRejectedValue(new Error('Proposal p1 is rejected, not pending'))
     renderWithMantine(<ProposalCard proposal={proposal()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Create 2 tickets' }))
     expect(await screen.findByText('Proposal p1 is rejected, not pending')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Create 2 tickets' })).toBeEnabled()
   })
 })
 
-describe('override', () => {
-  test('opens an editor in place with the proposal as its defaults', async () => {
+describe('per-draft edit', () => {
+  test("Edit opens that draft's fields in place, with the proposal as their defaults", async () => {
     renderWithMantine(<ProposalCard proposal={proposal()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Override' }))
-    expect(screen.queryByRole('button', { name: 'Override' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm with changes' })).toBeEnabled()
-
     const first = screen.getByRole('group', { name: 'Draft 1' })
-    expect(within(first).getByRole('checkbox', { name: 'Include' })).toBeChecked()
+    expect(within(first).getByRole('checkbox', { name: 'Include Login' })).toBeChecked()
+    expect(within(first).queryByRole('textbox', { name: 'Title' })).not.toBeInTheDocument()
+    await userEvent.click(within(first).getByRole('button', { name: 'Edit Login' }))
     expect(within(first).getByRole('textbox', { name: 'Title' })).toHaveValue('Login')
     expect(within(first).getByRole('textbox', { name: 'Spec' })).toHaveValue('A form on /login')
     expect(within(first).getByRole('textbox', { name: 'Criteria (one per line)' })).toHaveValue('form renders\nbad password refused')
     expect(within(first).getByRole('textbox', { name: 'Labels (comma separated)' })).toHaveValue('auth')
+    expect(within(screen.getByRole('group', { name: 'Draft 2' })).queryByRole('textbox', { name: 'Title' })).not.toBeInTheDocument()
   })
 
-  test('edits a title, leaves a draft out and changes the column, then confirms with those changes', async () => {
+  test('edits a title, leaves a draft out and puts the rest in Ready', async () => {
     renderWithMantine(<ProposalCard proposal={proposal()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Override' }))
     const first = screen.getByRole('group', { name: 'Draft 1' })
+    await userEvent.click(within(first).getByRole('button', { name: 'Edit Login' }))
     const title = within(first).getByRole('textbox', { name: 'Title' })
     await userEvent.clear(title)
     await userEvent.type(title, 'Sign in')
-    const criteria = within(first).getByRole('textbox', { name: 'Criteria (one per line)' })
-    await userEvent.type(criteria, '\n\n  locks after 5 tries  ')
-    const labels = within(first).getByRole('textbox', { name: 'Labels (comma separated)' })
-    await userEvent.type(labels, ', security,')
-    await userEvent.click(within(screen.getByRole('group', { name: 'Draft 2' })).getByRole('checkbox', { name: 'Include' }))
-    await userEvent.click(screen.getByText('Ready'))
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm with changes' }))
+    await userEvent.type(within(first).getByRole('textbox', { name: 'Criteria (one per line)' }), '\n\n  locks after 5 tries  ')
+    await userEvent.type(within(first).getByRole('textbox', { name: 'Labels (comma separated)' }), ', security,')
+    await userEvent.click(within(screen.getByRole('group', { name: 'Draft 2' })).getByRole('checkbox', { name: 'Include Logout' }))
+    expect(screen.getByRole('button', { name: 'Create 1 ticket' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Put in Ready instead' }))
 
     expect(mockInvoke).toHaveBeenCalledWith('proposal.confirm', 'p1', {
       tickets: [
@@ -124,21 +134,12 @@ describe('override', () => {
     })
   })
 
-  test('with every draft left out there is nothing to confirm', async () => {
+  test('with every draft left out there is nothing to create', async () => {
     renderWithMantine(<ProposalCard proposal={proposal()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Override' }))
-    for (const n of [1, 2]) {
-      await userEvent.click(within(screen.getByRole('group', { name: `Draft ${n}` })).getByRole('checkbox', { name: 'Include' }))
-    }
-    expect(screen.getByRole('button', { name: 'Confirm with changes' })).toBeDisabled()
-  })
-
-  test('Cancel closes the editor, back to the proposal as it is', async () => {
-    renderWithMantine(<ProposalCard proposal={proposal()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Override' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('group', { name: 'Draft 1' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Include Login' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Include Logout' }))
+    expect(screen.getByRole('button', { name: 'Create 0 tickets' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Put in Ready instead' })).toBeDisabled()
   })
 })
 
@@ -176,14 +177,11 @@ describe('receipt', () => {
   })
 })
 
-test('the card and its Override editor have no axe violations', async () => {
+test('the card and a draft being edited have no axe violations', async () => {
   renderWithMantine(<ProposalCard proposal={proposal()} />)
   await expectNoAxeViolations()
-  const override = screen.queryByRole('button', { name: 'Override' })
-  if (override) {
-    await userEvent.click(override)
-    await expectNoAxeViolations()
-  }
+  await userEvent.click(screen.getByRole('button', { name: 'Edit Login' }))
+  await expectNoAxeViolations()
 })
 
 test.each([

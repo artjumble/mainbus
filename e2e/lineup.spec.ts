@@ -71,9 +71,9 @@ test('a new workspace has the default lineup, and edits to it are saved', async 
     ;({ app, page } = await launch(home, repo))
     let roles = await openSettings(page)
     expect(await roleNames(roles)).toEqual(['Planner', 'Implementer', 'Reviewer'])
-    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Phase while active')).toHaveValue('planning')
+    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Ticket phase while this role works')).toHaveValue('planning')
     await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Tool profile')).toHaveValue('read_only')
-    await expect(page.getByRole('radio', { name: 'Ask me' })).toBeChecked()
+    await expect(page.getByLabel('If it finds problems')).toHaveValue('ask_me')
 
     // Move the Reviewer up with the keyboard; focus stays on it.
     await page.getByRole('button', { name: 'Move Reviewer up' }).focus()
@@ -106,11 +106,11 @@ test('a new workspace has the default lineup, and edits to it are saved', async 
     // dnd-kit swallows clicks for 50 ms after a drop, so this click may need a second try.
     await expect(async () => {
       await roles.getByRole('button', { name: 'Edit Implementer' }).click()
-      await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name')).toHaveValue('Implementer', { timeout: 200 })
+      await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Role name')).toHaveValue('Implementer', { timeout: 200 })
     }).toPass()
-    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name').fill('Builder')
+    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Role name').fill('Builder')
     await page.getByRole('button', { name: 'Add role' }).click()
-    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name').fill('Doc writer')
+    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Role name').fill('Doc writer')
     await page.getByRole('button', { name: 'Save lineup' }).click()
     await expect(page.getByRole('button', { name: 'Save lineup' })).toBeDisabled()
     await app.close()
@@ -121,7 +121,7 @@ test('a new workspace has the default lineup, and edits to it are saved', async 
     roles = await openSettings(page)
     expect(await roleNames(roles)).toEqual(['Reviewer', 'Planner', 'Builder', 'Doc writer'])
     await roles.getByRole('button', { name: 'Edit Builder' }).click()
-    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Phase while active')).toHaveValue('implementing')
+    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Ticket phase while this role works')).toHaveValue('implementing')
     await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Tool profile')).toHaveValue('edit')
   } finally {
     await app?.close()
@@ -137,7 +137,7 @@ test("the lineup settings show why a lineup can't be saved", async () => {
     ;({ app, page } = await launch(home, repo))
     const roles = await openSettings(page)
     await roles.getByRole('button', { name: 'Edit Reviewer' }).click()
-    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name').fill('implementer')
+    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Role name').fill('implementer')
     await page.getByRole('button', { name: 'Save lineup' }).click()
     const alert = page.getByRole('alert')
     await expect(alert).toContainText('Two roles are called "Implementer". Give each role its own name.')
@@ -162,7 +162,7 @@ test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and
     await page.getByRole('button', { name: /Add hello file/ }).click()
 
     // Before the first run the strip shows the workspace lineup, none of it started.
-    await expectStrip(page, ['Planner Not started', 'Implementer Not started', 'Reviewer Not started'])
+    await expectStrip(page, ['Planner ○ Not started', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
     await expect(page.getByLabel('First message (starts the lineup)')).toBeVisible()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
 
@@ -177,7 +177,7 @@ test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and
       // The strip: earlier roles handed off, this one working and current, later ones not started.
       await expectStrip(
         page,
-        steps.map(([name], j) => `${name} ${j < i ? 'Handed off' : j === i ? 'Working' : 'Not started'}`)
+        steps.map(([name], j) => `${name} ${j < i ? '✓ Handed off' : j === i ? '• Working' : '○ Not started'}`)
       )
       await expect(page.getByRole('list', { name: 'Lineup' }).locator('[aria-current="step"]')).toHaveText(new RegExp(role))
       // Between roles the ticket never shows as ready for review.
@@ -196,7 +196,7 @@ test('Start runs a ticket through Planner, Implementer and Reviewer in turn, and
     }
 
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner Handed off', 'Implementer Handed off', 'Reviewer Handed off'])
+    await expectStrip(page, ['Planner ✓ Handed off', 'Implementer ✓ Handed off', 'Reviewer ✓ Handed off'])
     // The thread keeps every role's work, each tagged with its role, and a divider at each handoff.
     await expect(page.getByText('Planner: reading the ticket.')).toBeVisible()
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
@@ -247,7 +247,7 @@ test('the Reviewer ticks a criterion and hands a problem back once, and the tick
     await expect(page.getByText('Implementer: adding the newline.')).toBeVisible()
     await expect(page.getByText('Reviewer: looks right now.')).toBeVisible()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner Handed off', 'Implementer Handed off', 'Reviewer Handed off'])
+    await expectStrip(page, ['Planner ✓ Handed off', 'Implementer ✓ Handed off', 'Reviewer ✓ Handed off'])
     // The Planner ran once.
     await expect(page.getByText('Planner: reading the ticket.')).toHaveCount(1)
     await page.getByRole('button', { name: /board/ }).click()
@@ -279,7 +279,7 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
 
     // Only the ticked roles are in the strip, and the Implementer goes first.
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
-    await expectStrip(page, ['Implementer Working', 'Reviewer Not started'])
+    await expectStrip(page, ['Implementer • Working', 'Reviewer ○ Not started'])
     await expect(page.getByText('IMPLEMENTER', { exact: true })).toBeVisible()
     await page.getByLabel('Message the Implementer').fill('Go on')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
@@ -300,7 +300,7 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
     await expect(page.getByText('New run', { exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Start again' }).click()
     await expect(page.getByText('New run', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner Working', 'Implementer Not started', 'Reviewer Not started'])
+    await expectStrip(page, ['Planner • Working', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
   } finally {
     await app?.close()
     fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
@@ -328,7 +328,7 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await page.getByRole('button', { name: 'Pause', exact: true }).click()
     await expect(chip).toBeVisible()
     await expect(page.getByText('Planning', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner Paused', 'Implementer Not started', 'Reviewer Not started'])
+    await expectStrip(page, ['Planner – Paused', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
     await expect(page.getByRole('button', { name: 'Pause', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
     // The board card shows it too, still In progress.
@@ -340,16 +340,16 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await page.getByRole('button', { name: 'Resume', exact: true }).click()
     await expect(page.getByText('Planner: picking up where I was.')).toBeVisible()
     await expect(chip).toHaveCount(0)
-    await expectStrip(page, ['Planner Working', 'Implementer Not started', 'Reviewer Not started'])
+    await expectStrip(page, ['Planner • Working', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
 
     // Skip, confirmed: the Planner is handed off with a summary Mainbus generated, and the Implementer starts.
-    await page.getByRole('button', { name: 'Skip to next role' }).click()
+    await page.getByRole('button', { name: /^Skip to / }).click()
     const dialog = page.getByRole('dialog', { name: 'Skip to next role' })
     await expect(dialog.getByText('Skip the Planner? Its work so far is summarised for the Implementer.')).toBeVisible()
     await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
-    await expectStrip(page, ['Planner Handed off', 'Implementer Working', 'Reviewer Not started'])
+    await expectStrip(page, ['Planner ✓ Handed off', 'Implementer • Working', 'Reviewer ○ Not started'])
     const skipped = page.getByRole('group', { name: 'Planner skipped → Implementer · summary generated by Mainbus' })
     await expect(skipped.getByText('Planner skipped → Implementer · summary generated by Mainbus', { exact: true })).toBeVisible()
     await skipped.getByRole('button', { name: 'Show summary' }).click()
@@ -359,11 +359,11 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await page.getByLabel('Message the Implementer').fill('Go on')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
-    await page.getByRole('button', { name: 'Skip to next role' }).click()
+    await page.getByRole('button', { name: /^Skip to / }).click()
     await expect(dialog.getByText('Skip the Reviewer? Its work so far is summarised and the ticket goes to Review.')).toBeVisible()
     await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner Handed off', 'Implementer Handed off', 'Reviewer Handed off'])
+    await expectStrip(page, ['Planner ✓ Handed off', 'Implementer ✓ Handed off', 'Reviewer ✓ Handed off'])
     await expect(page.getByText('Reviewer skipped · summary generated by Mainbus', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: /board/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()

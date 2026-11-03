@@ -1,9 +1,10 @@
-import { Anchor, Stack, Text, Textarea } from '@mantine/core'
+import { Anchor, Group, Stack, Text } from '@mantine/core'
 import type { ReactElement } from 'react'
-import { EXTRA_INSTRUCTIONS_MAX, effortLabel, modelLabel } from '../../../shared/models'
 import type { StartLineupOverride, StartLineupPayload, StartLineupResult } from '../../../shared/proposals'
 import { useMainbus } from '../store'
-import { RoleChoiceRow, type RoleChoice } from '../ticket/RoleChoice'
+import { phaseLabel } from '../board/TicketCard'
+import type { RoleChoice } from '../ticket/RoleChoice'
+import { StartOverrideForm } from '../ticket/StartOverrideForm'
 import type { ProposalView } from './proposalView'
 
 export interface StartLineupEdit {
@@ -11,17 +12,14 @@ export interface StartLineupEdit {
   extraInstructions: string
 }
 
-/** The roles in the order they run, each with its model and effort, then the extra instructions. */
+/** "web-app lineup: Planner → Implementer → Reviewer", then any extra instructions. */
 function Body({ payload }: { payload: StartLineupPayload }): ReactElement {
+  const workspaceName = useMainbus((s) => s.workspace?.name)
   return (
     <Stack gap={4}>
-      <Stack gap={2} component="ol" aria-label="Roles" style={{ margin: 0, paddingInlineStart: 20 }}>
-        {payload.roles.map((r) => (
-          <Text key={r.roleId} component="li" size="sm">
-            {`${r.name} · ${modelLabel(r.model)} · ${effortLabel(r.effort)}`}
-          </Text>
-        ))}
-      </Stack>
+      <Text size="xs" c="dimmed" aria-label="Roles">
+        {`${workspaceName ? `${workspaceName} lineup` : 'Lineup'}: ${payload.roles.map((r) => r.name).join(' → ')}`}
+      </Text>
       {payload.extraInstructions !== null && (
         <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }} data-extra-instructions>
           {`Extra instructions: ${payload.extraInstructions}`}
@@ -31,49 +29,39 @@ function Body({ payload }: { payload: StartLineupPayload }): ReactElement {
   )
 }
 
-/** Override: a box per role (one always stays ticked), its model and effort, and the extra instructions. */
+/** Override: the same form as "Adjust before starting". */
 function Editor({ value, onChange }: { value: StartLineupEdit; onChange: (v: StartLineupEdit) => void }): ReactElement {
-  const tickedCount = value.roles.filter((r) => r.ticked).length
-  const setRole = (i: number, patch: Partial<RoleChoice>): void =>
-    onChange({ ...value, roles: value.roles.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
   return (
-    <Stack gap="sm">
-      <Stack gap={6} role="group" aria-label="Models and effort per role">
-        <Text size="xs" fw={500}>
-          Models and effort per role
-        </Text>
-        {value.roles.map((role, i) => (
-          <RoleChoiceRow key={role.roleId} choice={role} keepTicked={tickedCount === 1} onChange={(patch) => setRole(i, patch)} />
-        ))}
-      </Stack>
-      <Textarea
-        label="Extra instructions"
-        description="Added to every role's instructions in this run."
-        size="xs"
-        autosize
-        minRows={2}
-        maxRows={8}
-        maxLength={EXTRA_INSTRUCTIONS_MAX}
-        value={value.extraInstructions}
-        onChange={(e) => onChange({ ...value, extraInstructions: e.currentTarget.value })}
-      />
-    </Stack>
+    <StartOverrideForm
+      roles={value.roles}
+      extraInstructions={value.extraInstructions}
+      onRolesChange={(roles) => onChange({ ...value, roles })}
+      onExtraInstructionsChange={(extraInstructions) => onChange({ ...value, extraInstructions })}
+    />
   )
 }
 
-/** "Started #12 with Implementer and Reviewer", the number opening the ticket. */
+/**
+ * "✓ Login is in Implementing · Planner working", with an Open ticket link. The phase and the working role are the
+ * ticket's now, from the board, so the line stays true as the ticket moves on.
+ */
 function Receipt({ result }: { result: StartLineupResult }): ReactElement {
   const openTicket = useMainbus((s) => s.openTicket)
-  const names = result.roles.map((r) => r.name)
-  const list = names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  const ticket = useMainbus((s) => s.tickets.find((t) => t.id === result.ticketId))
+  const active = ticket?.lineup.find((r) => r.active)?.name ?? result.roles[0]?.name
+  const state = ticket?.state
+  const line = state
+    ? `✓ ${result.title} is in ${phaseLabel(state.phase)}${active && state.agentStatus === 'working' ? ` · ${active} working` : ''}`
+    : `✓ Started ${result.title}${active ? ` · ${active} working` : ''}`
   return (
-    <Text size="sm" c="dimmed">
-      Started{' '}
-      <Anchor component="button" type="button" size="sm" title={result.title} onClick={() => openTicket(result.ticketId)}>
-        #{result.number}
+    <Group gap="xs">
+      <Text size="sm" c="dimmed">
+        {line}
+      </Text>
+      <Anchor component="button" type="button" size="sm" onClick={() => openTicket(result.ticketId)}>
+        Open ticket
       </Anchor>
-      {` with ${list}`}
-    </Text>
+    </Group>
   )
 }
 
@@ -85,6 +73,7 @@ export const startLineupView: ProposalView<StartLineupPayload, StartLineupResult
     extraInstructions: p.extraInstructions ?? ''
   }),
   Editor,
+  overrideConfirmLabel: 'Start',
   toOverride: (edit): StartLineupOverride | null => {
     const roles = edit.roles.filter((r) => r.ticked).map((r) => ({ roleId: r.roleId, model: r.model, effort: r.effort }))
     return roles.length === 0 ? null : { roles, extraInstructions: edit.extraInstructions }

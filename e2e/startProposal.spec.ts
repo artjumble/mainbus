@@ -56,13 +56,10 @@ test('the orchestrator proposes starting a Backlog ticket; the user drops the Pl
     await box.press('Enter')
     await expect(panel.getByText("I've proposed starting #1.")).toBeVisible()
 
-    // The card: the roles in order with their model and effort, the extra instructions and why.
+    // The card: the lineup in order, the extra instructions and why.
     const card = panel.getByRole('group', { name: 'Proposal: Start #1 Add hello file' })
-    await expect(card.getByRole('list', { name: 'Roles' }).getByRole('listitem')).toHaveText([
-      'Planner · Opus · High',
-      'Implementer · Sonnet · Medium',
-      'Reviewer · Haiku · Low'
-    ])
+    await expect(card.getByText('PROPOSED ACTION', { exact: false })).toBeVisible()
+    await expect(card.getByLabel('Roles')).toContainText('lineup: Planner → Implementer → Reviewer')
     await expect(card.getByText('Extra instructions: Keep the change to one file.')).toBeVisible()
     await expect(card.getByText('Why: #1 is specced and nothing is running.')).toBeVisible()
     // Nothing starts before the user confirms.
@@ -70,20 +67,24 @@ test('the orchestrator proposes starting a Backlog ticket; the user drops the Pl
 
     // Override: drop the Planner and put the Implementer on Opus.
     await card.getByRole('button', { name: 'Override' }).click()
-    await card.getByRole('checkbox', { name: 'Planner' }).uncheck()
+    await card.getByRole('checkbox', { name: '1. Planner' }).uncheck()
+    // The models and effort are in a collapsed section, with each role's as proposed.
+    await card.getByRole('button', { name: /Models and effort per role/ }).click()
+    await expect(card.getByRole('combobox', { name: 'Model for Planner' })).toHaveValue('opus')
+    await expect(card.getByRole('combobox', { name: 'Model for Reviewer' })).toHaveValue('haiku')
     await card.getByRole('combobox', { name: 'Model for Implementer' }).selectOption('Opus')
-    await card.getByRole('button', { name: 'Confirm with changes' }).click()
+    await card.getByRole('button', { name: 'Start', exact: true }).click()
 
     const receipt = panel.locator('[data-proposal="receipt"]')
-    await expect(receipt).toContainText('Started #1 with Implementer and Reviewer')
+    await expect(receipt).toContainText('✓ Add hello file is in')
 
     // It left Backlog for In progress, and its lineup begins with the Implementer.
     const inProgress = page.getByRole('region', { name: 'In progress' })
     await expect(inProgress.getByRole('button', { name: /Add hello file/ })).toBeVisible()
-    await receipt.getByRole('button', { name: '#1' }).click()
+    await receipt.getByRole('button', { name: 'Open ticket' }).click()
     await expect(page.getByRole('heading', { name: 'Add hello file' })).toBeVisible()
     await expect(page.getByRole('list', { name: 'Lineup' }).getByRole('listitem')).toHaveText(
-      ['Implementer Working', 'Reviewer Not started'],
+      ['Implementer • Working', 'Reviewer ○ Not started'],
       { useInnerText: true }
     )
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()

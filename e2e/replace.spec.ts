@@ -49,7 +49,7 @@ test('the user replaces the working agent from the ticket view: the card opens, 
     // No stuck episode: the user's own Replace… opens the same card anyway.
     await page.getByRole('main').getByRole('button', { name: 'Replace…' }).click()
     const panel = page.getByRole('complementary', { name: 'Orchestrator' })
-    const card = panel.getByRole('group', { name: /^Proposal: Replace the Planner on #1/ })
+    const card = panel.getByRole('group', { name: /^Proposal: Replace the Planner on / })
     for (const name of ['Keep current', 'Override', 'Replace Planner']) await expect(card.getByRole('button', { name })).toBeVisible()
     // Nothing changes before the user decides.
     await expect(page.getByText('Planner at work on the flaky test.')).toHaveCount(1)
@@ -59,12 +59,14 @@ test('the user replaces the working agent from the ticket view: the card opens, 
 
     // The old agent's summary is in the thread, and a fresh Planner is at work.
     await expect(page.locator('[data-event="replaced"]')).toContainText('Planner replaced')
-    // The summary is in a block under the divider, collapsed until opened.
-    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(1) // the Activity's clipped copy only
-    await page.getByRole('button', { name: /Handoff from the previous run/ }).click()
-    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(2)
+    // The summary is in a block under the divider, open to begin with, and the way to the old run is in the divider line.
+    await expect(page.locator('[data-event="replaced"]')).toContainText('View previous run')
+    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: /Handoff from the previous run/ })).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByText('Planner at work on the flaky test.')).toHaveCount(2)
-    await expect(page.getByText('Replaced Planner (suggested by you with Replace…, confirmed by you)')).toHaveCount(1)
+    await expect(page.getByText('Planner replaced')).toHaveCount(2) // the divider, and the Activity
+    await expect(page.getByText('Suggested by you with Replace…, confirmed by you')).toHaveCount(1)
+    await expect(page.getByText('New Planner started from the plan')).toHaveCount(1)
   } finally {
     await app?.close().catch(() => {})
     try {

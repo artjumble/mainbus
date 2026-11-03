@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal, ReplacePayload } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeTicket, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -47,15 +47,27 @@ function proposal(over: Partial<Proposal> = {}): Proposal {
   }
 }
 
-const CARD = 'Proposal: Replace the Implementer on #3 Add login'
+const CARD = 'Proposal: Replace the Implementer on Add login'
 
 test('shows the evidence lines and the three choices: Keep current, Override and Replace <role>', () => {
+  useMainbus.setState({
+    tickets: [
+      makeTicket({ id: 't3', lineup: [
+        { id: 'a', name: 'Planner', status: 'handed_off', active: false, replacements: 0 },
+        { id: 'b', name: 'Implementer', status: 'working', active: true, replacements: 0 }
+      ] })
+    ]
+  })
   renderWithMantine(<ProposalCard proposal={proposal()} />)
   const card = screen.getByRole('group', { name: CARD })
+  expect(within(card).getByRole('list', { name: 'Why it looks stuck' })).toBeInTheDocument()
+  expect(within(card).getByText('PROPOSED ACTION', { exact: false })).toBeInTheDocument()
+  expect(within(card).getByText("The new Implementer gets the plan, decisions so far, and a handoff of what was tried. The Planner's work is kept.")).toBeInTheDocument()
+  // Keep current and Override come before the full-width Replace.
+  expect(within(card).getAllByRole('button').slice(0, 3).map((b) => b.textContent)).toEqual(['Keep current', 'Override', 'Replace Implementer'])
   expect(within(card).getByText('Bash failed 5 times in a row: npm test')).toBeInTheDocument()
   expect(within(card).getByText('Last error: timed out')).toBeInTheDocument()
   expect(within(card).getByText('Why: The redirect did not help')).toBeInTheDocument()
-  expect(within(card).getByText(/A fresh Implementer \(Opus · High\) starts in the same worktree/)).toBeInTheDocument()
   for (const name of ['Keep current', 'Override', 'Replace Implementer']) expect(within(card).getByRole('button', { name })).toBeInTheDocument()
   expect(within(card).queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
   expect(within(card).queryByRole('button', { name: 'Reject' })).not.toBeInTheDocument()

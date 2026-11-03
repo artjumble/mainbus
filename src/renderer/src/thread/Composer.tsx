@@ -5,6 +5,10 @@ interface Props {
   /** Rejects when the message could not be sent; the text then stays in the box. */
   onSend: (text: string) => Promise<void>
   placeholder?: string
+  /** A visible label above the box, which is also its accessible name; without one the placeholder names it. */
+  label?: string
+  /** What the button reads; its accessible name begins with "Send" either way. */
+  sendLabel?: string
   /** Enter sends and Shift+Enter starts a new line, instead of Ctrl+Enter sending. */
   enterSends?: boolean
   /** A turn is running: the button inside the box is Stop (calls `onStop`), and typing goes on. */
@@ -20,6 +24,8 @@ interface Props {
 export function Composer({
   onSend,
   placeholder = 'Message',
+  label,
+  sendLabel = 'Send',
   enterSends = false,
   working = false,
   onStop,
@@ -83,7 +89,9 @@ export function Composer({
   return (
     <Textarea
       ref={input}
-      aria-label={placeholder}
+      label={label}
+      labelProps={{ fz: 'xs', c: 'dimmed', mb: 4 }}
+      aria-label={label === undefined ? placeholder : undefined}
       placeholder={placeholder}
       autosize
       minRows={2}
@@ -91,7 +99,7 @@ export function Composer({
       value={text}
       onChange={(e) => setText(e.currentTarget.value)}
       onKeyDown={onKeyDown}
-      rightSectionWidth={72}
+      rightSectionWidth={sendLabel === 'Send' ? 72 : 130}
       rightSectionProps={{ style: { alignItems: 'flex-end', padding: 6 } }}
       rightSection={
         showStop ? (
@@ -100,7 +108,7 @@ export function Composer({
           </Button>
         ) : (
           <Button size="compact-sm" disabled={!canSend} loading={sending} onClick={() => void send()}>
-            Send
+            {sendLabel}
           </Button>
         )
       }

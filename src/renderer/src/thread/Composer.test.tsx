@@ -117,3 +117,9 @@ test('the composer, empty, with text and while working, has no axe violations', 
   rerender(<Composer onSend={async () => {}} placeholder="Message" working onStop={async () => {}} />)
   await expectNoAxeViolations()
 })
+
+test('a label is shown above the box and names it; the button can read differently', () => {
+  renderWithMantine(<Composer onSend={async () => {}} label="Message the Implementer" placeholder="Steer it" sendLabel="Send and start" />)
+  expect(screen.getByLabelText('Message the Implementer')).toHaveAttribute('placeholder', 'Steer it')
+  expect(screen.getByRole('button', { name: 'Send and start' })).toBeInTheDocument()
+})

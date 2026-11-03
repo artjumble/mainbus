@@ -95,7 +95,7 @@ describe('Pause, Resume and Skip to next role', () => {
     const { unmount } = renderWithMantine(<TicketView />)
     expect(screen.queryByText('Paused', CHIP)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Skip to next role' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Skip to / })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Pause' }))
     expect(mockInvoke).toHaveBeenCalledWith('agent.pause', working.id)
     unmount()
@@ -111,7 +111,7 @@ describe('Pause, Resume and Skip to next role', () => {
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Skip to next role' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Skip to / })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Resume' }))
     expect(mockInvoke).toHaveBeenCalledWith('agent.resume', paused.id)
   })
@@ -145,14 +145,14 @@ describe('Pause, Resume and Skip to next role', () => {
     useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
     renderWithMantine(<TicketView />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     const dialog = await screen.findByRole('dialog', { name: 'Skip to next role' })
     expect(within(dialog).getByText('Skip the Planner? Its work so far is summarised for the Implementer.')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(mockInvoke).not.toHaveBeenCalledWith('agent.skip', ticket.id)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
-    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Skip' }))
     expect(mockInvoke).toHaveBeenCalledWith('agent.skip', ticket.id)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -161,7 +161,7 @@ describe('Pause, Resume and Skip to next role', () => {
   test('on the last role, Skip says the ticket goes to Review', async () => {
     show({ phase: 'reviewing', agentStatus: 'working', column: 'in_progress' }, strip('r'))
     renderWithMantine(<TicketView />)
-    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Skip the Reviewer? Its work so far is summarised and the ticket goes to Review.')).toBeInTheDocument()
   })
@@ -174,7 +174,7 @@ describe('Pause, Resume and Skip to next role', () => {
       return undefined
     })
     renderWithMantine(<TicketView />)
-    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Skip' }))
     expect(await screen.findByText('No agent is working on this ticket')).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -183,7 +183,7 @@ describe('Pause, Resume and Skip to next role', () => {
   test('none of them show without an open run', () => {
     show({ column: 'ready' })
     renderWithMantine(<TicketView />)
-    for (const name of ['Pause', 'Resume', 'Skip to next role']) {
+    for (const name of ['Pause', 'Resume', /^Skip to /]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
   })
@@ -195,8 +195,8 @@ test('with no run, Start and a first-message composer show; the first send start
   expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Adjust before starting' })).toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: 'First message (starts the lineup)' })).toBeInTheDocument()
-  await userEvent.type(screen.getByPlaceholderText('First message (starts the lineup)'), 'Begin with the header')
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.type(screen.getByLabelText('First message (starts the lineup)'), 'Begin with the header')
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   const calls = mockInvoke.mock.calls.map((c) => c.slice(0, 3)).filter(([cmd]) => String(cmd).startsWith('agent.'))
   expect(calls).toEqual([
     ['agent.start', ticket.id],
@@ -214,8 +214,8 @@ test('Start alone starts the agent', async () => {
 test('while an agent exists the composer sends a message to it', async () => {
   const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
   renderWithMantine(<TicketView />)
-  await userEvent.type(await screen.findByPlaceholderText('Message the Implementer'), 'Use tabs')
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.type(await screen.findByLabelText('Message the Implementer'), 'Use tabs')
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   expect(mockInvoke).toHaveBeenCalledWith('agent.send', ticket.id, 'Use tabs')
   expect(mockInvoke).not.toHaveBeenCalledWith('agent.start', ticket.id)
 })
@@ -309,8 +309,8 @@ test.each(['failed', 'handed_off'] as const)('after a %s run, Start again and a 
   expect(await screen.findByRole('button', { name: 'Start again' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
-  await userEvent.type(screen.getByPlaceholderText('Message to start a new run'), 'Try again')
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.type(screen.getByLabelText('Message to start a new run'), 'Try again')
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   expect(agentCalls()).toEqual([
     ['agent.start', ticket.id],
     ['agent.send', ticket.id, 'Try again']
@@ -330,10 +330,10 @@ test('while the board is moving the ticket, it stays as it was and cannot be sta
   renderWithMantine(<TicketView />)
   expect(await screen.findByRole('button', { name: 'Start again' })).toBeDisabled()
   expect(screen.getByText('Ready for review')).toBeInTheDocument()
-  await userEvent.type(screen.getByPlaceholderText('Message to start a new run'), 'Try again')
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.type(screen.getByLabelText('Message to start a new run'), 'Try again')
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   expect(agentCalls()).toEqual([])
-  expect(screen.getByPlaceholderText('Message to start a new run')).toHaveValue('Try again')
+  expect(screen.getByLabelText('Message to start a new run')).toHaveValue('Try again')
 })
 
 test('a done ticket shows neither Start nor a composer', async () => {
@@ -354,10 +354,10 @@ test('a retry after a failed send does not start the agent twice', async () => {
     return undefined
   })
   renderWithMantine(<TicketView />)
-  await userEvent.type(await screen.findByPlaceholderText('First message (starts the lineup)'), 'Go')
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.type(await screen.findByLabelText('First message (starts the lineup)'), 'Go')
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   expect(await screen.findByText('not delivered')).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   await waitFor(() => expect(sends).toBe(2))
   expect(agentCalls().filter(([cmd]) => cmd === 'agent.start')).toEqual([['agent.start', ticket.id]])
 })
@@ -371,11 +371,11 @@ test('Start and the first-message send share one busy flag, so the agent starts 
     return Promise.resolve(undefined)
   })
   renderWithMantine(<TicketView />)
-  const box = await screen.findByPlaceholderText('First message (starts the lineup)')
+  const box = await screen.findByLabelText('First message (starts the lineup)')
   await userEvent.click(screen.getByRole('button', { name: 'Start' }))
   expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled()
   await userEvent.type(box, 'Hello')
-  await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
   finishStart()
   await waitFor(() => expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled())
   expect(agentCalls().filter(([cmd]) => cmd === 'agent.start')).toEqual([['agent.start', ticket.id]])
@@ -419,14 +419,14 @@ test('the lineup strip shows the run’s roles in order with their status, the a
   show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
   renderWithMantine(<TicketView />)
   const items = within(screen.getByRole('list', { name: 'Lineup' })).getAllByRole('listitem')
-  expect(items.map((li) => li.textContent)).toEqual(['PlannerHanded off', 'ImplementerWorking', 'ReviewerNot started'])
+  expect(items.map((li) => li.textContent)).toEqual(['Planner✓ Handed off', 'Implementer• Working', 'Reviewer○ Not started'])
   expect(items.map((li) => li.getAttribute('aria-current'))).toEqual([null, 'step', null])
 })
 
 test('the composer and the controls name the active role', async () => {
   show({ phase: 'reviewing', agentStatus: 'waiting_on_you', column: 'needs_you' }, strip('r', 'waiting_on_you'))
   renderWithMantine(<TicketView />)
-  expect(await screen.findByPlaceholderText('Message the Reviewer')).toBeInTheDocument()
+  expect(await screen.findByLabelText('Message the Reviewer')).toBeInTheDocument()
   const lineup = screen.getByRole('list', { name: 'Lineup' })
   expect(within(lineup).getByText('Waiting on you')).toBeInTheDocument()
 })
@@ -457,9 +457,9 @@ describe('Adjust before starting', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
     expect(await within(dialog).findAllByRole('checkbox')).toHaveLength(3)
-    for (const name of ['Planner', 'Implementer', 'Reviewer']) expect(within(dialog).getByRole('checkbox', { name })).toBeChecked()
+    for (const name of ['1. Planner', '2. Implementer', '3. Reviewer']) expect(within(dialog).getByRole('checkbox', { name })).toBeChecked()
 
-    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Planner' }))
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: '1. Planner' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
     expect(agentCalls()).toEqual([
       [
@@ -483,6 +483,8 @@ describe('Adjust before starting', () => {
     renderWithMantine(<TicketView />)
     await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    // The models and effort are in a section that starts collapsed.
+    await userEvent.click(await within(dialog).findByRole('button', { name: /Models and effort per role/ }))
     const model = async (name: string) => within(dialog).findByRole('combobox', { name: `Model for ${name}` })
     const effort = (name: string) => within(dialog).getByRole('combobox', { name: `Effort for ${name}` })
     expect(await model('Planner')).toHaveValue('opus')
@@ -497,9 +499,9 @@ describe('Adjust before starting', () => {
 
     await userEvent.selectOptions(await model('Planner'), 'Haiku')
     await userEvent.selectOptions(effort('Reviewer'), 'Low')
-    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Implementer' }))
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: '2. Implementer' }))
     expect(await model('Implementer')).toBeDisabled()
-    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Extra instructions' }), 'Keep it small.')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Extra instructions for this agent' }), 'Keep it small.')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
     expect(agentCalls()).toEqual([
       [
@@ -514,17 +516,18 @@ describe('Adjust before starting', () => {
     ])
   })
 
-  test('Start is disabled with no role ticked, and Cancel starts nothing', async () => {
+  test('the last ticked role stays ticked, and Cancel starts nothing', async () => {
     show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
     renderWithMantine(<TicketView />)
     // It sits next to Start again too.
     expect(await screen.findByRole('button', { name: 'Start again' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    for (const name of ['Planner', 'Implementer', 'Reviewer']) {
+    for (const name of ['1. Planner', '2. Implementer', '3. Reviewer']) {
       await userEvent.click(await within(dialog).findByRole('checkbox', { name }))
     }
-    expect(within(dialog).getByRole('button', { name: 'Start' })).toBeDisabled()
+    expect(within(dialog).getByRole('checkbox', { name: '3. Reviewer' })).toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: '3. Reviewer' })).toBeDisabled()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(agentCalls()).toEqual([])
@@ -541,7 +544,7 @@ describe('Adjust before starting', () => {
     renderWithMantine(<TicketView />)
     await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    await within(dialog).findByRole('checkbox', { name: 'Planner' })
+    await within(dialog).findByRole('checkbox', { name: '1. Planner' })
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
     expect(await screen.findByText('Tick at least one role to start')).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Adjust before starting' })).toBeInTheDocument()
@@ -677,7 +680,7 @@ describe('accessibility', () => {
     renderWithMantine(<TicketView />)
     await screen.findByText('On it.')
     await expectNoAxeViolations()
-    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     await screen.findByRole('dialog', { name: 'Skip to next role' })
     await expectNoAxeViolations()
   })
@@ -694,5 +697,45 @@ describe('accessibility', () => {
     renderWithMantine(<TicketView />)
     await screen.findByText('Run npm test?')
     await expectNoAxeViolations()
+  })
+})
+
+describe('wireframe pass', () => {
+  test('the controls row says which role the buttons apply to, and Skip names where it goes', async () => {
+    const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByText('Controls apply to the Implementer')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Skip to ${ticket.skipTo ?? 'next role'}` })).toBeInTheDocument()
+    // Pause, Stop, Skip, Replace…, in that order.
+    const names = screen.getAllByRole('button').map((b) => b.textContent)
+    const order = ['Pause', 'Stop', 'Skip to', 'Replace…'].map((n) => names.findIndex((t) => t?.startsWith(n)))
+    expect(order.every((i) => i >= 0)).toBe(true)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+  })
+
+  test('a working role has a live line from its latest tool call, and the composer is labelled', async () => {
+    const ticket = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
+    thread = {
+      events: [makeEvent({ kind: 'tool_call', id: 'c1', name: 'Edit', input: { file_path: 'src/export.ts' } }, { runId: 'r1' })],
+      decisions: [],
+      runs: [run]
+    }
+    renderWithMantine(<TicketView />)
+    const live = await screen.findByText('Implementer is editing src/export.ts')
+    expect(live.closest('[role="status"]')).not.toBeNull()
+    expect(screen.getByLabelText('Message the Implementer')).toHaveAttribute('placeholder', 'Steer it, answer a question, add context')
+    expect(ticket.id).toBeTruthy()
+  })
+
+  test('a ticket nobody has worked says so, with Start and Adjust, and its composer says Send and start', async () => {
+    show({ column: 'ready', phase: 'not_started', agentStatus: null })
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByText('Nobody is working on this yet')).toBeInTheDocument()
+    expect(screen.getByText(/^Starting runs the mainbus lineup: Planner → Implementer → Reviewer\./)).toBeInTheDocument()
+    expect(screen.getByText('Past runs on this ticket appear in the activity timeline.')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Start' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Adjust before starting' })).toHaveLength(1)
+    expect(screen.getByLabelText('First message (starts the lineup)')).toHaveAttribute('placeholder', 'Optional instructions for the lineup')
+    expect(screen.getByRole('button', { name: 'Send and start' })).toBeInTheDocument()
   })
 })

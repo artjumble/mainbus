@@ -55,7 +55,7 @@ export function App(): ReactElement {
     <AppShell
       header={{ height: 48 }}
       // Names beside the entries when wide, initials when narrow.
-      navbar={withPanel ? { width: { base: 72, lg: 220 }, breakpoint: 0 } : undefined}
+      navbar={withPanel ? { width: { base: 72, lg: 190 }, breakpoint: 0 } : undefined}
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
       aside={withPanel ? { width: panelOpen ? PANEL_WIDTH : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >

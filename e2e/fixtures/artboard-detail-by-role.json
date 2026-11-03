@@ -1,0 +1,19 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-detail-p" } },
+    { "emit": { "kind": "message", "text": "Planner: the export needs one new module." } },
+    { "callTool": "handoff", "args": { "summary": "Plan: add src/export.ts and wire it into the reports page", "notesForNext": "Keep it small" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-detail-i" } },
+    { "emit": { "kind": "thinking", "text": "The plan says one module; check how reports are rendered first.", "durationMs": 4000 } },
+    { "emit": { "kind": "tool_call", "id": "t1", "name": "Read", "input": { "file_path": "src/reports.ts" } } },
+    { "emit": { "kind": "tool_result", "id": "t1", "ok": true, "summary": "42 lines" } },
+    { "emit": { "kind": "message", "text": "Implementer: reading how reports render." } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Implementer: understood, writing it now." } },
+    { "emit": { "kind": "tool_call", "id": "t2", "name": "Edit", "input": { "file_path": "src/export.ts", "old_string": "a", "new_string": "b" } } },
+    { "waitForSend": true }
+  ]
+}

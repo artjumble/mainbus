@@ -68,7 +68,7 @@ test('dragging a Backlog card into In progress proposes a start in the panel; th
     const card = panel.getByRole('group', { name: 'Proposal: Start #1 Add hello file' })
     await expect(card).toBeVisible()
     await expect(card.getByText('Why: You dragged #1 "Add hello file" into In progress.')).toBeVisible()
-    await expect(card.getByRole('list', { name: 'Roles' }).getByRole('listitem')).toHaveCount(3)
+    await expect(card.getByLabel('Roles')).toContainText('lineup: Planner → Implementer → Reviewer')
     await expect(panel.getByText('Working…')).toHaveCount(0)
     await expect(backlog.getByRole('button', { name: /Add hello file/ })).toBeVisible()
 

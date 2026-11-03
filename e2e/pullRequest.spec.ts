@@ -56,7 +56,7 @@ async function createReadyTicket(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: 'New ticket' }).click()
   await page.getByLabel('Title').fill(title)
   await page.getByLabel('In your words').fill(title)
-  await page.getByLabel('Put it in Ready (otherwise Backlog)').check()
+  await page.getByLabel('Column').selectOption('ready')
   await page.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByRole('region', { name: 'Ready' }).getByText(title)).toBeVisible()
 }

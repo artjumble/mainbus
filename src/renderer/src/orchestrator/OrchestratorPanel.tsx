@@ -1,5 +1,6 @@
 import { ActionIcon, Badge, Box, Center, Flex, Group, Loader, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import type { ReactElement } from 'react'
+import type { WorkspaceSummary } from '../../../shared/api'
 import type { Decision } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
@@ -10,10 +11,19 @@ import { useOrchestratorThread } from './useOrchestratorThread'
 import { WaitingOnYou } from './WaitingOnYou'
 
 /** The aside's width open, and collapsed to its strip. */
-export const PANEL_WIDTH = 380
+export const PANEL_WIDTH = 340
 export const STRIP_WIDTH = 44
 
 export const EMPTY_TEXT = "Ask me to draft tickets, or about what's happening on the board."
+
+/**
+ * The Fleet line's numbers, of agents across every workspace: working, waiting on you, and idle (open but paused or
+ * queued).
+ */
+export function fleetCounts(workspaces: WorkspaceSummary[]): { working: number; needYou: number; idle: number } {
+  const sum = (pick: (w: WorkspaceSummary) => number): number => workspaces.reduce((total, w) => total + pick(w), 0)
+  return { working: sum((w) => w.working), needYou: sum((w) => w.waiting), idle: sum((w) => w.idle) }
+}
 
 /** The orchestrator's thread has no decision cards of its own: the pending ones are pinned above it. */
 const NO_DECISIONS: Decision[] = []
@@ -34,6 +44,9 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const clearPrefill = useMainbus((s) => s.clearOrchestratorPrefill)
   // Across every workspace: the strip is how you notice that one that isn't on screen needs you.
   const needsYou = useMainbus((s) => s.workspaces.reduce((total, w) => total + w.needsYou, 0))
+  const workspaceName = useMainbus((s) => s.workspace?.name ?? 'no workspace')
+  const workspaces = useMainbus((s) => s.workspaces)
+  const fleet = fleetCounts(workspaces)
 
   if (!open) {
     return (
@@ -84,13 +97,21 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
         wrap="nowrap"
         style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
       >
-        <Title order={2} size="h5">
-          Orchestrator
-        </Title>
+        <Stack gap={0}>
+          <Title order={2} size="h5">
+            Orchestrator
+          </Title>
+          <Text size="xs" c="dimmed">
+            All workspaces · focused on {workspaceName}
+          </Text>
+        </Stack>
         <ActionIcon variant="subtle" color="gray" aria-label="Collapse orchestrator panel" onClick={() => onOpenChange(false)}>
-          <span aria-hidden>»</span>
+          <span aria-hidden>›</span>
         </ActionIcon>
       </Group>
+      <Text size="xs" c="dimmed" ta="center" py={6} data-fleet>
+        {`Fleet: ${fleet.working} working · ${fleet.needYou} need you · ${fleet.idle} idle`}
+      </Text>
       <WaitingOnYou />
       {thread === null ? (
         <Center flex={1}>
@@ -118,7 +139,8 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
       </div>
       <Box p="sm" pt={4}>
         <Composer
-          placeholder="Message the orchestrator"
+          label="Message the orchestrator"
+          placeholder="Ask for status, create tickets, start or stop agents"
           enterSends
           working={working}
           onStop={stop}
