@@ -89,3 +89,22 @@ test('while working, the button is Stop, typing goes on, and Enter does not send
   await userEvent.click(stop)
   expect(onStop).toHaveBeenCalledTimes(1)
 })
+
+test('a prefill fills the box, focuses it with the caret at the end, and reports once', () => {
+  const onPrefilled = vi.fn()
+  const { rerender } = renderWithMantine(
+    <Composer onSend={async () => {}} prefill={{ text: 'Draft tickets for ', n: 1 }} onPrefilled={onPrefilled} />
+  )
+  const box = screen.getByRole('textbox') as HTMLTextAreaElement
+  expect(box).toHaveValue('Draft tickets for ')
+  expect(box).toHaveFocus()
+  expect(box.selectionStart).toBe('Draft tickets for '.length)
+  expect(onPrefilled).toHaveBeenCalledTimes(1)
+
+  // A re-render with the same ask does not apply it again; a new ask does.
+  rerender(<Composer onSend={async () => {}} prefill={{ text: 'Draft tickets for ', n: 1 }} onPrefilled={onPrefilled} />)
+  expect(onPrefilled).toHaveBeenCalledTimes(1)
+  rerender(<Composer onSend={async () => {}} prefill={{ text: 'Again ', n: 2 }} onPrefilled={onPrefilled} />)
+  expect(box).toHaveValue('Again ')
+  expect(onPrefilled).toHaveBeenCalledTimes(2)
+})

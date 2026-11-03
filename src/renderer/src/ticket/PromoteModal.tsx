@@ -1,6 +1,7 @@
 import { Button, Group, Loader, Modal, Stack, Text, Textarea, TextInput } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { showError } from '../notify'
 
 interface Props {
@@ -46,7 +47,7 @@ export function PromoteModal({ opened, ticketId, onClose }: Props): ReactElement
     if (!draft) return
     setPromoting(true)
     try {
-      await invoke('ticket.promote', ticketId, { title: draft.title, spec: draft.spec })
+      await asOwnChange(ticketId, () => invoke('ticket.promote', ticketId, { title: draft.title, spec: draft.spec }))
       onClose()
     } catch (err) {
       showError(err, 'Could not promote')

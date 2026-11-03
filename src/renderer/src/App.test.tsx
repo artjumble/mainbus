@@ -46,7 +46,7 @@ test('a failed setup check shows the setup screen and no board', async () => {
 test('with Claude ready and no workspace, the app offers to open a repo folder', async () => {
   answer({ ok: true, path: 'claude', version: '2' }, null)
   renderWithMantine(<App />)
-  expect(await screen.findByRole('button', { name: 'Open a repo folder' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Add workspace' })).toBeInTheDocument()
 })
 
 test('with a workspace, the app shows the board, and a card opens the ticket view', async () => {
@@ -98,7 +98,7 @@ test('the setup screens have no orchestrator panel', async () => {
   useMainbus.setState(initial, true)
   answer({ ok: true, path: 'claude', version: '2' }, null)
   renderWithMantine(<App />)
-  await screen.findByRole('button', { name: 'Open a repo folder' })
+  await screen.findByRole('button', { name: 'Add workspace' })
   expect(screen.queryByRole('complementary', { name: 'Orchestrator' })).not.toBeInTheDocument()
 })
 
@@ -110,8 +110,27 @@ test('a failing first load shows an error with Try again instead of an endless l
 
   answer({ ok: true, path: 'claude', version: '2' }, workspace, [])
   await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  expect(await screen.findByText('Backlog')).toBeInTheDocument()
+  expect(await screen.findByText('No tickets yet')).toBeInTheDocument()
   expect(screen.queryByText('database is locked')).not.toBeInTheDocument()
+})
+
+test('the first launch shows a welcome with Add workspace', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, null)
+  renderWithMantine(<App />)
+  expect(await screen.findByText('Welcome to Mainbus')).toBeInTheDocument()
+})
+
+test('asking the orchestrator to draft tickets expands a collapsed panel and fills its box', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, workspace)
+  renderWithMantine(<App />)
+  const panel = await screen.findByRole('complementary', { name: 'Orchestrator' })
+  await userEvent.click(within(panel).getByRole('button', { name: 'Collapse orchestrator panel' }))
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Ask orchestrator to draft tickets' }))
+  const box = await within(panel).findByRole('textbox', { name: 'Message the orchestrator' })
+  expect(box).toHaveValue('Draft tickets for ')
+  expect(box).toHaveFocus()
+  expect(useMainbus.getState().orchestratorPrefill).toBeNull()
 })
 
 test('revealing a proposal expands a collapsed orchestrator panel', async () => {

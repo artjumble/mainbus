@@ -341,3 +341,135 @@ test('the settings button in the header asks for the workspace settings', async 
   await userEvent.click(screen.getByRole('button', { name: 'Workspace settings' }))
   expect(useMainbus.getState().settingsOpen).toBe(true)
 })
+
+function searchBox(): HTMLElement {
+  return screen.getByRole('textbox', { name: 'Search tickets' })
+}
+
+describe('search', () => {
+  function showSearchable(): void {
+    const login = makeTicket(
+      { number: 12, title: 'Fix login', labels: ['auth'], intent: [{ text: 'Users cannot sign in', at: '2026-10-30T00:00:00.000Z' }] },
+      { column: 'backlog' }
+    )
+    const docs = makeTicket(
+      { number: 34, title: 'Add docs', labels: ['writing'], intent: [{ text: 'Explain the setup', at: '2026-10-30T00:00:00.000Z' }] },
+      { column: 'ready' }
+    )
+    showBoard(login, docs)
+  }
+
+  test.each([
+    ['#12', 'Fix login'],
+    ['12', 'Fix login'],
+    ['docs', 'Add docs'],
+    ['AUTH', 'Fix login'],
+    ['writing', 'Add docs'],
+    ['sign in', 'Fix login'],
+    ['setup', 'Add docs']
+  ])('typing %s shows only %s', async (query, title) => {
+    showSearchable()
+    renderWithMantine(<Board />)
+    await userEvent.type(searchBox(), query)
+    const other = title === 'Fix login' ? 'Add docs' : 'Fix login'
+    expect(screen.getByRole('button', { name: new RegExp(title) })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: new RegExp(other) })).not.toBeInTheDocument()
+  })
+
+  test('columns keep their order and empty ones say No matches; the count follows the filter', async () => {
+    showSearchable()
+    renderWithMantine(<Board />)
+    await userEvent.type(searchBox(), 'docs')
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Backlog',
+      'Ready',
+      'In progress',
+      'Needs you',
+      'Review',
+      'Done'
+    ])
+    expect(within(screen.getByRole('region', { name: 'Backlog' })).getByText('No matches')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Backlog' })).getByTestId('column-count')).toHaveTextContent('0')
+    expect(within(screen.getByRole('region', { name: 'Ready' })).getByTestId('column-count')).toHaveTextContent('1')
+    expect(screen.getAllByText('No matches')).toHaveLength(5)
+  })
+
+  test('the clear button and Escape reset the filter', async () => {
+    showSearchable()
+    renderWithMantine(<Board />)
+    await userEvent.type(searchBox(), 'docs')
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(searchBox()).toHaveValue('')
+    expect(screen.getByRole('button', { name: /Fix login/ })).toBeInTheDocument()
+
+    await userEvent.type(searchBox(), 'docs{Escape}')
+    expect(searchBox()).toHaveValue('')
+    expect(screen.queryByText('No matches')).not.toBeInTheDocument()
+  })
+
+  test('Ctrl+K and / focus the box when no input has focus, and / is not typed into it', async () => {
+    showSearchable()
+    renderWithMantine(<Board />)
+    await userEvent.keyboard('{Control>}k{/Control}')
+    expect(searchBox()).toHaveFocus()
+    searchBox().blur()
+    await userEvent.keyboard('/')
+    expect(searchBox()).toHaveFocus()
+    expect(searchBox()).toHaveValue('')
+  })
+
+  test('/ does not steal focus from another input', async () => {
+    showSearchable()
+    renderWithMantine(
+      <>
+        <Board />
+        <textarea aria-label="Other" />
+      </>
+    )
+    await userEvent.click(screen.getByRole('textbox', { name: 'Other' }))
+    await userEvent.keyboard('a/b')
+    expect(screen.getByRole('textbox', { name: 'Other' })).toHaveValue('a/b')
+    expect(searchBox()).not.toHaveFocus()
+  })
+
+  test('the filter resets when the focused workspace changes', async () => {
+    showSearchable()
+    useMainbus.setState({ search: 'docs' })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'workspace.get') return { ...workspace, id: 'other' }
+      if (command === 'board.get') return { tickets: [] }
+      return { on: false, status: { kind: 'off' } }
+    })
+    await act(() => useMainbus.getState().reloadFocused())
+    expect(useMainbus.getState().search).toBe('')
+  })
+})
+
+describe('empty states', () => {
+  test('a workspace with no tickets shows No tickets yet with both actions and no header New ticket', async () => {
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [] }, true)
+    renderWithMantine(<Board />)
+    expect(screen.getByText('No tickets yet')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'New ticket' })).toHaveLength(1)
+    expect(screen.queryByRole('textbox', { name: 'Search tickets' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ask orchestrator to draft tickets' }))
+    expect(useMainbus.getState().orchestratorPrefill?.text).toBe('Draft tickets for ')
+
+    await userEvent.click(screen.getByRole('button', { name: 'New ticket' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  test('the empty state waits for the first board read', () => {
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, tickets: [] }, true)
+    renderWithMantine(<Board />)
+    expect(screen.queryByText('No tickets yet')).not.toBeInTheDocument()
+  })
+
+  test('an empty column has a quiet placeholder', () => {
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    expect(within(screen.getByRole('region', { name: 'Done' })).getByText('Nothing here')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Backlog' })).queryByText('Nothing here')).not.toBeInTheDocument()
+  })
+})

@@ -65,7 +65,7 @@ test('after the app is killed mid-run, the working agents resume and a pending q
 
     session = await launch(home, repo)
     let { page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     for (const title of ['Alpha ticket', 'Bravo ticket', 'Charlie ticket']) await createTicket(page, title)
 
     // Two tickets start normally; their Planners stay working.

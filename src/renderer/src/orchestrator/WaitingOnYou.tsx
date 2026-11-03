@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactElement } from 'react'
 import type { Decision } from '../../../shared/domain'
 import { shortDay } from '../../../shared/hold'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { useMainbus, type BoardTicket } from '../store'
 import { QuestionForm } from '../thread/DecisionCard'
 import { showAgentError } from '../thread/agentError'
@@ -49,7 +50,7 @@ function TicketLine({ ticket, openTicket }: { ticket: BoardTicket; openTicket: (
 
 async function bringBack(decision: Decision): Promise<void> {
   try {
-    await invoke('decision.bringBack', decision.id)
+    await asOwnChange(decision.ticketId, () => invoke('decision.bringBack', decision.id))
   } catch (err) {
     showAgentError(err, 'Could not bring this back')
   }

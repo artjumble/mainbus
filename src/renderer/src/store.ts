@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { BoardTicket, WorkspaceSummary } from '../../shared/api'
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { invoke, onEngineEvent } from './api'
+import { asOwnChange, isOwnChange } from './board/ownChanges'
 import { errorMessage } from './notify'
 
 export type { BoardTicket }
@@ -20,6 +21,8 @@ interface MainbusState {
   /** The workspace settings drawer (it shows the focused workspace). */
   settingsOpen: boolean
   tickets: BoardTicket[]
+  /** False until the focused workspace's board has been read, so an empty board isn't shown as "No tickets yet" meanwhile. */
+  boardLoaded: boolean
   /** Why the first load failed, shown with a Try again button; null otherwise. */
   loadError: string | null
   /** Set by clicking a card; the ticket view (Task 14) reads it. */
@@ -38,7 +41,16 @@ interface MainbusState {
    * revealing the same proposal again shows it again.
    */
   revealedProposal: { id: string; n: number } | null
+  /** What the board's search box holds; resets when the focused workspace changes. */
+  search: string
+  /** When Mainbus last changed a ticket's column, phase or agent status (ms), by ticket id; drives the card outline. */
+  recentlyChanged: Record<string, number>
+  /** Text for the orchestrator's message box: the panel expands, fills the box and focuses it. `n` counts asks. */
+  orchestratorPrefill: { text: string; n: number } | null
 
+  setSearch(query: string): void
+  askOrchestrator(text: string): void
+  clearOrchestratorPrefill(): void
   /** The first load: setup check, then workspace and board. Never rejects; a failure lands in `loadError`. */
   load(): Promise<void>
   checkSetup(): Promise<void>
@@ -97,6 +109,23 @@ function stabilize(previous: BoardTicket[], next: BoardTicket[]): BoardTicket[] 
   return merged.length === previous.length && merged.every((t, i) => t === previous[i]) ? previous : merged
 }
 
+/** How long a card's outline is kept in the store; the longest it is ever shown. */
+export const RECENT_MS = 4000
+
+/** Ids of tickets in both lists whose column, phase or agent status differ. New tickets are not changes. */
+export function changedTicketIds(previous: BoardTicket[], next: BoardTicket[]): string[] {
+  const byId = new Map(previous.map((t) => [t.id, t.state]))
+  return next
+    .filter((t) => {
+      const old = byId.get(t.id)
+      return (
+        old !== undefined &&
+        (old.column !== t.state.column || old.phase !== t.state.phase || old.agentStatus !== t.state.agentStatus)
+      )
+    })
+    .map((t) => t.id)
+}
+
 /** Board refreshes triggered by engine events are at most this far apart. */
 const BOARD_REFRESH_WINDOW_MS = 150
 
@@ -133,12 +162,20 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   workspaces: [],
   settingsOpen: false,
   tickets: [],
+  boardLoaded: false,
   loadError: null,
   currentTicketId: null,
   unattended: UNATTENDED_OFF,
   usage: { kind: 'ok' },
   pendingMoves: {},
   revealedProposal: null,
+  search: '',
+  recentlyChanged: {},
+  orchestratorPrefill: null,
+
+  setSearch: (search) => set({ search }),
+  askOrchestrator: (text) => set((s) => ({ orchestratorPrefill: { text, n: (s.orchestratorPrefill?.n ?? 0) + 1 } })),
+  clearOrchestratorPrefill: () => set({ orchestratorPrefill: null }),
 
   async load() {
     set({ loadError: null })
@@ -163,7 +200,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
 
   async openWorkspace(repoPath) {
     const workspace = await invoke('workspace.open', repoPath)
-    set({ workspace, workspaceLoaded: true })
+    set({ workspace, workspaceLoaded: true, boardLoaded: false })
     await Promise.all([get().refreshBoard(), get().refreshWorkspaces()])
   },
 
@@ -190,7 +227,8 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   async reloadFocused() {
     const workspace = await invoke('workspace.get')
     const changed = workspace?.id !== get().workspace?.id
-    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, tickets: [] } : {}) })
+    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
+    })
     if (!workspace) return
     await get().refreshBoard()
     set({ unattended: await invoke('unattended.get') })
@@ -198,8 +236,20 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
 
   refreshBoard: oneAtATime(async () => {
     const { tickets } = await invoke('board.get')
-    const stable = stabilize(get().tickets, tickets)
-    if (stable !== get().tickets) set({ tickets: stable })
+    const previous = get().tickets
+    const stable = stabilize(previous, tickets)
+    if (stable === previous) {
+      if (!get().boardLoaded) set({ boardLoaded: true })
+      return
+    }
+    // Mainbus's changes (not the person's own) get an outline for a few seconds.
+    const now = Date.now()
+    const changed = changedTicketIds(previous, stable).filter((id) => !isOwnChange(id, now))
+    set((s) => {
+      const recent = Object.fromEntries(Object.entries(s.recentlyChanged).filter(([, at]) => now - at < RECENT_MS))
+      for (const id of changed) recent[id] = now
+      return { tickets: stable, recentlyChanged: recent, boardLoaded: true }
+    })
   }),
 
   openTicket: (id) => set({ currentTicketId: id }),
@@ -208,9 +258,11 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   async moveTicket(id, to) {
     set((s) => ({ pendingMoves: { ...s.pendingMoves, [id]: to } }))
     try {
-      const result = await invoke('ticket.move', id, to)
-      if (result === 'moved') await get().refreshBoard()
-      return result
+      return await asOwnChange(id, async () => {
+        const result = await invoke('ticket.move', id, to)
+        if (result === 'moved') await get().refreshBoard()
+        return result
+      })
     } finally {
       set((s) => {
         const { [id]: _settled, ...rest } = s.pendingMoves

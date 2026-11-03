@@ -89,7 +89,7 @@ test('two repos are open at once: an agent runs in each, focus switches the boar
 
     session = await launch(home, repoA)
     let { page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     await createTicket(page, 'Alpha ticket')
     await startTicket(page, 'Alpha ticket')
     const a = await invoke(page, 'workspace.get')

@@ -1,0 +1,21 @@
+/* A card Mainbus just changed: a blue outline that fades out. */
+.recent {
+  outline: 2px solid var(--mantine-color-working-5);
+  outline-offset: 1px;
+  animation: recentFade 4s ease-out forwards;
+}
+
+/* The same outline for people who prefer reduced motion: no fade, just shown briefly. */
+.recentStill {
+  outline: 2px solid var(--mantine-color-working-5);
+  outline-offset: 1px;
+}
+
+@keyframes recentFade {
+  from {
+    outline-color: var(--mantine-color-working-5);
+  }
+  to {
+    outline-color: transparent;
+  }
+}

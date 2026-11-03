@@ -30,6 +30,8 @@ interface Props {
 export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const thread = useOrchestratorThread()
   const reveal = useMainbus((s) => s.revealedProposal)
+  const prefill = useMainbus((s) => s.orchestratorPrefill)
+  const clearPrefill = useMainbus((s) => s.clearOrchestratorPrefill)
   // Across every workspace: the strip is how you notice that one that isn't on screen needs you.
   const needsYou = useMainbus((s) => s.workspaces.reduce((total, w) => total + w.needsYou, 0))
 
@@ -112,7 +114,15 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
         </Group>
       )}
       <Box p="sm" pt={4}>
-        <Composer placeholder="Message the orchestrator" enterSends working={working} onStop={stop} onSend={send} />
+        <Composer
+          placeholder="Message the orchestrator"
+          enterSends
+          working={working}
+          onStop={stop}
+          onSend={send}
+          prefill={prefill}
+          onPrefilled={clearPrefill}
+        />
       </Box>
     </Flex>
   )

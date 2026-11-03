@@ -35,7 +35,7 @@ test('an agent asks, the orchestrator proposes an answer, the user confirms it, 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-answer.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     // A started ticket whose Planner asks where the file goes.
     await page.getByRole('button', { name: 'New ticket' }).click()

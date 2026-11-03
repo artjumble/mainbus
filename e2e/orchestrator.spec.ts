@@ -37,7 +37,7 @@ async function launch(home: string, repo: string, open = true): Promise<{ app: E
     env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator.json', MAINBUS_TEST_REPO: repo }
   })
   const page = await app.firstWindow()
-  if (open) await page.getByRole('button', { name: 'Open a repo folder' }).click()
+  if (open) await page.getByRole('button', { name: 'Add workspace' }).click()
   return { app, page }
 }
 

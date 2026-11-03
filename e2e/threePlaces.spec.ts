@@ -37,7 +37,7 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/board-answer-by-role.json', MAINBUS_TEST_REPO: repo }
     })
     const page: Page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     // Three tickets, each started; each Planner asks where the file goes.
     for (const title of TITLES) {

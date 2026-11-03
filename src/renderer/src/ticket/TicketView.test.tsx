@@ -193,6 +193,8 @@ test('with no run, Start and a first-message composer show; the first send start
   const ticket = show({ column: 'ready' })
   renderWithMantine(<TicketView />)
   expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Adjust before starting' })).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'First message (starts the lineup)' })).toBeInTheDocument()
   await userEvent.type(screen.getByPlaceholderText('First message (starts the lineup)'), 'Begin with the header')
   await userEvent.click(screen.getByRole('button', { name: 'Send' }))
   const calls = mockInvoke.mock.calls.map((c) => c.slice(0, 3)).filter(([cmd]) => String(cmd).startsWith('agent.'))

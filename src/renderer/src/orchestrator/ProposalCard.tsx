@@ -2,6 +2,7 @@ import { Button, Group, Loader, Paper, Stack, Text } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
 import type { Proposal, ProposalFailure, ProposalKindName } from '../../../shared/proposals'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { showError } from '../notify'
 import { answerView } from './AnswerProposal'
 import { createTicketsView } from './CreateTicketsProposal'
@@ -53,9 +54,17 @@ function Pending({ proposal, view }: Props & { view: ProposalView<any, any, any>
     setBusy(kind)
     try {
       if (kind === 'reject') await invoke('proposal.reject', proposal.id)
-      else if (chosen !== undefined) await invoke('proposal.confirm', proposal.id, chosen)
-      else if (editing) await invoke('proposal.confirm', proposal.id, override)
-      else await invoke('proposal.confirm', proposal.id)
+      else {
+        // Confirming a proposal about a ticket is the person's own change to it.
+        const confirm = (): Promise<unknown> =>
+          chosen !== undefined
+            ? invoke('proposal.confirm', proposal.id, chosen)
+            : editing
+              ? invoke('proposal.confirm', proposal.id, override)
+              : invoke('proposal.confirm', proposal.id)
+        const ticketId = (proposal.payload as { ticketId?: unknown } | null)?.ticketId
+        await (typeof ticketId === 'string' ? asOwnChange(ticketId, confirm) : confirm())
+      }
     } catch (err) {
       // The card stays as it is: an invalid override can be fixed, and a decided proposal updates by itself.
       showError(err, kind === 'reject' ? 'Could not reject' : 'Could not confirm')

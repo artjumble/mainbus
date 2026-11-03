@@ -56,7 +56,7 @@ test('unattended mode works through Ready, allows what is not a hard stop, and i
 
     session = await launch(home, repo)
     let { page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     await createReadyTicket(page, 'First queued ticket')
     await createReadyTicket(page, 'Second queued ticket')

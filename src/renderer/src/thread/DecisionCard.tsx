@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import type { AnsweredVia, Decision, DecisionAnswer } from '../../../shared/domain'
 import { deferredLabel } from '../../../shared/hold'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { showAgentError } from './agentError'
 import { LaterMenu } from './LaterMenu'
 
@@ -13,7 +14,7 @@ interface Props {
 /** Sends an answer from `via`; resolves false (after showing why) when the engine refused it. */
 export async function sendAnswer(decision: Decision, answer: DecisionAnswer, via: AnsweredVia): Promise<boolean> {
   try {
-    await invoke('decision.answer', decision.id, answer, via)
+    await asOwnChange(decision.ticketId, () => invoke('decision.answer', decision.id, answer, via))
     return true
   } catch (err) {
     showAgentError(err, 'Could not send your answer')

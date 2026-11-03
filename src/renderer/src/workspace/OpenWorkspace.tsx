@@ -24,14 +24,17 @@ export function OpenWorkspace(): ReactElement {
   return (
     <Center mih="100vh" p="md">
       <Stack maw={520} gap="md">
-        <Title order={2}>Open a repo</Title>
-        <Text>Pick the folder of the git repository you want to work on.</Text>
+        <Title order={2}>Welcome to Mainbus</Title>
+        <Text>
+          Mainbus runs Claude Code agents on your tickets, each in its own folder, and asks you only when it needs a
+          decision. Add the git repository you want to work on to begin.
+        </Text>
         <Text size="sm" c="dimmed">
           Claude Code can't ask you to trust a folder while Mainbus runs it, so Mainbus treats the folder you pick as
           trusted.
         </Text>
-        <Button onClick={() => void pick()} loading={opening} w="fit-content">
-          Open a repo folder
+        <Button onClick={() => void pick()} loading={opening} w="fit-content" aria-label="Add workspace">
+          + Add workspace
         </Button>
       </Stack>
     </Center>

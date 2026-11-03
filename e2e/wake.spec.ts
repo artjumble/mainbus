@@ -67,7 +67,7 @@ test('a failed agent gives the orchestrator a turn without a message of the user
 
     session = await launch(home, repo)
     let { app, page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     // 1. A scripted agent fails; five seconds later the orchestrator has a turn, and the panel says why under an engine line.
     await addAndStart(page, 'Alpha')

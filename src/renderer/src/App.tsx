@@ -37,6 +37,13 @@ export function App(): ReactElement {
     writePanelOpen(open)
   }
 
+  // "Ask orchestrator to draft tickets" expands a collapsed panel; the panel's message box takes the text.
+  const orchestratorPrefill = useMainbus((s) => s.orchestratorPrefill)
+  useEffect(() => {
+    if (orchestratorPrefill) onPanelOpenChange(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orchestratorPrefill])
+
   // A proposal to show (a card dragged into In progress) expands a collapsed panel.
   useEffect(() => {
     if (revealedProposal) onPanelOpenChange(true)
