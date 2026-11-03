@@ -328,7 +328,7 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await page.getByRole('button', { name: 'Pause', exact: true }).click()
     await expect(chip).toBeVisible()
     await expect(page.getByText('Planning', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner Paused', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
+    await expectStrip(page, ['Planner – Paused', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
     await expect(page.getByRole('button', { name: 'Pause', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
     // The board card shows it too, still In progress.

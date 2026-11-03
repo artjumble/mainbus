@@ -275,3 +275,23 @@ test('the context pane has no axe violations', async () => {
   renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
   await expectNoAxeViolations()
 })
+
+test("the timeline says the lineup started once per ticket run, and a replacement's successor started from the plan", () => {
+  const events = [
+    makeEvent({ kind: 'message', text: 'plan' }, { runId: 'a', at: '2026-10-30T10:00:00.000Z' }),
+    makeEvent({ kind: 'handoff', summary: 'Plan done', outcome: 'done', to: 'Implementer' }, { runId: 'a', at: '2026-10-30T10:05:00.000Z' }),
+    makeEvent({ kind: 'message', text: 'build' }, { runId: 'b', at: '2026-10-30T10:06:00.000Z' }),
+    makeEvent({ kind: 'replaced', role: 'Implementer', summary: 's', source: 'summary' }, { runId: 'b', at: '2026-10-30T10:30:00.000Z' }),
+    makeEvent({ kind: 'message', text: 'again' }, { runId: 'c', at: '2026-10-30T10:31:00.000Z' })
+  ]
+  const runs = {
+    a: { id: 'a', ticketRunId: 't1', role: 'Planner' },
+    b: { id: 'b', ticketRunId: 't1', role: 'Implementer' },
+    c: { id: 'c', ticketRunId: 't1', role: 'Implementer' }
+  }
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} runs={runs} />)
+  const activity = screen.getByRole('region', { name: 'Activity' })
+  expect(within(activity).getAllByText('Started with the workspace lineup')).toHaveLength(1)
+  expect(within(activity).getByText('Planner handed off to the Implementer')).toBeInTheDocument()
+  expect(within(activity).getByText('New Implementer started from the plan')).toBeInTheDocument()
+})

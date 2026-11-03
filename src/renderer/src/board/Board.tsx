@@ -88,7 +88,7 @@ export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, cu
 
 const GRID_STYLE = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(6, minmax(220px, 1fr))',
+  gridTemplateColumns: 'repeat(6, minmax(140px, 1fr))',
   gap: 'var(--mantine-spacing-sm)',
   overflowX: 'auto',
   alignItems: 'start',

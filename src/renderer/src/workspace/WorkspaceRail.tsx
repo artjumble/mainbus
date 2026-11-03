@@ -125,7 +125,8 @@ export function WorkspaceRail(): ReactElement {
                       </>
                     )}
                   </Group>
-                  <Text size="xs" c="dimmed" pl={14} visibleFrom="lg" data-rail-status>
+                  {/* Hidden from assistive technology: the button's label already says it, and must contain its visible text. */}
+                  <Text size="xs" c="dimmed" pl={14} visibleFrom="lg" aria-hidden data-rail-status>
                     {railStatus(w)}
                   </Text>
                 </Stack>

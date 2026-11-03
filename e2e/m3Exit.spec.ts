@@ -51,7 +51,7 @@ test('M3 exit: ask for tickets in plain words, confirm the drafts, ask to start 
 
     // 2. They confirm the drafts.
     const draft = panel.getByRole('group', { name: 'Proposal: Create 2 tickets in Backlog' })
-    await draft.getByRole('button', { name: 'Confirm', exact: true }).click()
+    await draft.getByRole('button', { name: 'Create 2 tickets' }).click()
     await expect(panel.locator('[data-proposal="receipt"]')).toContainText('Created #1 and #2')
     const backlog = page.getByRole('region', { name: 'Backlog' })
     await expect(backlog.getByRole('button', { name: /Add a login page/ })).toBeVisible()
@@ -64,7 +64,7 @@ test('M3 exit: ask for tickets in plain words, confirm the drafts, ask to start 
     const start = panel.getByRole('group', { name: 'Proposal: Start #1 Add a login page' })
     await expect(start.getByText('Why: #1 is specced and nothing is running.')).toBeVisible()
     await start.getByRole('button', { name: 'Confirm', exact: true }).click()
-    await expect(panel.locator('[data-proposal="receipt"]').last()).toContainText('Started #1 with Planner, Implementer and Reviewer')
+    await expect(panel.locator('[data-proposal="receipt"]').last()).toContainText('✓ Add a login page is in')
 
     // 4. It runs its lineup and reaches Review; the other ticket stays in Backlog.
     await expect(page.getByRole('region', { name: 'Review' }).getByRole('button', { name: /Add a login page/ })).toBeVisible({

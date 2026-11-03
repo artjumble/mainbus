@@ -287,6 +287,7 @@ interface Context {
 function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, { ticket, workspaceName, runs }: Context): Entry[] {
   const source = ticket.intent[0]?.source
   const entries: Entry[] = [{ at: ticket.createdAt, title: source ? `Filed by ${source.agent}` : 'Created by you' }]
+  // The ticket runs seen so far: each role's run is its own run, but only the first of a ticket run is "started".
   const seen = new Set<string>()
   // The role a replacement is waiting to start, and what each run was last stuck on.
   let replacing: string | null = null
@@ -294,11 +295,16 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
   for (const { runId, seq, at, event } of events) {
     if (seq === 0) continue
     const role = runs[runId]?.role
-    if (!seen.has(runId)) {
+    const startedRun = runs[runId]?.ticketRunId ?? runId
+    if (replacing && !seen.has(runId)) {
       seen.add(runId)
-      entries.push({ at, title: replacing ? `New ${replacing} started from the plan` : `Started with the ${workspaceName} lineup` })
+      entries.push({ at, title: `New ${replacing} started from the plan` })
       replacing = null
+    } else if (!seen.has(startedRun)) {
+      entries.push({ at, title: `Started with the ${workspaceName} lineup` })
     }
+    seen.add(runId)
+    seen.add(startedRun)
     if (event.kind === 'handoff') {
       const by = role ? `${role} handed off` : 'Handed off'
       entries.push({

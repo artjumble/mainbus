@@ -64,7 +64,7 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   return (
     <Badge color={chip.color} variant={chip.variant} size="sm" radius="sm">
       <span aria-hidden>{chip.symbol} </span>
-      {chip.label}
+      <span>{chip.label}</span>
     </Badge>
   )
 }

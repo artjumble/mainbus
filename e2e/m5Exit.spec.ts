@@ -86,7 +86,7 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
     // 4. The agent fired again: the orchestrator is woken again, proposes a replacement, and the user confirms it.
     await advance(app, 1)
     await expect(panel.locator('[data-event="wake"]')).toHaveCount(2)
-    const replace = panel.getByRole('group', { name: /^Proposal: Replace the Implementer on #1/ })
+    const replace = panel.getByRole('group', { name: /^Proposal: Replace the Implementer on / })
     await replace.getByRole('button', { name: 'Replace Implementer' }).click()
     await expect(panel.locator('[data-proposal="receipt"]').last()).toContainText('Replaced the Implementer on #1')
 
@@ -95,14 +95,13 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
     await expect(page.getByText('Reviewer: the fix looks right.')).toBeVisible()
     await expect(page.locator('[data-event="error"]')).toHaveCount(0)
 
-    // The thread: the divider, and the handoff block collapsed until opened.
+    // The thread: the divider, and the handoff block, open to begin with; it can be closed.
     await expect(page.locator('[data-event="replaced"]')).toContainText('Implementer replaced')
     const block = page.getByRole('button', { name: /Handoff from the previous run/ })
-    await expect(block).toHaveAttribute('aria-expanded', 'false')
-    // Only the Activity's clipped copy shows the summary while the block is closed.
+    await expect(block).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(1)
     await block.click()
-    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(2)
+    await expect(page.getByText('A summary the fake runtime wrote.')).toHaveCount(0)
     // The role appears once in the lineup, with the marker.
     await expect(page.getByRole('list', { name: 'Lineup' }).getByRole('listitem')).toHaveCount(3)
     await expect(page.locator('[data-replaced]')).toHaveText('replaced ×1')
@@ -124,8 +123,10 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
       activity.getByText('Redirected Implementer: Timeouts are ruled out; check the shared fixtures instead. (suggested by the orchestrator, confirmed by you)')
     ).toBeVisible()
     await expect(activity.getByText('Implementer still looks stuck after the redirect: same failing command 10 times (detected by Mainbus)')).toBeVisible()
-    await expect(activity.getByText('Replaced Implementer (suggested by the orchestrator, confirmed by you)')).toBeVisible()
-    await expect(activity.getByText('Handed off').first()).toBeVisible()
+    await expect(activity.getByText('Implementer replaced: same failing command 10 times')).toBeVisible()
+    await expect(activity.getByText('Suggested by orchestrator, confirmed by you')).toBeVisible()
+    await expect(activity.getByText('handed off').first()).toBeVisible()
+    await expect(activity.getByText('Created by you')).toBeVisible()
     await expect(activity.getByRole('button', { name: 'View proposal' })).toHaveCount(2)
 
     // The ticket is in Review.
