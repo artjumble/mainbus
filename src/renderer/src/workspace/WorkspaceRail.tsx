@@ -104,9 +104,9 @@ export function WorkspaceRail(): ReactElement {
                     <>
                       {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}
                       {' '}
-                    <Badge color="needs" variant="filled" circle data-needs-you role="img" aria-hidden aria-label={`${w.needsYou} need you`}>
-                      {w.needsYou}
-                    </Badge>
+                      <Badge color="needs" variant="filled" circle data-needs-you role="img" aria-hidden aria-label={`${w.needsYou} need you`}>
+                        {w.needsYou}
+                      </Badge>
                     </>
                   )}
                 </Group>

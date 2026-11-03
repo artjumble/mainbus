@@ -117,7 +117,7 @@ test('a usage limit pauses both working tickets with the reset time, and at the 
     // The clock reaches the reset: the first ticket, paused first, resumes; the second waits for the only slot.
     await advance(app, 60 * 60 * 1000)
     await expect(inProgress.getByText('Queued · 1st')).toBeVisible()
-    await expect(banner).toHaveCount(0)
+    await expect(banner).toBeEmpty()
     await page.getByRole('button', { name: /First ticket/ }).click()
     await expect(page.getByText('Planner: back after the reset.')).toBeVisible()
     await page.getByLabel('Message the Planner').fill('Carry on')
@@ -134,7 +134,7 @@ test('a usage limit pauses both working tickets with the reset time, and at the 
     const review = page.getByRole('region', { name: 'Review' })
     await expect(review.getByText('First ticket')).toBeVisible()
     await expect(review.getByText('Second ticket')).toBeVisible()
-    await expect(banner).toHaveCount(0)
+    await expect(banner).toBeEmpty()
   } finally {
     await session?.app.close().catch(() => {})
     if (tmp) {

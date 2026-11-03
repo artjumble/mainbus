@@ -286,7 +286,9 @@ export function Board(): ReactElement {
             gridTemplateColumns: 'repeat(6, minmax(220px, 1fr))',
             gap: 'var(--mantine-spacing-sm)',
             overflowX: 'auto',
-            alignItems: 'start'
+            alignItems: 'start',
+            // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
+            position: 'relative'
           }}
         >
           {COLUMNS.map((c) => (
@@ -439,48 +441,48 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, change
       withinPortal
     >
       <div
-          ref={setNodeRef}
-          {...pointerListeners}
-          onKeyDown={onKeyDown}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            if (!moving) openMenu()
-          }}
-          style={{
-            transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-            opacity: isDragging ? 0.8 : 1,
-            position: 'relative',
-            zIndex: isDragging ? 1 : undefined,
-            touchAction: 'none'
-          }}
-        >
-          <TicketCard
-            ticket={ticket}
-            cleaningUp={movingTo === 'done'}
-            changedAt={changedAt}
-            onOpen={onOpen}
-            handle={
-              // The handle is the menu's target too: a button can carry the menu's ARIA, the card's div can't.
-              <Menu.Target>
-                <ActionIcon
-                  ref={setActivatorNodeRef}
-                  {...attributes}
-                  onKeyDown={handleKeyDown}
-                  // The card's own click opens the ticket; the handle is not that.
-                  onClick={(e) => e.stopPropagation()}
-                  variant="subtle"
-                  color="gray"
-                  size="xs"
-                  aria-label={`Move ticket #${ticket.number}`}
-                  aria-disabled={moving}
-                  style={{ cursor: 'grab' }}
-                >
-                  <span aria-hidden>⠿</span>
-                </ActionIcon>
-              </Menu.Target>
-            }
-          />
-        </div>
+        ref={setNodeRef}
+        {...pointerListeners}
+        onKeyDown={onKeyDown}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          if (!moving) openMenu()
+        }}
+        style={{
+          transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+          opacity: isDragging ? 0.8 : 1,
+          position: 'relative',
+          zIndex: isDragging ? 1 : undefined,
+          touchAction: 'none'
+        }}
+      >
+        <TicketCard
+          ticket={ticket}
+          cleaningUp={movingTo === 'done'}
+          changedAt={changedAt}
+          onOpen={onOpen}
+          handle={
+            // The handle is the menu's target too: a button can carry the menu's ARIA, the card's div can't.
+            <Menu.Target>
+              <ActionIcon
+                ref={setActivatorNodeRef}
+                {...attributes}
+                onKeyDown={handleKeyDown}
+                // The card's own click opens the ticket; the handle is not that.
+                onClick={(e) => e.stopPropagation()}
+                variant="subtle"
+                color="gray"
+                size="xs"
+                aria-label={`Move ticket #${ticket.number}`}
+                aria-disabled={moving}
+                style={{ cursor: 'grab' }}
+              >
+                <span aria-hidden>⠿</span>
+              </ActionIcon>
+            </Menu.Target>
+          }
+        />
+      </div>
       <Menu.Dropdown>
         {MANUAL.map((m) => (
           <Menu.Item key={m.id} disabled={moving || ticket.state.column === m.id} onClick={() => onMove(ticket, m.id)}>

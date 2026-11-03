@@ -83,3 +83,13 @@ test('the open popover has no axe violations', async () => {
   await screen.findByRole('radio', { name: 'SQLite' })
   await expectNoAxeViolations()
 })
+
+test('Escape closes the popover and focus goes back to the Answer button', async () => {
+  const onOpen = card()
+  await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+  await screen.findByRole('radio', { name: 'SQLite' })
+  await userEvent.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('radio', { name: 'SQLite' })).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Answer' })).toHaveFocus())
+  expect(onOpen).not.toHaveBeenCalled()
+})
