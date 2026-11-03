@@ -41,7 +41,7 @@ async function createReadyTicket(page: Page, title: string): Promise<void> {
   await expect(page.getByRole('region', { name: 'Ready' }).getByText(title)).toBeVisible()
 }
 
-test('unattended mode works through Ready, allows what is not a hard stop, and is off after a restart', async () => {
+test('unattended mode works through Ready, allows what is not a hard stop, and is back on after a restart', async () => {
   let tmp: string | null = null
   let session: { app: ElectronApplication; page: Page } | null = null
   try {
@@ -85,13 +85,13 @@ test('unattended mode works through Ready, allows what is not a hard stop, and i
     await expect(page.getByText('Allowed by unattended mode: Implementer wants to run `npm install left-pad`')).toBeVisible()
     await expect(page.locator('[data-event="permission"]')).toHaveCount(0)
 
-    // Nothing about the mode survives a restart.
+    // The mode is remembered: it is on again after a restart.
     await session.app.close()
     session = await launch(home, repo)
     ;({ page } = session)
     await expect(page.getByRole('region', { name: 'Review' }).getByText('First queued ticket')).toBeVisible()
-    await expect(page.getByTestId('unattended-status')).toHaveText('Off')
-    await expect(page.getByRole('switch', { name: 'Unattended' })).not.toBeChecked()
+    await expect(page.getByRole('switch', { name: 'Unattended' })).toBeChecked()
+    await expect(page.getByTestId('unattended-status')).not.toHaveText('Off')
   } finally {
     await session?.app.close().catch(() => {})
     if (tmp) {

@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import type { AgentEvent } from '../../shared/events'
 import {
   ResumeFailedError,
@@ -159,6 +160,11 @@ export class FakeRuntime implements AgentRuntime {
       endTurnOnInterrupt?: boolean
       /** Gives each role run a `claude` process with the next id from this, announced through the spec's process hooks. */
       nextPid?: () => number
+      /**
+       * A JSON file of the session ids this runtime has handed out, kept across processes: resuming an id that is in it
+       * works, one that isn't fails like a lost session. Without it every id resumes.
+       */
+      sessionsFile?: string
     } = {}
   ) {}
 
@@ -177,6 +183,7 @@ export class FakeRuntime implements AgentRuntime {
     if (spec.kind === 'orchestrator') this.orchestratorSpecs.push(spec)
     else this.specs.push(spec)
     if (this.opts.rejectResume && spec.resumeSessionId) throw new ResumeFailedError()
+    if (spec.resumeSessionId && this.opts.sessionsFile && !this.knownSessions().includes(spec.resumeSessionId)) throw new ResumeFailedError()
     const handle = { id: `fake-${this.nextId++}` }
     const run: Run = {
       queue: new EventQueue(),
@@ -233,6 +240,20 @@ export class FakeRuntime implements AgentRuntime {
     proc?.spec.onProcessExit?.(proc.claude)
   }
 
+  private knownSessions(): string[] {
+    try {
+      return JSON.parse(fs.readFileSync(this.opts.sessionsFile!, 'utf8')) as string[]
+    } catch {
+      return []
+    }
+  }
+
+  private rememberSession(id: string): void {
+    if (!this.opts.sessionsFile) return
+    const known = this.knownSessions()
+    if (!known.includes(id)) fs.writeFileSync(this.opts.sessionsFile, JSON.stringify([...known, id]))
+  }
+
   private get(handle: RunHandle): Run {
     const run = this.runs.get(handle.id)
     if (!run) throw new Error(`Unknown run ${handle.id}`)
@@ -255,6 +276,7 @@ export class FakeRuntime implements AgentRuntime {
       for (const step of this.steps(spec)) {
         if (run.stopped) return
         if ('emit' in step) {
+          if (step.emit.kind === 'session') this.rememberSession(step.emit.sessionId)
           run.queue.push(step.emit)
         } else if ('callTool' in step) {
           // The script file is trusted test data, so the args are passed through as-is.

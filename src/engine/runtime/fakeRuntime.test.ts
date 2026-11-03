@@ -315,3 +315,28 @@ describe('expectPrompt', () => {
     expect(await play(script, 'start')).toEqual([{ kind: 'error', message: 'The launch prompt lacks "the summary"' }])
   })
 })
+
+describe('FakeRuntime: sessions kept across processes', () => {
+  async function dir() {
+    const fsm = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    return { fsm, file: path.join(await fsm.mkdtemp(path.join(os.tmpdir(), 'mainbus-fake-sessions-')), 'sessions.json') }
+  }
+
+  test('a session a run emitted resumes in a new runtime over the same file; an unknown one fails', async () => {
+    const { fsm, file } = await dir()
+    try {
+      const first = new FakeRuntime([{ emit: { kind: 'session', sessionId: 'abc' } }, { waitForSend: true }], { sessionsFile: file })
+      const h = await first.start(makeSpec().spec)
+      await vi.waitFor(async () => expect(JSON.parse(await fsm.readFile(file, 'utf8'))).toEqual(['abc']))
+      await first.stop(h)
+
+      const second = new FakeRuntime([], { sessionsFile: file })
+      await expect(second.start(makeSpec({ resumeSessionId: 'abc' }).spec)).resolves.toBeDefined()
+      await expect(second.start(makeSpec({ resumeSessionId: 'nope' }).spec)).rejects.toBeInstanceOf(ResumeFailedError)
+    } finally {
+      await fsm.rm(file.replace(/sessions\.json$/, ''), { recursive: true, force: true })
+    }
+  })
+})

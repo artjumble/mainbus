@@ -591,3 +591,80 @@ describe('UnattendedMode timing', () => {
     expect(mode.get()).toEqual({ on: true, status: { kind: 'idle' } })
   })
 })
+
+describe('UnattendedMode remembering', () => {
+  function mode(over: Partial<UnattendedDeps> = {}) {
+    const stored = { on: false }
+    const m = new UnattendedMode({
+      runner: {
+        start: async () => {},
+        continue: async () => {},
+        stateOf: async () => ({ column: 'ready' }) as TicketState,
+        usageLimit: () => undefined,
+        isLaunching: () => false
+      },
+      tickets: async () => [],
+      checkCanRun: async () => {},
+      emit: () => {},
+      keepAwake: { start: () => {}, stop: () => {} },
+      now: () => new Date(),
+      remember: async (on) => void (stored.on = on),
+      remembered: async () => stored.on,
+      ...over
+    })
+    return { m, stored }
+  }
+
+  it('remembers on and off', async () => {
+    const { m, stored } = mode()
+    await m.set(true)
+    expect(stored.on).toBe(true)
+    await m.set(false)
+    expect(stored.on).toBe(false)
+  })
+
+  it('stays remembered as on when the app quits', async () => {
+    const { m, stored } = mode()
+    await m.set(true)
+    m.dispose()
+    expect(stored.on).toBe(true)
+  })
+
+  it('forgets when the user stops or pauses the queue ticket', async () => {
+    const { m, stored } = mode()
+    await m.set(true)
+    ;(m as unknown as { current: Ticket }).current = { id: 't1' } as Ticket
+    m.userStopped('t1')
+    expect(stored.on).toBe(false)
+    await m.set(true)
+    ;(m as unknown as { current: Ticket }).current = { id: 't1' } as Ticket
+    m.userPaused('t1')
+    expect(stored.on).toBe(false)
+  })
+
+  it('restore turns it back on when it was on', async () => {
+    const { m, stored } = mode()
+    stored.on = true
+    await m.restore()
+    expect(m.get().on).toBe(true)
+    m.dispose()
+  })
+
+  it('restore does nothing when it was off', async () => {
+    const { m } = mode()
+    await m.restore()
+    expect(m.get()).toEqual({ on: false, status: { kind: 'off' } })
+  })
+
+  it('restore stays off, says why and forgets when agents cannot run', async () => {
+    const { m, stored } = mode({
+      checkCanRun: async () => {
+        throw new Error('Claude Code is not set up')
+      }
+    })
+    stored.on = true
+    await m.restore()
+    expect(m.get()).toEqual({ on: false, status: { kind: 'stopped', reason: 'Claude Code is not set up' } })
+    expect(stored.on).toBe(false)
+  })
+})
