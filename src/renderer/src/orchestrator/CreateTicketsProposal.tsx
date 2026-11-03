@@ -7,7 +7,7 @@ import type {
   DraftColumn
 } from '../../../shared/proposals'
 import type { TicketKind } from '../../../shared/domain'
-import { splitCriteria } from '../board/NewTicketModal'
+import { splitCriteria, splitLabels } from '../board/NewTicketModal'
 import { useMainbus } from '../store'
 import type { ProposalView } from './proposalView'
 
@@ -31,13 +31,6 @@ export interface CreateTicketsEdit {
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
-
-function splitLabels(text: string): string[] {
-  return text
-    .split(',')
-    .map((label) => label.trim())
-    .filter((label) => label !== '')
-}
 
 /** Not shown: the card opens in `inline` mode, with the editor's rows (see `createTicketsView`). */
 function Body(): ReactElement {

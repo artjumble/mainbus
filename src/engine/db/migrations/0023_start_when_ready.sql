@@ -1,0 +1,1 @@
+ALTER TABLE `tickets` ADD `start_when_ready` integer DEFAULT false NOT NULL;

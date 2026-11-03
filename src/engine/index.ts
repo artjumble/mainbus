@@ -430,6 +430,19 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const createTicket = async (ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> =>
       (await createTickets(ws, [input]))[0]!
 
+    /**
+     * "Ask the orchestrator to start an agent once it's in Ready": when a ticket with the flag is in Ready, its start is
+     * proposed, once. A ticket that could not be proposed for stays in Ready, and the flag is spent.
+     */
+    const proposeStartIfAsked = async (ticketId: string): Promise<void> => {
+      if (!(await repos.tickets.takeStartWhenReady(ticketId))) return
+      try {
+        await orchestrator.proposeStartWhenReady(await repos.tickets.get(ticketId))
+      } catch {
+        // The ticket is in Ready either way; the person can start it themselves.
+      }
+    }
+
     // The ticket view's Pause, Stop and Skip; a confirmed proposal goes through the same functions.
     // With `expect`, they fail rather than act on a role other than the one named.
     // Stopping needs no runtime: without one nothing is live, and a paused run can still be ended.
@@ -785,11 +798,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
-      'ticket.create': async (input, workspaceId) => createTicket(await requireWorkspace(workspaceId), {
+      'ticket.create': async (input, workspaceId) => {
+        const ticket = await createTicket(await requireWorkspace(workspaceId), {
           ...input,
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
           source: undefined
-        }),
+        })
+        if (input.column === 'ready') await proposeStartIfAsked(ticket.id)
+        return ticket
+      },
       'ticket.update': async (id, patch) => {
         const ticket = await repos.tickets.update(id, patch)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
@@ -804,6 +821,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         if (column === 'done') return moveTicketToDone(id)
         ;(await modeOfTicket(id))?.userMoved(id, column)
         await runner.moveToColumn(id, column)
+        if (column === 'ready') await proposeStartIfAsked(id)
         return 'moved'
       },
       'ticket.draftPromotion': async (id) => {

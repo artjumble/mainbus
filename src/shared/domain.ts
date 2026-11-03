@@ -231,6 +231,8 @@ export type NewTicketInput = {
   kind?: TicketKind
   /** Set only by agent intake: marks the first intent entry as agent-written. */
   source?: IntentSource
+  /** The user asked the orchestrator to propose starting the ticket once it is in Ready (now, if it was created there). */
+  startWhenReady?: boolean
 }
 
 /** Never includes intent: intent is append-only. */

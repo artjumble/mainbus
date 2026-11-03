@@ -20,6 +20,8 @@ export interface TicketRepo {
   /** Intent is append-only: this is the only way to add to it, and nothing edits or removes an entry. */
   appendIntent(id: string, text: string): Promise<Ticket>
   setManualColumn(id: string, column: 'backlog' | 'ready' | 'done'): Promise<Ticket>
+  /** Whether the ticket was to be proposed for starting once in Ready; clears the flag, so it answers true once. */
+  takeStartWhenReady(id: string): Promise<boolean>
   setWorktree(id: string, branch: string, path: string | null): Promise<Ticket>
   /** Records the ticket's pull request and clears any earlier failure. */
   setPr(id: string, pr: PullRequest): Promise<Ticket>
@@ -106,6 +108,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       spec: input.spec,
       labels: JSON.stringify(input.labels),
       manualColumn: input.column,
+      startWhenReady: input.startWhenReady === true,
       createdAt: at,
       updatedAt: at
     })
@@ -222,6 +225,18 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     async setManualColumn(id, column) {
       await patchRow(id, { manualColumn: column })
       return get(id)
+    },
+
+    async takeStartWhenReady(id) {
+      const [row] = await db.select({ flag: tickets.startWhenReady }).from(tickets).where(eq(tickets.id, id))
+      if (!row?.flag) return false
+      // Only the update that flips it wins, so two moves to Ready don't both propose.
+      const flipped = await db
+        .update(tickets)
+        .set({ startWhenReady: false })
+        .where(and(eq(tickets.id, id), eq(tickets.startWhenReady, true)))
+        .returning({ id: tickets.id })
+      return flipped.length > 0
     },
 
     async setWorktree(id, branch, path) {

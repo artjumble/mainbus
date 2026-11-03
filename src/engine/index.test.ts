@@ -591,3 +591,44 @@ describe('createEngine: restart recovery', () => {
     await vi.waitFor(async () => expect((await engine.invoke('unattended.get')).on).toBe(true))
   })
 })
+
+describe('"Ask the orchestrator to start an agent once it\'s in Ready"', () => {
+  const asked = { ...newTicket, startWhenReady: true }
+  const pendingStarts = async (engine: Engine) =>
+    (await engine.invoke('orchestrator.get')).proposals.filter((p) => p.kind === 'start_lineup' && p.status === 'pending')
+
+  it('a ticket created in Ready is proposed for starting at once, with no agent started', async () => {
+    const runtime = new FakeRuntime([{ waitForSend: true }])
+    const engine = await makeEngine(runtime)
+    await engine.invoke('workspace.open', repoPath)
+    const t = await engine.invoke('ticket.create', asked)
+
+    const proposals = await pendingStarts(engine)
+    expect(proposals).toHaveLength(1)
+    expect(proposals[0]).toMatchObject({ origin: 'button', payload: { ticketId: t.id } })
+    expect(runtime.specs).toEqual([])
+  })
+
+  it('a ticket created in Backlog waits: its start is proposed when it moves to Ready, once', async () => {
+    const engine = await makeEngine(new FakeRuntime([{ waitForSend: true }]))
+    await engine.invoke('workspace.open', repoPath)
+    const t = await engine.invoke('ticket.create', { ...asked, column: 'backlog' })
+    expect(await pendingStarts(engine)).toHaveLength(0)
+
+    await engine.invoke('ticket.move', t.id, 'ready')
+    expect(await pendingStarts(engine)).toHaveLength(1)
+
+    // The flag is spent: moving back and forth proposes nothing new.
+    await engine.invoke('ticket.move', t.id, 'backlog')
+    await engine.invoke('ticket.move', t.id, 'ready')
+    expect(await pendingStarts(engine)).toHaveLength(1)
+  })
+
+  it('without the flag, nothing is proposed', async () => {
+    const engine = await makeEngine(new FakeRuntime([{ waitForSend: true }]))
+    await engine.invoke('workspace.open', repoPath)
+    const t = await engine.invoke('ticket.create', { ...newTicket, column: 'backlog' })
+    await engine.invoke('ticket.move', t.id, 'ready')
+    expect(await pendingStarts(engine)).toHaveLength(0)
+  })
+})

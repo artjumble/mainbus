@@ -16,7 +16,7 @@ beforeEach(() => {
   mockInvoke.mockImplementation(async (command: string) => (command === 'board.get' ? { tickets: [] } : {}))
 })
 
-const create = (): HTMLElement => screen.getByRole('button', { name: 'Create' })
+const create = (): HTMLElement => screen.getByRole('button', { name: 'Create ticket' })
 
 test('NewTicketModal requires title and "In your words"', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
@@ -59,15 +59,38 @@ test('Create sends the intent unchanged and one criterion per non-blank line', a
   await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
 })
 
-test('the Ready option creates the ticket in Ready', async () => {
+test('the Column select defaults to Backlog; choosing Ready creates the ticket in Ready', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  expect(screen.getByLabelText('Column')).toHaveValue('backlog')
   await userEvent.type(screen.getByLabelText(/Title/), 'T')
   await userEvent.type(screen.getByLabelText(/In your words/), 'W')
-  await userEvent.click(screen.getByLabelText(/Put it in Ready/))
+  await userEvent.selectOptions(screen.getByLabelText('Column'), 'Ready')
   await userEvent.click(create())
   await vi.waitFor(() =>
     expect(mockInvoke).toHaveBeenCalledWith('ticket.create', expect.objectContaining({ column: 'ready' }))
   )
+})
+
+test('Labels are comma separated, and the start-when-ready option is sent only when ticked', async () => {
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  await userEvent.type(screen.getByLabelText(/Title/), 'T')
+  await userEvent.type(screen.getByLabelText(/In your words/), 'W')
+  await userEvent.type(screen.getByLabelText('Labels'), 'csv, export, ')
+  await userEvent.click(screen.getByLabelText("Ask the orchestrator to start an agent once it's in Ready"))
+  await userEvent.click(create())
+  await vi.waitFor(() =>
+    expect(mockInvoke).toHaveBeenCalledWith(
+      'ticket.create',
+      expect.objectContaining({ labels: ['csv', 'export'], column: 'backlog', startWhenReady: true })
+    )
+  )
+})
+
+test('the fields have placeholders saying what goes in them', () => {
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  expect(screen.getByPlaceholderText('What needs doing')).toBeInTheDocument()
+  expect(screen.getByPlaceholderText('Context the agent will need')).toBeInTheDocument()
+  expect(screen.getByPlaceholderText("How you'll know it's done")).toBeInTheDocument()
 })
 
 test('a failed create keeps the dialog open and shows the message', async () => {

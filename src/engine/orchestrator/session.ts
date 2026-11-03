@@ -307,6 +307,17 @@ export class OrchestratorSession {
   }
 
   /**
+   * "Ask the orchestrator to start an agent once it's in Ready": the ticket reached Ready, so the engine makes the same
+   * start proposal a drag does, shown in the thread. No orchestrator turn happens.
+   */
+  proposeStartWhenReady(ticket: Ticket): Promise<Proposal> {
+    return this.proposeFromUser(ticket, 'start_lineup', 'button', {
+      ticket: ticket.number,
+      reason: `You asked for #${ticket.number} ${JSON.stringify(ticket.title)} to be proposed for starting once it was in Ready.`
+    })
+  }
+
+  /**
    * The user pressed Replace… on a ticket: a replace proposal for its active role, made by the engine and shown in the
    * thread like a drag's start. No stuck episode is needed, and no orchestrator turn happens. A replace already
    * pending for the ticket is returned.

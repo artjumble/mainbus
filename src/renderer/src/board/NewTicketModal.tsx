@@ -1,4 +1,4 @@
-import { Button, Checkbox, Group, Modal, Radio, Stack, Textarea, TextInput } from '@mantine/core'
+import { Badge, Button, Checkbox, Group, Modal, NativeSelect, Radio, Stack, Textarea, TextInput } from '@mantine/core'
 import { useState, type FormEvent, type ReactElement } from 'react'
 import type { TicketKind } from '../../../shared/domain'
 import { invoke } from '../api'
@@ -18,13 +18,24 @@ export function splitCriteria(text: string): string[] {
     .filter((line) => line !== '')
 }
 
+/** Comma separated; blanks are dropped. */
+export function splitLabels(text: string): string[] {
+  return text
+    .split(',')
+    .map((label) => label.trim())
+    .filter((label) => label !== '')
+}
+
 export function NewTicketModal({ opened, onClose }: Props): ReactElement {
   const refreshBoard = useMainbus((s) => s.refreshBoard)
+  const workspaceName = useMainbus((s) => s.workspace?.name)
   const [title, setTitle] = useState('')
   const [intent, setIntent] = useState('')
   const [spec, setSpec] = useState('')
   const [criteria, setCriteria] = useState('')
-  const [ready, setReady] = useState(false)
+  const [labels, setLabels] = useState('')
+  const [column, setColumn] = useState<'backlog' | 'ready'>('backlog')
+  const [startWhenReady, setStartWhenReady] = useState(false)
   const [kind, setKind] = useState<TicketKind>('change')
   const [saving, setSaving] = useState(false)
 
@@ -41,15 +52,18 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
         intent,
         spec,
         criteria: splitCriteria(criteria),
-        labels: [],
-        column: ready ? 'ready' : 'backlog',
-        kind
+        labels: splitLabels(labels),
+        column,
+        kind,
+        ...(startWhenReady ? { startWhenReady } : {})
       })
       setTitle('')
       setIntent('')
       setSpec('')
       setCriteria('')
-      setReady(false)
+      setLabels('')
+      setColumn('backlog')
+      setStartWhenReady(false)
       setKind('change')
       onClose()
       // The board also refreshes on board.changed; a failure here is not a failed create.
@@ -65,13 +79,18 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
     <Modal opened={opened} onClose={onClose} title="New ticket" size="lg">
       <form onSubmit={(e) => void submit(e)}>
         <Stack gap="sm">
+          {workspaceName && (
+            <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" w="fit-content">
+              {workspaceName}
+            </Badge>
+          )}
           <Radio.Group label="Kind" value={kind} onChange={(v) => setKind(v as TicketKind)}>
             <Group mt={4}>
               <Radio value="change" label="Change" />
               <Radio value="investigate" label="Investigate" description="Finds out and writes a report; changes no code" />
             </Group>
           </Radio.Group>
-          <TextInput label="Title" required data-autofocus value={title} onChange={(e) => setTitle(e.currentTarget.value)} />
+          <TextInput label="Title" required data-autofocus placeholder="What needs doing" value={title} onChange={(e) => setTitle(e.currentTarget.value)} />
           <Textarea
             label="In your words"
             description="Kept exactly as you write it."
@@ -84,6 +103,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
           <Textarea
             label="Spec"
             description="Optional."
+            placeholder="Context the agent will need"
             autosize
             minRows={2}
             value={spec}
@@ -92,22 +112,38 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
           <Textarea
             label="Acceptance criteria"
             description="One per line."
+            placeholder="How you'll know it's done"
             autosize
             minRows={2}
             value={criteria}
             onChange={(e) => setCriteria(e.currentTarget.value)}
           />
+          <TextInput
+            label="Labels"
+            description="Comma separated."
+            value={labels}
+            onChange={(e) => setLabels(e.currentTarget.value)}
+          />
+          <NativeSelect
+            label="Column"
+            data={[
+              { value: 'backlog', label: 'Backlog' },
+              { value: 'ready', label: 'Ready' }
+            ]}
+            value={column}
+            onChange={(e) => setColumn(e.currentTarget.value as 'backlog' | 'ready')}
+          />
           <Checkbox
-            label="Put it in Ready (otherwise Backlog)"
-            checked={ready}
-            onChange={(e) => setReady(e.currentTarget.checked)}
+            label="Ask the orchestrator to start an agent once it's in Ready"
+            checked={startWhenReady}
+            onChange={(e) => setStartWhenReady(e.currentTarget.checked)}
           />
           <Group justify="flex-end" mt="xs">
             <Button variant="default" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={!canCreate} loading={saving}>
-              Create
+              Create ticket
             </Button>
           </Group>
         </Stack>
