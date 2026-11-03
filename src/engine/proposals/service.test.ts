@@ -55,6 +55,9 @@ beforeEach(async () => {
     openStuckEpisode: async () => null,
     redirectTicket: async () => {},
     replaceTicket: async () => {},
+    whyNotPromotable: async () => null,
+    draftPromotionSpec: async () => ({ spec: '', drafted: false }),
+    promoteTicket: async () => { throw new Error('not expected') },
     answerDecision: async () => {}
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })

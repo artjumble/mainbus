@@ -35,6 +35,9 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
     openStuckEpisode: async () => null,
     redirectTicket: async () => {},
     replaceTicket: async () => {},
+    whyNotPromotable: async () => null,
+    draftPromotionSpec: async () => ({ spec: '', drafted: false }),
+    promoteTicket: async () => { throw new Error('not expected') },
     answerDecision: async () => {},
     /** Changes what whyNotStartable says from now on. */
     setWhy: (w: string | null) => (why = w)

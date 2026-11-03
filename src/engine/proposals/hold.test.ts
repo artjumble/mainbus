@@ -28,6 +28,9 @@ function ctx(over: { open?: Workspace | null; ticket?: Ticket | null } = {}) {
     openStuckEpisode: async () => null,
     redirectTicket: async () => {},
     replaceTicket: async () => {},
+    whyNotPromotable: async () => null,
+    draftPromotionSpec: async () => ({ spec: '', drafted: false }),
+    promoteTicket: async () => { throw new Error('not expected') },
     answerDecision: async () => {}
   }
   return c satisfies ExecContext

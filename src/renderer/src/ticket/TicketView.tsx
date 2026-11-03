@@ -15,6 +15,7 @@ import { AdjustStartModal } from './AdjustStartModal'
 import { ContextPane } from './ContextPane'
 import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
+import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
 import { SkipModal } from './SkipModal'
 
@@ -115,11 +116,16 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
   const started = useRef(false)
   const [skipping, setSkipping] = useState(false)
+  const [promoting, setPromoting] = useState(false)
+  const promoted = useMainbus((s) => s.tickets.some((x) => x.promotedFrom === ticket.id))
   // A replaced run opened on its own, read-only; null for the live thread.
   const [viewing, setViewing] = useState<string | null>(null)
   const proposeReplace = useMainbus((s) => s.proposeReplace)
   const { agentStatus, canContinue, phase, pausedByUser, pausedByLimit } = ticket.state
   const isDone = phase === 'done'
+  // An Investigate ticket's report can become a Change ticket, once.
+  const canPromote =
+    ticket.kind === 'investigate' && !!ticket.report && (ticket.state.column === 'review' || ticket.state.column === 'done') && !promoted
   const ended = agentStatus === 'failed' || agentStatus === 'handed_off'
   // A ticket whose latest run ended can be started again; a done ticket cannot (it would re-create the removed worktree).
   const canStart = !isDone && ((agentStatus === null && !canContinue) || ended)
@@ -268,6 +274,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                 Adjust before starting
               </Button>
             )}
+            {canPromote && (
+              <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setPromoting(true)}>
+                Promote
+              </Button>
+            )}
             {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
             {ticket.hold && (
               <Button
@@ -281,6 +292,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
             )}
           </Group>
           <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} lineup={ticket.kind} />
+          <PromoteModal opened={promoting && canPromote} ticketId={ticket.id} onClose={() => setPromoting(false)} />
           <SkipModal
             opened={skipping && runOpen && activeRole !== undefined}
             role={activeRole?.name ?? ''}

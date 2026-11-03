@@ -46,6 +46,9 @@ function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; 
       async (_id: string, _expect: { agentRunId: string }, _request: { model: string; effort: string; extraInstructions: string | null }) => {}
     ),
     decision: async () => null,
+    whyNotPromotable: async () => null,
+    draftPromotionSpec: async () => ({ spec: '', drafted: false }),
+    promoteTicket: async () => { throw new Error('not expected') },
     answerDecision: async () => {}
   }
   return c satisfies ExecContext

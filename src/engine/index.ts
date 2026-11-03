@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { z } from 'zod'
 import {
   SETUP_REQUIRED,
   type BoardTicket,
@@ -33,7 +34,9 @@ import { ProcessSweeper } from './processes/sweep'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
 import { newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
-import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
+import { TicketRunner, SKIP_SUMMARY_MS, type RunExpectation } from './runner/ticketRunner'
+import { draftPromotionSpec, whyNotPromotable } from './tickets/promote'
+import { ticketFields } from './tickets/validate'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { UsageGate, usageHooks } from './runner/usageGate'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
@@ -71,6 +74,8 @@ export interface EngineConfig {
   stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange'>>
   /** How long to wait before trying again when a usage limit has no known reset; 15 minutes by default (tests shorten it). */
   usageRetryMs?: number
+  /** How long drafting a promoted ticket's spec may take before the report stands in; as long as a skip's summary by default (tests shorten it). */
+  promoteSummaryTimeoutMs?: number
 }
 
 export interface Engine {
@@ -329,6 +334,41 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return runner.skip(ticketId, expect)
     }
 
+    // The ticket view's Promote; a confirmed proposal goes through the same functions.
+    const promoting = new Set<string>()
+    const whyNotPromotableNow = async (ticket: Ticket): Promise<string | null> =>
+      whyNotPromotable(ticket, (await runner.stateOf(ticket.id)).column, await repos.tickets.promotedTo(ticket.id))
+    const draftPromotion = async (ticket: Ticket) =>
+      draftPromotionSpec(cfg.runtime ?? missingRuntime, cfg.paths, ticket, cfg.promoteSummaryTimeoutMs ?? SKIP_SUMMARY_MS)
+    /** The one way a ticket moves to Done: the ticket view's move, and a promotion's. 'dirty' leaves it where it was. */
+    const moveTicketToDone = async (id: string): Promise<'moved' | 'dirty'> => {
+      mode.userMoved(id, 'done')
+      const moved = (await runner.moveToDone(id)) === 'done'
+      // A Done ticket has nothing left to hold back.
+      if (moved) await holds.unhold(id)
+      return moved ? 'moved' : 'dirty'
+    }
+    async function promoteTicket(ticketId: string, input: { title: string; spec: string }): Promise<Ticket> {
+      // The renderer is untrusted: the same rules as any ticket's fields.
+      const fields = z.strictObject({ title: ticketFields.title, spec: ticketFields.spec }).parse(input)
+      if (promoting.has(ticketId)) throw new Error('This ticket is already being promoted')
+      promoting.add(ticketId)
+      try {
+        const original = await repos.tickets.get(ticketId)
+        const why = await whyNotPromotableNow(original)
+        if (why !== null) throw new Error(why)
+        // Done first: if creating the Change ticket then fails, Promote still works from Done.
+        if (original.manualColumn !== 'done' && (await moveTicketToDone(ticketId)) === 'dirty') {
+          throw new Error(`#${original.number}'s folder has uncommitted changes, so it can't move to Done; nothing was promoted`)
+        }
+        const created = await repos.tickets.createPromoted(await repos.tickets.get(ticketId), fields)
+        emit({ type: 'board.changed', workspaceId: created.workspaceId })
+        return created
+      } finally {
+        promoting.delete(ticketId)
+      }
+    }
+
     // Confirmed proposals are carried out here, by engine code, never by the orchestrator.
     const proposals = (proposalService = createProposalService({
       repo: repos.proposals,
@@ -377,6 +417,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         skipTicket,
         now,
         holdTicket: (ticketId, opts) => holds.hold(ticketId, opts),
+        whyNotPromotable: whyNotPromotableNow,
+        draftPromotionSpec: draftPromotion,
+        promoteTicket,
         async decision(id) {
           const decision = await repos.decisions.get(id).catch(() => null)
           const ticket = decision && (await repos.tickets.get(decision.ticketId).catch(() => null))
@@ -594,16 +637,18 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return ticket
       },
       'ticket.move': async (id, column) => {
+        if (column === 'done') return moveTicketToDone(id)
         mode.userMoved(id, column)
-        if (column === 'done') {
-          const moved = (await runner.moveToDone(id)) === 'done'
-          // A Done ticket has nothing left to hold back.
-          if (moved) await holds.unhold(id)
-          return moved ? 'moved' : 'dirty'
-        }
         await runner.moveToColumn(id, column)
         return 'moved'
       },
+      'ticket.draftPromotion': async (id) => {
+        const ticket = await repos.tickets.get(id)
+        const why = await whyNotPromotableNow(ticket)
+        if (why !== null) throw new Error(why)
+        return { title: ticket.title, ...(await draftPromotion(ticket)) }
+      },
+      'ticket.promote': (id, fields) => promoteTicket(id, fields),
       'ticket.hold': (id, opts) => holds.hold(id, opts),
       'ticket.unhold': (id) => holds.unhold(id),
       'ticket.openPr': (id) => runner.openPr(id),

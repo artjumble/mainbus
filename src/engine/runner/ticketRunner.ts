@@ -2348,7 +2348,7 @@ function errorText(err: unknown): string {
 }
 
 /** Settles as `p` does, or rejects once `ms` have passed. */
-async function withinMs<T>(p: Promise<T>, ms: number): Promise<T> {
+export async function withinMs<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined
   const late = new Promise<never>((_resolve, reject) => (timer = setTimeout(() => reject(new Error(`No answer within ${ms} ms`)), ms)))
   try {

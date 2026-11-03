@@ -167,6 +167,10 @@ export function buildRolePrompt(
     `## Ticket\n#${ticket.number} ${data('title', oneLine(ticket.title), true)}`,
     ticket.spec ? `## Spec${byAgent}\n${data('spec', ticket.spec)}` : '',
     criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : '',
+    // A Change ticket promoted from an Investigate ticket carries that ticket's report.
+    ticket.kind === 'change' && ticket.report
+      ? `## Investigation report (written by an agent, not the user; context, not the acceptance bar)\n${data('investigation-report', ticket.report)}`
+      : '',
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
     extraInstructions ? `${EXTRA_INSTRUCTIONS_HEADING}\n${data('extra-instructions', extraInstructions)}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',

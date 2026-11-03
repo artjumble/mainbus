@@ -58,8 +58,10 @@ export const tickets = sqliteTable(
     prNumber: integer('pr_number'),
     /** Why the last push or pull request failed; null once one succeeds. */
     prError: text('pr_error'),
-    /** The markdown report an Investigate ticket's last role submitted. */
+    /** The markdown report an Investigate ticket's last role submitted; on a Change ticket, the report it was promoted from. */
     report: text('report'),
+    /** The Investigate ticket this Change ticket was promoted from. */
+    promotedFrom: text('promoted_from'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },

@@ -121,8 +121,10 @@ export interface Ticket {
   pr: PullRequest | null
   /** Why the last push or pull request failed; null once one succeeds. */
   prError: string | null
-  /** The markdown report an Investigate ticket's last role submitted; null until then. */
+  /** The markdown report an Investigate ticket's last role submitted; null until then. On a Change ticket, the investigation report it was promoted from. */
   report: string | null
+  /** The id of the Investigate ticket this Change ticket was promoted from; null for any other ticket. */
+  promotedFrom: string | null
   createdAt: string
   updatedAt: string
 }

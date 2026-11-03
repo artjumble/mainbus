@@ -1,0 +1,1 @@
+ALTER TABLE `tickets` ADD `promoted_from` text;

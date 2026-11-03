@@ -8,7 +8,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace' | 'promote'
 
 /**
  * Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress
@@ -136,6 +136,31 @@ export interface HoldResult {
   number: number
   title: string
   until: string | null
+}
+
+/** The payload of a promote proposal: the Investigate ticket and the Change ticket it would become. */
+export interface PromotePayload {
+  ticketId: string
+  number: number
+  fromTitle: string
+  title: string
+  spec: string
+  /** Where the spec came from: the orchestrator, a summary of the report, or the report itself. */
+  specSource: 'orchestrator' | 'summary' | 'report'
+}
+
+/** What the user's Override sends for a promote: the new ticket's title and spec. */
+export interface PromoteOverride {
+  title: string
+  spec: string
+}
+
+export interface PromoteResult {
+  ticketId: string
+  number: number
+  title: string
+  fromTicketId: string
+  fromNumber: number
 }
 
 /** What an answer proposal picks: a question's option by index (from 0), or a permission's choice. */
