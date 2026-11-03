@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
-import { ANSWERED_VIA_LABELS, type AnsweredVia, type Decision, type DecisionAnswer } from '../../shared/domain'
+import { ANSWERED_VIA_PHRASES, type CardVia, type Decision, type DecisionAnswer } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { decisions, holds, tickets } from '../db/schema'
 
@@ -22,7 +22,13 @@ export interface DecisionRepo {
   /** What Mainbus does with the decision's answer itself, or null when the answer goes to the agent as it is. */
   actionOf(id: string): Promise<DecisionAction | null>
   /** Throws unless the decision is still open (pending or deferred), and releases its hold; for one already answered, says where from ("Already answered from the board"). */
-  answer(id: string, a: DecisionAnswer, via: AnsweredVia): Promise<Decision>
+  answer(id: string, a: DecisionAnswer, via: CardVia): Promise<Decision>
+  /**
+   * Settles every open (pending or deferred) question of the run whose answer goes to the agent as it is (not a
+   * permission, nor one with a DecisionAction) as answered by the user's message, releasing their holds, in one step.
+   * Returns the ones it settled.
+   */
+  answerByMessage(agentRunId: string, text: string): Promise<Decision[]>
   /** Throws unless the decision is still pending or deferred. */
   expire(id: string): Promise<Decision>
   /** Puts a pending decision off until `until` (ISO) with a hold on it, in one step. Throws unless it is pending. */
@@ -64,7 +70,7 @@ function toDecision(row: typeof decisions.$inferSelect, deferredUntil: string | 
 
 /** Why a decision can't be settled again: someone answered it (and from where), or it expired or was cancelled. */
 function notPending(d: Decision): Error {
-  if (d.status === 'answered' && d.answeredVia) return new Error(`Already answered from ${ANSWERED_VIA_LABELS[d.answeredVia]}`)
+  if (d.status === 'answered' && d.answeredVia) return new Error(`Already answered ${ANSWERED_VIA_PHRASES[d.answeredVia]}`)
   return new Error(`Decision ${d.id} is ${d.status}, not pending`)
 }
 
@@ -174,6 +180,35 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
         answeredBy: 'user',
         answeredVia: via
       })
+    },
+
+    async answerByMessage(agentRunId, text) {
+      const open = and(
+        eq(decisions.agentRunId, agentRunId),
+        eq(decisions.kind, 'question'),
+        isNull(decisions.action),
+        inArray(decisions.status, ['pending', 'deferred'])
+      )
+      const at = now().toISOString()
+      // The holds go first: their condition selects the open decisions, which the second update settles.
+      const [, settled] = await db.batch([
+        db
+          .update(holds)
+          .set({ releasedAt: at })
+          .where(
+            and(
+              eq(holds.targetKind, 'decision'),
+              isNull(holds.releasedAt),
+              inArray(holds.targetId, db.select({ id: decisions.id }).from(decisions).where(open))
+            )
+          ),
+        db
+          .update(decisions)
+          .set({ status: 'answered', answer: JSON.stringify({ kind: 'message', text }), answeredAt: at, answeredBy: 'user', answeredVia: 'message' })
+          .where(open)
+          .returning({ id: decisions.id })
+      ])
+      return Promise.all(settled.map((r) => get(r.id)))
     },
 
     expire(id) {

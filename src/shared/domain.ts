@@ -153,17 +153,24 @@ export interface PullRequest {
 export type DecisionAnswer =
   | { kind: 'option'; index: number; note?: string }
   | { kind: 'permission'; choice: 'allow_once' | 'always_allow' | 'deny'; note?: string }
+  /** The user's message settled the question: the text is the message, which the agent received as such. */
+  | { kind: 'message'; text: string }
 
-/** Where the user answered a decision: its board card, the orchestrator panel, or the ticket's thread. */
-export type AnsweredVia = 'board' | 'orchestrator' | 'thread'
+/** The places a decision's card is answered from: the board, the orchestrator panel, or the ticket's thread. */
+export type CardVia = 'board' | 'orchestrator' | 'thread'
 
-export const ANSWERED_VIA: readonly AnsweredVia[] = ['board', 'orchestrator', 'thread']
+/** Where the user answered a decision: one of its cards, or a message to the ticket. */
+export type AnsweredVia = CardVia | 'message'
 
-/** How an answer's origin reads in a sentence: "from the board". */
-export const ANSWERED_VIA_LABELS: Record<AnsweredVia, string> = {
-  board: 'the board',
-  orchestrator: 'the orchestrator panel',
-  thread: 'the thread'
+/** The places a card can be answered from; a message is not one (the engine settles by message itself). */
+export const ANSWERED_VIA: readonly CardVia[] = ['board', 'orchestrator', 'thread']
+
+/** How an answer's origin reads in a sentence: "from the board", "in a message". */
+export const ANSWERED_VIA_PHRASES: Record<AnsweredVia, string> = {
+  board: 'from the board',
+  orchestrator: 'from the orchestrator panel',
+  thread: 'from the thread',
+  message: 'in a message'
 }
 
 export interface Decision {

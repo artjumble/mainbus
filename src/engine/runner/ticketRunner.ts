@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import type { EngineEvent } from '../../shared/api'
 import {
   ANSWERED_VIA,
-  type AnsweredVia,
+  type CardVia,
   type DeclaredWait,
   type Decision,
   type DecisionAnswer,
@@ -454,7 +454,7 @@ export class TicketRunner {
   }
 
   /** The one path every answer takes, whichever place (`via`) the user answered from. */
-  async answer(decisionId: string, a: DecisionAnswer, via: AnsweredVia): Promise<void> {
+  async answer(decisionId: string, a: DecisionAnswer, via: CardVia): Promise<void> {
     if (!ANSWERED_VIA.includes(via)) throw new Error('An answer must say where it came from: the board, the orchestrator or the thread')
     const { ticketId } = await this.repos.decisions.get(decisionId)
     return this.serial(ticketId, () => this.answerNow(decisionId, a, via))
@@ -863,18 +863,29 @@ export class TicketRunner {
       if (live.ended) throw new Error(NOT_WORKING)
       // Logged before delivery, so it precedes anything the agent does in response.
       live.silentTurns = 0
+      const settled = await this.repos.decisions.answerByMessage(run.id, text)
       await this.record(live, { kind: 'user_message', text })
+      await this.announceSettled(ticketId, settled)
       const failure = await this.deliver(live, text)
       if (failure !== null) throw new Error(`The message was not delivered: ${failure}`)
       return
     }
     const ticket = await this.repos.tickets.get(ticketId)
+    const settled = await this.repos.decisions.answerByMessage(run.id, text)
     const logged = await this.record(this.target(run, ticket), { kind: 'user_message', text })
+    await this.announceSettled(ticketId, settled)
     // The message is the prompt, so a fallback digest leaves it out.
     await this.resume(run, text, logged.seq)
   }
 
-  private async answerNow(decisionId: string, a: DecisionAnswer, via: AnsweredVia): Promise<void> {
+  /** Tells every place showing the questions a message just settled. The agent got the message itself, nothing more. */
+  private async announceSettled(ticketId: string, settled: Decision[]): Promise<void> {
+    if (settled.length === 0) return
+    const { workspaceId } = await this.repos.tickets.get(ticketId)
+    for (const d of settled) this.announceDecision(d, workspaceId)
+  }
+
+  private async answerNow(decisionId: string, a: DecisionAnswer, via: CardVia): Promise<void> {
     const decision = await this.repos.decisions.get(decisionId)
     checkAnswer(decision, a)
     const folder = await this.openFolderDecision(decision.ticketId, decision.agentRunId)

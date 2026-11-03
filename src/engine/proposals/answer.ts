@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ANSWERED_VIA_LABELS, type Decision, type DecisionAnswer } from '../../shared/domain'
+import { ANSWERED_VIA_PHRASES, type Decision, type DecisionAnswer } from '../../shared/domain'
 import { shortDay } from '../../shared/hold'
 import { JUDGEMENT_REASONS, type AnswerChoice, type AnswerPayload, type AnswerResult } from '../../shared/proposals'
 import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
@@ -53,7 +53,7 @@ export function whyNotPending(d: Decision, now: Date): string | null {
     case 'pending':
       return null
     case 'answered':
-      return d.answeredVia ? `Already answered from ${ANSWERED_VIA_LABELS[d.answeredVia]}` : 'Already answered'
+      return d.answeredVia ? `Already answered ${ANSWERED_VIA_PHRASES[d.answeredVia]}` : 'Already answered'
     case 'deferred':
       return d.deferredUntil ? `Deferred until ${shortDay(d.deferredUntil, now)}` : 'Deferred'
     default:

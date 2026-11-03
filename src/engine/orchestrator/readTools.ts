@@ -146,6 +146,7 @@ function stuckText(s: StuckEpisode): string {
 function answerText(d: Decision): string {
   if (d.status !== 'answered' || d.answer === null) return d.status === 'pending' ? 'not answered yet' : d.status === 'deferred' ? 'deferred' : d.status
   const a = d.answer
+  if (a.kind === 'message') return `answered: ${data('answer', oneLine(`in a message: ${a.text}`), true)}`
   const chosen = a.kind === 'option' ? (d.options[a.index] ?? `option ${a.index + 1}`) : PERMISSION_CHOICES[a.choice]
   return `answered: ${data('answer', oneLine(a.note ? `${chosen} (note: ${a.note})` : chosen), true)}`
 }

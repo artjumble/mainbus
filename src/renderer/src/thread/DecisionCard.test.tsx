@@ -47,6 +47,14 @@ test('an answered card shows the chosen option and no controls', () => {
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
 })
 
+test('a question settled by a message shows how it was answered and no controls', () => {
+  const decision = makeDecision({ status: 'answered', answer: { kind: 'message', text: 'Merged, carry on' }, answeredVia: 'message' })
+  renderWithMantine(<DecisionCard decision={decision} />)
+  expect(screen.getByText('✓ Answered in a message')).toBeInTheDocument()
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+})
+
 test('a cancelled or expired question has no controls', () => {
   const { unmount } = renderWithMantine(<DecisionCard decision={makeDecision({ status: 'cancelled' })} />)
   expect(screen.getByText('Cancelled')).toBeInTheDocument()

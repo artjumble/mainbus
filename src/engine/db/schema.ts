@@ -223,7 +223,7 @@ export const decisions = sqliteTable(
     action: text('action'),
     createdAt: text('created_at').notNull(),
     answeredAt: text('answered_at'),
-    /** Who answered ('user'), and from where ('board' | 'orchestrator' | 'thread'); null until answered. */
+    /** Who answered ('user'), and from where ('board' | 'orchestrator' | 'thread', or 'message'); null until answered. */
     answeredBy: text('answered_by'),
     answeredVia: text('answered_via')
   },

@@ -1,6 +1,6 @@
 import { Anchor, Badge, Box, Button, Checkbox, Code, Group, Stack, Text, Textarea, Timeline, Title } from '@mantine/core'
 import { useState, type ReactElement, type ReactNode } from 'react'
-import { ANSWERED_VIA_LABELS, type Criterion, type Decision } from '../../../shared/domain'
+import { ANSWERED_VIA_PHRASES, type Criterion, type Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { stuckHeadline } from '../../../shared/stuck'
 import { invoke } from '../api'
@@ -358,11 +358,15 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
   }
   for (const d of decisions) {
     if (d.status !== 'answered' || !d.answeredAt || !d.answer) continue
+    if (d.answer.kind === 'message') {
+      entries.push({ at: d.answeredAt, title: `Decision: ${clip(d.question)} → answered in a message (you)`, detail: d.answer.text })
+      continue
+    }
     const answer =
       d.answer.kind === 'option'
         ? (d.options[d.answer.index] ?? `option ${d.answer.index + 1}`)
         : PERMISSION_ANSWERS[d.answer.choice]
-    const from = d.answeredVia ? `you, from ${ANSWERED_VIA_LABELS[d.answeredVia]}` : 'you'
+    const from = d.answeredVia ? `you, ${ANSWERED_VIA_PHRASES[d.answeredVia]}` : 'you'
     entries.push({
       at: d.answeredAt,
       title: `Decision: ${clip(d.question)} → ${answer} (${from})`,

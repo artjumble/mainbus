@@ -241,4 +241,39 @@ describe('deferring a decision (Later…)', () => {
     expect((await repo.expire(d.id)).status).toBe('expired')
     expect(await createHoldRepo(db, now).active('decision', d.id)).toBeNull()
   })
+
+  describe('answerByMessage', () => {
+    const later = new Date(FIXED_NOW.getTime() + 86_400_000).toISOString()
+
+    it('settles the pending and deferred questions of the run, releasing the hold', async () => {
+      const repo = createDecisionRepo(db, now)
+      const a = await repo.open({ ...question(), options: [...question().options] })
+      const b = await repo.open({ ...question(), options: [...question().options] })
+      await repo.defer(b.id, later)
+
+      const settled = await repo.answerByMessage(runId, 'Merged, carry on')
+
+      expect(settled.map((d) => d.id).sort()).toEqual([a.id, b.id].sort())
+      for (const d of settled) {
+        expect(d).toMatchObject({ status: 'answered', answeredBy: 'user', answeredVia: 'message', answer: { kind: 'message', text: 'Merged, carry on' } })
+      }
+      expect(await createHoldRepo(db, now).active('decision', b.id)).toBeNull()
+      await expect(repo.answer(a.id, { kind: 'option', index: 0 }, 'board')).rejects.toThrow('Already answered in a message')
+    })
+
+    it('leaves permissions, questions Mainbus acts on, and other runs alone', async () => {
+      const repo = createDecisionRepo(db, now)
+      const permission = await repo.open({ ...question(), kind: 'permission', options: [] })
+      const problem = await repo.open(
+        { ...question(), options: [...question().options] },
+        { kind: 'problem', fromRoleId: 'r', toRoleId: null, details: 'x' }
+      )
+      const otherRun = await createRunRepo(db, now).create(ticketId, [testRole()])
+      const other = await repo.open({ ...question(), agentRunId: otherRun, options: [...question().options] })
+
+      expect(await repo.answerByMessage(runId, 'hi')).toEqual([])
+
+      for (const d of [permission, problem, other]) expect((await repo.get(d.id)).status).toBe('pending')
+    })
+  })
 })
