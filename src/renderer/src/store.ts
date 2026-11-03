@@ -41,6 +41,8 @@ interface MainbusState {
   openWorkspace(repoPath: string): Promise<void>
   /** Reads the board. Runs one at a time: a call made meanwhile waits and reads once more afterwards. */
   refreshBoard(): Promise<void>
+  /** Re-reads the focused workspace, its board and its unattended state, after focus moved or a workspace opened or was removed. */
+  reloadFocused(): Promise<void>
   openTicket(id: string): void
   closeTicket(): void
   /**
@@ -126,6 +128,15 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     const workspace = await invoke('workspace.open', repoPath)
     set({ workspace, workspaceLoaded: true })
     await get().refreshBoard()
+  },
+
+  async reloadFocused() {
+    const workspace = await invoke('workspace.get')
+    const changed = workspace?.id !== get().workspace?.id
+    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, tickets: [] } : {}) })
+    if (!workspace) return
+    await get().refreshBoard()
+    set({ unattended: await invoke('unattended.get') })
   },
 
   refreshBoard() {
@@ -215,7 +226,12 @@ export function startSync(onError: (err: unknown) => void): () => void {
 
   const off = onEngineEvent((e) => {
     if (e.type === 'unattended.changed') {
-      useMainbus.setState({ unattended: e.state })
+      // The board shows the focused workspace; another workspace's mode is not its business.
+      if (e.workspaceId === useMainbus.getState().workspace?.id) useMainbus.setState({ unattended: e.state })
+      return
+    }
+    if (e.type === 'workspaces.changed') {
+      void useMainbus.getState().reloadFocused().catch(onError)
       return
     }
     if (e.type === 'usage.changed') {
@@ -223,6 +239,8 @@ export function startSync(onError: (err: unknown) => void): () => void {
       return
     }
     if (e.type !== 'board.changed') return
+    // Only the focused workspace's board is on screen.
+    if (e.workspaceId !== useMainbus.getState().workspace?.id) return
     // A burst (every thread event announces a change) costs one refresh per window: the first runs at once,
     // the rest wait for one trailing refresh.
     if (timer) return

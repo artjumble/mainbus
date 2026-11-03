@@ -99,6 +99,11 @@ export class WorktreeManager {
     return status.stdout.trim() !== ''
   }
 
+  /** True when the folder is a worktree of the repo with uncommitted work; false for a missing or unregistered folder. */
+  async isDirty(repoPath: string, wtPath: string): Promise<boolean> {
+    return (await exists(wtPath)) && (await this.isRegistered(repoPath, wtPath)) && (await this.hasUncommitted(wtPath))
+  }
+
   /**
    * Removes the worktree folder, then the ticket's scratch folder; the branch is always kept. Without
    * `discard`, a worktree with uncommitted work is left untouched and 'dirty' is returned. A scratch folder

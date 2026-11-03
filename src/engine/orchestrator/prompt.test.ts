@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import { buildOrchestratorPrompt } from './prompt'
 
-const prompt = buildOrchestratorPrompt('C:\\h\\work\\shop')
+const prompt = buildOrchestratorPrompt(['C:\\h\\work\\shop'])
 
 describe('buildOrchestratorPrompt', () => {
   test('says where the ticket folders are and that they may be read', () => {
-    expect(prompt).toContain("This workspace's ticket folders are all under C:\\h\\work\\shop.")
+    expect(prompt).toContain('- C:\\h\\work\\shop')
     expect(prompt).toContain('You may read them with Read, Grep and Glob')
     expect(prompt).toContain('get_ticket gives its path')
   })

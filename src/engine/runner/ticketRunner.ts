@@ -74,9 +74,9 @@ export interface RunnerDeps {
   now: () => Date
   emit: (e: EngineEvent) => void
   /**
-   * True while unattended mode is on: permission requests that aren't hard stops are allowed without a card.
+   * True while unattended mode is on for this workspace: permission requests that aren't hard stops are allowed without a card.
    */
-  unattended?: () => boolean
+  unattended?: (workspaceId: string) => boolean
   /** The app-wide usage limit; without it nothing is limited and a limit just fails the turn. */
   usage?: UsageHooks
   /**
@@ -292,8 +292,15 @@ export class TicketRunner {
     return this.launching.has(ticketId) || this.handingOn.has(ticketId)
   }
 
-  private unattended(): boolean {
-    return this.deps.unattended?.() ?? false
+  private unattended(workspaceId: string): boolean {
+    return this.deps.unattended?.(workspaceId) ?? false
+  }
+
+  /** Tells every open workspace's board to refresh. */
+  private async emitBoardChangedEverywhere(): Promise<void> {
+    for (const workspace of await this.repos.workspaces.list()) {
+      this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
+    }
   }
 
   /**
@@ -678,12 +685,12 @@ export class TicketRunner {
    * pending and are delivered when the session is resumed.
    */
   async markAllNotAlive(): Promise<void> {
-    const workspace = await this.repos.workspaces.get()
-    if (!workspace) return
-    for (const ticket of await this.repos.tickets.list(workspace.id)) {
-      await this.expirePending({ ticketId: ticket.id, workspaceId: workspace.id }, (d) => d.kind === 'permission')
+    for (const workspace of await this.repos.workspaces.list()) {
+      for (const ticket of await this.repos.tickets.list(workspace.id)) {
+        await this.expirePending({ ticketId: ticket.id, workspaceId: workspace.id }, (d) => d.kind === 'permission')
+      }
+      this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
     }
-    this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
   }
 
   /**
@@ -736,8 +743,7 @@ export class TicketRunner {
     if (this.shuttingDown) return
     await this.repos.runs.enqueueFirst(working, RESTART_TEXT)
     if (working.length > 0) this.queueHint = true
-    const workspace = await this.repos.workspaces.get()
-    if (workspace) this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
+    await this.emitBoardChangedEverywhere()
     if (opts.resume) this.kickQueue()
   }
 
@@ -1615,7 +1621,7 @@ export class TicketRunner {
     if ((event.kind === 'message' || event.kind === 'thinking') && event.partial) {
       // Streaming previews are shown but never stored; the final event follows.
       const preview: StoredEvent = { runId: live.runId, seq: 0, at: this.deps.now().toISOString(), event }
-      this.deps.emit({ type: 'thread.appended', ticketId: live.ticketId, event: preview, run: threadRun(live) })
+      this.deps.emit({ type: 'thread.appended', workspaceId: live.workspaceId, ticketId: live.ticketId, event: preview, run: threadRun(live) })
       return
     }
     if (event.kind === 'session') await this.repos.runs.setSession(live.runId, event.sessionId)
@@ -1727,8 +1733,7 @@ export class TicketRunner {
     )
     this.limitBypass.clear()
     this.queueHint = true
-    const workspace = await this.repos.workspaces.get()
-    if (workspace) this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
+    await this.emitBoardChangedEverywhere()
     this.kickQueue()
   }
 
@@ -2039,7 +2044,7 @@ export class TicketRunner {
 
     // Unattended mode answers every card but the hard stops, and never saves a rule for what it allowed.
     // Force-pushes and credential reads are hard stops whatever the guard made of the command.
-    if (this.unattended() && guard?.kind !== 'hard_stop' && !forcePush && !secret) {
+    if (this.unattended(target.workspaceId) && guard?.kind !== 'hard_stop' && !forcePush && !secret) {
       await this.record(target, { kind: 'notice', text: `${AUTO_ALLOWED}: ${describeRequest(req, target.role)}` })
       return { allow: true }
     }
@@ -2112,7 +2117,7 @@ export class TicketRunner {
   }
 
   private announceDecision(decision: Decision, workspaceId: string): void {
-    this.deps.emit({ type: 'decision.changed', decision })
+    this.deps.emit({ type: 'decision.changed', workspaceId, decision })
     this.deps.emit({ type: 'board.changed', workspaceId })
   }
 
@@ -2182,7 +2187,7 @@ export class TicketRunner {
 
   private async record(target: ThreadTarget, event: ThreadEvent): Promise<StoredEvent> {
     const stored = await this.repos.runs.append(target.runId, event)
-    this.deps.emit({ type: 'thread.appended', ticketId: target.ticketId, event: stored, run: threadRun(target) })
+    this.deps.emit({ type: 'thread.appended', workspaceId: target.workspaceId, ticketId: target.ticketId, event: stored, run: threadRun(target) })
     this.deps.emit({ type: 'board.changed', workspaceId: target.workspaceId })
     return stored
   }
@@ -2198,8 +2203,8 @@ export class TicketRunner {
   }
 
   private async workspaceOf(ticket: Ticket): Promise<Workspace> {
-    const workspace = await this.repos.workspaces.get()
-    if (!workspace || workspace.id !== ticket.workspaceId) throw new Error(`No workspace for ticket ${ticket.id}`)
+    const workspace = await this.repos.workspaces.get(ticket.workspaceId)
+    if (!workspace) throw new Error(`The workspace of ticket ${ticket.id} was removed`)
     return workspace
   }
 }

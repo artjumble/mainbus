@@ -87,9 +87,11 @@ export class HoldService {
   }
 
   private async announce(decision: Decision): Promise<void> {
-    this.deps.emit({ type: 'decision.changed', decision })
     const ticket = await this.deps.tickets.get(decision.ticketId).catch(() => null)
-    if (ticket) this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    if (ticket) {
+      this.deps.emit({ type: 'decision.changed', workspaceId: ticket.workspaceId, decision })
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    }
   }
 
   /** The ticket's hold, or null. */

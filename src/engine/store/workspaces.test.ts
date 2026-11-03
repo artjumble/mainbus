@@ -14,7 +14,7 @@ afterEach(() => cleanup())
 
 describe('workspace repo', () => {
   it('returns null before a workspace exists', async () => {
-    expect(await createWorkspaceRepo(db, () => FIXED_NOW).get()).toBeNull()
+    expect(await createWorkspaceRepo(db, () => FIXED_NOW).focused()).toBeNull()
   })
 
   it('creates a workspace and reads it back', async () => {
@@ -28,14 +28,14 @@ describe('workspace repo', () => {
       slug: 'my-app',
       openPrOnReview: false
     })
-    expect(await repo.get()).toEqual(created)
+    expect(await repo.get(created.id)).toEqual(created)
   })
 
   it('switches opening a PR on Review on and off', async () => {
     const repo = createWorkspaceRepo(db, () => FIXED_NOW)
     const ws = await repo.create('/r', 'main', 'r', 'r')
     expect((await repo.setOpenPrOnReview(ws.id, true)).openPrOnReview).toBe(true)
-    expect((await repo.get())?.openPrOnReview).toBe(true)
+    expect((await repo.get(ws.id))?.openPrOnReview).toBe(true)
     expect((await repo.setOpenPrOnReview(ws.id, false)).openPrOnReview).toBe(false)
   })
 
@@ -56,5 +56,49 @@ describe('workspace repo', () => {
     expect(reviewer!.handBackTo).toBe(implementer!.id)
     expect(lineup.map((r) => r.instructions)).toEqual(defaultLineup().map((r) => r.instructions))
     expect(reviewer!.instructions).toContain('report it as a problem with specific findings')
+  })
+
+  it('lists the live workspaces oldest first and gives clashing slugs a number', async () => {
+    let tick = 0
+    const repo = createWorkspaceRepo(db, () => new Date(FIXED_NOW.getTime() + tick++))
+    const a = await repo.create('/one/app', 'main', 'app', 'app')
+    const b = await repo.create('/two/app', 'main', 'app', 'app')
+    const c = await repo.create('/three/app', 'dev', 'app')
+    expect([a.slug, b.slug, c.slug]).toEqual(['app', 'app-2', 'app-3'])
+    expect((await repo.list()).map((w) => w.id)).toEqual([a.id, b.id, c.id])
+  })
+
+  it('remembers the focused workspace and falls back to the oldest live one', async () => {
+    let tick = 0
+    const repo = createWorkspaceRepo(db, () => new Date(FIXED_NOW.getTime() + tick++))
+    const a = await repo.create('/a', 'main', 'a')
+    const b = await repo.create('/b', 'main', 'b')
+    expect((await repo.focused())?.id).toBe(a.id)
+    await repo.setFocused(b.id)
+    expect((await repo.focused())?.id).toBe(b.id)
+    await repo.markRemoved(b.id)
+    expect((await repo.focused())?.id).toBe(a.id)
+    expect(await repo.get(b.id)).toBeNull()
+    expect((await repo.list()).map((w) => w.id)).toEqual([a.id])
+  })
+
+  it('keeps a removed workspace, still using its slug, and restores it', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const a = await repo.create('/a/app', 'main', 'app')
+    await repo.markRemoved(a.id)
+    expect((await repo.listAll()).map((w) => [w.id, w.removed])).toEqual([[a.id, true]])
+    expect((await repo.create('/b/app', 'main', 'app')).slug).toBe('app-2')
+    await repo.restore(a.id)
+    expect((await repo.get(a.id))?.id).toBe(a.id)
+  })
+
+  it('remembers unattended mode per workspace', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const a = await repo.create('/a', 'main', 'a')
+    const b = await repo.create('/b', 'main', 'b')
+    await repo.setUnattendedOn(a.id, true)
+    expect([await repo.unattendedOn(a.id), await repo.unattendedOn(b.id)]).toEqual([true, false])
+    await repo.setUnattendedOn(a.id, false)
+    expect(await repo.unattendedOn(a.id)).toBe(false)
   })
 })

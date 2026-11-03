@@ -19,9 +19,10 @@ import type { GitRunner } from './git/git'
 import { PullRequestPublisher } from './git/pullRequests'
 import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
-import type { HomePaths } from './home'
+import { ticketFoldersFor, type HomePaths } from './home'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
+import type { AnsweredDecision } from './orchestrator/answeredBlock'
 import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import type { StuckReport } from './orchestrator/stuckBlock'
@@ -125,15 +126,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
   try {
     const repos = createRepos(handle.db, now)
     const listeners = new Set<(e: EngineEvent) => void>()
-    // Created below, once the runner it drives exists; it sees every event before the listeners do.
-    let unattended: UnattendedMode | null = null
+    // One unattended mode per workspace, created below once the runner they drive exists; each sees every event
+    // before the listeners do.
+    const modes = new Map<string, UnattendedMode>()
     let usageGate: UsageGate | null = null
     let wakeSchedulerRef: WakeScheduler | null = null
     let proposalService: ProposalService | null = null
     // The runner's, once it exists: a decision put off frees its agent's slot for the queue.
     let kickQueue: (() => void) | null = null
     const emit = (e: EngineEvent): void => {
-      unattended?.observe(e)
+      for (const m of modes.values()) m.observe(e)
       // Wake turns that waited for the reset get their turn once the limit lifts.
       if (e.type === 'usage.changed' && e.state.kind !== 'limited') void wakeSchedulerRef?.limitLifted()
       if (e.type === 'decision.changed' && e.decision.status === 'deferred') kickQueue?.()
@@ -158,11 +160,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       wake: (rows) => orchestratorSession?.wake(rows) ?? Promise.resolve(),
       busy: () => orchestratorSession?.busy ?? true,
       usageLimitedUntil: () => usageGate?.limitedUntil() ?? null,
-      canWake: async () => cfg.runtime !== null && (await repos.workspaces.get()) !== null
+      canWake: async () => cfg.runtime !== null && (await repos.workspaces.list()).length > 0
     })
     wakeSchedulerRef = wakeScheduler
     const addWake = async (workspaceId: string, kind: WakeKind, ref: string): Promise<void> => {
       // Losing the news must never break what produced it; the board still shows it.
+      // A removed workspace has nobody to tell.
+      if ((await repos.workspaces.get(workspaceId)) === null) return
       if (await repos.wakes.add(workspaceId, kind, ref).catch(() => false)) wakeScheduler.added()
     }
 
@@ -198,7 +202,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       runtime: cfg.runtime ?? missingRuntime,
       now,
       emit,
-      unattended: () => unattended?.isOn() ?? false,
+      unattended: (workspaceId) => modes.get(workspaceId)?.isOn() ?? false,
       usage: usageHooks(gate),
       pullRequests,
       processes: cfg.processes ?? new ProcessSweeper(),
@@ -225,8 +229,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     await holds.start()
     stuckDetector.start()
 
-    const requireWorkspace = async (): Promise<Workspace> => {
-      const ws = await repos.workspaces.get()
+    /** The workspace a renderer command is about: the one named, else the focused one. */
+    const requireWorkspace = async (id?: string): Promise<Workspace> => {
+      if (id !== undefined) {
+        if (typeof id !== 'string') throw new Error('Unknown workspace')
+        const named = await repos.workspaces.get(id)
+        if (!named) throw new Error('Unknown workspace: it may have been removed')
+        return named
+      }
+      const ws = await repos.workspaces.focused()
       if (!ws) throw new Error(WORKSPACE_REQUIRED)
       return ws
     }
@@ -234,26 +245,48 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       if (cfg.runtime === null) throw new SetupRequiredError()
     }
 
-    // Whether it is on is stored, and restored once the agents are back (see recovery below).
-    const mode = new UnattendedMode({
-      runner,
-      tickets: async () => {
-        const ws = await repos.workspaces.get()
-        return ws ? repos.tickets.list(ws.id) : []
+    // The machine stays awake while any workspace's mode has work: a count, so one mode stopping does not let it sleep.
+    const baseAwake = cfg.keepAwake ?? { start: () => {}, stop: () => {} }
+    let awakeHolds = 0
+    const keepAwake = {
+      start: () => {
+        if (awakeHolds++ === 0) baseAwake.start()
       },
-      checkCanRun: async () => {
-        requireRuntime()
-        await requireWorkspace()
-      },
-      emit,
-      limitedUntil: () => gate.limitedUntil(),
-      held: () => holds.heldIds(),
-      keepAwake: cfg.keepAwake ?? { start: () => {}, stop: () => {} },
-      now,
-      remember: (on) => repos.settings.setUnattendedOn(on),
-      remembered: () => repos.settings.unattendedOn()
-    })
-    unattended = mode
+      stop: () => {
+        if (awakeHolds > 0 && --awakeHolds === 0) baseAwake.stop()
+      }
+    }
+
+    // Whether each is on is stored per workspace, and restored once the agents are back (see recovery below).
+    const modeFor = (ws: Workspace): UnattendedMode => {
+      let mode = modes.get(ws.id)
+      if (!mode) {
+        mode = new UnattendedMode({
+          workspaceId: ws.id,
+          runner,
+          tickets: () => repos.tickets.list(ws.id),
+          checkCanRun: async () => {
+            requireRuntime()
+            await requireWorkspace(ws.id)
+          },
+          emit,
+          limitedUntil: () => gate.limitedUntil(),
+          held: () => holds.heldIds(),
+          keepAwake,
+          now,
+          remember: (on) => repos.workspaces.setUnattendedOn(ws.id, on),
+          remembered: () => repos.workspaces.unattendedOn(ws.id)
+        })
+        modes.set(ws.id, mode)
+      }
+      return mode
+    }
+    for (const ws of await repos.workspaces.list()) modeFor(ws)
+    /** The mode of the workspace this ticket is in, if it has one. */
+    const modeOfTicket = async (ticketId: string): Promise<UnattendedMode | undefined> => {
+      const ticket = await repos.tickets.get(ticketId).catch(() => null)
+      return ticket ? modes.get(ticket.workspaceId) : undefined
+    }
 
     async function openWorkspace(repoPath: string): Promise<Workspace> {
       const folder = path.resolve(repoPath)
@@ -275,10 +308,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
       const root = path.resolve(top.stdout.trim())
 
-      const existing = await repos.workspaces.get()
-      if (existing) {
-        if (samePath(path.resolve(existing.repoPath), root)) return existing
-        throw new Error(`Mainbus MVP supports one workspace; ${existing.repoPath} is already open`)
+      // The same repo again is the workspace it already is (a removed one comes back, board and all).
+      const known = (await repos.workspaces.listAll()).find((w) => samePath(path.resolve(w.repoPath), root))
+      if (known) {
+        if (known.removed) await repos.workspaces.restore(known.id)
+        const live = (await repos.workspaces.get(known.id))!
+        modeFor(live)
+        await repos.workspaces.setFocused(live.id)
+        emit({ type: 'board.changed', workspaceId: live.id })
+        emit({ type: 'workspaces.changed', focusedId: live.id })
+        return live
       }
 
       if ((await cfg.git(['rev-parse', '--verify', 'HEAD'], root)).code !== 0) {
@@ -293,8 +332,82 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
       const name = path.basename(root)
       const workspace = await repos.workspaces.create(root, baseBranch, name, slugify(name))
+      modeFor(workspace)
+      await repos.workspaces.setFocused(workspace.id)
       emit({ type: 'board.changed', workspaceId: workspace.id })
+      emit({ type: 'workspaces.changed', focusedId: workspace.id })
       return workspace
+    }
+
+    /** The ids of the tickets of the workspace that have an agent open, or are starting one. */
+    async function ticketsWithOpenAgents(workspaceId: string): Promise<Ticket[]> {
+      const open: Ticket[] = []
+      for (const t of await repos.tickets.list(workspaceId)) {
+        const latest = await repos.runs.latest(t.id)
+        if ((latest && latest.endReason === null) || runner.isLaunching(t.id)) open.push(t)
+      }
+      return open
+    }
+    const numbers = (tickets: Ticket[]): string => tickets.map((t) => `#${t.number}`).join(', ')
+
+    /**
+     * Removes the workspace from Mainbus: its row stays (marked removed) so its tickets and history are not lost, and
+     * the repo is never touched. Folders with uncommitted work are never removed; they are returned.
+     */
+    async function removeWorkspace(id: string): Promise<{ keptFolders: string[] }> {
+      const ws = await repos.workspaces.get(id)
+      if (!ws) throw new Error('Unknown workspace: it may have been removed already')
+      const refuse = (open: Ticket[]): Error =>
+        new Error(`${ws.name} has agents open on ${numbers(open)}. Stop them (or let them finish) first; nothing was removed.`)
+      const open = await ticketsWithOpenAgents(id)
+      if (open.length > 0) throw refuse(open)
+      const tickets = await repos.tickets.list(id)
+      const dirty: string[] = []
+      for (const t of tickets) {
+        if (t.worktreePath !== null && (await worktrees.isDirty(ws.repoPath, t.worktreePath))) dirty.push(`#${t.number} (${t.worktreePath})`)
+      }
+      if (dirty.length > 0) {
+        throw new Error(`These folders have uncommitted changes: ${dirty.join(', ')}. Commit or discard them first; nothing was removed.`)
+      }
+
+      // First, so nothing new starts in it; an agent that slipped in meanwhile puts it back.
+      await repos.workspaces.markRemoved(id)
+      const slipped = await ticketsWithOpenAgents(id)
+      if (slipped.length > 0) {
+        await repos.workspaces.restore(id)
+        throw refuse(slipped)
+      }
+
+      const mode = modes.get(id)
+      if (mode) {
+        await mode.set(false)
+        mode.dispose()
+        modes.delete(id)
+      }
+      await repos.workspaces.setUnattendedOn(id, false)
+      for (const p of await repos.proposals.list()) {
+        if (p.workspaceId !== id || p.status !== 'pending') continue
+        const failed = await repos.proposals.failPending(p.id, 'Its workspace was removed')
+        if (failed) emit({ type: 'proposal.changed', proposal: failed })
+      }
+      const wakes = (await repos.wakes.pending()).filter((w) => w.workspaceId === id)
+      await repos.wakes.ack(wakes.map((w) => w.id))
+      for (const t of tickets) await holds.unhold(t.id).catch(() => {})
+
+      const keptFolders: string[] = []
+      for (const t of tickets) {
+        if (t.worktreePath === null || t.branch === null) continue
+        try {
+          const outcome = await worktrees.remove(t.id, ws.repoPath, t.worktreePath, t.branch, { discard: false })
+          if (outcome === 'removed') await repos.tickets.setWorktree(t.id, t.branch, null)
+          else keptFolders.push(t.worktreePath)
+        } catch {
+          // A folder a program holds open, or that is not a worktree any more: left as it is.
+          keptFolders.push(t.worktreePath)
+        }
+      }
+      emit({ type: 'workspaces.changed', focusedId: (await repos.workspaces.focused())?.id ?? null })
+      return { keptFolders }
     }
 
     /**
@@ -320,13 +433,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     // With `expect`, they fail rather than act on a role other than the one named.
     // Stopping needs no runtime: without one nothing is live, and a paused run can still be ended.
     // Stopping the ticket unattended mode is running turns the mode off: the user is here.
-    const stopTicket = (ticketId: string, expect?: RunExpectation): Promise<void> => {
-      mode.userStopped(ticketId)
+    const stopTicket = async (ticketId: string, expect?: RunExpectation): Promise<void> => {
+      ;(await modeOfTicket(ticketId))?.userStopped(ticketId)
       return runner.stop(ticketId, expect)
     }
     // Like Stop: pausing needs no runtime, and pausing the ticket unattended mode is running turns the mode off.
-    const pauseTicket = (ticketId: string, expect?: RunExpectation): Promise<void> => {
-      mode.userPaused(ticketId)
+    const pauseTicket = async (ticketId: string, expect?: RunExpectation): Promise<void> => {
+      ;(await modeOfTicket(ticketId))?.userPaused(ticketId)
       return runner.pause(ticketId, expect)
     }
     const skipTicket = (ticketId: string, expect?: RunExpectation): Promise<void> => {
@@ -342,7 +455,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       draftPromotionSpec(cfg.runtime ?? missingRuntime, cfg.paths, ticket, cfg.promoteSummaryTimeoutMs ?? SKIP_SUMMARY_MS)
     /** The one way a ticket moves to Done: the ticket view's move, and a promotion's. 'dirty' leaves it where it was. */
     const moveTicketToDone = async (id: string): Promise<'moved' | 'dirty'> => {
-      mode.userMoved(id, 'done')
+      ;(await modeOfTicket(id))?.userMoved(id, 'done')
       const moved = (await runner.moveToDone(id)) === 'done'
       // A Done ticket has nothing left to hold back.
       if (moved) await holds.unhold(id)
@@ -374,7 +487,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       repo: repos.proposals,
       emit,
       exec: {
-        workspace: () => repos.workspaces.get(),
+        workspace: (id) => repos.workspaces.get(id),
         createTickets,
         lineup: (workspaceId, kind) => repos.lineups.get(workspaceId, kind),
         ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
@@ -468,6 +581,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     /** What a wake row says now, or null when its run, episode, hold, decision or ticket is gone. */
     async function wakeItemOf(row: Wake): Promise<WakeItem | null> {
+      const workspace = (await repos.workspaces.get(row.workspaceId))?.name
+      if (workspace === undefined) return null
+      const item = await wakeItemIn(row)
+      if (item === null) return null
+      return item.kind === 'stuck' ? { ...item, report: { ...item.report, workspace } } : { ...item, workspace }
+    }
+    async function wakeItemIn(row: Wake): Promise<WakeItem | null> {
       switch (row.kind) {
         case 'failure': {
           const run = await repos.runs.get(row.ref)
@@ -519,24 +639,43 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       paths: cfg.paths,
       now,
       emit,
-      workspace: () => repos.workspaces.get(),
+      focused: () => repos.workspaces.focused(),
+      workspaces: () => repos.workspaces.list(),
+      decisionWorkspace: async (id) => {
+        const decision = await repos.decisions.get(id).catch(() => null)
+        const ticket = decision && (await repos.tickets.get(decision.ticketId).catch(() => null))
+        return ticket ? ticket.workspaceId : null
+      },
       workspaceRequired: WORKSPACE_REQUIRED,
-      readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView, usage: () => gate.state() }),
+      readTools: createReadTools({
+        repos,
+        focused: () => repos.workspaces.focused(),
+        list: () => repos.workspaces.list(),
+        board: boardView,
+        usage: () => gate.state()
+      }),
       proposals,
-      answeredSince: (workspaceId, since) => repos.decisions.answeredSince(workspaceId, since),
-      releasedSince: async (workspaceId, since) => {
+      answeredSince: async (since) => {
+        const answered: AnsweredDecision[] = []
+        for (const ws of await repos.workspaces.list()) {
+          for (const a of await repos.decisions.answeredSince(ws.id, since)) answered.push({ ...a, workspace: ws.name })
+        }
+        return answered
+      },
+      releasedSince: async (since) => {
         const released: ReleasedHold[] = []
         const presented = await wakesPresented('released_hold', since)
         for (const h of await repos.holds.releasedSince('ticket', since)) {
           if (presented.has(h.id)) continue
           const ticket = await repos.tickets.get(h.targetId).catch(() => null)
-          if (ticket?.workspaceId === workspaceId && h.releasedAt !== null) {
-            released.push({ number: ticket.number, title: ticket.title, until: h.until, releasedAt: h.releasedAt })
+          const ws = ticket && (await repos.workspaces.get(ticket.workspaceId))
+          if (ticket && ws && h.releasedAt !== null) {
+            released.push({ number: ticket.number, title: ticket.title, workspace: ws.name, until: h.until, releasedAt: h.releasedAt })
           }
         }
         return released
       },
-      resurfacedSince: async (workspaceId, since) => {
+      resurfacedSince: async (since) => {
         const resurfaced: ResurfacedDecision[] = []
         const presented = await wakesPresented('resurfaced', since)
         for (const h of await repos.holds.releasedSince('decision', since)) {
@@ -546,26 +685,28 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           const decision = await repos.decisions.get(h.targetId).catch(() => null)
           if (decision?.status !== 'pending') continue
           const ticket = await repos.tickets.get(decision.ticketId).catch(() => null)
-          if (ticket?.workspaceId === workspaceId) {
-            resurfaced.push({ number: ticket.number, title: ticket.title, question: decision.question, until: h.until })
+          const ws = ticket && (await repos.workspaces.get(ticket.workspaceId))
+          if (ticket && ws) {
+            resurfaced.push({ number: ticket.number, title: ticket.title, workspace: ws.name, question: decision.question, until: h.until })
           }
         }
         return resurfaced
       },
-      stuckSince: async (workspaceId, since) => {
+      stuckSince: async (since) => {
         const reports: StuckReport[] = []
         const presented = await wakesPresented('stuck', since)
         for (const { ticketId, role, episode } of await repos.stuck.changedSince(since)) {
           if (presented.has(episode.id)) continue
           const ticket = await repos.tickets.get(ticketId).catch(() => null)
-          if (ticket?.workspaceId !== workspaceId) continue
-          reports.push(stuckReportOf(ticket.number, ticket.title, role, episode))
+          const ws = ticket && (await repos.workspaces.get(ticket.workspaceId))
+          if (!ticket || !ws) continue
+          reports.push({ ...stuckReportOf(ticket.number, ticket.title, role, episode), workspace: ws.name })
         }
         return reports
       },
       wakes: repos.wakes,
       usage: { rateLimit: (event, runId) => gate.rateLimit(event, runId), hit: (limit, runId) => gate.hit(limit, runId) },
-      wakeItems: async (workspaceId, rows) => {
+      wakeItems: async (rows) => {
         const presented: { row: Wake; item: WakeItem }[] = []
         const gone: Wake[] = []
         for (const row of rows) {
@@ -573,14 +714,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           if (item === null) gone.push(row)
           else presented.push({ row, item })
         }
-        const open: OpenDecision[] = (await repos.decisions.openIn(workspaceId)).map(({ number, title, decision }) => ({
-          id: decision.id,
-          number,
-          title,
-          question: decision.question,
-          status: decision.status === 'deferred' ? 'deferred' : 'pending',
-          deferredUntil: decision.deferredUntil
-        }))
+        const open: OpenDecision[] = []
+        for (const ws of await repos.workspaces.list()) {
+          for (const { number, title, decision } of await repos.decisions.openIn(ws.id)) {
+            open.push({
+              workspace: ws.name,
+              id: decision.id,
+              number,
+              title,
+              question: decision.question,
+              status: decision.status === 'deferred' ? 'deferred' : 'pending',
+              deferredUntil: decision.deferredUntil
+            })
+          }
+        }
         return { presented, gone, open }
       },
       onTurnEnded: (finished) => void wakeScheduler.turnEnded(finished)
@@ -593,7 +740,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       .recover({ resume: cfg.runtime !== null })
       // Timers and the reset that passed while closed: after recovery (which skips the paused agents), before the mode.
       .then(() => (cfg.runtime !== null ? gate.start() : undefined))
-      .then(() => mode.restore())
+      .then(() => Promise.all([...modes.values()].map((m) => m.restore())))
       .catch((err: unknown) => console.warn(`Mainbus could not finish restart recovery: ${err instanceof Error ? err.message : String(err)}`))
 
     const handlers: Handlers = {
@@ -605,23 +752,31 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         }
         return setup
       },
-      'workspace.get': () => repos.workspaces.get(),
+      'workspace.get': () => repos.workspaces.focused(),
+      'workspace.list': () => repos.workspaces.list(),
       'workspace.open': openWorkspace,
+      'workspace.focus': async (id) => {
+        const ws = await requireWorkspace(id)
+        await repos.workspaces.setFocused(ws.id)
+        emit({ type: 'workspaces.changed', focusedId: ws.id })
+        return ws
+      },
+      'workspace.remove': (id) => removeWorkspace(id),
       // Reached only through `invoke` (the renderer's IPC), like ticket.openPr and unattended.set.
-      'workspace.setOpenPrOnReview': async (on) => {
-        const ws = await repos.workspaces.setOpenPrOnReview((await requireWorkspace()).id, on === true)
+      'workspace.setOpenPrOnReview': async (on, workspaceId) => {
+        const ws = await repos.workspaces.setOpenPrOnReview((await requireWorkspace(workspaceId)).id, on === true)
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
       },
-      'github.check': async () => pullRequests.checkGh((await requireWorkspace()).repoPath),
+      'github.check': async (workspaceId) => pullRequests.checkGh((await requireWorkspace(workspaceId)).repoPath),
 
-      'board.get': async () => {
-        const ws = await repos.workspaces.get()
+      'board.get': async (workspaceId) => {
+        const ws = workspaceId === undefined ? await repos.workspaces.focused() : await requireWorkspace(workspaceId)
         return { tickets: ws ? await boardView(ws) : [] }
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
-      'ticket.create': async (input) => createTicket(await requireWorkspace(), {
+      'ticket.create': async (input, workspaceId) => createTicket(await requireWorkspace(workspaceId), {
           ...input,
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
           source: undefined
@@ -638,7 +793,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       'ticket.move': async (id, column) => {
         if (column === 'done') return moveTicketToDone(id)
-        mode.userMoved(id, column)
+        ;(await modeOfTicket(id))?.userMoved(id, column)
         await runner.moveToColumn(id, column)
         return 'moved'
       },
@@ -693,17 +848,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'decision.defer': (id, until) => holds.defer(id, until),
       'decision.bringBack': (id) => holds.bringBack(id),
 
-      'lineup.get': async (lineup = 'change') => repos.lineups.get((await requireWorkspace()).id, knownLineup(lineup)),
+      'lineup.get': async (lineup = 'change', workspaceId) => repos.lineups.get((await requireWorkspace(workspaceId)).id, knownLineup(lineup)),
       // The board changes too: before a ticket's first run, its lineup strip is the workspace lineup.
-      'lineup.save': async (roles, lineup = 'change') => {
-        const ws = await requireWorkspace()
+      'lineup.save': async (roles, lineup = 'change', workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
         const saved = await repos.lineups.save(ws.id, roles, knownLineup(lineup))
         emit({ type: 'board.changed', workspaceId: ws.id })
         return saved
       },
 
-      'allowRules.list': async () => {
-        const ws = await repos.workspaces.get()
+      'allowRules.list': async (workspaceId) => {
+        const ws = workspaceId === undefined ? await repos.workspaces.focused() : await requireWorkspace(workspaceId)
         return ws ? repos.allowRules.list(ws.id) : []
       },
       'allowRules.remove': (id) => repos.allowRules.remove(id),
@@ -723,8 +878,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return settings
       },
 
-      'unattended.get': () => mode.get(),
-      'unattended.set': (on) => mode.set(on === true),
+      'unattended.get': async (workspaceId) => {
+        // Before any workspace is open there is nothing to run.
+        const ws = workspaceId === undefined ? await repos.workspaces.focused() : await requireWorkspace(workspaceId)
+        return ws ? modeFor(ws).get() : { on: false, status: { kind: 'off' } }
+      },
+      'unattended.set': async (on, workspaceId) => modeFor(await requireWorkspace(workspaceId)).set(on === true),
 
       // Reached only through `invoke` (the renderer's IPC), like unattended.set.
       'usage.get': () => gate.state(),
@@ -737,25 +896,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return orchestrator.send(text)
       },
       'orchestrator.stop': () => orchestrator.stop(),
-      'ticket.proposeStart': async (ticketId) => {
-        const ws = await requireWorkspace()
-        const ticket = await repos.tickets.get(ticketId)
-        if (ticket.workspaceId !== ws.id) throw new Error('That ticket is not in the open workspace')
-        return orchestrator.proposeStartFromDrag(ticket)
-      },
-      'ticket.proposeReplace': async (ticketId) => {
-        const ws = await requireWorkspace()
-        const ticket = await repos.tickets.get(ticketId)
-        if (ticket.workspaceId !== ws.id) throw new Error('That ticket is not in the open workspace')
-        return orchestrator.proposeReplaceFromButton(ticket)
-      },
+      // They act on the ticket's own workspace, whichever one is focused.
+      'ticket.proposeStart': async (ticketId) => orchestrator.proposeStartFromDrag(await repos.tickets.get(ticketId)),
+      'ticket.proposeReplace': async (ticketId) => orchestrator.proposeReplaceFromButton(await repos.tickets.get(ticketId)),
       // Reached only through `invoke` (the renderer's IPC): only the user decides a proposal. No runtime needed.
       'proposal.confirm': (id, override) => proposals.confirm(id, override),
       'proposal.reject': (id) => proposals.reject(id)
     }
 
     const intake = createIntakeHandler({
-      workspace: () => repos.workspaces.get(),
+      workspaces: () => repos.workspaces.list(),
+      ticketFolders: (ws) => ticketFoldersFor(cfg.paths, ws.slug),
       createTicket,
       tickets: boardTickets,
       ticket: boardTicket
@@ -783,7 +934,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         disposal ??= (async () => {
           try {
             // First, so the queue starts nothing while the agents are stopped.
-            mode.dispose()
+            for (const m of modes.values()) m.dispose()
             gate.dispose()
             holds.dispose()
             stuckDetector.dispose()

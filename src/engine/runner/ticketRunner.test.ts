@@ -301,7 +301,7 @@ describe('TicketRunner', () => {
 
     expect(runtime.sent).toEqual(['Answer: New API\nNote: keep API'])
     expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'answered' })
-    expect(emitted).toContainEqual({ type: 'decision.changed', decision: expect.objectContaining({ id: decision.id, status: 'answered' }) })
+    expect(emitted).toContainEqual({ type: 'decision.changed', workspaceId: expect.any(String), decision: expect.objectContaining({ id: decision.id, status: 'answered' }) })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
   })
 

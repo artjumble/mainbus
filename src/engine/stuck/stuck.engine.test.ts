@@ -200,6 +200,10 @@ describe('the orchestrator hears of stuck agents', () => {
     await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await engine.invoke('agent.start', ticket.id)
     await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    // The agent's first event lands before the clock moves, not in the middle of an advance.
+    await vi.waitFor(async () =>
+      expect((await engine.invoke('thread.get', ticket.id)).events.some((e) => e.event.kind === 'session')).toBe(true)
+    )
     const idle = () => vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     const say = async (text: string): Promise<string> => {
       // A wake turn the clock started may still be under way.
@@ -222,7 +226,7 @@ describe('the orchestrator hears of stuck agents', () => {
     await idle()
     const opened = runtime.sent.at(-1)!
     expect(opened).toContain(WAKE_HEADING)
-    expect(opened).toContain(`#${ticket.number} "Login": the Planner looks stuck. Evidence`)
+    expect(opened).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner looks stuck. Evidence`)
     expect(opened).toContain('<ticket-data field="stuck-evidence">No events from the agent for 10 minutes</ticket-data>')
     expect(opened).not.toContain('needs a closer look')
 

@@ -175,7 +175,7 @@ describe('decision repo', () => {
     const a = await repo.open({ ...question(), options: ['SQLite', 'Postgres'] })
     const b = await repo.open({ ...question(), options: ['SQLite', 'Postgres'] })
     await repo.open({ ...question(), options: ['SQLite', 'Postgres'] })
-    const ws = (await createWorkspaceRepo(db, now).get())!
+    const ws = (await createWorkspaceRepo(db, now).focused())!
     await repo.answer(a.id, { kind: 'option', index: 0 }, 'board')
     clock = new Date(FIXED_NOW.getTime() + 1000)
     await repo.answer(b.id, { kind: 'option', index: 1 }, 'orchestrator')

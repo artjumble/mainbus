@@ -170,9 +170,9 @@ describe('replace: execute', () => {
     expect(c.replaceTicket).not.toHaveBeenCalled()
   })
 
-  test('fails when the workspace is no longer open', async () => {
+  test('fails when the workspace is was removed', async () => {
     const c = ctx({ open: null })
-    await expect(replace.execute(PAYLOAD, target, c)).rejects.toThrow(/no longer open/)
+    await expect(replace.execute(PAYLOAD, target, c)).rejects.toThrow(/was removed/)
     expect(c.replaceTicket).not.toHaveBeenCalled()
   })
 })

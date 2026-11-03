@@ -86,7 +86,7 @@ describe('decision.defer', () => {
     expect(t.pendingDecisions).toEqual([])
     expect(t.deferredDecisions).toEqual([expect.objectContaining({ id: decision.id, status: 'deferred', deferredUntil: iso(1) })])
     expect(t.state).toMatchObject({ column: 'in_progress', agentStatus: 'waiting_on_you', phase: 'waiting_on_you', deferredUntil: iso(1) })
-    expect(events).toContainEqual({ type: 'decision.changed', decision: expect.objectContaining({ id: decision.id, status: 'deferred' }) })
+    expect(events).toContainEqual({ type: 'decision.changed', workspaceId: expect.any(String), decision: expect.objectContaining({ id: decision.id, status: 'deferred' }) })
     expect(clock.pending).toBe(1)
   })
 
@@ -105,6 +105,7 @@ describe('decision.defer', () => {
 
     expect(events).toContainEqual({
       type: 'decision.changed',
+      workspaceId: expect.any(String),
       decision: expect.objectContaining({ id: decision.id, status: 'pending', deferredUntil: null })
     })
     expect(events.some((e) => e.type === 'board.changed')).toBe(true)

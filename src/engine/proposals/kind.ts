@@ -12,8 +12,8 @@ export class ProposalInvalid extends Error {
 
 /** What carrying out a proposal may use of the engine. Later kinds add to it. */
 export interface ExecContext {
-  /** The open workspace, or null. */
-  workspace(): Promise<Workspace | null>
+  /** The workspace with this id, or null when it was removed. */
+  workspace(id: string): Promise<Workspace | null>
   /** The same path as ticket.create: creates them all in order, or none, and emits board.changed once. */
   createTickets(
     ws: Workspace,

@@ -445,6 +445,8 @@ describe('unattended mode', () => {
   it('cannot be switched on without a runtime or a workspace', async () => {
     const engine = await createEngine({ paths, migrationsDir, runtime: null, git: runGit, exec })
     engines.push(engine)
+    await expect(engine.invoke('unattended.set', true)).rejects.toThrow('Open a workspace first')
+    await engine.invoke('workspace.open', repoPath)
     await expect(engine.invoke('unattended.set', true)).rejects.toThrow(/not set up/)
     expect(await engine.invoke('unattended.get')).toMatchObject({ on: false })
 
@@ -501,6 +503,7 @@ describe('UnattendedMode timing', () => {
     }
     const emitted: UnattendedState[] = []
     const deps: UnattendedDeps = {
+      workspaceId: 'w',
       runner,
       tickets: async () => [ticket],
       checkCanRun: async () => {},
@@ -603,6 +606,7 @@ describe('UnattendedMode remembering', () => {
   function mode(over: Partial<UnattendedDeps> = {}) {
     const stored = { on: false }
     const m = new UnattendedMode({
+      workspaceId: 'w',
       runner: {
         start: async () => {},
         stateOf: async () => ({ column: 'ready' }) as TicketState,

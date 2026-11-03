@@ -26,6 +26,7 @@ import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
 import { withHeader } from './header'
 import { orchestratorVerdict } from './permissions'
+import { resolveWorkspaceRef } from './workspaceRef'
 import { buildOrchestratorPrompt } from './prompt'
 
 export const EMPTY_MESSAGE = 'Type a message first'
@@ -53,23 +54,27 @@ export interface OrchestratorDeps {
   runtime: AgentRuntime
   /** The data home: the orchestrator works in its `orchestrator` folder. */
   homeRoot: string
-  /** The data home's folders: the ticket folders of the open workspace are readable. */
+  /** The data home's folders: every open workspace's ticket folders are readable. */
   paths: HomePaths
   now: () => Date
   emit: (e: EngineEvent) => void
-  /** The open workspace, or null; send() rejects with `workspaceRequired` when there is none. */
-  workspace: () => Promise<Workspace | null>
+  /** The focused workspace, or null; send() rejects with `workspaceRequired` when there is none. */
+  focused: () => Promise<Workspace | null>
+  /** Every open workspace, oldest first. */
+  workspaces: () => Promise<Workspace[]>
+  /** The workspace of this decision's ticket, or null when the decision is unknown. */
+  decisionWorkspace: (decisionId: string) => Promise<string | null>
   workspaceRequired: string
   readTools: OrchestratorReadToolHandlers
   proposals: ProposalService
-  /** The decisions the user answered since `since` in the open workspace, for the start of a message. */
-  answeredSince: (workspaceId: string, since: string | null) => Promise<AnsweredDecision[]>
-  /** The tickets whose hold was released since `since` in the open workspace, by hand, by a start or by their date. */
-  releasedSince: (workspaceId: string, since: string | null) => Promise<ReleasedHold[]>
+  /** The decisions the user answered since `since` in any workspace, for the start of a message. */
+  answeredSince: (since: string | null) => Promise<AnsweredDecision[]>
+  /** The tickets whose hold was released since `since` in any workspace, by hand, by a start or by their date. */
+  releasedSince: (since: string | null) => Promise<ReleasedHold[]>
   /** The decisions the user put off that came back on their date since `since`. */
-  resurfacedSince: (workspaceId: string, since: string | null) => Promise<ResurfacedDecision[]>
+  resurfacedSince: (since: string | null) => Promise<ResurfacedDecision[]>
   /** The stuck episodes opened or escalated since `since` that are still open. */
-  stuckSince: (workspaceId: string, since: string | null) => Promise<StuckReport[]>
+  stuckSince: (since: string | null) => Promise<StuckReport[]>
   /** The wake queue's rows, to be marked as presented and acknowledged. */
   wakes: Pick<WakeRepo, 'markPresented' | 'ack'>
   /** The app-wide usage limit, told when the orchestrator's own turns run into it. */
@@ -79,10 +84,9 @@ export interface OrchestratorDeps {
   }
   /**
    * What the pending wake rows are about now: the item for each row that still has something to say, the rows
-   * whose ticket or referent is gone, and every open decision of the workspace.
+   * whose ticket or referent is gone, and every open decision of every workspace.
    */
   wakeItems: (
-    workspaceId: string,
     rows: Wake[]
   ) => Promise<{ presented: { row: Wake; item: WakeItem }[]; gone: Wake[]; open: OpenDecision[] }>
   /** An orchestrator turn ended: for a wake turn, `finished` is false when it failed or was interrupted. The wake queue starts the next turn from it. */
@@ -96,12 +100,25 @@ interface Live {
   runId: string
   handle: RunHandle
   done: Promise<void>
+  /** The folders the session was started able to read; the SDK fixes them at launch. */
+  readableKey: string
+  /** Ended on purpose to relaunch with other folders: not a failure, and nothing is recorded for it. */
+  retired?: boolean
 }
 
 function settleWithin(p: Promise<unknown>, ms: number): Promise<void> {
   let timer: NodeJS.Timeout | undefined
   const gaveUp = new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))
   return Promise.race([p.then(() => {}, () => {}), gaveUp]).finally(() => clearTimeout(timer))
+}
+
+/** Takes the optional `workspace` off a propose tool's input. */
+function splitWorkspace(input: unknown): { workspace: string | undefined; rest: unknown } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input) || !('workspace' in input)) {
+    return { workspace: undefined, rest: input }
+  }
+  const { workspace, ...rest } = input as Record<string, unknown>
+  return { workspace: typeof workspace === 'string' ? workspace : undefined, rest }
 }
 
 function errorText(err: unknown): string {
@@ -188,16 +205,16 @@ export class OrchestratorSession {
     // A message sent mid-turn would join the turn under way (at its next tool boundary), so the turn's one
     // message would no longer be the user's only one; a proposal's intent must be the words of its own turn.
     if (this.status === 'working') throw new Error(BUSY_MESSAGE)
-    const ws = await this.deps.workspace()
+    const ws = await this.deps.focused()
     if (!ws) throw new Error(this.deps.workspaceRequired)
     // The proposals decided since the user's last message open this one; read before it is recorded.
     const since = await this.deps.repo.lastUserMessageAt()
     const blocks = [
       await this.deps.proposals.outcomeBlock(since),
-      answeredBlock(await this.deps.answeredSince(ws.id, since)),
-      releasedHoldsBlock(await this.deps.releasedSince(ws.id, since)),
-      resurfacedBlock(await this.deps.resurfacedSince(ws.id, since)),
-      stuckBlock(await this.deps.stuckSince(ws.id, since))
+      answeredBlock(await this.deps.answeredSince(since)),
+      releasedHoldsBlock(await this.deps.releasedSince(since)),
+      resurfacedBlock(await this.deps.resurfacedSince(since)),
+      stuckBlock(await this.deps.stuckSince(since))
     ].filter((b) => b !== null)
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
@@ -207,9 +224,9 @@ export class OrchestratorSession {
 
   private async wakeNow(rows: Wake[]): Promise<void> {
     if (this.shuttingDown || this.status === 'working') return
-    const ws = await this.deps.workspace()
+    const ws = await this.deps.focused()
     if (!ws) return
-    const { presented, gone, open } = await this.deps.wakeItems(ws.id, rows.filter((r) => r.workspaceId === ws.id))
+    const { presented, gone, open } = await this.deps.wakeItems(rows)
     // News whose ticket is gone has nothing to say.
     await this.deps.wakes.ack(gone.map((r) => r.id))
     if (presented.length === 0) return
@@ -226,6 +243,9 @@ export class OrchestratorSession {
    * the turn before the prompt.
    */
   private async beginTurn(ws: Workspace, shown: ThreadEvent, turn: Turn, prompt: string, wrap: (body: string) => string): Promise<void> {
+    // The SDK fixes the folders a session can read at launch: a workspace opened or removed since means starting it
+    // again (resuming the same conversation), so every repo stays readable.
+    if (this.live && this.live.readableKey !== (await this.readable()).key) await this.retire(this.live)
     if (this.live) {
       // The panel shows what the user typed; the agent gets it with the header.
       const live = this.live
@@ -299,8 +319,9 @@ export class OrchestratorSession {
   private proposeFromUser(ticket: Ticket, kind: ProposalKindName, from: 'drag' | 'button', input: unknown): Promise<Proposal> {
     return this.serial(async () => {
       if (this.shuttingDown) throw new Error('Mainbus is shutting down')
-      const ws = await this.deps.workspace()
-      if (!ws || ws.id !== ticket.workspaceId) throw new Error(this.deps.workspaceRequired)
+      // The ticket's own workspace, whichever one is focused.
+      const ws = (await this.deps.workspaces()).find((w) => w.id === ticket.workspaceId)
+      if (!ws) throw new Error('The workspace of that ticket was removed')
       // With no session yet the run is just a place for the card; the next message launches it.
       const runId = this.live?.runId ?? (await this.deps.repo.latestOpen())?.id ?? (await this.deps.repo.create()).id
       const made = await this.deps.proposals.propose(kind, input, { workspaceId: ws.id, orchestratorRunId: runId, userMessage: null, origin: from })
@@ -322,10 +343,25 @@ export class OrchestratorSession {
     if (!live || turn === null) return NO_TURN_MESSAGE
     // A wake turn answers no message of the user: the kinds that need one refuse it themselves.
     const userMessage = turn.kind === 'user' ? turn.message : null
-    const ws = await this.deps.workspace()
-    if (!ws) return `${this.deps.workspaceRequired}. Nothing was stored.`
-    const made = await this.deps.proposals.propose(kind, input, {
-      workspaceId: ws.id,
+    // `workspace` names the ticket's workspace (or where new tickets go); the kinds' own schemas do not know it.
+    const { workspace: ref, rest } = splitWorkspace(input)
+    let workspaceId: string
+    if (kind === 'answer') {
+      // A decision belongs to one ticket, so it has one workspace.
+      const given = (rest as { decision?: unknown } | null)?.decision
+      const decision = typeof given === 'string' ? given : null
+      const found = decision === null ? null : await this.deps.decisionWorkspace(decision)
+      if (found === null) return `Invalid proposal: decision: there is no decision ${decision ?? ''}. Nothing was stored; fix it and propose again.`
+      workspaceId = found
+    } else {
+      const focused = await this.deps.focused()
+      if (!focused) return `${this.deps.workspaceRequired}. Nothing was stored.`
+      const resolved = resolveWorkspaceRef(await this.deps.workspaces(), focused, ref)
+      if (!resolved.ok) return `${resolved.text} Nothing was stored; fix it and propose again.`
+      workspaceId = resolved.ws.id
+    }
+    const made = await this.deps.proposals.propose(kind, rest, {
+      workspaceId,
       orchestratorRunId: live.runId,
       userMessage
     })
@@ -335,13 +371,29 @@ export class OrchestratorSession {
     return proposedText(made.proposal.id)
   }
 
+  /**
+   * Every open workspace's repo and ticket folders: the whole folder, not each ticket's, because tickets start and
+   * finish while the session runs. The folders exist up front because the CLI may skip a folder it cannot find.
+   */
+  private async readable(): Promise<{ folders: string[]; ticketFolders: string[]; key: string }> {
+    const all = await this.deps.workspaces()
+    const ticketFolders = all.map((w) => ticketFoldersFor(this.deps.paths, w.slug))
+    await Promise.all(ticketFolders.map((f) => fs.mkdir(f, { recursive: true })))
+    const folders = [...all.map((w) => w.repoPath), ...ticketFolders]
+    return { folders, ticketFolders, key: JSON.stringify(folders) }
+  }
+
+  /** Ends the live session without recording a failure; the run stays open to be resumed. */
+  private async retire(live: Live): Promise<void> {
+    live.retired = true
+    await this.deps.runtime.stop(live.handle).catch(() => {})
+    await live.done
+    if (this.live === live) this.live = null
+  }
+
   private async launch(runId: string, ws: Workspace, prompt: string, resumeSessionId?: string): Promise<void> {
     const cwd = this.folder
-    // The whole folder, not each ticket's: tickets start and finish while the session runs. It exists up front
-    // because the CLI may skip a folder it can't find.
-    const ticketFolders = ticketFoldersFor(this.deps.paths, ws.slug)
-    await fs.mkdir(ticketFolders, { recursive: true })
-    const readable = [ws.repoPath, ticketFolders]
+    const { folders: readable, ticketFolders, key } = await this.readable()
     const spec: OrchestratorRunSpec = {
       kind: 'orchestrator',
       cwd,
@@ -372,7 +424,7 @@ export class OrchestratorSession {
       await this.deps.runtime.stop(handle).catch(() => {})
       return
     }
-    const live: Live = { runId, handle, done: Promise.resolve() }
+    const live: Live = { runId, handle, done: Promise.resolve(), readableKey: key }
     this.live = live
     live.done = this.pump(live)
   }
@@ -391,6 +443,7 @@ export class OrchestratorSession {
     } catch (err) {
       if (!this.shuttingDown) await this.record(live.runId, { kind: 'error', message: errorText(err) }).catch(() => {})
     }
+    if (live.retired) return
     const cutShort = this.turn
     if (this.live === live) {
       this.live = null

@@ -1,5 +1,6 @@
 import { ANSWERED_VIA_LABELS, type Decision } from '../../shared/domain'
 import { oneLine } from '../roles/prompt'
+import { wsTag } from './workspaceRef'
 
 export const ANSWERED_HEADING = '[Mainbus] Since your last turn, the user answered these questions from their agents:'
 
@@ -7,6 +8,8 @@ export const ANSWERED_HEADING = '[Mainbus] Since your last turn, the user answer
 export interface AnsweredDecision {
   number: number
   title: string
+  /** The ticket's workspace, named when there are several. */
+  workspace?: string
   decision: Decision
 }
 
@@ -22,9 +25,9 @@ function answerText(d: Decision): string {
 /** The block that opens the orchestrator's next message, or null when nothing was answered. */
 export function answeredBlock(answered: AnsweredDecision[]): string | null {
   if (answered.length === 0) return null
-  const lines = answered.map(({ number, title, decision: d }) => {
+  const lines = answered.map(({ number, title, workspace, decision: d }) => {
     const from = d.answeredVia ? ` from ${ANSWERED_VIA_LABELS[d.answeredVia]}` : ''
-    return `- #${number} ${JSON.stringify(oneLine(title))}, asked ${JSON.stringify(oneLine(d.question))}: the user ${answerText(d)}${from}. Don't propose an answer to it.`
+    return `- #${number} ${JSON.stringify(oneLine(title))}${wsTag(workspace)}, asked ${JSON.stringify(oneLine(d.question))}: the user ${answerText(d)}${from}. Don't propose an answer to it.`
   })
   return [ANSWERED_HEADING, ...lines].join('\n')
 }

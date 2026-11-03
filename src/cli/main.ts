@@ -159,7 +159,7 @@ async function ticket(io: Io, target: IntakeTarget, args: string[]): Promise<num
         allowPositionals: false,
         options: { column: { type: 'string' }, json: { type: 'boolean' } }
       })
-      const result = await request(target, 'list', values.column === undefined ? {} : { column: values.column })
+      const result = await request(target, 'list', values.column === undefined ? { cwd: io.cwd } : { cwd: io.cwd, column: values.column })
       io.stdout(`${values.json ? JSON.stringify(result.tickets, null, 2) : formatList(result.tickets)}\n`)
       return EXIT.ok
     }
@@ -172,7 +172,7 @@ async function ticket(io: Io, target: IntakeTarget, args: string[]): Promise<num
       })
       const raw = positionals.length === 1 ? positionals[0].replace(/^#/, '') : ''
       if (!/^\d+$/.test(raw)) throw new UsageError('Give one ticket number, as in: mainbus ticket show 12')
-      const result = await request(target, 'get', { number: Number(raw) })
+      const result = await request(target, 'get', { cwd: io.cwd, number: Number(raw) })
       io.stdout(`${values.json ? JSON.stringify(result, null, 2) : formatTicket(result)}\n`)
       return EXIT.ok
     }

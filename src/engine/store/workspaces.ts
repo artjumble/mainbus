@@ -1,16 +1,35 @@
 import { randomUUID } from 'node:crypto'
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, isNull, sql } from 'drizzle-orm'
 import type { Workspace } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { workspaces } from '../db/schema'
+import { appSettings, workspaces } from '../db/schema'
+import { slugify } from '../git/slug'
 import { insertDefaultLineup } from './lineups'
 
+const FOCUSED = 'focused_workspace'
+
 export interface WorkspaceRepo {
-  /** Creates the workspace and its default lineup. `name` is basename(repoPath) and `slug` is slugify(name). */
-  create(repoPath: string, baseBranch: string, name: string, slug: string): Promise<Workspace>
-  /** The MVP has at most one workspace. */
-  get(): Promise<Workspace | null>
+  /**
+   * Creates the workspace and its default lineup. `name` is basename(repoPath); the slug starts from slugify(name) (or
+   * `slug`) and gets a numeric suffix when another workspace, removed ones included, already uses it.
+   */
+  create(repoPath: string, baseBranch: string, name: string, slug?: string): Promise<Workspace>
+  /** Every workspace that has not been removed, oldest first. */
+  list(): Promise<Workspace[]>
+  /** The workspace with this id; null when it is unknown or has been removed. */
+  get(id: string): Promise<Workspace | null>
+  /** Every workspace row, removed ones included, so a removed repo can be reopened. */
+  listAll(): Promise<Array<Workspace & { removed: boolean }>>
+  /** The remembered focused workspace; falls back to the oldest live one, and null when there is none. */
+  focused(): Promise<Workspace | null>
+  setFocused(id: string): Promise<void>
+  /** Soft-removes the workspace: its row, tickets and history stay. */
+  markRemoved(id: string): Promise<void>
+  restore(id: string): Promise<void>
   setOpenPrOnReview(id: string, on: boolean): Promise<Workspace>
+  /** Whether unattended mode was on for this workspace when the app last ran. */
+  unattendedOn(id: string): Promise<boolean>
+  setUnattendedOn(id: string, on: boolean): Promise<void>
 }
 
 function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
@@ -25,21 +44,64 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
 }
 
 export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
+  const oldestFirst = [asc(workspaces.createdAt), asc(sql`rowid`)] as const
+
+  async function get(id: string): Promise<Workspace | null> {
+    const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+    return row && row.removedAt === null ? toWorkspace(row) : null
+  }
+
+  async function list(): Promise<Workspace[]> {
+    const rows = await db
+      .select()
+      .from(workspaces)
+      .where(isNull(workspaces.removedAt))
+      .orderBy(...oldestFirst)
+    return rows.map(toWorkspace)
+  }
+
   return {
     async create(repoPath, baseBranch, name, slug) {
-      const workspace: Workspace = { id: randomUUID(), name, repoPath, baseBranch, slug, openPrOnReview: false }
+      const taken = new Set((await db.select({ slug: workspaces.slug }).from(workspaces)).map((r) => r.slug))
+      const base = slug ?? slugify(name)
+      let unique = base
+      for (let n = 2; taken.has(unique); n++) unique = `${base}-${n}`
+      const workspace: Workspace = { id: randomUUID(), name, repoPath, baseBranch, slug: unique, openPrOnReview: false }
       await db.insert(workspaces).values({ ...workspace, createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
       return workspace
     },
 
-    async get() {
-      const [row] = await db
-        .select()
-        .from(workspaces)
-        .orderBy(asc(workspaces.createdAt), asc(sql`rowid`))
-        .limit(1)
-      return row ? toWorkspace(row) : null
+    list,
+    get,
+
+    async listAll() {
+      const rows = await db.select().from(workspaces).orderBy(...oldestFirst)
+      return rows.map((r) => ({ ...toWorkspace(r), removed: r.removedAt !== null }))
+    },
+
+    async focused() {
+      const [row] = await db.select().from(appSettings).where(eq(appSettings.key, FOCUSED))
+      if (row) {
+        const found = await get(row.value)
+        if (found) return found
+      }
+      return (await list())[0] ?? null
+    },
+
+    async setFocused(id) {
+      await db
+        .insert(appSettings)
+        .values({ key: FOCUSED, value: id })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value: id } })
+    },
+
+    async markRemoved(id) {
+      await db.update(workspaces).set({ removedAt: now().toISOString() }).where(eq(workspaces.id, id))
+    },
+
+    async restore(id) {
+      await db.update(workspaces).set({ removedAt: null }).where(eq(workspaces.id, id))
     },
 
     async setOpenPrOnReview(id, on) {
@@ -47,6 +109,15 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)
+    },
+
+    async unattendedOn(id) {
+      const [row] = await db.select({ on: workspaces.unattendedOn }).from(workspaces).where(eq(workspaces.id, id))
+      return row?.on ?? false
+    },
+
+    async setUnattendedOn(id, on) {
+      await db.update(workspaces).set({ unattendedOn: on }).where(eq(workspaces.id, id))
     }
   }
 }

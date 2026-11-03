@@ -90,7 +90,7 @@ describe('orchestrator.send', () => {
     const spec = runtime.orchestratorSpecs[0]!
     expect(spec).toMatchObject({ kind: 'orchestrator', cwd: folder, additionalDirectories: [repoPath, ticketFolders], model: 'opus', effort: 'medium' })
     expect(spec.resumeSessionId).toBeUndefined()
-    expect(spec.prompt).toBe(`[Mainbus] Workspace: repo (${repoPath}) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?`)
+    expect(spec.prompt).toBe(`[Mainbus] Focused workspace: repo (${repoPath}) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?`)
     expect(spec.appendSystemPrompt).toContain('Mainbus orchestrator')
     for (const tool of ['Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'AskUserQuestion', 'Agent', 'Task', 'EnterWorktree', 'CronCreate']) {
       expect(spec.disallowedTools).toContain(tool)
@@ -107,9 +107,9 @@ describe('orchestrator.send', () => {
     expect(await ask('Read', { file_path: path.join(later, 'a.ts') })).toEqual({ allow: true })
     expect((await ask('Write', { file_path: path.join(later, 'a.ts'), content: '' })).allow).toBe(false)
     expect((await ask('Read', { file_path: path.join(paths.scratch, 'repo', '2-later', 'a.txt') })).allow).toBe(false)
-    expect(spec.appendSystemPrompt).toContain(`ticket folders are all under ${ticketFolders}`)
+    expect(spec.appendSystemPrompt).toContain(`- ${ticketFolders}`)
     // Its read tools answer from this board.
-    expect(await spec.tools.listWorkspaces()).toContain(`- repo: repo ${repoPath}, base branch main`)
+    expect(await spec.tools.listWorkspaces()).toContain(`- repo (id `)
   })
 
   test('stores and pushes its events, streams partials unstored, and keeps one live session', async () => {
@@ -138,7 +138,7 @@ describe('orchestrator.send', () => {
     })
     expect(runtime.orchestratorSpecs).toHaveLength(1)
     expect(runtime.sent).toHaveLength(1)
-    expect(runtime.sent[0]).toMatch(/^\[Mainbus\] Workspace: repo .*\n\nNext one$/)
+    expect(runtime.sent[0]).toMatch(/^\[Mainbus\] Focused workspace: repo .*\n\nNext one$/)
 
     const thread = await engine.invoke('orchestrator.get')
     expect(thread.status).toBe('idle')
@@ -240,7 +240,7 @@ describe('after a restart', () => {
     expect(fresh).toContain('<ticket-data field="previous-conversation">\nUser: Plan the week\nOrchestrator: Hello\n</ticket-data>')
     // The new message is not part of the digest; it comes after it, with its header.
     expect(fresh.indexOf('Where were we?')).toBeGreaterThan(fresh.indexOf('</ticket-data>'))
-    expect(fresh).toMatch(/\[Mainbus\] Workspace: repo .*\n\nWhere were we\?$/)
+    expect(fresh).toMatch(/\[Mainbus\] Focused workspace: repo .*\n\nWhere were we\?$/)
 
     const thread = await engine.invoke('orchestrator.get')
     expect(thread.runs.map((r) => r.endReason)).toEqual(['resume_failed', null])
@@ -360,7 +360,7 @@ describe('proposals', () => {
         '[Mainbus] Since your last turn, the user decided on your proposals:',
         `- Proposal ${proposal!.id} (create tickets): confirmed by the user. Created #1 "Login" and #2 "Logout" in Backlog.`,
         '',
-        '[Mainbus] Workspace: repo '
+        '[Mainbus] Focused workspace: repo '
       ].join('\n')
     )).toBe(true)
     expect(runtime.sent[0]).toMatch(/\n\nThanks$/)
@@ -371,7 +371,7 @@ describe('proposals', () => {
     await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'And now?')
     await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
-    expect(runtime.sent[1]).toMatch(/^\[Mainbus\] Workspace: repo .*\n\nAnd now\?$/)
+    expect(runtime.sent[1]).toMatch(/^\[Mainbus\] Focused workspace: repo .*\n\nAnd now\?$/)
   })
 
   test('a rejected proposal is told as rejected and creates nothing', async () => {
@@ -528,7 +528,7 @@ describe('proposals', () => {
     await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     expect(runtime.orchestratorSpecs[0]!.resumeSessionId).toBe('sess-1')
     expect(runtime.orchestratorSpecs[0]!.prompt).toMatch(
-      new RegExp(`^\\[Mainbus\\] Since your last turn.*\\n- Proposal ${proposal!.id} \\(create tickets\\): changed by the user, then confirmed\\. Created #1 "Sign in" in Ready\\.\\n\\n\\[Mainbus\\] Workspace`)
+      new RegExp(`^\\[Mainbus\\] Since your last turn.*\\n- Proposal ${proposal!.id} \\(create tickets\\): changed by the user, then confirmed\\. Created #1 "Sign in" in Ready\\.\\n\\n\\[Mainbus\\] Focused workspace`)
     )
   })
 })
