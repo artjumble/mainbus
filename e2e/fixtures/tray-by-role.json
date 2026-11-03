@@ -1,0 +1,14 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-tray-planner" } },
+    { "emit": { "kind": "message", "text": "Planner: on it." } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Planner: still here." } },
+    { "waitForSend": true }
+  ],
+  "Planner resumed": [
+    { "expectPrompt": "Mainbus restarted; continue where you left off." },
+    { "emit": { "kind": "message", "text": "Planner: back after the restart." } },
+    { "waitForSend": true }
+  ]
+}

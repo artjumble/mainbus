@@ -23,6 +23,7 @@ import type {
   TicketState,
   UnattendedState,
   UsageState,
+  WhenClosed,
   Workspace
 } from './domain'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
@@ -177,6 +178,8 @@ export interface EngineCommands {
    * fewer are running than the new number. Only the renderer can reach it.
    */
   'settings.setMaxAgents'(n: number): AppSettings
+  /** "When I close the window": 'tray' keeps Mainbus running while agents are open, 'quit' always quits. Only the renderer can reach it. */
+  'settings.setWhenClosed'(v: WhenClosed): AppSettings
   /**
    * Unattended mode: works through Ready one ticket at a time. Only the renderer can reach these: the agent
    * intake (pipe, CLI, MCP) has no way to switch it on. Each workspace has its own, remembered across a restart; the focused workspace unless given.
@@ -228,12 +231,22 @@ export interface MainbusApi {
   on(listener: (e: EngineEvent) => void): () => void
   /** Shows the native folder picker. Resolves to the chosen folder, or null when the user cancels. */
   openFolder(): Promise<string | null>
+  /** Subscribes to the main process asking the app to show a ticket or the Needs you column; returns the unsubscribe function. */
+  onNavigate(listener: (nav: AppNavigation) => void): () => void
 }
 
 /** The IPC channels between the preload and the main process. */
 export const INVOKE_CHANNEL = 'engine:invoke'
 export const EVENT_CHANNEL = 'engine:event'
 export const OPEN_FOLDER_CHANNEL = 'dialog:openFolder'
+
+/** The channel on which the main process tells the renderer to show something (a toast or the tray was clicked). */
+export const NAVIGATE_CHANNEL = 'app:navigate'
+
+/** Where the main process asks the renderer to go. `needsYou` shows the board and its Needs you column. */
+export type AppNavigation =
+  | { to: 'ticket'; workspaceId: string; ticketId: string }
+  | { to: 'needsYou'; workspaceId: string | null }
 
 /** The `name` of the error thrown by agent commands when Claude is not set up. Electron keeps it in the rejection's message. */
 export const SETUP_REQUIRED = 'SetupRequiredError'

@@ -887,6 +887,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return settings
       },
 
+      'settings.setWhenClosed': (v) => repos.settings.setWhenClosed(v),
+
       'unattended.get': async (workspaceId) => {
         // Before any workspace is open there is nothing to run.
         const ws = workspaceId === undefined ? await repos.workspaces.focused() : await requireWorkspace(workspaceId)

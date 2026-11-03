@@ -1,20 +1,23 @@
-import { NumberInput, Stack, Title } from '@mantine/core'
+import { NumberInput, Radio, Stack, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import { AGENT_CAP_MAX, AGENT_CAP_MIN } from '../../../shared/domain'
+import { AGENT_CAP_MAX, AGENT_CAP_MIN, type WhenClosed } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 
-/** Settings section for what applies to the whole app: how many role agents may run at once. */
+/** Settings section for what applies to the whole app: how many role agents may run at once, and what closing the window does. */
 export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
   const [maxAgents, setMaxAgents] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  const [whenClosed, setWhenClosed] = useState<WhenClosed | null>(null)
 
   useEffect(() => {
     if (!opened) return
     let cancelled = false
     invoke('settings.get')
       .then((settings) => {
-        if (!cancelled && settings) setMaxAgents(settings.maxAgents)
+        if (cancelled || !settings) return
+        setMaxAgents(settings.maxAgents)
+        setWhenClosed(settings.whenClosed)
       })
       .catch((err) => {
         if (!cancelled) showError(err, 'Could not load the settings')
@@ -41,6 +44,19 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
     }
   }
 
+  async function saveWhenClosed(value: string): Promise<void> {
+    if (value !== 'tray' && value !== 'quit') return
+    const previous = whenClosed
+    setWhenClosed(value)
+    try {
+      const settings = await invoke('settings.setWhenClosed', value)
+      setWhenClosed(settings.whenClosed)
+    } catch (err) {
+      setWhenClosed(previous)
+      showError(err, 'Could not save the settings')
+    }
+  }
+
   return (
     <Stack gap="sm" component="section" aria-label="General">
       <Title order={3} size="h4">
@@ -59,6 +75,16 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         onChange={(v) => void save(v)}
         w={160}
       />
+      <Radio.Group
+        label="When I close the window"
+        value={whenClosed ?? ''}
+        onChange={(v) => void saveWhenClosed(v)}
+      >
+        <Stack gap="xs" mt="xs">
+          <Radio value="tray" label="Keep running in the tray while agents work" disabled={whenClosed === null} />
+          <Radio value="quit" label="Always quit" disabled={whenClosed === null} />
+        </Stack>
+      </Radio.Group>
     </Stack>
   )
 }

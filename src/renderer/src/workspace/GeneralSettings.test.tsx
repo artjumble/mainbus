@@ -10,15 +10,21 @@ vi.mock('../notify', () => ({ showError: vi.fn() }))
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 
 let stored: number
+let storedClose: 'tray' | 'quit'
 
 beforeEach(() => {
   mockInvoke.mockReset()
   stored = 3
+  storedClose = 'tray'
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
-    if (command === 'settings.get') return { maxAgents: stored }
+    if (command === 'settings.get') return { maxAgents: stored, whenClosed: storedClose }
     if (command === 'settings.setMaxAgents') {
       stored = args[0] as number
-      return { maxAgents: stored }
+      return { maxAgents: stored, whenClosed: storedClose }
+    }
+    if (command === 'settings.setWhenClosed') {
+      storedClose = args[0] as 'tray' | 'quit'
+      return { maxAgents: stored, whenClosed: storedClose }
     }
     return undefined
   })
@@ -57,4 +63,14 @@ test('a number above ten is not accepted', async () => {
 test('does not load anything while the settings are closed', () => {
   renderWithMantine(<GeneralSettings opened={false} />)
   expect(mockInvoke).not.toHaveBeenCalled()
+})
+
+test('closing the window keeps running in the tray by default, and Always quit saves', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  const tray = await screen.findByRole('radio', { name: 'Keep running in the tray while agents work' })
+  await vi.waitFor(() => expect(tray).toBeChecked())
+  await userEvent.click(screen.getByRole('radio', { name: 'Always quit' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setWhenClosed', 'quit'))
+  expect(storedClose).toBe('quit')
+  expect(screen.getByRole('radio', { name: 'Always quit' })).toBeChecked()
 })

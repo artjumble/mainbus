@@ -27,3 +27,13 @@ export function testClockStartFromEnv(env: NodeJS.ProcessEnv, now: Date = new Da
   const start = new Date(value)
   return Number.isNaN(start.getTime()) ? null : start
 }
+
+/**
+ * Whether the tray runs in test mode: toasts are recorded instead of shown, and the tray is exposed to the test
+ * (`__mainbusTray` in the main process). Honored on the same terms as `MAINBUS_TEST_REPO`: only with MAINBUS_HOME set
+ * and a fake runtime, so a normal install never swaps its notifications for a recorder.
+ */
+export function trayTestHookFromEnv(env: NodeJS.ProcessEnv): boolean {
+  const fake = env['MAINBUS_RUNTIME']?.startsWith('fake:') ?? false
+  return Boolean(env['MAINBUS_HOME']) && fake
+}
