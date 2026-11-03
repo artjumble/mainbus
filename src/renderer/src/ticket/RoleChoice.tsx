@@ -1,4 +1,4 @@
-import { Checkbox, Group, NativeSelect } from '@mantine/core'
+import { Group, NativeSelect, Text } from '@mantine/core'
 import type { ReactElement } from 'react'
 import type { Effort } from '../../../shared/domain'
 import { EFFORT_OPTIONS, MODEL_OPTIONS, effortLabel } from '../../../shared/models'
@@ -20,22 +20,16 @@ export function withCurrent(options: { value: string; label: string }[], current
 interface Props {
   choice: RoleChoice
   onChange: (patch: Partial<RoleChoice>) => void
-  /** The box can't be unticked: it is the last one ticked. */
-  keepTicked?: boolean
 }
 
-/** A role's box, then its model and effort selects, on one line. */
-export function RoleChoiceRow({ choice, onChange, keepTicked = false }: Props): ReactElement {
+/** A role's name, then its model and effort selects, on one line; both are off while the role is unticked. */
+export function ModelEffortRow({ choice, onChange }: Props): ReactElement {
   const effortOptions = withCurrent(EFFORT_OPTIONS, choice.effort).map((o) => ({ ...o, label: effortLabel(o.value) }))
   return (
     <Group gap="xs" wrap="nowrap" role="group" aria-label={choice.name}>
-      <Checkbox
-        label={choice.name}
-        style={{ flex: 1, minWidth: 0 }}
-        checked={choice.ticked}
-        disabled={keepTicked && choice.ticked}
-        onChange={(e) => onChange({ ticked: e.currentTarget.checked })}
-      />
+      <Text size="sm" style={{ flex: 1, minWidth: 0 }}>
+        {choice.name}
+      </Text>
       <NativeSelect
         size="xs"
         w={100}

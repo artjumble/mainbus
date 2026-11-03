@@ -1,10 +1,11 @@
-import { Button, Center, Group, Loader, Modal, Stack, Text, Textarea } from '@mantine/core'
+import { Button, Center, Group, Loader, Modal, Stack } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
 import type { Lineup, StartOptions } from '../../../shared/domain'
-import { EXTRA_INSTRUCTIONS_MAX, resolveModelEffort } from '../../../shared/models'
+import { resolveModelEffort } from '../../../shared/models'
 import { invoke } from '../api'
 import { showError } from '../notify'
-import { RoleChoiceRow, type RoleChoice } from './RoleChoice'
+import type { RoleChoice } from './RoleChoice'
+import { StartOverrideForm } from './StartOverrideForm'
 
 interface Props {
   opened: boolean
@@ -16,8 +17,8 @@ interface Props {
 }
 
 /**
- * "Adjust before starting": pick the lineup roles to run this time, all ticked to begin with, each one's model and
- * effort (its own setting, else Mainbus's default), and instructions for every role of this run.
+ * "Adjust before starting": the Override form (the same one the orchestrator's start proposal opens) over the lineup's
+ * roles, all ticked to begin with, each with its own model and effort (its setting, else Mainbus's default).
  */
 export function AdjustStartModal({ opened, onClose, onStart, lineup }: Props): ReactElement {
   return (
@@ -67,10 +68,6 @@ function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): 
 
   const ticked = roles.filter((r) => r.ticked)
 
-  function change(i: number, patch: Partial<RoleChoice>): void {
-    setRoles((current) => current!.map((r, j) => (j === i ? { ...r, ...patch } : r)))
-  }
-
   async function start(): Promise<void> {
     setStarting(true)
     try {
@@ -88,24 +85,7 @@ function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): 
 
   return (
     <Stack gap="sm">
-      <Text size="sm" c="dimmed">
-        The ticked roles work the ticket in turn, each with its model and effort.
-      </Text>
-      <Stack gap={6} role="group" aria-label="Models and effort per role">
-        {roles.map((role, i) => (
-          <RoleChoiceRow key={role.roleId} choice={role} onChange={(patch) => change(i, patch)} />
-        ))}
-      </Stack>
-      <Textarea
-        label="Extra instructions"
-        description="Added to every role's instructions in this run."
-        autosize
-        minRows={2}
-        maxRows={8}
-        maxLength={EXTRA_INSTRUCTIONS_MAX}
-        value={extra}
-        onChange={(e) => setExtra(e.currentTarget.value)}
-      />
+      <StartOverrideForm roles={roles} extraInstructions={extra} onRolesChange={setRoles} onExtraInstructionsChange={setExtra} />
       <Group justify="flex-end" mt="xs">
         <Button variant="default" onClick={onClose}>
           Cancel

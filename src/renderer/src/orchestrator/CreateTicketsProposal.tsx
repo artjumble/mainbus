@@ -1,5 +1,5 @@
-import { Anchor, Badge, Checkbox, Group, Paper, SegmentedControl, Stack, Text, Textarea, TextInput } from '@mantine/core'
-import { Fragment, type ReactElement } from 'react'
+import { Anchor, Badge, Button, Checkbox, Group, Paper, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { Fragment, useState, type ReactElement } from 'react'
 import type {
   CreateTicketsOverride,
   CreateTicketsPayload,
@@ -39,110 +39,100 @@ function splitLabels(text: string): string[] {
     .filter((label) => label !== '')
 }
 
-/** The drafts as proposed: each title, its spec clipped, its criteria and labels. */
-function Body({ payload }: { payload: CreateTicketsPayload }): ReactElement {
-  return (
-    <Stack gap="xs">
-      {payload.tickets.map((draft, i) => (
-        <Paper key={i} withBorder p="xs" radius="sm" data-draft>
-          <Stack gap={4}>
-            <Group gap={6}>
-              <Text size="sm" fw={600}>
-                {draft.title}
-              </Text>
-              {draft.kind === 'investigate' && (
-                <Badge size="xs" variant="outline" color="gray">
-                  Investigate
-                </Badge>
-              )}
-            </Group>
-            {draft.spec !== '' && (
-              <Text size="xs" c="dimmed" lineClamp={4} style={{ whiteSpace: 'pre-wrap' }}>
-                {draft.spec}
-              </Text>
-            )}
-            {(draft.criteria.length > 0 || draft.labels.length > 0) && (
-              <Group gap={4}>
-                {draft.criteria.length > 0 && (
-                  <Text size="xs" c="dimmed">
-                    {plural(draft.criteria.length, 'criterion', 'criteria')}
-                  </Text>
-                )}
-                {draft.labels.map((label) => (
-                  <Badge key={label} size="xs" variant="light" color="gray">
-                    {label}
-                  </Badge>
-                ))}
-              </Group>
-            )}
-          </Stack>
-        </Paper>
-      ))}
-    </Stack>
-  )
+/** Not shown: the card opens in `inline` mode, with the editor's rows (see `createTicketsView`). */
+function Body(): ReactElement {
+  return <></>
 }
 
-/** Override: every draft's fields editable, a box to leave each one out, and the column. */
+/** The criteria and labels of a draft, as the row's second line: "4 acceptance criteria · labels: csv, export". */
+function detail(draft: DraftEdit): string {
+  const criteria = splitCriteria(draft.criteria).length
+  const labels = splitLabels(draft.labels)
+  return [
+    plural(criteria, 'acceptance criterion', 'acceptance criteria'),
+    ...(labels.length > 0 ? [`labels: ${labels.join(', ')}`] : [])
+  ].join(' · ')
+}
+
+/**
+ * Each draft is a row: a tick to include it, its title, and Edit, which opens that draft's fields in place. The
+ * drafts are ticked as proposed; the card's buttons create the ticked ones.
+ */
 function Editor({ value, onChange }: { value: CreateTicketsEdit; onChange: (v: CreateTicketsEdit) => void }): ReactElement {
+  const [open, setOpen] = useState<number | null>(null)
   const setDraft = (i: number, patch: Partial<DraftEdit>): void =>
     onChange({ ...value, drafts: value.drafts.map((d, j) => (j === i ? { ...d, ...patch } : d)) })
   return (
-    <Stack gap="sm">
+    <Stack gap="xs">
       {value.drafts.map((draft, i) => (
-        <Paper key={i} withBorder p="xs" radius="sm" role="group" aria-label={`Draft ${i + 1}`}>
+        <Paper key={i} withBorder p="xs" radius="sm" role="group" aria-label={`Draft ${i + 1}`} data-draft>
           <Stack gap={6}>
-            <Checkbox
-              label="Include"
-              checked={draft.include}
-              onChange={(e) => setDraft(i, { include: e.currentTarget.checked })}
-            />
-            <TextInput
-              label="Title"
-              size="xs"
-              disabled={!draft.include}
-              value={draft.title}
-              onChange={(e) => setDraft(i, { title: e.currentTarget.value })}
-            />
-            <Textarea
-              label="Spec"
-              size="xs"
-              autosize
-              minRows={2}
-              maxRows={8}
-              disabled={!draft.include}
-              value={draft.spec}
-              onChange={(e) => setDraft(i, { spec: e.currentTarget.value })}
-            />
-            <Textarea
-              label="Criteria (one per line)"
-              size="xs"
-              autosize
-              minRows={1}
-              maxRows={6}
-              disabled={!draft.include}
-              value={draft.criteria}
-              onChange={(e) => setDraft(i, { criteria: e.currentTarget.value })}
-            />
-            <TextInput
-              label="Labels (comma separated)"
-              size="xs"
-              disabled={!draft.include}
-              value={draft.labels}
-              onChange={(e) => setDraft(i, { labels: e.currentTarget.value })}
-            />
+            <Group gap="xs" wrap="nowrap" justify="space-between" align="flex-start">
+              <Checkbox
+                aria-label={`Include ${draft.title || `draft ${i + 1}`}`}
+                checked={draft.include}
+                onChange={(e) => setDraft(i, { include: e.currentTarget.checked })}
+                label={
+                  <Text size="sm" fw={600} td={draft.include ? undefined : 'line-through'}>
+                    {draft.title}
+                    {draft.kind === 'investigate' && (
+                      <Badge size="xs" variant="outline" color="gray" ml={6}>
+                        Investigate
+                      </Badge>
+                    )}
+                  </Text>
+                }
+              />
+              <Button
+                size="compact-xs"
+                variant="default"
+                aria-expanded={open === i}
+                aria-label={`Edit ${draft.title || `draft ${i + 1}`}`}
+                onClick={() => setOpen(open === i ? null : i)}
+              >
+                Edit
+              </Button>
+            </Group>
+            {draft.spec !== '' && (
+              <Text size="xs" c="dimmed" pl={28} lineClamp={3} style={{ whiteSpace: 'pre-wrap' }}>
+                {draft.spec}
+              </Text>
+            )}
+            <Text size="xs" c="dimmed" pl={28}>
+              {detail(draft)}
+            </Text>
+            {open === i && (
+              <Stack gap={6}>
+                <TextInput label="Title" size="xs" value={draft.title} onChange={(e) => setDraft(i, { title: e.currentTarget.value })} />
+                <Textarea
+                  label="Spec"
+                  size="xs"
+                  autosize
+                  minRows={2}
+                  maxRows={8}
+                  value={draft.spec}
+                  onChange={(e) => setDraft(i, { spec: e.currentTarget.value })}
+                />
+                <Textarea
+                  label="Criteria (one per line)"
+                  size="xs"
+                  autosize
+                  minRows={1}
+                  maxRows={6}
+                  value={draft.criteria}
+                  onChange={(e) => setDraft(i, { criteria: e.currentTarget.value })}
+                />
+                <TextInput
+                  label="Labels (comma separated)"
+                  size="xs"
+                  value={draft.labels}
+                  onChange={(e) => setDraft(i, { labels: e.currentTarget.value })}
+                />
+              </Stack>
+            )}
           </Stack>
         </Paper>
       ))}
-      <SegmentedControl
-        size="xs"
-        aria-label="Column"
-        value={value.column}
-        onChange={(column) => onChange({ ...value, column: column as DraftColumn })}
-        data={[
-          { value: 'backlog', label: 'Backlog' },
-          { value: 'ready', label: 'Ready' }
-        ]}
-      />
     </Stack>
   )
 }
@@ -169,6 +159,14 @@ function Receipt({ result }: { result: CreateTicketsResult }): ReactElement {
 
 export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTicketsResult, CreateTicketsEdit> = {
   summary: (p) => `Create ${plural(p.tickets.length, 'ticket', 'tickets')} in ${COLUMN_NAMES[p.column]}`,
+  heading: (p, workspaceName) =>
+    `Proposed action · create ${plural(p.tickets.length, 'ticket', 'tickets')}${workspaceName ? ` in ${workspaceName}` : ''} → ${COLUMN_NAMES[p.column]}`,
+  inline: true,
+  inlineConfirmLabel: (edit) => `Create ${plural(edit.drafts.filter((d) => d.include).length, 'ticket', 'tickets')}`,
+  alternatives: (edit) => {
+    const other: DraftColumn = edit.column === 'backlog' ? 'ready' : 'backlog'
+    return [{ label: `Put in ${COLUMN_NAMES[other]} instead`, edit: { ...edit, column: other } }]
+  },
   Body,
   initialEdit: (p) => ({
     drafts: p.tickets.map((d) => ({

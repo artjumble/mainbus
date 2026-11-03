@@ -457,9 +457,9 @@ describe('Adjust before starting', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
     expect(await within(dialog).findAllByRole('checkbox')).toHaveLength(3)
-    for (const name of ['Planner', 'Implementer', 'Reviewer']) expect(within(dialog).getByRole('checkbox', { name })).toBeChecked()
+    for (const name of ['1. Planner', '2. Implementer', '3. Reviewer']) expect(within(dialog).getByRole('checkbox', { name })).toBeChecked()
 
-    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Planner' }))
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: '1. Planner' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
     expect(agentCalls()).toEqual([
       [
@@ -483,6 +483,8 @@ describe('Adjust before starting', () => {
     renderWithMantine(<TicketView />)
     await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    // The models and effort are in a section that starts collapsed.
+    await userEvent.click(await within(dialog).findByRole('button', { name: /Models and effort per role/ }))
     const model = async (name: string) => within(dialog).findByRole('combobox', { name: `Model for ${name}` })
     const effort = (name: string) => within(dialog).getByRole('combobox', { name: `Effort for ${name}` })
     expect(await model('Planner')).toHaveValue('opus')
@@ -497,9 +499,9 @@ describe('Adjust before starting', () => {
 
     await userEvent.selectOptions(await model('Planner'), 'Haiku')
     await userEvent.selectOptions(effort('Reviewer'), 'Low')
-    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Implementer' }))
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: '2. Implementer' }))
     expect(await model('Implementer')).toBeDisabled()
-    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Extra instructions' }), 'Keep it small.')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Extra instructions for this agent' }), 'Keep it small.')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
     expect(agentCalls()).toEqual([
       [
@@ -514,17 +516,18 @@ describe('Adjust before starting', () => {
     ])
   })
 
-  test('Start is disabled with no role ticked, and Cancel starts nothing', async () => {
+  test('the last ticked role stays ticked, and Cancel starts nothing', async () => {
     show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
     renderWithMantine(<TicketView />)
     // It sits next to Start again too.
     expect(await screen.findByRole('button', { name: 'Start again' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    for (const name of ['Planner', 'Implementer', 'Reviewer']) {
+    for (const name of ['1. Planner', '2. Implementer', '3. Reviewer']) {
       await userEvent.click(await within(dialog).findByRole('checkbox', { name }))
     }
-    expect(within(dialog).getByRole('button', { name: 'Start' })).toBeDisabled()
+    expect(within(dialog).getByRole('checkbox', { name: '3. Reviewer' })).toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: '3. Reviewer' })).toBeDisabled()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(agentCalls()).toEqual([])
@@ -541,7 +544,7 @@ describe('Adjust before starting', () => {
     renderWithMantine(<TicketView />)
     await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
     const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    await within(dialog).findByRole('checkbox', { name: 'Planner' })
+    await within(dialog).findByRole('checkbox', { name: '1. Planner' })
     await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
     expect(await screen.findByText('Tick at least one role to start')).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Adjust before starting' })).toBeInTheDocument()
