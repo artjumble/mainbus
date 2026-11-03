@@ -96,7 +96,7 @@ describe('hold: execute and outcome', () => {
   })
 
   test('fails when the workspace or the ticket is gone', async () => {
-    await expect(hold.execute(payload, target, ctx({ open: null }))).rejects.toThrow('no longer open')
+    await expect(hold.execute(payload, target, ctx({ open: null }))).rejects.toThrow('was removed')
     await expect(hold.execute(payload, target, ctx({ ticket: null }))).rejects.toThrow('no longer exists')
   })
 

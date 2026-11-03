@@ -51,16 +51,23 @@ export interface CreateParams {
   spec?: string
   criteria?: string[]
   labels?: string[]
-  /** Absolute path; must be the open workspace's repo or a folder inside it. Omitted means the open workspace. */
+  /**
+   * Absolute path inside a workspace's repo (or its ticket folders); it picks the workspace the ticket is filed in.
+   * Omitted means `source.cwd` picks it.
+   */
   repo?: string
   source: { agent: string; cwd: string }
 }
 
 export interface ListParams {
+  /** Absolute path of the caller's folder: the workspace whose repo contains it is the one listed. */
+  cwd: string
   column?: Column
 }
 
 export interface GetParams {
+  /** Absolute path of the caller's folder: the workspace whose repo contains it is the one read. */
+  cwd: string
   number: number
 }
 

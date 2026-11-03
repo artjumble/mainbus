@@ -528,52 +528,56 @@ export class SdkRuntime implements AgentRuntime {
     const sdk = this.sdk
     const t = spec.tools
     const ticketNumber = z.number().int().describe('The ticket number, as in #12')
+    const workspace = z.string().optional().describe('The workspace, by name or id; the focused one when left out')
     const server = sdk.createSdkMcpServer({
       name: 'mainbus',
       alwaysLoad: true,
       tools: [
-        sdk.tool('list_workspaces', 'The workspaces on the board: name, repo path and base branch.', {}, async () =>
+        sdk.tool('list_workspaces', 'Every workspace: name, id, repo path, base branch, how many tickets need the user, and which one is focused.', {}, async () =>
           toolText(await t.listWorkspaces())
         ),
         sdk.tool(
           'list_tickets',
-          "The open workspace's tickets: number, title, column, phase, active role and labels.",
+          "A workspace's tickets: number, title, column, phase, active role and labels.",
           {
+            workspace,
             column: z
               .enum(['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done'])
               .optional()
               .describe('Only the tickets in this column')
           },
-          async (a) => toolText(await t.listTickets(a.column !== undefined ? { column: a.column } : {}))
+          async (a) => toolText(await t.listTickets({ ...(a.workspace !== undefined ? { workspace: a.workspace } : {}), ...(a.column !== undefined ? { column: a.column } : {}) }))
         ),
         sdk.tool(
           'get_ticket',
           "One ticket: the user's words, spec, criteria, labels, pull request, and the latest run's roles.",
-          { number: ticketNumber },
-          async (a) => toolText(await t.getTicket({ number: a.number }))
+          { number: ticketNumber, workspace },
+          async (a) => toolText(await t.getTicket({ number: a.number, ...(a.workspace !== undefined ? { workspace: a.workspace } : {}) }))
         ),
         sdk.tool(
           'get_run_status',
           "The latest run of a ticket: its roles in order with status, model and effort, the active role, and pending decisions.",
-          { number: ticketNumber },
-          async (a) => toolText(await t.getRunStatus({ number: a.number }))
+          { number: ticketNumber, workspace },
+          async (a) => toolText(await t.getRunStatus({ number: a.number, ...(a.workspace !== undefined ? { workspace: a.workspace } : {}) }))
         ),
         sdk.tool(
           'get_recent_events',
           "The last events of a ticket's thread, oldest first.",
           {
             number: ticketNumber,
+            workspace,
             limit: z.number().int().optional().describe('How many events, 20 by default, at most 50')
           },
-          async (a) => toolText(await t.getRecentEvents({ number: a.number, ...(a.limit !== undefined ? { limit: a.limit } : {}) }))
+          async (a) => toolText(await t.getRecentEvents({ number: a.number, ...(a.workspace !== undefined ? { workspace: a.workspace } : {}), ...(a.limit !== undefined ? { limit: a.limit } : {}) }))
         ),
-        sdk.tool('list_pending_decisions', 'Every decision waiting for the user, with its ticket.', {}, async () =>
-          toolText(await t.listPendingDecisions())
+        sdk.tool('list_pending_decisions', "Every decision waiting for the user in a workspace, with its ticket.", { workspace }, async (a) =>
+          toolText(await t.listPendingDecisions(a.workspace !== undefined ? { workspace: a.workspace } : {}))
         ),
         sdk.tool(
           'propose_create_tickets',
           "Propose new tickets. The user confirms, changes or rejects them; Mainbus creates them only then. Each ticket's intent is the user's message, filled in by Mainbus: put your own drafting in the spec. Then end your turn.",
           {
+            workspace: z.string().optional().describe('The workspace to create them in, by name or id; the focused one when left out'),
             tickets: z
               .array(
                 // Strict, like the engine's own check: an intent from the agent is refused, not dropped.
@@ -600,6 +604,7 @@ export class SdkRuntime implements AgentRuntime {
           "Propose starting a Backlog or Ready ticket that is not running, with some or all of the lineup's roles and a model and effort for each. The user confirms, changes or rejects it; Mainbus starts it only then. Then end your turn.",
           {
             ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
             roles: z
               .array(
                 z.strictObject({
@@ -619,19 +624,22 @@ export class SdkRuntime implements AgentRuntime {
         sdk.tool(
           'propose_pause',
           "Propose pausing the working role of a ticket; Resume continues it. The user confirms or rejects it; Mainbus pauses only then. Check get_run_status first. Then end your turn.",
-          { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to pause it, shown to the user') },
+          { ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"), reason: z.string().describe('Why to pause it, shown to the user') },
           async (a) => toolText(await t.proposePause(a))
         ),
         sdk.tool(
           'propose_stop',
           "Propose stopping a ticket's run; the ticket goes back to Ready. The user confirms or rejects it; Mainbus stops it only then. Check get_run_status first. Then end your turn.",
-          { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to stop it, shown to the user') },
+          { ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"), reason: z.string().describe('Why to stop it, shown to the user') },
           async (a) => toolText(await t.proposeStop(a))
         ),
         sdk.tool(
           'propose_skip',
           "Propose skipping a ticket's active role: it ends with a summary of its work so far and the next role starts (or the ticket goes to Review). The user confirms or rejects it; Mainbus skips only then. Check get_run_status first. Then end your turn.",
-          { ticket: z.number().int().describe('The ticket number'), reason: z.string().describe('Why to skip it, shown to the user') },
+          { ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"), reason: z.string().describe('Why to skip it, shown to the user') },
           async (a) => toolText(await t.proposeSkip(a))
         ),
         sdk.tool(
@@ -639,6 +647,7 @@ export class SdkRuntime implements AgentRuntime {
           "Propose holding a ticket, so that unattended mode and start proposals leave it alone, until a date or until the user releases it. Holding doesn't stop a running agent. The user confirms, changes the date or rejects it; Mainbus holds only then. Then end your turn.",
           {
             ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
             until: z.string().optional().describe('When the hold ends, as an ISO date-time in the future; leave out to hold until the user releases it'),
             reason: z.string().describe('Why to hold it, shown to the user')
           },
@@ -674,6 +683,7 @@ export class SdkRuntime implements AgentRuntime {
           "Propose interrupting a stuck agent with one corrective message. Only for a ticket whose agent has an open stuck episode (get_run_status shows it), and once per episode. The user confirms, edits the message or rejects it; the agent is interrupted only then, and gets the message as its next one. Then end your turn.",
           {
             ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
             message: z.string().describe('The one corrective message for the agent, concrete and drawn from the evidence'),
             evidence: z.string().describe('What you read that shows why this will help, shown to the user')
           },
@@ -684,6 +694,7 @@ export class SdkRuntime implements AgentRuntime {
           "Propose replacing a stuck agent with a fresh one of the same role, which starts from a summary of what the first did. Only for a ticket whose agent's open stuck episode was already redirected and has fired again (get_run_status shows it); it is refused otherwise. The user keeps the current agent, overrides the new one's model, effort and extra instructions, or confirms; nothing changes until then. Then end your turn.",
           {
             ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
             reason: z.string().describe('Why a replacement will do better than the agent so far, shown to the user'),
             evidence: z.string().describe('What you read that shows the redirect did not help, shown to the user')
           },
@@ -694,6 +705,7 @@ export class SdkRuntime implements AgentRuntime {
           "Propose promoting an Investigate ticket's report into a Change ticket: a new Change ticket in Ready that carries the report, with the original's intent, while the Investigate ticket moves to Done. Only for an Investigate ticket in Review or Done that has a report (get_ticket shows it); it is refused otherwise. Leave the title and spec out to use the ticket's title and a spec drafted from the report. The user confirms, edits the title and spec, or rejects it; nothing changes until then. Then end your turn.",
           {
             ticket: z.number().int().describe('The Investigate ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
             title: z.string().optional().describe("The new Change ticket's title; the Investigate ticket's by default"),
             spec: z.string().optional().describe("The new ticket's spec: what to change and how to verify it, using only what the report says; drafted from the report by default")
           },

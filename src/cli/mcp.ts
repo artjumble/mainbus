@@ -90,7 +90,7 @@ export function createMcpServer(target: IntakeTarget, cwd: string): McpServer {
       inputSchema: { column: z.enum(COLUMNS).optional().describe('Only tickets in this column') }
     },
     ({ column }) =>
-      call(async () => JSON.stringify(await request(target, 'list', column === undefined ? {} : { column }), null, 2))
+      call(async () => JSON.stringify(await request(target, 'list', column === undefined ? { cwd } : { cwd, column }), null, 2))
   )
 
   server.registerTool(
@@ -100,7 +100,7 @@ export function createMcpServer(target: IntakeTarget, cwd: string): McpServer {
       description: "Reads one ticket on the user's Mainbus board by number: title, intent, spec, criteria, labels, status and pull request.",
       inputSchema: { number: z.number().int().describe('The ticket number, as in #12') }
     },
-    ({ number }) => call(async () => JSON.stringify(await request(target, 'get', { number }), null, 2))
+    ({ number }) => call(async () => JSON.stringify(await request(target, 'get', { cwd, number }), null, 2))
   )
 
   return server

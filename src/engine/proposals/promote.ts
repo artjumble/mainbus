@@ -45,8 +45,8 @@ export const promote: ProposalKind<PromotePayload, PromoteResult> = {
   },
 
   async execute(p, target, ctx) {
-    const ws = await ctx.workspace()
-    if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for is no longer open')
+    const ws = await ctx.workspace(target.workspaceId)
+    if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for was removed')
     const ticket = await ctx.ticketByNumber(ws.id, p.number)
     if (!ticket || ticket.id !== p.ticketId) throw new Error(`Ticket #${p.number} no longer exists`)
     // The same guards as the button's Promote: a second confirm after one promoted it fails here.

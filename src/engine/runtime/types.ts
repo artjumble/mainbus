@@ -26,11 +26,12 @@ export type PermissionVerdict = { allow: true } | { allow: false; message: strin
 /** What the orchestrator's read tools call back into: each answers with plain text for the agent. */
 export interface OrchestratorReadToolHandlers {
   listWorkspaces(): Promise<string>
-  listTickets(a: { column?: string }): Promise<string>
-  getTicket(a: { number: number }): Promise<string>
-  getRunStatus(a: { number: number }): Promise<string>
-  getRecentEvents(a: { number: number; limit?: number }): Promise<string>
-  listPendingDecisions(): Promise<string>
+  /** Each of these takes an optional `workspace` (name or id); the focused one when left out. */
+  listTickets(a: { workspace?: string; column?: string }): Promise<string>
+  getTicket(a: { workspace?: string; number: number }): Promise<string>
+  getRunStatus(a: { workspace?: string; number: number }): Promise<string>
+  getRecentEvents(a: { workspace?: string; number: number; limit?: number }): Promise<string>
+  listPendingDecisions(a: { workspace?: string }): Promise<string>
 }
 
 /**

@@ -122,7 +122,7 @@ describe('stuck episodes', () => {
 
   it('lists the open episodes by ticket', async () => {
     const other = await createTicketRepo(db, now).create({
-      workspaceId: (await createWorkspaceRepo(db, now).get())!.id,
+      workspaceId: (await createWorkspaceRepo(db, now).focused())!.id,
       title: 'U',
       intent: 'i',
       spec: '',

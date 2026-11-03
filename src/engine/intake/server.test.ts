@@ -17,6 +17,9 @@ let boards: TestBoard[] = []
 async function board(): Promise<TestBoard> {
   const b = await makeTestBoard()
   boards.push(b)
+  // Every request names the caller's folder, which must be inside a workspace: here, the board's repo.
+  create.source.cwd = b.repoPath
+  cwd = b.repoPath
   return b
 }
 
@@ -26,6 +29,7 @@ afterEach(async () => {
 })
 
 const create = { title: 'From an agent', intent: 'Please do this', source: { agent: 'codex', cwd: '/x' } }
+let cwd = ''
 
 /** Writes raw bytes, then collects every reply line until the server closes the connection (or a timeout). */
 function exchange(endpoint: string, payload: string | Buffer, waitMs = 5_000): Promise<{ replies: unknown[]; closed: boolean }> {
@@ -64,7 +68,7 @@ describe('intake server', () => {
     const { target, engine } = await board()
     const { replies } = await exchange(
       target.endpoint,
-      line({ v: 1, id: 'a', method: 'create', params: create }) + line({ v: 1, id: 'b', method: 'list', params: {} }),
+      line({ v: 1, id: 'a', method: 'create', params: create }) + line({ v: 1, id: 'b', method: 'list', params: { cwd } }),
       1_000
     )
     expect(replies).toEqual([
@@ -78,7 +82,7 @@ describe('intake server', () => {
     const { target } = await board()
     const { replies, closed } = await exchange(
       target.endpoint,
-      line({ v: 1, id: 1, method: 'create', params: { ...create, column: 'ready' } }) + line({ v: 1, id: 2, method: 'list' }),
+      line({ v: 1, id: 1, method: 'create', params: { ...create, column: 'ready' } }) + line({ v: 1, id: 2, method: 'list', params: { cwd } }),
       1_000
     )
     expect(closed).toBe(false)
@@ -116,12 +120,12 @@ describe('intake server', () => {
     expect(noNewline.replies).toEqual([{ id: null, error: { code: 'too_large', message: expect.any(String) } }])
 
     expect((await engine.invoke('board.get')).tickets).toEqual([])
-    expect(await request(target, 'list', {})).toEqual({ tickets: [] })
+    expect(await request(target, 'list', { cwd })).toEqual({ tickets: [] })
   })
 
   it('accepts a line of exactly MAX_LINE_BYTES', async () => {
     const { target } = await board()
-    const envelope = line({ v: 1, id: 1, method: 'list', params: {} }).trimEnd()
+    const envelope = line({ v: 1, id: 1, method: 'list', params: { cwd } }).trimEnd()
     const padded = `${envelope.slice(0, -1)}${' '.repeat(MAX_LINE_BYTES - Buffer.byteLength(envelope))}}\n`
     expect(Buffer.byteLength(padded)).toBe(MAX_LINE_BYTES + 1)
     const { replies } = await exchange(target.endpoint, padded, 1_000)
@@ -152,9 +156,9 @@ describe('intake server', () => {
     const b = await board()
     expect(a.target.endpoint).not.toBe(b.target.endpoint)
 
-    await request(a.target, 'create', create)
-    expect((await request(a.target, 'list', {})).tickets).toHaveLength(1)
-    expect((await request(b.target, 'list', {})).tickets).toHaveLength(0)
+    await request(a.target, 'create', { ...create, source: { ...create.source, cwd: a.repoPath } })
+    expect((await request(a.target, 'list', { cwd: a.repoPath })).tickets).toHaveLength(1)
+    expect((await request(b.target, 'list', { cwd: b.repoPath })).tickets).toHaveLength(0)
     expect((await b.engine.invoke('board.get')).tickets).toEqual([])
 
     // A home with no app running gets "not running", never another home's board.

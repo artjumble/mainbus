@@ -100,7 +100,7 @@ describe('a failure', () => {
 
     const prompt = runtime.orchestratorSpecs[0]!.prompt
     expect(prompt).toContain(WAKE_HEADING)
-    expect(prompt).toContain(`#${ticket.number} "Login": the Planner's run failed and the ticket moved to Needs you.`)
+    expect(prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed and the ticket moved to Needs you.`)
     expect(prompt).toContain('<ticket-data field="failure-error">API is down</ticket-data>')
     expect(prompt).toContain('Open decisions: none.')
     expect(prompt).toContain('idempotently')
@@ -108,7 +108,7 @@ describe('a failure', () => {
     const thread = await orchestratorOf(engine)
     const kinds = thread.events.map((e) => e.event.kind)
     expect(kinds).not.toContain('user_message')
-    expect(thread.events.map((e) => e.event)).toContainEqual({ kind: 'wake', items: [`#${ticket.number} "Login": the Planner failed`] })
+    expect(thread.events.map((e) => e.event)).toContainEqual({ kind: 'wake', items: [`#${ticket.number} "Login" (workspace "repo"): the Planner failed`] })
     expect(thread.events.map((e) => e.event)).toContainEqual({ kind: 'message', text: 'Looking into it.' })
   })
 
@@ -170,7 +170,7 @@ describe('a wake turn that does not finish', () => {
     await clock.advance(WAKE_DEBOUNCE_MS)
     await vi.waitFor(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
     await idle(second.engine)
-    expect(second.runtime.orchestratorSpecs[0]!.prompt).toContain(`#${ticket.number} "Login": the Planner's run failed`)
+    expect(second.runtime.orchestratorSpecs[0]!.prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed`)
     // Resumed, as any later message would: the same run of the orchestrator.
     expect(second.runtime.orchestratorSpecs[0]!.resumeSessionId).toBe('orch')
   })
@@ -186,7 +186,7 @@ describe('a wake turn that does not finish', () => {
     await vi.waitFor(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
     await idle(second.engine)
     const again = second.runtime.orchestratorSpecs[0]!.prompt
-    expect(again).toContain(`#${ticket.number} "Login": the Planner's run failed`)
+    expect(again).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed`)
     expect(again).toContain(digest.split('\n').slice(0, 2).join('\n'))
     const wakes = (await orchestratorOf(second.engine)).events.filter((e) => e.event.kind === 'wake')
     expect(wakes).toHaveLength(2)
@@ -230,7 +230,7 @@ describe('a hold released by its date', () => {
     await clock.advance(WAKE_DEBOUNCE_MS)
     await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
-    expect(runtime.orchestratorSpecs[0]!.prompt).toContain(`#${byDate.number} "By date" is no longer held (its date, ${iso(1).slice(0, 10)}, came). It can be started again.`)
+    expect(runtime.orchestratorSpecs[0]!.prompt).toContain(`#${byDate.number} "By date" (workspace "repo") is no longer held (its date, ${iso(1).slice(0, 10)}, came). It can be started again.`)
 
     // The user releasing a hold gives no turn: they know.
     await engine.invoke('ticket.unhold', byHand.id)
@@ -241,7 +241,7 @@ describe('a hold released by its date', () => {
     await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
     const message = runtime.sent[0]!
     expect(message).toContain(RELEASED_HEADING)
-    expect(message).toContain(`#${byHand.number} "By hand" is no longer held`)
+    expect(message).toContain(`#${byHand.number} "By hand" (workspace "repo") is no longer held`)
     expect(message).not.toContain('By date')
   })
 })
@@ -265,9 +265,9 @@ describe('a deferred decision that comes back on its date', () => {
     await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
     const prompt = runtime.orchestratorSpecs[0]!.prompt
-    expect(prompt).toContain(`#${ticket.number} "Login": <ticket-data field="question">Which API?</ticket-data> is waiting on the user again (decision ${decision.id}).`)
+    expect(prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): <ticket-data field="question">Which API?</ticket-data> is waiting on the user again (decision ${decision.id}).`)
     expect(prompt).toContain('Open decisions (all that are waiting or put off):')
-    expect(prompt).toContain(`- #${ticket.number} "Login" (decision ${decision.id}, waiting on the user): <ticket-data field="question">Which API?</ticket-data>`)
+    expect(prompt).toContain(`- #${ticket.number} "Login" (workspace "repo") (decision ${decision.id}, waiting on the user): <ticket-data field="question">Which API?</ticket-data>`)
   })
 
   test('is not told twice: the next message of the user leaves it out', async () => {
@@ -296,5 +296,23 @@ describe('nothing to say', () => {
     expect(clock.pending).toBe(0)
     await clock.advance(DAY)
     expect(runtime.orchestratorSpecs).toHaveLength(0)
+  })
+})
+
+describe('two workspaces', () => {
+  test('a failure in the workspace that is not focused still wakes the orchestrator, and names its workspace', async () => {
+    const runtime = new FakeRuntime(FAILING, { orchestrator: ANSWERING })
+    const engine = await makeEngine(runtime)
+    const ticket = await newTicket(engine)
+    await engine.invoke('agent.start', ticket.id)
+    await vi.waitFor(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
+    // Another repo is opened and focused while the failure waits for the debounce.
+    await engine.invoke('workspace.open', await makeRepo(path.join(tmp, 'other')))
+
+    await clock.advance(WAKE_DEBOUNCE_MS)
+    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    const prompt = runtime.orchestratorSpecs[0]!.prompt
+    expect(prompt).toContain('Focused workspace: other')
+    expect(prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed`)
   })
 })

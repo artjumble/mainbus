@@ -34,7 +34,7 @@ beforeEach(async () => {
   runId = (await repos.orchestrator.create()).id
   events = []
   exec = {
-    workspace: () => repos.workspaces.get(),
+    workspace: () => repos.workspaces.focused(),
     // Like the engine's: the result is recorded in the same batch as the tickets.
     createTickets: (w, inputs, record) =>
       repos.tickets.createMany(

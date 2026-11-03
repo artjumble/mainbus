@@ -772,7 +772,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(await propose.handler(args, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p1.' }] })
     expect(spec.tools.proposeCreateTickets).toHaveBeenCalledWith(args)
     // Its schema has no intent: a ticket's intent is the user's message, and one from the agent is refused.
-    expect(Object.keys(propose.shape)).toEqual(['tickets', 'column', 'evidence'])
+    expect(Object.keys(propose.shape)).toEqual(['workspace', 'tickets', 'column', 'evidence'])
     const tickets = propose.shape.tickets as z.ZodType
     expect(tickets.safeParse([{ title: 'Add login', intent: 'The user said so' }]).success).toBe(false)
     expect(tickets.safeParse([{ title: 'Add login', spec: 'Details' }]).success).toBe(true)
@@ -781,17 +781,17 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const startArgs = { ticket: 4, roles: [{ role: 'Implementer', model: 'opus', effort: 'high' }], reason: 'It is ready' }
     expect(await start.handler(startArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p2.' }] })
     expect(spec.tools.proposeStart).toHaveBeenCalledWith(startArgs)
-    expect(Object.keys(start.shape)).toEqual(['ticket', 'roles', 'extraInstructions', 'reason'])
+    expect(Object.keys(start.shape)).toEqual(['ticket', 'workspace', 'roles', 'extraInstructions', 'reason'])
 
     for (const [name, handler, text] of [['propose_pause', 'proposePause', 'p3'], ['propose_stop', 'proposeStop', 'p4'], ['propose_skip', 'proposeSkip', 'p5']] as const) {
       const tool = byName.get(name)!
-      expect(Object.keys(tool.shape)).toEqual(['ticket', 'reason'])
+      expect(Object.keys(tool.shape)).toEqual(['ticket', 'workspace', 'reason'])
       expect(await tool.handler({ ticket: 4, reason: 'Stuck' }, {})).toEqual({ content: [{ type: 'text', text: `Proposed ${text}.` }] })
       expect(spec.tools[handler]).toHaveBeenCalledWith({ ticket: 4, reason: 'Stuck' })
     }
     const hold = byName.get('propose_hold')!
     const holdArgs = { ticket: 4, until: '2026-11-04T00:00:00.000Z', reason: 'Wait for the release' }
-    expect(Object.keys(hold.shape)).toEqual(['ticket', 'until', 'reason'])
+    expect(Object.keys(hold.shape)).toEqual(['ticket', 'workspace', 'until', 'reason'])
     expect(await hold.handler(holdArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p6.' }] })
     expect(spec.tools.proposeHold).toHaveBeenCalledWith(holdArgs)
     const answer = byName.get('propose_answer')!
@@ -801,17 +801,17 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(spec.tools.proposeAnswer).toHaveBeenCalledWith(answerArgs)
     const redirect = byName.get('propose_redirect')!
     const redirectArgs = { ticket: 4, message: 'Check the fixtures instead.', evidence: 'The same test failed 4 times' }
-    expect(Object.keys(redirect.shape)).toEqual(['ticket', 'message', 'evidence'])
+    expect(Object.keys(redirect.shape)).toEqual(['ticket', 'workspace', 'message', 'evidence'])
     expect(await redirect.handler(redirectArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p8.' }] })
     expect(spec.tools.proposeRedirect).toHaveBeenCalledWith(redirectArgs)
     const replace = byName.get('propose_replace')!
     const replaceArgs = { ticket: 4, reason: 'A fresh agent will not repeat the dead end', evidence: 'The redirect did not help' }
-    expect(Object.keys(replace.shape)).toEqual(['ticket', 'reason', 'evidence'])
+    expect(Object.keys(replace.shape)).toEqual(['ticket', 'workspace', 'reason', 'evidence'])
     expect(await replace.handler(replaceArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p9.' }] })
     expect(spec.tools.proposeReplace).toHaveBeenCalledWith(replaceArgs)
     const promoteTool = byName.get('propose_promote')!
     const promoteArgs = { ticket: 2, title: 'Fix the slow login', spec: 'Cache the lookup.' }
-    expect(Object.keys(promoteTool.shape)).toEqual(['ticket', 'title', 'spec'])
+    expect(Object.keys(promoteTool.shape)).toEqual(['ticket', 'workspace', 'title', 'spec'])
     expect(await promoteTool.handler(promoteArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p10.' }] })
     expect(spec.tools.proposePromote).toHaveBeenCalledWith(promoteArgs)
     const roles = start.shape.roles as z.ZodType

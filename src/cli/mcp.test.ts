@@ -98,7 +98,7 @@ describe('mainbus mcp', () => {
       arguments: { title: 'T', intent: 'I', repo: path.join(b.tmp, 'elsewhere') }
     })
     expect(mismatch.isError).toBe(true)
-    expect(textOf(mismatch)).toMatch(/not in the open workspace.*\(field: repo\)$/)
+    expect(textOf(mismatch)).toMatch(/not in any open workspace.*\(field: repo\)$/)
     expect((await b.engine.invoke('board.get')).tickets).toEqual([])
   })
 

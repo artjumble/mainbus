@@ -8,13 +8,15 @@ export interface KeepAwake {
 }
 
 export interface UnattendedDeps {
+  /** The workspace this mode works: it starts only its tickets and hears only its board's changes. */
+  workspaceId: string
   runner: {
     start(ticketId: string): Promise<void>
     stateOf(ticketId: string): Promise<TicketState>
     /** A launch is in flight, possibly before the ticket's run exists. */
     isLaunching(ticketId: string): boolean
   }
-  /** The open workspace's tickets; none without a workspace. */
+  /** The workspace's tickets. */
   tickets: () => Promise<Ticket[]>
   /** The ids of the held tickets: a held ticket in Ready is not started. */
   held?: () => Promise<Set<string>>
@@ -44,9 +46,9 @@ type Outcome =
   | { kind: 'taken' }
 
 /**
- * Unattended mode: starts the lowest-numbered Ready ticket that isn't held, waits until it reaches Review or is blocked,
+ * Unattended mode of one workspace: starts the lowest-numbered Ready ticket that isn't held, waits until it reaches Review or is blocked,
  * then starts the next. With Ready empty it stays on and waits for a ticket to arrive there. It starts a
- * ticket only while no ticket in the workspace is working, its own or one started by hand, through the
+ * ticket only while no ticket in its workspace is working, its own or one started by hand, through the
  * runner's own start, and never merges, pushes or moves a ticket. It is driven by the engine's
  * board events, not polled, and holds the machine awake only while a ticket is working or a usage limit is
  * being waited out. Whether it is on is remembered across a restart (see restore); quitting leaves it on.
@@ -139,7 +141,7 @@ export class UnattendedMode {
 
   /** Sees every engine event; a board change is the cue to look at the queue's ticket again. */
   observe(e: EngineEvent): void {
-    if (this.on && e.type === 'board.changed') this.kick()
+    if (this.on && e.type === 'board.changed' && e.workspaceId === this.deps.workspaceId) this.kick()
   }
 
   dispose(): void {
@@ -315,7 +317,7 @@ export class UnattendedMode {
   private setStatus(status: UnattendedStatus): void {
     if (JSON.stringify(status) === JSON.stringify(this.status)) return
     this.status = status
-    this.deps.emit({ type: 'unattended.changed', state: this.get() })
+    this.deps.emit({ type: 'unattended.changed', workspaceId: this.deps.workspaceId, state: this.get() })
   }
 }
 

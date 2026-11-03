@@ -11,9 +11,9 @@ export function localTime(d: Date): string {
   return `${date} ${two(d.getHours())}:${two(d.getMinutes())}, ${DAYS[d.getDay()]}`
 }
 
-/** The line Mainbus puts before each user message: the open workspace and the local time. The panel doesn't show it. */
+/** The line Mainbus puts before each user message: the focused workspace and the local time. The panel doesn't show it. */
 export function messageHeader(ws: Pick<Workspace, 'name' | 'repoPath'>, now: Date): string {
-  return `[Mainbus] Workspace: ${oneLine(ws.name)} (${oneLine(ws.repoPath)}) · Local time: ${localTime(now)}`
+  return `[Mainbus] Focused workspace: ${oneLine(ws.name)} (${oneLine(ws.repoPath)}) · Local time: ${localTime(now)}`
 }
 
 export function withHeader(ws: Pick<Workspace, 'name' | 'repoPath'>, now: Date, text: string): string {

@@ -587,6 +587,25 @@ describe('openDb', () => {
     expect(await byId('w2reviewer')).toBe(newReviewer!.instructions)
   })
 
+  it('moves the app-wide unattended setting onto the workspace, backs up first, and keeps slugs unique', async () => {
+    const first = await open(firstMigrations(22))
+    await first.db.run(sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at) values ('w1', 'app', '/a', 'main', 'app', 'x')`)
+    await first.db.run(sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at) values ('w2', 'app', '/b', 'main', 'app', 'y')`)
+    await first.db.run(sql`insert into app_settings (key, value) values ('unattended', 'on')`)
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    expect(backupFiles()).toHaveLength(1)
+    const rows = await db.select().from(workspaces)
+    expect(rows.map((r) => [r.id, r.unattendedOn, r.removedAt])).toEqual([
+      ['w1', true, null],
+      ['w2', true, null]
+    ])
+    expect(new Set(rows.map((r) => r.slug)).size).toBe(2)
+    expect(await db.run(sql`select 1 from app_settings where key = 'unattended'`).then((r) => r.rows ?? [])).toHaveLength(0)
+  })
+
   it('enforces foreign keys', async () => {
     const { db } = await open()
     await expect(

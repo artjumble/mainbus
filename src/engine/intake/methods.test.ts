@@ -10,6 +10,8 @@ let boards: TestBoard[] = []
 async function board(options?: Parameters<typeof makeTestBoard>[0]): Promise<TestBoard> {
   const b = await makeTestBoard(options)
   boards.push(b)
+  // Every request names the caller's folder, which must be inside a workspace: here, the board's repo.
+  source.cwd = b.repoPath
   return b
 }
 
@@ -108,13 +110,14 @@ describe('intake create', () => {
   })
 
   it('accepts the limits themselves', async () => {
-    const { engine } = await board()
+    const { engine, repoPath } = await board()
     await engine.intake('create', {
       title: 'x'.repeat(200),
       intent: 'x'.repeat(20_000),
       spec: 'x'.repeat(100_000),
       criteria: Array.from({ length: 50 }, () => 'x'.repeat(1_000)),
       labels: Array.from({ length: 20 }, () => 'x'.repeat(50)),
+      repo: repoPath,
       source: { agent: 'x'.repeat(100), cwd: 'x'.repeat(1_000) }
     })
     expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
@@ -137,7 +140,7 @@ describe('intake create', () => {
   it('answers no_workspace when no workspace is open', async () => {
     const { engine } = await board({ openWorkspace: false })
     expect((await failure(engine.intake('create', valid))).code).toBe('no_workspace')
-    expect((await failure(engine.intake('list', {}))).code).toBe('no_workspace')
+    expect((await failure(engine.intake('list', { cwd: source.cwd }))).code).toBe('no_workspace')
   })
 })
 
@@ -147,7 +150,7 @@ describe('intake list and get', () => {
     await engine.invoke('ticket.create', { title: 'Mine', intent: 'mine', spec: '', criteria: [], labels: ['ui'], column: 'ready' })
     await engine.intake('create', valid)
 
-    const all = await engine.intake('list', {})
+    const all = await engine.intake('list', { cwd: source.cwd })
     expect(all.tickets).toEqual([
       {
         number: 1,
@@ -163,9 +166,9 @@ describe('intake list and get', () => {
       },
       expect.objectContaining({ number: 2, column: 'backlog', source: { kind: 'agent', ...source } })
     ])
-    expect((await engine.intake('list', { column: 'backlog' })).tickets.map((t) => t.number)).toEqual([2])
-    expect((await engine.intake('list', undefined)).tickets).toHaveLength(2)
-    expect(await failure(engine.intake('list', { column: 'nowhere' }))).toMatchObject({ code: 'invalid', field: 'column' })
+    expect((await engine.intake('list', { cwd: source.cwd, column: 'backlog' })).tickets.map((t) => t.number)).toEqual([2])
+    expect((await engine.intake('list', { cwd: source.cwd })).tickets).toHaveLength(2)
+    expect(await failure(engine.intake('list', { cwd: source.cwd, column: 'nowhere' }))).toMatchObject({ code: 'invalid', field: 'column' })
   })
 
   it('gets a ticket by number with every intent entry and its source', async () => {
@@ -180,7 +183,7 @@ describe('intake list and get', () => {
     })
     await engine.invoke('ticket.appendIntent', id, 'User addition')
 
-    expect(await engine.intake('get', { number: 1 })).toEqual({
+    expect(await engine.intake('get', { cwd: source.cwd, number: 1 })).toEqual({
       number: 1,
       title: valid.title,
       column: 'backlog',
@@ -200,8 +203,8 @@ describe('intake list and get', () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String)
     })
-    expect(await failure(engine.intake('get', { number: 9 }))).toMatchObject({ code: 'not_found', field: 'number' })
-    expect(await failure(engine.intake('get', { number: 'one' }))).toMatchObject({ code: 'invalid', field: 'number' })
+    expect(await failure(engine.intake('get', { cwd: source.cwd, number: 9 }))).toMatchObject({ code: 'not_found', field: 'number' })
+    expect(await failure(engine.intake('get', { cwd: source.cwd, number: 'one' }))).toMatchObject({ code: 'invalid', field: 'number' })
   })
 
   it('never returns thread events, decisions or allow rules', async () => {
@@ -218,9 +221,9 @@ describe('intake list and get', () => {
     await vi.waitFor(async () => expect((await engine.invoke('thread.get', id)).decisions).toHaveLength(1))
     expect((await engine.invoke('board.get')).tickets[0]!.state.summary).toBe('SECRET-DECISION-QUESTION')
 
-    const replies = JSON.stringify([await engine.intake('list', {}), await engine.intake('get', { number: 1 })])
+    const replies = JSON.stringify([await engine.intake('list', { cwd: source.cwd }), await engine.intake('get', { cwd: source.cwd, number: 1 })])
     expect(replies).not.toMatch(/SECRET|decision|events|allow|runId|branch|worktree/i)
-    expect(await engine.intake('get', { number: 1 })).toMatchObject({ column: 'needs_you', agentStatus: 'waiting_on_you' })
+    expect(await engine.intake('get', { cwd: source.cwd, number: 1 })).toMatchObject({ column: 'needs_you', agentStatus: 'waiting_on_you' })
   })
 
   it('get loads only the requested ticket', async () => {
@@ -229,8 +232,8 @@ describe('intake list and get', () => {
     const tickets = vi.fn(async () => {
       throw new Error('get must not load the whole board')
     })
-    const handle = createIntakeHandler({ workspace: async () => ws, createTicket: vi.fn(), tickets, ticket })
-    expect(await failure(handle('get', { number: 3 }))).toMatchObject({ code: 'not_found' })
+    const handle = createIntakeHandler({ workspaces: async () => [ws], ticketFolders: () => '/none', createTicket: vi.fn(), tickets, ticket })
+    expect(await failure(handle('get', { cwd: '/r', number: 3 }))).toMatchObject({ code: 'not_found' })
     expect(ticket).toHaveBeenCalledWith(ws, 3)
     expect(tickets).not.toHaveBeenCalled()
   })
@@ -251,13 +254,14 @@ describe('intake list and get', () => {
       state
     } as unknown as Awaited<ReturnType<Parameters<typeof createIntakeHandler>[0]['ticket']>> & object
     const handle = createIntakeHandler({
-      workspace: async () => ws,
+      workspaces: async () => [ws],
+      ticketFolders: () => '/none',
       createTicket: vi.fn(),
       tickets: async () => [ticket],
       ticket: async () => ticket
     })
-    expect((await handle('list', {})).tickets[0]).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
-    expect(await handle('get', { number: 4 })).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
+    expect((await handle('list', { cwd: '/r' })).tickets[0]).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
+    expect(await handle('get', { cwd: '/r', number: 4 })).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
   })
 
   it('rejects unknown methods', async () => {

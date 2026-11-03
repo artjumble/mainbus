@@ -340,7 +340,7 @@ describe('createEngine', () => {
 })
 
 describe('workspace.open', () => {
-  it('returns the existing workspace for the same path and refuses a different one', async () => {
+  it('returns the existing workspace for the same path, and opens a different repo as another workspace', async () => {
     const engine = await makeEngine(new FakeRuntime([]))
     const first = await engine.invoke('workspace.open', repoPath)
     expect(await engine.invoke('workspace.open', repoPath)).toEqual(first)
@@ -348,8 +348,9 @@ describe('workspace.open', () => {
       expect(await engine.invoke('workspace.open', repoPath.toUpperCase())).toEqual(first)
     }
 
-    const other = await makeRepo('other')
-    await expect(engine.invoke('workspace.open', other)).rejects.toThrow('Mainbus MVP supports one workspace')
+    const other = await engine.invoke('workspace.open', await makeRepo('other'))
+    expect(other.id).not.toBe(first.id)
+    expect((await engine.invoke('workspace.list')).map((w) => w.id)).toEqual([first.id, other.id])
   })
 
   it('fails clearly when the folder is not a git repository or does not exist', async () => {

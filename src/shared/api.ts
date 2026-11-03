@@ -53,9 +53,11 @@ export type BoardTicket = Ticket & {
  */
 export type EngineEvent =
   | { type: 'board.changed'; workspaceId: string }
-  | { type: 'thread.appended'; ticketId: string; event: StoredEvent; run: ThreadRun }
-  | { type: 'decision.changed'; decision: Decision }
-  | { type: 'unattended.changed'; state: UnattendedState }
+  | { type: 'thread.appended'; workspaceId: string; ticketId: string; event: StoredEvent; run: ThreadRun }
+  | { type: 'decision.changed'; workspaceId: string; decision: Decision }
+  | { type: 'unattended.changed'; workspaceId: string; state: UnattendedState }
+  /** A workspace was opened, focused or removed; `focusedId` is the one the board shows now. */
+  | { type: 'workspaces.changed'; focusedId: string | null }
   | { type: 'usage.changed'; state: UsageState }
   /** An event of the orchestrator's thread; partial ones carry seq 0, as in a ticket's thread. */
   | { type: 'orchestrator.appended'; event: StoredEvent }
@@ -66,19 +68,33 @@ export type EngineEvent =
 /** Every command the renderer can send to the engine. A thrown error reaches the renderer as a rejected promise. */
 export interface EngineCommands {
   'setup.check'(): ClaudeSetup
+  /** The focused workspace: the one the board shows; null when none is open. */
   'workspace.get'(): Workspace | null
-  /** Detects the base branch with `git symbolic-ref --short HEAD`. The MVP supports one workspace. */
+  /** Every open workspace, oldest first. */
+  'workspace.list'(): Workspace[]
+  /**
+   * Opens the repository (detecting the base branch with `git symbolic-ref --short HEAD`) as a workspace and focuses it.
+   * A repo that is open already is returned as it is, and focused.
+   */
   'workspace.open'(repoPath: string): Workspace
+  /** Makes the workspace the focused one, which is remembered. Unknown or removed ids are refused. */
+  'workspace.focus'(id: string): Workspace
+  /**
+   * Removes the workspace from Mainbus; never deletes the repo. Refused while any of its agents is open, or while a ticket's
+   * folder has uncommitted changes. `keptFolders` are ticket folders that could not be removed and were left as they are.
+   */
+  'workspace.remove'(id: string): { keptFolders: string[] }
   /**
    * The switch "Open a PR when a ticket reaches Review". Like Retry below, only the renderer can reach it:
    * the agent intake (pipe, CLI, MCP) has no way to make Mainbus push.
    */
-  'workspace.setOpenPrOnReview'(on: boolean): Workspace
+  'workspace.setOpenPrOnReview'(on: boolean, workspaceId?: string): Workspace
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
-  'github.check'(): GhStatus
-  'board.get'(): { tickets: BoardTicket[] }
+  'github.check'(workspaceId?: string): GhStatus
+  /** The tickets of the workspace (the focused one unless given). */
+  'board.get'(workspaceId?: string): { tickets: BoardTicket[] }
   /** The user's own ticket: a source can only come in through agent intake. */
-  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source'>): Ticket
+  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source'>, workspaceId?: string): Ticket
   'ticket.update'(id: string, p: TicketPatch): Ticket
   'ticket.appendIntent'(id: string, text: string): Ticket
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
@@ -131,13 +147,13 @@ export interface EngineCommands {
   /** Brings a deferred decision back now; refuses one that isn't deferred. */
   'decision.bringBack'(id: string): void
   /** The workspace's lineup of that kind (Change unless given), first role first. */
-  'lineup.get'(lineup?: Lineup): LineupRole[]
+  'lineup.get'(lineup?: Lineup, workspaceId?: string): LineupRole[]
   /**
    * Replaces the whole lineup of that kind (Change unless given), in order. Rejects, with a message for the settings screen, a lineup with no
    * roles, an empty or duplicate name, or a hand-back to a role that isn't earlier in the lineup.
    */
-  'lineup.save'(roles: LineupRoleInput[], lineup?: Lineup): LineupRole[]
-  'allowRules.list'(): AllowRule[]
+  'lineup.save'(roles: LineupRoleInput[], lineup?: Lineup, workspaceId?: string): LineupRole[]
+  'allowRules.list'(workspaceId?: string): AllowRule[]
   'allowRules.remove'(id: string): void
   /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */
   'agents.launcher'(): AgentLauncher | null
@@ -150,10 +166,10 @@ export interface EngineCommands {
   'settings.setMaxAgents'(n: number): AppSettings
   /**
    * Unattended mode: works through Ready one ticket at a time. Only the renderer can reach these: the agent
-   * intake (pipe, CLI, MCP) has no way to switch it on. It is off whenever the app starts.
+   * intake (pipe, CLI, MCP) has no way to switch it on. Each workspace has its own, remembered across a restart; the focused workspace unless given.
    */
-  'unattended.get'(): UnattendedState
-  'unattended.set'(on: boolean): UnattendedState
+  'unattended.get'(workspaceId?: string): UnattendedState
+  'unattended.set'(on: boolean, workspaceId?: string): UnattendedState
   /** The usage limit state: ok, a warning near the limit, or limited. Only the renderer can reach these. */
   'usage.get'(): UsageState
   /** Resume now: ends the usage-limited state early and resumes the paused agents in the order they were paused. */

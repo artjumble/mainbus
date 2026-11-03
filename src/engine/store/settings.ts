@@ -4,7 +4,6 @@ import type { Db } from '../db/open'
 import { appSettings } from '../db/schema'
 
 const MAX_AGENTS = 'max_agents'
-const UNATTENDED = 'unattended'
 const USAGE_LIMIT = 'usage_limit'
 
 /** The usage-limited state that is kept across a restart: when it began and when it resets (ISO; null when unknown). */
@@ -22,9 +21,6 @@ export interface SettingsRepo {
   get(): Promise<AppSettings>
   /** Stores the number of role agents that may run at once; rejects anything but a whole number from 1 to 10. */
   setMaxAgents(n: number): Promise<AppSettings>
-  /** Whether unattended mode was on when the app last ran. Kept apart from AppSettings: the renderer doesn't read it. */
-  unattendedOn(): Promise<boolean>
-  setUnattendedOn(on: boolean): Promise<void>
   /** The usage limit Mainbus is in, or null when it is not limited. */
   usageLimit(): Promise<StoredUsageLimit | null>
   /** Stores the usage limit; null clears it. */
@@ -40,16 +36,6 @@ export function createSettingsRepo(db: Db): SettingsRepo {
 
   return {
     get,
-    async unattendedOn() {
-      const [row] = await db.select().from(appSettings).where(eq(appSettings.key, UNATTENDED))
-      return row?.value === 'on'
-    },
-    async setUnattendedOn(on) {
-      await db
-        .insert(appSettings)
-        .values({ key: UNATTENDED, value: on ? 'on' : 'off' })
-        .onConflictDoUpdate({ target: appSettings.key, set: { value: on ? 'on' : 'off' } })
-    },
     async usageLimit() {
       const [row] = await db.select().from(appSettings).where(eq(appSettings.key, USAGE_LIMIT))
       if (!row) return null

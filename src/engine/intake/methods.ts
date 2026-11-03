@@ -33,7 +33,10 @@ export class IntakeFailure extends Error {
 export type IntakeHandler = <M extends IntakeMethod>(method: M, params: unknown) => Promise<IntakeResults[M]>
 
 export interface IntakeDeps {
-  workspace(): Promise<Workspace | null>
+  /** Every open workspace. */
+  workspaces(): Promise<Workspace[]>
+  /** The folder holding the workspace's ticket folders; agents work in one of them. */
+  ticketFolders(ws: Workspace): string
   /** The same path as the ticket.create command: stores the ticket and emits board.changed. */
   createTicket(ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket>
   tickets(ws: Workspace): Promise<(Ticket & { state: TicketState })[]>
@@ -56,9 +59,11 @@ const createSchema = z.strictObject({
   })
 }) satisfies z.ZodType<CreateParams>
 
-const listSchema = z.strictObject({ column: z.enum(COLUMNS).optional() }).optional()
+const cwdField = z.string().max(1_000, 'must be at most 1000 characters')
 
-const getSchema = z.strictObject({ number: z.number().int().positive() })
+const listSchema = z.strictObject({ cwd: cwdField, column: z.enum(COLUMNS).optional() })
+
+const getSchema = z.strictObject({ cwd: cwdField, number: z.number().int().positive() })
 
 function parse<T>(schema: z.ZodType<T>, params: unknown): T {
   const result = schema.safeParse(params)
@@ -90,10 +95,30 @@ function status(state: TicketState): IntakeStatus {
  * and nothing returned ever includes thread events, decisions or allow rules.
  */
 export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
-  async function openWorkspace(): Promise<Workspace> {
-    const ws = await deps.workspace()
-    if (!ws) throw new IntakeFailure('no_workspace', 'No workspace is open in Mainbus. Open one there first.')
-    return ws
+  /**
+   * The workspace the caller's folder belongs to: the one whose repo, or whose ticket folders, contain it. With nested
+   * repos the deepest one wins. Nothing is guessed: no match is a refusal.
+   */
+  async function workspaceFor(folder: string, field: string): Promise<Workspace> {
+    const all = await deps.workspaces()
+    if (all.length === 0) throw new IntakeFailure('no_workspace', 'No workspace is open in Mainbus. Open one there first.')
+    if (!path.isAbsolute(folder)) throw new IntakeFailure('invalid', `${field}: must be an absolute path`, field)
+    let best: { ws: Workspace; depth: number } | null = null
+    for (const ws of all) {
+      for (const root of [ws.repoPath, deps.ticketFolders(ws)]) {
+        if (!isInside(folder, root)) continue
+        const depth = path.resolve(root).length
+        if (best === null || depth > best.depth) best = { ws, depth }
+      }
+    }
+    if (best === null) {
+      throw new IntakeFailure(
+        'workspace_mismatch',
+        `${field}: ${folder} is not in any open workspace (${all.map((w) => w.repoPath).join(', ')})`,
+        field
+      )
+    }
+    return best.ws
   }
 
   async function byNumber(ws: Workspace, number: number): Promise<Ticket & { state: TicketState }> {
@@ -105,17 +130,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
   const methods: { [M in IntakeMethod]: (params: unknown) => Promise<IntakeResults[M]> } = {
     async create(params) {
       const p = parse(createSchema, params)
-      const ws = await openWorkspace()
-      if (p.repo !== undefined) {
-        if (!path.isAbsolute(p.repo)) throw new IntakeFailure('invalid', 'repo: must be an absolute path', 'repo')
-        if (!isInside(p.repo, ws.repoPath)) {
-          throw new IntakeFailure(
-            'workspace_mismatch',
-            `repo: ${p.repo} is not in the open workspace (${ws.repoPath})`,
-            'repo'
-          )
-        }
-      }
+      const ws = p.repo !== undefined ? await workspaceFor(p.repo, 'repo') : await workspaceFor(p.source.cwd, 'source.cwd')
       const ticket = await deps.createTicket(ws, {
         title: p.title,
         intent: p.intent,
@@ -130,9 +145,9 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
 
     async list(params) {
       const p = parse(listSchema, params)
-      const ws = await openWorkspace()
+      const ws = await workspaceFor(p.cwd, 'cwd')
       const tickets: IntakeTicketSummary[] = (await deps.tickets(ws))
-        .filter((t) => p?.column === undefined || t.state.column === p.column)
+        .filter((t) => p.column === undefined || t.state.column === p.column)
         .map((t) => ({
           number: t.number,
           title: t.title,
@@ -148,7 +163,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
 
     async get(params) {
       const p = parse(getSchema, params)
-      const t = await byNumber(await openWorkspace(), p.number)
+      const t = await byNumber(await workspaceFor(p.cwd, 'cwd'), p.number)
       return {
         number: t.number,
         title: t.title,

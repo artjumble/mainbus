@@ -278,8 +278,8 @@ describe('the orchestrator hears of released holds', () => {
     await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
     const message = runtime.sent[0]!
     expect(message).toContain('[Mainbus] Since your last turn, these held tickets were released:')
-    expect(message).toContain(`- #${byDate.number} "By date" is no longer held (its date, 2026-11-03, came). It can be started again.`)
-    expect(message).toContain(`- #${byHand.number} "By hand" is no longer held. It can be started again.`)
+    expect(message).toContain(`- #${byDate.number} "By date" (workspace "repo") is no longer held (its date, 2026-11-03, came). It can be started again.`)
+    expect(message).toContain(`- #${byHand.number} "By hand" (workspace "repo") is no longer held. It can be started again.`)
     expect(message).not.toContain('Still held')
   })
 

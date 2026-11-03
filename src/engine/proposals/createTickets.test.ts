@@ -138,10 +138,10 @@ describe('create_tickets: execute and outcome', () => {
     expect(createTickets.outcome(result)).toBe('Created #21 "Login" and #22 "Logout" in Ready.')
   })
 
-  test('refuses when the workspace it was proposed for is no longer open', async () => {
+  test('refuses when the workspace it was proposed for is was removed', async () => {
     const p = propose({ tickets: [{ title: 'Login' }] })
-    await expect(createTickets.execute(p, { workspaceId: 'other', proposalId: 'p1' }, ctx())).rejects.toThrow('no longer open')
-    await expect(createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, ctx(null))).rejects.toThrow('no longer open')
+    await expect(createTickets.execute(p, { workspaceId: 'other', proposalId: 'p1' }, ctx())).rejects.toThrow('was removed')
+    await expect(createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, ctx(null))).rejects.toThrow('was removed')
   })
 
   test('listJoin', () => {

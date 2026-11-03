@@ -50,8 +50,8 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
   },
 
   async execute(p, target, ctx) {
-    const ws = await ctx.workspace()
-    if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for is no longer open')
+    const ws = await ctx.workspace(target.workspaceId)
+    if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for was removed')
     // No source: the intent is the user's own words, not an agent's.
     const created = await ctx.createTickets(
       ws,

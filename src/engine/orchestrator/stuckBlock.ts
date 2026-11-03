@@ -1,4 +1,5 @@
 import { data, oneLine } from '../roles/prompt'
+import { wsTag } from './workspaceRef'
 
 export const STUCK_HEADING = '[Mainbus] Since your last turn, these agents look stuck:'
 
@@ -6,6 +7,7 @@ export const STUCK_HEADING = '[Mainbus] Since your last turn, these agents look 
 export interface StuckReport {
   number: number
   title: string
+  workspace?: string
   role: string
   /** What the detector saw, one line each: text from the agent's log, so it is data. */
   evidence: string[]
@@ -27,7 +29,7 @@ export function stuckLine(r: StuckReport): string {
     : r.redirected
       ? ' It was already redirected once, and has not fired again since: propose neither a redirect nor a replacement yet.'
       : ''
-  return `- #${r.number} ${JSON.stringify(oneLine(r.title))}: the ${oneLine(r.role)} looks stuck.${look}${redirected} Evidence (from the agent's log):\n${evidence}`
+  return `- #${r.number} ${JSON.stringify(oneLine(r.title))}${wsTag(r.workspace)}: the ${oneLine(r.role)} looks stuck.${look}${redirected} Evidence (from the agent's log):\n${evidence}`
 }
 
 /** The block that opens the orchestrator's next message, or null when no episode opened or escalated. */

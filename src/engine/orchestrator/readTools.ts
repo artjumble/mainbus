@@ -7,14 +7,17 @@ import { usageBannerText } from '../../shared/usage'
 import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
+import { NO_WORKSPACE, resolveWorkspaceRef } from './workspaceRef'
 import type { Repos } from '../store'
 import { STUCK_RULE_TEXT } from '../stuck/config'
 import { firedAgainAfterRedirect } from '../stuck/ladder'
 
 export interface ReadToolDeps {
   repos: Pick<Repos, 'runs' | 'decisions' | 'stuck'>
-  /** The open workspace, or null. */
-  workspace(): Promise<Workspace | null>
+  /** The focused workspace, or null. */
+  focused(): Promise<Workspace | null>
+  /** Every open workspace, oldest first. */
+  list(): Promise<Workspace[]>
   /** The workspace's tickets as the board shows them: state and lineup strip. */
   board(ws: Workspace): Promise<BoardTicket[]>
   /** Where the app stands on the usage limit; without it nothing is said about it. */
@@ -28,7 +31,7 @@ export const TOOL_SUMMARY_MAX = 120
 export const EVENTS_DEFAULT = 20
 export const EVENTS_MAX = 50
 
-export const NO_WORKSPACE = 'No workspace is open.'
+export { NO_WORKSPACE }
 
 export const COLUMNS: Record<Column, string> = {
   backlog: 'Backlog',
@@ -217,15 +220,15 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
 export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandlers {
   const usageNow = async (): Promise<UsageState> => (await deps.usage?.()) ?? { kind: 'ok' }
 
-  /** The open workspace and its board, or the text to answer with instead. */
-  async function board(): Promise<{ ws: Workspace; tickets: BoardTicket[] } | string> {
-    const ws = await deps.workspace()
-    if (!ws) return NO_WORKSPACE
-    return { ws, tickets: await deps.board(ws) }
+  /** The named workspace (the focused one by default) and its board, or the text to answer with instead. */
+  async function board(ref?: string): Promise<{ ws: Workspace; tickets: BoardTicket[] } | string> {
+    const found = resolveWorkspaceRef(await deps.list(), await deps.focused(), ref)
+    if (!found.ok) return found.text
+    return { ws: found.ws, tickets: await deps.board(found.ws) }
   }
 
-  async function ticket(number: number): Promise<{ ws: Workspace; t: BoardTicket } | string> {
-    const b = await board()
+  async function ticket(number: number, ref?: string): Promise<{ ws: Workspace; t: BoardTicket } | string> {
+    const b = await board(ref)
     if (typeof b === 'string') return b
     const t = b.tickets.find((x) => x.number === number)
     return t ? { ws: b.ws, t } : `No ticket #${number} in ${oneLine(b.ws.name)}.`
@@ -263,16 +266,24 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
 
   return {
     async listWorkspaces() {
-      const ws = await deps.workspace()
-      if (!ws) return NO_WORKSPACE
-      return `Workspaces (1):\n- ${oneLine(ws.name)}: repo ${oneLine(ws.repoPath)}, base branch ${oneLine(ws.baseBranch)}`
+      const all = await deps.list()
+      if (all.length === 0) return NO_WORKSPACE
+      const focused = await deps.focused()
+      const lines = await Promise.all(
+        all.map(async (ws) => {
+          const needsYou = (await deps.board(ws)).filter((t) => t.state.column === 'needs_you').length
+          const mark = ws.id === focused?.id ? ' · focused (the one the user is looking at)' : ''
+          return `- ${oneLine(ws.name)} (id ${ws.id}): repo ${oneLine(ws.repoPath)}, base branch ${oneLine(ws.baseBranch)} · Needs you: ${needsYou}${mark}`
+        })
+      )
+      return `Workspaces (${all.length}):\n${lines.join('\n')}`
     },
 
-    async listTickets({ column }) {
+    async listTickets({ workspace, column }) {
       if (column !== undefined && !Object.hasOwn(COLUMNS, column)) {
         return `Unknown column "${oneLine(column)}". The columns are: ${Object.keys(COLUMNS).join(', ')}.`
       }
-      const b = await board()
+      const b = await board(workspace)
       if (typeof b === 'string') return b
       const usage = await usageNow()
       const tickets = b.tickets.filter((t) => column === undefined || t.state.column === column)
@@ -289,8 +300,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       return `Tickets${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${lines.join('\n')}`
     },
 
-    async getTicket({ number }) {
-      const found = await ticket(number)
+    async getTicket({ workspace, number }) {
+      const found = await ticket(number, workspace)
       if (typeof found === 'string') return found
       const { t } = found
       const byAgent = filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''
@@ -323,8 +334,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       return sections.join('\n\n')
     },
 
-    async getRunStatus({ number }) {
-      const found = await ticket(number)
+    async getRunStatus({ workspace, number }) {
+      const found = await ticket(number, workspace)
       if (typeof found === 'string') return found
       const { t } = found
       const run = await latestRun(t)
@@ -347,8 +358,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       ].join('\n\n')
     },
 
-    async getRecentEvents({ number, limit }) {
-      const found = await ticket(number)
+    async getRecentEvents({ workspace, number, limit }) {
+      const found = await ticket(number, workspace)
       if (typeof found === 'string') return found
       const { t } = found
       const n = Math.min(EVENTS_MAX, Math.max(1, Math.floor(limit ?? EVENTS_DEFAULT)))
@@ -367,8 +378,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       return `The last ${last.length} of ${lines.length} events of ${title(t)}, oldest first:\n${last.join('\n')}`
     },
 
-    async listPendingDecisions() {
-      const b = await board()
+    async listPendingDecisions({ workspace } = {}) {
+      const b = await board(workspace)
       if (typeof b === 'string') return b
       const lines = (await Promise.all(b.tickets.map(pendingLines))).flat()
       if (lines.length === 0) return `No decisions are waiting for the user in ${oneLine(b.ws.name)}.`

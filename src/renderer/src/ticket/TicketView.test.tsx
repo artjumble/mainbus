@@ -236,15 +236,15 @@ test('the thread loads, then follows live events: partials are replaced by the f
   expect(await screen.findByText('Earlier words')).toBeInTheDocument()
 
   const partial = (text: string): StoredEvent => makeEvent({ kind: 'message', text, partial: true }, { seq: 0 })
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: partial('Working on'), run }))
+  act(() => emit({ type: 'thread.appended', workspaceId: ticket.workspaceId, ticketId: ticket.id, event: partial('Working on'), run }))
   expect(screen.getByText('Working on')).toBeInTheDocument()
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: partial('Working on it'), run }))
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: makeEvent({ kind: 'message', text: 'Working on it now.' }), run }))
+  act(() => emit({ type: 'thread.appended', workspaceId: ticket.workspaceId, ticketId: ticket.id, event: partial('Working on it'), run }))
+  act(() => emit({ type: 'thread.appended', workspaceId: ticket.workspaceId, ticketId: ticket.id, event: makeEvent({ kind: 'message', text: 'Working on it now.' }), run }))
   expect(screen.getByText('Working on it now.')).toBeInTheDocument()
   expect(screen.queryByText('Working on it')).not.toBeInTheDocument()
 
   // Another ticket's events are ignored.
-  act(() => emit({ type: 'thread.appended', ticketId: 'other', event: makeEvent({ kind: 'message', text: 'Not mine' }), run }))
+  act(() => emit({ type: 'thread.appended', workspaceId: ticket.workspaceId, ticketId: 'other', event: makeEvent({ kind: 'message', text: 'Not mine' }), run }))
   expect(screen.queryByText('Not mine')).not.toBeInTheDocument()
 })
 
@@ -259,6 +259,7 @@ test('a decision card appears from the thread and updates when decision.changed 
   act(() =>
     emit({
       type: 'decision.changed',
+      workspaceId: ticket.workspaceId,
       decision: { ...decision, status: 'answered', answer: { kind: 'option', index: 0 }, answeredAt: '2026-10-30T10:05:00.000Z' }
     })
   )
@@ -270,8 +271,8 @@ test('a decision announced live shows its card', async () => {
   renderWithMantine(<TicketView />)
   await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('thread.get', ticket.id))
   const decision = makeDecision({ ticketId: ticket.id, id: 'live', question: 'Live question?' })
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: makeEvent({ kind: 'decision', decisionId: 'live' }), run }))
-  act(() => emit({ type: 'decision.changed', decision }))
+  act(() => emit({ type: 'thread.appended', workspaceId: ticket.workspaceId, ticketId: ticket.id, event: makeEvent({ kind: 'decision', decisionId: 'live' }), run }))
+  act(() => emit({ type: 'decision.changed', workspaceId: ticket.workspaceId, decision }))
   expect(await screen.findByText('Live question?')).toBeInTheDocument()
 })
 
@@ -283,7 +284,7 @@ test('events that arrive while the thread loads are not lost', async () => {
   )
   renderWithMantine(<TicketView />)
   const early = makeEvent({ kind: 'message', text: 'Arrived early' })
-  act(() => emit({ type: 'thread.appended', ticketId: ticket.id, event: early, run }))
+  act(() => emit({ type: 'thread.appended', workspaceId: ticket.workspaceId, ticketId: ticket.id, event: early, run }))
   await act(async () => release({ events: [early, makeEvent({ kind: 'message', text: 'From storage' })], decisions: [], runs: [run] }))
   expect(screen.getAllByText('Arrived early')).toHaveLength(1)
   expect(screen.getByText('From storage')).toBeInTheDocument()

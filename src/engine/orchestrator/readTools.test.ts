@@ -50,7 +50,8 @@ beforeEach(async () => {
   let open: Workspace | null = ws
   tools = createReadTools({
     repos,
-    workspace: async () => open,
+    focused: async () => open,
+    list: async () => (open ? [open] : []),
     board: async (w) => (await repos.tickets.list(w.id)).map(boardTicket),
     usage: async () => usage
   })
@@ -93,7 +94,9 @@ async function append(runId: string, ...events: ThreadEvent[]): Promise<void> {
 
 describe('list_workspaces', () => {
   test('gives the open workspace as a one-item list', async () => {
-    expect(await tools.listWorkspaces()).toBe('Workspaces (1):\n- shop: repo C:\\code\\shop, base branch main')
+    expect(await tools.listWorkspaces()).toBe(
+      `Workspaces (1):\n- shop (id ${ws.id}): repo C:\\code\\shop, base branch main · Needs you: 0 · focused (the one the user is looking at)`
+    )
   })
 
   test('says so when no workspace is open', async () => {
@@ -395,7 +398,7 @@ describe('list_pending_decisions', () => {
       recommended: null,
       allowAlways: false
     })
-    const out = await tools.listPendingDecisions()
+    const out = await tools.listPendingDecisions({})
     expect(out).toContain('Decisions waiting for the user (1):')
     expect(out).toContain(
       `- #1 <ticket-data field="title">Rate-limit login</ticket-data>: permission request (decision ${decision.id}) from the Implementer (agent-written): <ticket-data field="question">Run git push?</ticket-data> · options: Allow once, Deny`
@@ -405,7 +408,7 @@ describe('list_pending_decisions', () => {
 
   test('says when nothing is waiting', async () => {
     await ticket()
-    expect(await tools.listPendingDecisions()).toBe('No decisions are waiting for the user in shop.')
+    expect(await tools.listPendingDecisions({})).toBe('No decisions are waiting for the user in shop.')
   })
 })
 

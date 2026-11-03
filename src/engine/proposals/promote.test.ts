@@ -102,7 +102,7 @@ describe('promote: execute and outcome', () => {
 
   test('fails when the workspace or the ticket is gone, promoting nothing', async () => {
     const closed = ctx({ open: null })
-    await expect(promote.execute(payload, target, closed)).rejects.toThrow('no longer open')
+    await expect(promote.execute(payload, target, closed)).rejects.toThrow('was removed')
     const gone = ctx({ ticket: null })
     await expect(promote.execute(payload, target, gone)).rejects.toThrow('no longer exists')
     expect(closed.promoteTicket).not.toHaveBeenCalled()

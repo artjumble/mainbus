@@ -208,7 +208,7 @@ describe('start_lineup: execute and outcome', () => {
     c.setWhy('#12 is already running')
     await expect(startLineup.execute(p, { workspaceId: ws.id, proposalId: 'p1' }, c)).rejects.toThrow('#12 is already running')
     c.setWhy(null)
-    await expect(startLineup.execute(p, { workspaceId: 'other', proposalId: 'p1' }, c)).rejects.toThrow('no longer open')
+    await expect(startLineup.execute(p, { workspaceId: 'other', proposalId: 'p1' }, c)).rejects.toThrow('was removed')
     expect(c.startTicket).not.toHaveBeenCalled()
   })
 })

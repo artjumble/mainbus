@@ -72,6 +72,8 @@ test('a refresh asked for while one is running waits for it, then reads the boar
   expect(useMainbus.getState().tickets).toEqual([second])
 })
 
+const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false }
+
 test('startSync refreshes the board on board.changed and stops after unsubscribe', async () => {
   let listener: (e: EngineEvent) => void = () => {}
   const unsubscribe = vi.fn()
@@ -86,6 +88,7 @@ test('startSync refreshes the board on board.changed and stops after unsubscribe
   })
   const stop = startSync(vi.fn())
   await vi.waitFor(() => expect(useMainbus.getState().setup).not.toBeNull())
+  useMainbus.setState({ workspace: focused })
 
   listener({ type: 'board.changed', workspaceId: 'w1' })
   await vi.waitFor(() => expect(useMainbus.getState().tickets[0]?.title).toBe('fresh'))
@@ -106,7 +109,11 @@ test('startSync keeps the unattended state from unattended.changed, and setUnatt
     throw new Error(`unexpected ${command}`)
   })
   const stop = startSync(vi.fn())
-  listener({ type: 'unattended.changed', state: { on: true, status: { kind: 'working', ticketNumber: 2 } } })
+  useMainbus.setState({ workspace: focused })
+  // Another workspace's mode is not the board's business.
+  listener({ type: 'unattended.changed', workspaceId: 'w2', state: { on: true, status: { kind: 'idle' } } })
+  expect(useMainbus.getState().unattended).not.toEqual({ on: true, status: { kind: 'idle' } })
+  listener({ type: 'unattended.changed', workspaceId: 'w1', state: { on: true, status: { kind: 'working', ticketNumber: 2 } } })
   expect(useMainbus.getState().unattended).toEqual({ on: true, status: { kind: 'working', ticketNumber: 2 } })
 
   await useMainbus.getState().setUnattended(true)
@@ -129,6 +136,7 @@ test('20 board.changed events during one refresh cost at most two board.get call
   })
   startSync(vi.fn())
   await vi.waitFor(() => expect(useMainbus.getState().setup).not.toBeNull())
+  useMainbus.setState({ workspace: focused })
 
   for (let i = 0; i < 20; i++) listener({ type: 'board.changed', workspaceId: 'w1' })
   await vi.waitFor(() => expect(releases).toHaveLength(1))
@@ -154,6 +162,7 @@ test('a refresh failure is reported once until a refresh succeeds again', async 
   const onError = vi.fn()
   startSync(onError)
   await vi.waitFor(() => expect(useMainbus.getState().setup).not.toBeNull())
+  useMainbus.setState({ workspace: focused })
   const fire = async (): Promise<void> => {
     listener({ type: 'board.changed', workspaceId: 'w1' })
     // Longer than the sync's throttle window, so each event gets its own refresh.
@@ -219,6 +228,7 @@ test('1,000 board.changed events in a tight loop cost a handful of board.get cal
   const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
   const stop = startSync(vi.fn())
   await vi.waitFor(() => expect(useMainbus.getState().setup).not.toBeNull())
+  useMainbus.setState({ workspace: focused })
 
   for (let i = 0; i < 1000; i++) listener({ type: 'board.changed', workspaceId: 'w1' })
   await new Promise((r) => setTimeout(r, 400))
@@ -240,6 +250,7 @@ test('stopping the sync cancels a refresh that was waiting out the throttle wind
   )
   const stop = startSync(vi.fn())
   await vi.waitFor(() => expect(useMainbus.getState().setup).not.toBeNull())
+  useMainbus.setState({ workspace: focused })
   listener({ type: 'board.changed', workspaceId: 'w1' }) // leads
   listener({ type: 'board.changed', workspaceId: 'w1' }) // waits
   stop()
