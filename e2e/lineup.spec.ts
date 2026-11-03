@@ -343,7 +343,7 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await expectStrip(page, ['Planner Working', 'Implementer Not started', 'Reviewer Not started'])
 
     // Skip, confirmed: the Planner is handed off with a summary Mainbus generated, and the Implementer starts.
-    await page.getByRole('button', { name: 'Skip to next role' }).click()
+    await page.getByRole('button', { name: /^Skip to / }).click()
     const dialog = page.getByRole('dialog', { name: 'Skip to next role' })
     await expect(dialog.getByText('Skip the Planner? Its work so far is summarised for the Implementer.')).toBeVisible()
     await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
@@ -359,7 +359,7 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await page.getByLabel('Message the Implementer').fill('Go on')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
-    await page.getByRole('button', { name: 'Skip to next role' }).click()
+    await page.getByRole('button', { name: /^Skip to / }).click()
     await expect(dialog.getByText('Skip the Reviewer? Its work so far is summarised and the ticket goes to Review.')).toBeVisible()
     await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()

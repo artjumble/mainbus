@@ -14,7 +14,7 @@ const payload: CreateTicketsPayload = {
 }
 
 test('shows an Investigate badge on investigate drafts only', () => {
-  const { Editor } = createTicketsView
+  const Editor = createTicketsView.Editor!
   renderWithMantine(<Editor value={createTicketsView.initialEdit!(payload)} onChange={() => {}} payload={payload} />)
   expect(screen.getAllByText('Investigate')).toHaveLength(1)
 })
@@ -27,7 +27,7 @@ test('Edit keeps the kind of each draft', () => {
 })
 
 test('the drafts have no axe violations', async () => {
-  const { Editor } = createTicketsView
+  const Editor = createTicketsView.Editor!
   renderWithMantine(<Editor value={createTicketsView.initialEdit!(payload)} onChange={() => {}} payload={payload} />)
   await expectNoAxeViolations()
 })
