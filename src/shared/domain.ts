@@ -30,7 +30,12 @@ export const AGENT_CAP_DEFAULT = 3
 export interface AppSettings {
   /** How many role agents may run at once; the orchestrator doesn't count. */
   maxAgents: number
+  /** What closing the window does: keep running in the tray while agents are open, or always quit. */
+  whenClosed: WhenClosed
 }
+
+export type WhenClosed = 'tray' | 'quit'
+export const WHEN_CLOSED_DEFAULT: WhenClosed = 'tray'
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 

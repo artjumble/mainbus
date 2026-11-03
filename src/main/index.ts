@@ -20,13 +20,65 @@ import { isAppUrl, isExternalWebUrl } from './appUrl'
 import { fakeClaudeExec } from './fakeExec'
 import { registerIpc } from './ipc'
 import { agentLauncher } from './launcher'
-import { testClockStartFromEnv, testRepoFromEnv } from './testHooks'
+import { TrayController } from './tray/controller'
+import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenuShortcut, filePrefs, realTimer } from './tray/electron'
+import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
+import { testClockStartFromEnv, testRepoFromEnv, trayTestHookFromEnv } from './testHooks'
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
 let intake: IntakeServer | null = null
+let tray: TrayController | null = null
+/** Set when the app is quitting, so closing the window then really closes it instead of hiding it to the tray. */
+let quitting = false
 /** Why the intake pipe couldn't be opened; shown in the Connect agents settings. */
 let intakeError: string | null = null
+
+function openMainWindow(): BrowserWindow {
+  const win = createWindow()
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
+  mainWindow = win
+  return win
+}
+
+/**
+ * The tray icon, the taskbar badge and the toasts. Not essential: when they can't start, the app runs without them
+ * and the window closes as it always did. A test run records the toasts instead of showing them, and exposes the tray.
+ */
+function startTray(running: Engine): void {
+  try {
+    const testing = trayTestHookFromEnv(process.env)
+    // Windows shows toasts only for an app with a Start Menu shortcut: the installed app keeps one. Never in development or tests.
+    if (app.isPackaged && !process.env['MAINBUS_HOME']) ensureStartMenuShortcut()
+    let view = electronTrayView()
+    let notifier = electronNotifier()
+    const hook: Partial<TrayTestHook> = {}
+    if (testing) {
+      const trayView = recordTrayView(view)
+      const toasts = recordingNotifier()
+      view = trayView.view
+      notifier = toasts.notifier
+      Object.assign(hook, trayView.hook, toasts.hook)
+    }
+    const controller = new TrayController({
+      source: { invoke: (command, ...args) => (running.invoke as (k: string, ...a: unknown[]) => never)(command, ...args), on: (l) => running.on(l) },
+      view,
+      window: electronWindowPort(() => mainWindow, openMainWindow),
+      notifier,
+      prefs: filePrefs(path.join(home.root, 'electron', 'tray.json')),
+      quit: () => app.quit(),
+      timer: realTimer,
+      onError: (err) => console.error('Mainbus tray:', err)
+    })
+    tray = controller
+    if (testing) (globalThis as { __mainbusTray?: Partial<TrayTestHook> }).__mainbusTray = hook
+    void controller.start()
+  } catch (err) {
+    console.error('Mainbus could not start its tray icon:', err)
+  }
+}
 
 /** The one page the window may show: the dev server in dev, the built renderer otherwise. */
 function appUrl(): string {
@@ -62,6 +114,14 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true
     }
+  })
+
+  // With agents open, closing the window hides it to the tray instead. Electron can't wait for an async answer,
+  // so the close is always held back and the tray controller then hides the window or quits.
+  win.on('close', (event) => {
+    if (quitting || !tray) return
+    event.preventDefault()
+    void tray.handleClose()
   })
 
   // Keep the title fixed rather than letting the page title replace it.
@@ -135,8 +195,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (!mainWindow) return
+    if (!mainWindow || mainWindow.isDestroyed()) return
     if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
     mainWindow.focus()
   })
 
@@ -170,15 +231,13 @@ if (!app.requestSingleInstanceLock()) {
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))
-        mainWindow = createWindow()
-        mainWindow.on('closed', () => {
-          mainWindow = null
-        })
+        mainWindow = openMainWindow()
       } catch (err) {
         // The window never opened: close the database cleanly before giving up.
         await engine.dispose().catch(() => {})
         throw err
       }
+      startTray(engine)
       // Local agents file tickets through the pipe. The board works without it, so a failure doesn't stop the
       // app: it is logged, and the Connect agents settings show it.
       const running = engine
@@ -199,8 +258,12 @@ if (!app.requestSingleInstanceLock()) {
   let disposing: Promise<void> | null = null
   let disposed = false
   app.on('before-quit', (event) => {
+    // First of all: from here on closing the window closes it, so quitting never waits on a window hidden in the tray.
+    quitting = true
     if (disposed || !engine) return
     event.preventDefault()
+    tray?.dispose()
+    tray = null
     disposing ??= Promise.resolve(intake?.close())
       .then(() => engine?.dispose())
       .catch((err: unknown) => {

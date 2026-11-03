@@ -8,6 +8,7 @@ import { makeTicket, renderWithMantine, workspace } from './test-utils'
 vi.mock('./api', () => ({
   invoke: vi.fn(),
   onEngineEvent: vi.fn(() => () => {}),
+  onNavigate: vi.fn(() => () => {}),
   openFolder: vi.fn(),
   isSetupRequired: () => false
 }))

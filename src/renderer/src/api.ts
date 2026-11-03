@@ -1,5 +1,6 @@
 import {
   SETUP_REQUIRED,
+  type AppNavigation,
   type CommandArgs,
   type CommandName,
   type CommandResult,
@@ -26,6 +27,11 @@ export function onEngineEvent(listener: (e: EngineEvent) => void): () => void {
 /** Shows the native folder picker; null when the user cancels. */
 export function openFolder(): Promise<string | null> {
   return window.mainbus.openFolder()
+}
+
+/** Subscribes to the main process asking the app to show a ticket or the Needs you column; returns the unsubscribe function. */
+export function onNavigate(listener: (nav: AppNavigation) => void): () => void {
+  return window.mainbus.onNavigate(listener)
 }
 
 /** True when a rejected command failed because Claude Code isn't set up. Electron keeps the error's name in its message. */

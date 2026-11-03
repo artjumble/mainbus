@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { testClockStartFromEnv, testRepoFromEnv } from './testHooks'
+import { testClockStartFromEnv, testRepoFromEnv, trayTestHookFromEnv } from './testHooks'
 
 const test_env = { MAINBUS_HOME: '/tmp/h', MAINBUS_RUNTIME: 'fake:e2e/script.json', MAINBUS_TEST_REPO: '/tmp/repo' }
 
@@ -41,5 +41,17 @@ describe('testClockStartFromEnv', () => {
     expect(testClockStartFromEnv(test_env, now)).toBeNull()
     expect(testClockStartFromEnv({ ...env, MAINBUS_FAKE_CLOCK: '' }, now)).toBeNull()
     expect(testClockStartFromEnv({ ...env, MAINBUS_FAKE_CLOCK: 'later' }, now)).toBeNull()
+  })
+})
+
+describe('trayTestHookFromEnv', () => {
+  test('is on with a test home and a fake runtime', () => {
+    expect(trayTestHookFromEnv(test_env)).toBe(true)
+  })
+
+  test('is off without MAINBUS_HOME or a fake runtime, so a normal install keeps real toasts', () => {
+    expect(trayTestHookFromEnv({ ...test_env, MAINBUS_HOME: undefined })).toBe(false)
+    expect(trayTestHookFromEnv({ ...test_env, MAINBUS_RUNTIME: undefined })).toBe(false)
+    expect(trayTestHookFromEnv({ ...test_env, MAINBUS_RUNTIME: 'sdk' })).toBe(false)
   })
 })

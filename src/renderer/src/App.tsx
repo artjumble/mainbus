@@ -1,6 +1,7 @@
 import { AppShell, Button, Center, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
 import { Board } from './board/Board'
+import { startNavigation } from './navigation'
 import { showError } from './notify'
 import { OrchestratorPanel, PANEL_WIDTH, STRIP_WIDTH } from './orchestrator/OrchestratorPanel'
 import { readPanelOpen, writePanelOpen } from './orchestrator/panelState'
@@ -22,6 +23,7 @@ export function App(): ReactElement {
   const revealedProposal = useMainbus((s) => s.revealedProposal)
 
   useEffect(() => startSync((err) => showError(err, 'Could not load Mainbus')), [])
+  useEffect(() => startNavigation(), [])
 
   // The orchestrator sits beside the board and the ticket view; it stays mounted between them, so its thread is kept.
   const withPanel = !loadError && setup?.ok === true && workspaceLoaded && workspace !== null
