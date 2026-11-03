@@ -158,6 +158,8 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
     <Paper
       withBorder
       p="sm"
+      // Narrow sides: in a narrow column the title keeps room for its 44 px hit area beside the handle.
+      px={6}
       radius="md"
       shadow="xs"
       // Orange border when the person is needed; a dashed one when the agent failed.

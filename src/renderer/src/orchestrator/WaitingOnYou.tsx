@@ -133,9 +133,9 @@ export function WaitingOnYou(): ReactElement | null {
                     {decision.question}
                   </Text>
                   <Controls decision={decision} onAnswered={answered(ticket, decision)} />
-                  <Anchor component="button" type="button" size="xs" ta="left" onClick={() => openTicket(ticket.id)}>
+                  <Button variant="subtle" size="compact-sm" w="fit-content" mt={10} onClick={() => openTicket(ticket.id)}>
                     Open ticket for full context
-                  </Anchor>
+                  </Button>
                 </Stack>
               </Paper>
             ))}

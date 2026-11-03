@@ -288,7 +288,7 @@ export function Board(): ReactElement {
       {empty ? (
         <Stack flex={1} gap="lg" mih={0}>
           {/* The columns the board will have, faint, with their names: no scrolling, they share the width. */}
-          <Box aria-hidden style={{ ...GRID_STYLE, gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', overflowX: 'hidden', opacity: 0.6 }}>
+          <Box aria-hidden style={{ ...GRID_STYLE, gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', overflowX: 'hidden' }}>
             {COLUMNS.map((c) => (
               <Paper key={c.id} radius="md" withBorder bd="1px dashed var(--mantine-color-default-border)" bg="transparent" p="xs" mih={180}>
                 <Text size="xs" fw={700} tt="uppercase" lts="0.04em" c="dimmed">
