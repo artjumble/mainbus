@@ -22,6 +22,7 @@ const CHOICES = { allow_once: 'Allowed once', always_allow: 'Always allowed', de
 function outcome(d: Decision): string {
   if (d.status !== 'answered' || d.answer === null) return d.status === 'pending' || d.status === 'deferred' ? 'not answered yet' : `no answer (${d.status})`
   const a = d.answer
+  if (a.kind === 'message') return `Answered in a message: ${a.text}`
   const chosen = a.kind === 'option' ? (d.options[a.index] ?? `option ${a.index + 1}`) : CHOICES[a.choice]
   return a.note ? `${chosen} (note: ${a.note})` : chosen
 }

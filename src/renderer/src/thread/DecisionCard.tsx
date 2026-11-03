@@ -1,6 +1,6 @@
 import { Badge, Button, Group, Paper, Radio, Stack, Text, Textarea } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import type { AnsweredVia, Decision, DecisionAnswer } from '../../../shared/domain'
+import type { CardVia, Decision, DecisionAnswer } from '../../../shared/domain'
 import { deferredLabel } from '../../../shared/hold'
 import { invoke } from '../api'
 import { asOwnChange } from '../board/ownChanges'
@@ -12,7 +12,7 @@ interface Props {
 }
 
 /** Sends an answer from `via`; resolves false (after showing why) when the engine refused it. */
-export async function sendAnswer(decision: Decision, answer: DecisionAnswer, via: AnsweredVia): Promise<boolean> {
+export async function sendAnswer(decision: Decision, answer: DecisionAnswer, via: CardVia): Promise<boolean> {
   try {
     await asOwnChange(decision.ticketId, () => invoke('decision.answer', decision.id, answer, via))
     return true
@@ -31,7 +31,7 @@ export function QuestionForm({
   decision,
   via,
   onAnswered
-}: Props & { via: AnsweredVia; onAnswered?: (option?: string) => void }): ReactElement {
+}: Props & { via: CardVia; onAnswered?: (option?: string) => void }): ReactElement {
   const [choice, setChoice] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
@@ -136,6 +136,9 @@ function Outcome({ decision }: Props): ReactElement {
         )}
       </>
     )
+  }
+  if (decision.status === 'answered' && decision.answer?.kind === 'message') {
+    return <Text size="sm" c="dimmed">✓ Answered in a message</Text>
   }
   if (decision.status === 'cancelled') return <Text size="sm" c="dimmed">Cancelled</Text>
   return (

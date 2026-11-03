@@ -330,6 +330,70 @@ describe('TicketRunner', () => {
     })
   })
 
+  it('a message settles the open question: answered by the message, off Needs you, delivered once, and a stale card answer is refused', async () => {
+    const runtime = new FakeRuntime([
+      { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'] } },
+      { emit: { kind: 'turn_end', ok: true } },
+      { waitForSend: true }
+    ])
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await waitForThread((e) => e.kind === 'turn_end')
+    const [decision] = await repos.decisions.pending(ticket.id)
+
+    await runner.send(ticket.id, 'Merged #39, carry on')
+
+    expect(await repos.decisions.get(decision.id)).toMatchObject({
+      status: 'answered',
+      answeredVia: 'message',
+      answeredBy: 'user',
+      answer: { kind: 'message', text: 'Merged #39, carry on' }
+    })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
+    expect(runtime.sent).toEqual(['Merged #39, carry on'])
+    expect(emitted).toContainEqual({ type: 'decision.changed', workspaceId: expect.any(String), decision: expect.objectContaining({ id: decision.id, status: 'answered', answeredVia: 'message' }) })
+    expect(await thread()).toContainEqual({ kind: 'user_message', text: 'Merged #39, carry on' })
+
+    for (const via of ['board', 'orchestrator'] as const) {
+      await expect(runner.answer(decision.id, { kind: 'option', index: 0 }, via)).rejects.toThrow('Already answered in a message')
+    }
+    expect(runtime.sent).toHaveLength(1)
+  })
+
+  it('a message settles a deferred question and releases its hold', async () => {
+    const runtime = new FakeRuntime([
+      { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'] } },
+      { emit: { kind: 'turn_end', ok: true } },
+      { waitForSend: true }
+    ])
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await waitForThread((e) => e.kind === 'turn_end')
+    const [decision] = await repos.decisions.pending(ticket.id)
+    await repos.decisions.defer(decision.id, new Date(Date.now() + 86_400_000).toISOString())
+
+    await runner.send(ticket.id, 'Never mind, go on')
+
+    expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'answered', answeredVia: 'message', deferredUntil: null })
+    expect(await repos.decisions.unsettled(ticket.id)).toEqual([])
+  })
+
+  it('a message leaves a pending permission open', async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const verdict = runtime.specs[0].onPermission(permission('npm install left-pad'))
+    const decision = await waitForPending()
+
+    await runner.send(ticket.id, 'Hello?')
+
+    expect((await repos.decisions.get(decision.id)).status).toBe('pending')
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'needs_you' })
+    await runner.answer(decision.id, { kind: 'permission', choice: 'allow_once' }, 'board')
+    expect(await verdict).toEqual({ allow: true })
+  })
+
   it('refuses an answer that does not say where it came from', async () => {
     const runtime = new FakeRuntime([
       { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'] } },
@@ -2128,6 +2192,21 @@ describe('TicketRunner hand-backs', () => {
     await runner.answer(decision.id, { kind: 'option', index: 0 }, 'thread')
     expect(runtime.sent).toEqual(['Answer: Keep going'])
     expect(await runsOfTicket()).toEqual([['Planner', null]])
+  })
+
+  it('a message does not settle a problem question Mainbus acts on itself', async () => {
+    await threeRoles((r) => (r.name === 'Planner' ? { ...r, onProblem: 'hand_back' } : r))
+    const runtime = new FakeRuntime(script)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const planner = await nth(runner, runtime, 1)
+    await planner.roleTools.reportProblem({ details: 'The spec is unclear' })
+    const decision = await waitForPending()
+
+    await runner.send(ticket.id, 'Carry on')
+
+    expect((await repos.decisions.get(decision.id)).status).toBe('pending')
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'needs_you' })
   })
 
   it('an action decision answered from the board runs its hand-back like one answered in the thread', async () => {

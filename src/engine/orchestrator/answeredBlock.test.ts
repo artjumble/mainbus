@@ -39,4 +39,14 @@ describe('answeredBlock', () => {
       ].join('\n')
     )
   })
+
+  it('says an answer was given in a message once', () => {
+    const msg: Decision = { ...base, answer: { kind: 'message', text: 'Merged #39,\ncarry on' }, answeredVia: 'message' }
+    expect(answeredBlock([{ number: 3, title: 'Login', decision: msg }])).toBe(
+      [
+        ANSWERED_HEADING,
+        `- #3 "Login", asked "Which db?": the user answered in a message "Merged #39, carry on". Don't propose an answer to it.`
+      ].join('\n')
+    )
+  })
 })

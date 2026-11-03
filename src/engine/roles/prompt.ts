@@ -66,6 +66,7 @@ export function data(field: string, text: string, inline = false): string {
 }
 
 function answerText(decision: Decision, answer: DecisionAnswer): string {
+  if (answer.kind === 'message') return `in a message: ${oneLine(answer.text)}`
   const note = answer.note ? ` (note: ${oneLine(answer.note)})` : ''
   if (answer.kind === 'option') {
     const option = decision.options[answer.index]

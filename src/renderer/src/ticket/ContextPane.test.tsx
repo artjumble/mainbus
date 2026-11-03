@@ -180,6 +180,20 @@ test.each([
   expect(item.textContent).toContain('scale')
 })
 
+test('the activity entry for a question settled by a message says so, with the message as its detail', () => {
+  const decision = makeDecision({
+    status: 'answered',
+    answer: { kind: 'message', text: 'Merged #39, carry on' },
+    answeredAt: '2026-10-30T10:15:00.000Z',
+    answeredBy: 'user',
+    answeredVia: 'message'
+  })
+  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[decision]} />)
+  const item = within(screen.getByRole('region', { name: 'Activity' })).getAllByRole('listitem').at(-1)!
+  expect(item.textContent).toContain('Decision: Which database? → answered in a message (you)')
+  expect(item.textContent).toContain('Merged #39, carry on')
+})
+
 test('the activity entry for an answered permission names the choice and where it came from', () => {
   const decision = makeDecision({
     kind: 'permission',

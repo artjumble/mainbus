@@ -4,7 +4,7 @@ import type {
   AgentLauncher,
   AllowRule,
   AppSettings,
-  AnsweredVia,
+  CardVia,
   ClaudeSetup,
   Decision,
   DecisionAnswer,
@@ -156,7 +156,7 @@ export interface EngineCommands {
    */
   'agent.skip'(ticketId: string): void
   /** Answers a pending decision from `via`; a decision already answered (from anywhere) is refused and nothing is delivered. */
-  'decision.answer'(id: string, a: DecisionAnswer, via: AnsweredVia): void
+  'decision.answer'(id: string, a: DecisionAnswer, via: CardVia): void
   /**
    * Later…: puts a pending decision off until `until` (ISO, in the future) through a hold on it. It leaves Needs you
    * and can still be answered; on its date it is pending again. Refuses a decision that isn't pending.

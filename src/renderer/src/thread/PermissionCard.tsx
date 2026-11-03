@@ -1,6 +1,6 @@
 import { Button, Group, Paper, Stack, Text } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import type { AnsweredVia, Decision } from '../../../shared/domain'
+import type { CardVia, Decision } from '../../../shared/domain'
 import { DeferredNote, sendAnswer } from './DecisionCard'
 import { LaterMenu } from './LaterMenu'
 
@@ -22,7 +22,7 @@ export function PermissionChoices({
   decision,
   via,
   onAnswered
-}: Props & { via: AnsweredVia; onAnswered?: (option?: string) => void }): ReactElement {
+}: Props & { via: CardVia; onAnswered?: (option?: string) => void }): ReactElement {
   const [sending, setSending] = useState(false)
 
   async function choose(choice: Choice): Promise<void> {
