@@ -267,19 +267,31 @@ describe('unattended mode per workspace', () => {
   })
 
   it('auto-allows permission requests only for the workspace whose mode is on', async () => {
-    const ask: FakeStep[] = [
-      { callTool: 'askUser', args: { question: 'Go?', options: ['Yes', 'No'] } },
+    const request: FakeStep[] = [
+      { emit: { kind: 'session', sessionId: 's' } },
+      { requestPermission: { toolName: 'Bash', input: { command: 'npm install zod' }, toolUseId: 'tool-1' } },
       { waitForSend: true }
     ]
-    const runtime = new FakeRuntime(ask)
-    const { engine, a, b } = await two(runtime)
+    const { engine, a, b } = await two(new FakeRuntime(request))
     await engine.invoke('unattended.set', true, a.id)
-    // Mode B is off: a permission request in B still raises a card.
+    const inA = await engine.invoke('ticket.create', ticketInput('Alpha', 'backlog'), a.id)
     const inB = await engine.invoke('ticket.create', ticketInput('Bravo', 'backlog'), b.id)
-    await engine.invoke('ticket.move', inB.id, 'ready')
+    await engine.invoke('agent.start', inA.id)
     await engine.invoke('agent.start', inB.id)
+
+    // B's mode is off: the same request raises a permission card.
     await vi.waitFor(async () => expect((await engine.invoke('thread.get', inB.id)).decisions).toHaveLength(1))
-    expect((await engine.invoke('unattended.get', b.id)).on).toBe(false)
+    const pending = (await engine.invoke('thread.get', inB.id)).decisions[0]!
+    expect(pending).toMatchObject({ kind: 'permission', status: 'pending' })
+
+    // A's mode is on: it is allowed with a notice and no card.
+    await vi.waitFor(async () =>
+      expect(
+        (await engine.invoke('thread.get', inA.id)).events.some((e) => e.event.kind === 'notice' && e.event.text.startsWith('Allowed by unattended mode'))
+      ).toBe(true)
+    )
+    expect((await engine.invoke('thread.get', inA.id)).decisions).toEqual([])
+    expect((await engine.invoke('thread.get', inB.id)).events.some((e) => e.event.kind === 'notice')).toBe(false)
   })
 })
 
