@@ -20,6 +20,7 @@ function answer(setup: unknown, ws: unknown, tickets: unknown[] = []): void {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'setup.check') return setup
     if (command === 'workspace.get') return ws
+    if (command === 'workspace.summaries') return ws ? [{ ...(ws as object), active: false, needsYou: 0 }] : []
     if (command === 'board.get') return { tickets }
     if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
@@ -68,6 +69,23 @@ test('the orchestrator panel is beside the board and the ticket view, and not on
   // The same panel, not a new one: what was typed is still there.
   expect(screen.getByRole('complementary', { name: 'Orchestrator' })).toBe(panel)
   expect(within(panel).getByRole('textbox', { name: 'Message the orchestrator' })).toHaveValue('draft')
+})
+
+test('the workspace rail is beside the board and the ticket view, and not on the setup screens', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, workspace, [makeTicket({ title: 'First ticket' })])
+  const { unmount } = renderWithMantine(<App />)
+  const rail = await screen.findByRole('navigation', { name: 'Workspaces' })
+  expect(within(rail).getByRole('button', { name: /^mainbus/ })).toHaveAttribute('aria-current', 'true')
+  await userEvent.click(screen.getByRole('button', { name: /First ticket/ }))
+  expect(await screen.findByText('Source: Local')).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Workspaces' })).toBe(rail)
+  unmount()
+
+  useMainbus.setState(initial, true)
+  answer({ ok: false, reason: 'not_found', detail: '' }, null)
+  renderWithMantine(<App />)
+  await screen.findByText(/Claude Code isn't installed/)
+  expect(screen.queryByRole('navigation', { name: 'Workspaces' })).not.toBeInTheDocument()
 })
 
 test('the setup screens have no orchestrator panel', async () => {

@@ -29,6 +29,14 @@ import type {
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
 
+/** An open workspace with what the rail shows beside its name. */
+export type WorkspaceSummary = Workspace & {
+  /** An agent is working in it (or queued, or about to resume after a restart). */
+  active: boolean
+  /** How many of its tickets are in Needs you. */
+  needsYou: number
+}
+
 /**
  * A ticket as the board shows it: its state, and its lineup strip (the latest ticket run's roles, or the
  * workspace lineup before the first run). `skipTo` names the role Skip to next role would start: null when no
@@ -73,6 +81,11 @@ export interface EngineCommands {
   'workspace.get'(): Workspace | null
   /** Every open workspace, oldest first. */
   'workspace.list'(): Workspace[]
+  /**
+   * Every open workspace, oldest first, with what the rail shows: whether an agent is working in it and how many of its
+   * tickets need you. Read from stored state, so it is right at launch before agents are back.
+   */
+  'workspace.summaries'(): WorkspaceSummary[]
   /**
    * Opens the repository (detecting the base branch with `git symbolic-ref --short HEAD`) as a workspace and focuses it.
    * A repo that is open already is returned as it is, and focused.

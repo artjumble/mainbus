@@ -7,7 +7,7 @@ import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shar
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus, type BoardTicket } from '../store'
-import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
+import { makeDecision, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { EMPTY_TEXT, OrchestratorPanel } from './OrchestratorPanel'
 import { readPanelOpen, writePanelOpen } from './panelState'
 
@@ -84,8 +84,12 @@ test('an empty thread invites the first message', async () => {
 
 test('it collapses to a strip with the needs-you count, expands on click, and remembers which it was', async () => {
   history()
+  // Counted across workspaces, whichever one is on the board.
   useMainbus.setState({
-    tickets: [makeTicket({}, { column: 'needs_you' }), makeTicket({}, { column: 'needs_you' }), makeTicket({}, { column: 'ready' })]
+    workspaces: [
+      { ...workspace, active: false, needsYou: 1 },
+      { ...workspace, id: 'w2', name: 'other', active: true, needsYou: 1 }
+    ]
   })
   const { unmount } = renderWithMantine(<Panel />)
   await screen.findByText(EMPTY_TEXT)

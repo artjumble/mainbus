@@ -14,7 +14,6 @@ import type { Column } from '../../../shared/domain'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
-import { WorkspaceSettings } from '../workspace/WorkspaceSettings'
 import { TicketCard } from './TicketCard'
 import { UnattendedSwitch } from './UnattendedSwitch'
 
@@ -45,7 +44,7 @@ export function Board(): ReactElement {
   const move = useMainbus((s) => s.moveTicket)
   const proposeStart = useMainbus((s) => s.proposeStart)
   const [creating, setCreating] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const openSettings = useMainbus((s) => s.openSettings)
   // A small drag distance keeps a plain click on a card a click.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -111,7 +110,7 @@ export function Board(): ReactElement {
         </Group>
         <Group gap="md">
           <UnattendedSwitch />
-          <ActionIcon variant="default" size="lg" aria-label="Workspace settings" onClick={() => setSettingsOpen(true)}>
+          <ActionIcon variant="default" size="lg" aria-label="Workspace settings" onClick={openSettings}>
             <span aria-hidden>⚙</span>
           </ActionIcon>
           <Button onClick={() => setCreating(true)}>New ticket</Button>
@@ -144,7 +143,6 @@ export function Board(): ReactElement {
       </DndContext>
 
       <NewTicketModal opened={creating} onClose={() => setCreating(false)} />
-      <WorkspaceSettings opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Stack>
   )
 }

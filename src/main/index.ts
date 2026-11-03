@@ -23,7 +23,7 @@ import { agentLauncher } from './launcher'
 import { TrayController } from './tray/controller'
 import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenuShortcut, filePrefs, realTimer } from './tray/electron'
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
-import { testClockStartFromEnv, testRepoFromEnv, trayTestHookFromEnv } from './testHooks'
+import { testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
@@ -33,15 +33,6 @@ let tray: TrayController | null = null
 let quitting = false
 /** Why the intake pipe couldn't be opened; shown in the Connect agents settings. */
 let intakeError: string | null = null
-
-function openMainWindow(): BrowserWindow {
-  const win = createWindow()
-  win.on('closed', () => {
-    if (mainWindow === win) mainWindow = null
-  })
-  mainWindow = win
-  return win
-}
 
 /**
  * The tray icon, the taskbar badge and the toasts. Not essential: when they can't start, the app runs without them
@@ -230,8 +221,11 @@ if (!app.requestSingleInstanceLock()) {
         ...(clock ? { clock, stuck: { timer: clock } } : {})
       })
       try {
-        registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))
-        mainWindow = openMainWindow()
+        registerIpc(engine, () => mainWindow, appUrl(), testReposFromEnv(process.env))
+        mainWindow = createWindow()
+        mainWindow.on('closed', () => {
+          mainWindow = null
+        })
       } catch (err) {
         // The window never opened: close the database cleanly before giving up.
         await engine.dispose().catch(() => {})

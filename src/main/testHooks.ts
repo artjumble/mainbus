@@ -1,13 +1,17 @@
+import path from 'node:path'
+
 /**
- * `MAINBUS_TEST_REPO` is the repo the "Open a repo folder" button opens without showing the folder dialog,
- * so an end-to-end test can drive the app. Like the fake runtime it is honored only when MAINBUS_HOME is
+ * `MAINBUS_TEST_REPO` is the repo the folder picker answers without showing the folder dialog, so an end-to-end
+ * test can drive the app. It may list several folders, separated by the platform's path delimiter: the picker
+ * answers them in order, then the last again. Like the fake runtime it is honored only when MAINBUS_HOME is
  * set, and only alongside a fake runtime (`MAINBUS_RUNTIME=fake:...`), so a stray variable can never skip
- * the dialog in a normal install.
+ * the dialog in a normal install. Null when not honored.
  */
-export function testRepoFromEnv(env: NodeJS.ProcessEnv): string | null {
-  const repo = env['MAINBUS_TEST_REPO']
+export function testReposFromEnv(env: NodeJS.ProcessEnv): string[] | null {
   const fake = env['MAINBUS_RUNTIME']?.startsWith('fake:') ?? false
-  return env['MAINBUS_HOME'] && fake && repo ? repo : null
+  if (!env['MAINBUS_HOME'] || !fake) return null
+  const repos = (env['MAINBUS_TEST_REPO'] ?? '').split(path.delimiter).filter((r) => r !== '')
+  return repos.length > 0 ? repos : null
 }
 
 /**

@@ -9,6 +9,8 @@ import { SetupScreen } from './setup/SetupScreen'
 import { startSync, useMainbus } from './store'
 import { TicketView } from './ticket/TicketView'
 import { OpenWorkspace } from './workspace/OpenWorkspace'
+import { WorkspaceRail } from './workspace/WorkspaceRail'
+import { WorkspaceSettings } from './workspace/WorkspaceSettings'
 import { UsageBanner } from './UsageBanner'
 
 export function App(): ReactElement {
@@ -21,6 +23,8 @@ export function App(): ReactElement {
   const [panelOpen, setPanelOpen] = useState(readPanelOpen)
 
   const revealedProposal = useMainbus((s) => s.revealedProposal)
+  const settingsOpen = useMainbus((s) => s.settingsOpen)
+  const closeSettings = useMainbus((s) => s.closeSettings)
 
   useEffect(() => startSync((err) => showError(err, 'Could not load Mainbus')), [])
   useEffect(() => startNavigation(), [])
@@ -42,6 +46,8 @@ export function App(): ReactElement {
   return (
     <AppShell
       header={{ height: 48 }}
+      // Names beside the entries when wide, initials when narrow.
+      navbar={withPanel ? { width: { base: 72, lg: 220 }, breakpoint: 0 } : undefined}
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
       aside={withPanel ? { width: panelOpen ? PANEL_WIDTH : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >
@@ -52,9 +58,16 @@ export function App(): ReactElement {
           </Title>
         </Group>
       </AppShell.Header>
+      {withPanel && (
+        <AppShell.Navbar>
+          <WorkspaceRail />
+        </AppShell.Navbar>
+      )}
       <AppShell.Main>
         {withPanel && <UsageBanner />}
         {screen()}
+        {/* Outside screen(), so Settings from the rail works from the ticket view too. */}
+        {withPanel && <WorkspaceSettings opened={settingsOpen} onClose={closeSettings} />}
       </AppShell.Main>
       {withPanel && (
         <AppShell.Aside aria-label="Orchestrator">
