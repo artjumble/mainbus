@@ -12,6 +12,16 @@ test('TicketCard shows number, title and phase chip only', () => {
   expect(container.textContent).not.toMatch(/model|effort|token/i)
 })
 
+test('a card paused by the usage limit shows Paused and the reason', () => {
+  const ticket = makeTicket(
+    {},
+    { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', pausedByLimit: true, summary: 'Usage limit; resumes at 14:00' }
+  )
+  renderWithMantine(<TicketCard ticket={ticket} onOpen={() => {}} />)
+  expect(screen.getByText('Paused')).toBeInTheDocument()
+  expect(screen.getByText('Usage limit; resumes at 14:00')).toBeInTheDocument()
+})
+
 test('a ticket whose only open decisions are deferred shows a grey Waiting on you · until chip', () => {
   const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
   const ticket = makeTicket({}, { column: 'in_progress', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', deferredUntil: until })

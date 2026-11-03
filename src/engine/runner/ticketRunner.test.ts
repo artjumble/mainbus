@@ -22,6 +22,7 @@ import { createRepos, type Repos } from '../store'
 import { defaultLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb, testRole } from '../store/testDb'
 import { MOVED_ON, TicketRunner } from './ticketRunner'
+import { testUsage, type TestUsage } from './testUsage'
 
 const NUDGE =
   'You ended your turn without asking the user or handing off. If you are done, commit and call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
@@ -51,7 +52,7 @@ async function exists(p: string): Promise<boolean> {
   )
 }
 
-function makeRunner(runtime: FakeRuntime, wt: WorktreeManager = worktrees, unattended = false): TicketRunner {
+function makeRunner(runtime: FakeRuntime, wt: WorktreeManager = worktrees, unattended = false, usage?: TestUsage): TicketRunner {
   const runner = new TicketRunner({
     repos,
     worktrees: wt,
@@ -59,8 +60,10 @@ function makeRunner(runtime: FakeRuntime, wt: WorktreeManager = worktrees, unatt
     now: () => FIXED_NOW,
     emit: (e) => emitted.push(e),
     unattended: () => unattended,
+    ...(usage ? { usage: usage.hooks } : {}),
     onFailed: (f) => void failures.push(f)
   })
+  usage?.attach(runner)
   runners.push(runner)
   return runner
 }
@@ -1404,33 +1407,40 @@ describe('TicketRunner in unattended mode', () => {
     expect(await waitForPending()).toMatchObject({ kind: 'permission' })
   })
 
-  it('a usage limit stops the process but keeps the run open, and is not a failure', async () => {
-    const { runner } = await started([
+  it('a usage limit stops the process but keeps the run open, paused with a reason, and is not a failure', async () => {
+    const usage = testUsage(repos)
+    const runtime = new FakeRuntime([
       { emit: { kind: 'session', sessionId: 's1' } },
       { emit: { kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} } },
       { emit: { kind: 'turn_end', ok: false, error: 'Claude AI usage limit reached' } },
       { waitForSend: true }
     ])
-    await waitForThread((e) => e.kind === 'process_exit')
-    expect(runner.usageLimit(ticket.id)).toEqual({ resetsAt: 1793430000 * 1000 })
-    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'paused', canContinue: true })
+    const runner = makeRunner(runtime, worktrees, false, usage)
+    await runner.start(ticket.id)
+    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, canContinue: false }))
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', summary: expect.stringMatching(/^Usage limit; resumes at \d\d:\d\d$/) })
     expect((await repos.runs.latest(ticket.id))?.endReason).toBeNull()
-
-    // Continuing clears it.
-    await runner.continue(ticket.id)
-    expect(runner.usageLimit(ticket.id)).toBeUndefined()
+    const kinds = (await thread()).map((e) => e.kind)
+    expect(kinds).not.toContain('process_exit')
+    expect(kinds).not.toContain('error')
+    expect(failures).toEqual([])
+    expect(await usage.gate.state()).toMatchObject({ kind: 'limited', paused: 1 })
   })
 
   it('a limit that only shows as error text pauses with no reset time', async () => {
-    const { runner } = await started([
+    const usage = testUsage(repos)
+    const runtime = new FakeRuntime([
       { emit: { kind: 'turn_end', ok: false, error: "You've hit your limit · resets 3pm" } },
       { waitForSend: true }
     ])
-    await waitForThread((e) => e.kind === 'process_exit')
-    expect(runner.usageLimit(ticket.id)).toEqual({ resetsAt: null })
+    const runner = makeRunner(runtime, worktrees, false, usage)
+    await runner.start(ticket.id)
+    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
+    expect(await usage.gate.state()).toMatchObject({ kind: 'limited', resetsAt: null })
+    expect((await thread()).map((e) => e.kind)).not.toContain('nudge')
   })
 
-  it('with the mode off, a usage limit leaves the agent as before', async () => {
+  it('without a usage gate a failed turn is only an error turn, as before', async () => {
     const runtime = new FakeRuntime([
       { emit: { kind: 'turn_end', ok: false, error: 'Claude AI usage limit reached' } },
       { waitForSend: true }
@@ -1438,7 +1448,6 @@ describe('TicketRunner in unattended mode', () => {
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
     await waitForThread((e) => e.kind === 'turn_end')
-    expect(runner.usageLimit(ticket.id)).toBeUndefined()
     expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' })
   })
 })
@@ -2394,7 +2403,8 @@ describe('TicketRunner Pause and Resume', () => {
     expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working', pausedByUser: false })
   })
 
-  it('Resume refuses a usage-limit pause, which Continue still continues; a user pause is never a usage-limit pause', async () => {
+  it('Resume tries a usage-limit pause early, and Continue refuses it', async () => {
+    const usage = testUsage(repos)
     const limited: FakeStep[] = [
       { emit: { kind: 'session', sessionId: 's1' } },
       { emit: { kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} } },
@@ -2402,29 +2412,15 @@ describe('TicketRunner Pause and Resume', () => {
       { waitForSend: true }
     ]
     const runtime = new FakeRuntime((spec) => (spec.resumeSessionId ? working : limited))
-    const runner = await workingRun(runtime, true)
-    await waitForThread((e) => e.kind === 'process_exit')
-    expect(runner.usageLimit(ticket.id)).toBeDefined()
-    expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', canContinue: true, pausedByUser: false })
+    const runner = makeRunner(runtime, worktrees, false, usage)
+    await runner.start(ticket.id)
+    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, pausedByUser: false }))
 
-    await expect(runner.resumePaused(ticket.id)).rejects.toThrow('There is no paused agent to resume on this ticket')
+    await expect(runner.continue(ticket.id)).rejects.toThrow('Paused by the usage limit: use Resume to continue it now')
     expect(runtime.specs).toHaveLength(1)
-    await runner.continue(ticket.id)
-    expect(runtime.specs[1]).toMatchObject({ resumeSessionId: 's1', prompt: 'Continue where you left off.' })
-
-    // Paused by the user while the agent has run into a limit: the run is the user's pause only.
-    const hitLimit = new FakeRuntime([
-      { emit: { kind: 'session', sessionId: 's2' } },
-      { emit: { kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} } },
-      { waitForSend: true }
-    ])
-    await runner.stop(ticket.id)
-    const other = makeRunner(hitLimit, worktrees, true)
-    await other.start(ticket.id)
-    await waitForThread((e) => e.kind === 'rate_limit')
-    await other.pause(ticket.id)
-    expect(other.usageLimit(ticket.id)).toBeUndefined()
-    expect(await other.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', canContinue: false, pausedByUser: true })
+    await runner.resumePaused(ticket.id)
+    expect(runtime.specs[1]).toMatchObject({ resumeSessionId: 's1', prompt: 'Continue.' })
+    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
   })
 })
 

@@ -11,7 +11,7 @@ export interface WakeSchedulerDeps {
   wake: (rows: Wake[]) => Promise<void>
   /** True while an orchestrator turn is running or starting. */
   busy: () => boolean
-  /** When Mainbus is usage-limited, the time (ms since the epoch) the limit resets; otherwise null. */
+  /** When Mainbus is usage-limited, the time (ms since the epoch) the limit resets or is tried again; otherwise null. */
   usageLimitedUntil: () => number | null
   /** False when no turn can be started at all (no runtime, no workspace): the rows then stay pending. */
   canWake: () => Promise<boolean>
@@ -49,6 +49,13 @@ export class WakeScheduler {
   turnEnded(ok: boolean): Promise<void> {
     this.blocked = !ok
     return ok ? this.armIfPending() : Promise.resolve()
+  }
+
+  /** The usage limit lifted: rows that waited for the reset get their turn now. */
+  limitLifted(): Promise<void> {
+    if (this.timer !== null) this.deps.clock.clearTimeout(this.timer)
+    this.timer = null
+    return this.armIfPending()
   }
 
   dispose(): void {

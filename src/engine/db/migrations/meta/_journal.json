@@ -134,6 +134,13 @@
       "when": 1793662696620,
       "tag": "0018_concurrency_cap",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793667432054,
+      "tag": "0019_usage_limit_pause",
+      "breakpoints": true
     }
   ]
 }

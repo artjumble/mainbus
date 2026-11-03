@@ -140,6 +140,21 @@ describe('the wake scheduler', () => {
     expect(woken).toHaveLength(1)
   })
 
+  it('limitLifted gives rows that waited for the reset their turn without waiting for it', async () => {
+    limitedUntil = START.getTime() + 60 * 60_000
+    await scheduler.start()
+    pending = [row(1)]
+    scheduler.added()
+    await clock.advance(30 * 60_000)
+    expect(woken).toEqual([])
+
+    // Resume now: the limit is gone before its reset time.
+    limitedUntil = null
+    await scheduler.limitLifted()
+    await clock.advance(WAKE_DEBOUNCE_MS)
+    expect(woken).toHaveLength(1)
+  })
+
   it('leaves the rows pending while no turn can be started', async () => {
     canWake = false
     await scheduler.start()

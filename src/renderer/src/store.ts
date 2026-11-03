@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { BoardTicket } from '../../shared/api'
-import type { ClaudeSetup, Ticket, UnattendedState, Workspace } from '../../shared/domain'
+import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { invoke, onEngineEvent } from './api'
 import { errorMessage } from './notify'
 
@@ -22,6 +22,8 @@ interface MainbusState {
   currentTicketId: string | null
   /** Unattended mode, as the engine last reported it. */
   unattended: UnattendedState
+  /** Where the app stands on the usage limit, as the engine last reported it. */
+  usage: UsageState
   /**
    * Moves the person asked for that the engine has not finished, by ticket id. The board shows these cards in
    * their target column at once; `tickets` keeps the engine's view, so refreshes meanwhile don't undo the move.
@@ -97,6 +99,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   loadError: null,
   currentTicketId: null,
   unattended: UNATTENDED_OFF,
+  usage: { kind: 'ok' },
   pendingMoves: {},
   revealedProposal: null,
 
@@ -116,7 +119,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     const workspace = await invoke('workspace.get')
     set({ workspace, workspaceLoaded: true })
     if (workspace) await get().refreshBoard()
-    set({ unattended: await invoke('unattended.get') })
+    set({ unattended: await invoke('unattended.get'), usage: await invoke('usage.get') })
   },
 
   async openWorkspace(repoPath) {
@@ -213,6 +216,10 @@ export function startSync(onError: (err: unknown) => void): () => void {
   const off = onEngineEvent((e) => {
     if (e.type === 'unattended.changed') {
       useMainbus.setState({ unattended: e.state })
+      return
+    }
+    if (e.type === 'usage.changed') {
+      useMainbus.setState({ usage: e.state })
       return
     }
     if (e.type !== 'board.changed') return

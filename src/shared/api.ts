@@ -21,6 +21,7 @@ import type {
   TicketPatch,
   TicketState,
   UnattendedState,
+  UsageState,
   Workspace
 } from './domain'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
@@ -54,6 +55,7 @@ export type EngineEvent =
   | { type: 'thread.appended'; ticketId: string; event: StoredEvent; run: ThreadRun }
   | { type: 'decision.changed'; decision: Decision }
   | { type: 'unattended.changed'; state: UnattendedState }
+  | { type: 'usage.changed'; state: UsageState }
   /** An event of the orchestrator's thread; partial ones carry seq 0, as in a ticket's thread. */
   | { type: 'orchestrator.appended'; event: StoredEvent }
   | { type: 'orchestrator.status'; status: OrchestratorStatus }
@@ -141,6 +143,10 @@ export interface EngineCommands {
    */
   'unattended.get'(): UnattendedState
   'unattended.set'(on: boolean): UnattendedState
+  /** The usage limit state: ok, a warning near the limit, or limited. Only the renderer can reach these. */
+  'usage.get'(): UsageState
+  /** Resume now: ends the usage-limited state early and resumes the paused agents in the order they were paused. */
+  'usage.resumeNow'(): void
   /**
    * The orchestrator: one conversation for the whole app, which only reads. Like unattended mode, only the
    * renderer can reach it. `get` gives every run's events and its status.

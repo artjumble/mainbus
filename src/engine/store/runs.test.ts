@@ -60,7 +60,52 @@ describe('run repo', () => {
       replacedBy: null,
       handoffSummary: null,
       queuedSeq: null,
-      queuedPrompt: null
+      queuedPrompt: null,
+      limitPausedSeq: null
+    })
+  })
+
+  describe('runs paused by the usage limit', () => {
+    async function otherRun(): Promise<string> {
+      const other = await createTicketRepo(db, now).create({
+        workspaceId: (await createTicketRepo(db, now).get(ticketId)).workspaceId,
+        title: 'U',
+        intent: 'i',
+        spec: '',
+        criteria: [],
+        labels: [],
+        column: 'ready'
+      })
+      return createRunRepo(db, now).create(other.id, [testRole()])
+    }
+
+    it('marks runs in the order given, keeps the place of a run marked again, and ignores ended runs', async () => {
+      const repo = createRunRepo(db, now)
+      const a = await repo.create(ticketId, [testRole()])
+      const b = await otherRun()
+      await repo.markLimitPaused([b, a])
+      await repo.markLimitPaused([a])
+      expect((await repo.limitPaused()).map((r) => r.id)).toEqual([b, a])
+      await repo.end(b, 'stopped')
+      expect((await repo.limitPaused()).map((r) => r.id)).toEqual([a])
+      await repo.clearLimitPaused(a)
+      expect(await repo.limitPaused()).toEqual([])
+    })
+
+    it('releasing puts the runs at the front of the queue in their pause order with the message, and clears the marks', async () => {
+      const repo = createRunRepo(db, now)
+      const a = await repo.create(ticketId, [testRole()])
+      const b = await otherRun()
+      const c = await otherRun()
+      await repo.enqueue(c, 'waiting already')
+      await repo.markLimitPaused([b, a])
+      await repo.releaseLimitPaused([b, a], 'resume')
+      expect(await repo.limitPaused()).toEqual([])
+      expect((await repo.queued()).map((r) => [r.id, r.queuedPrompt])).toEqual([
+        [b, 'resume'],
+        [a, 'resume'],
+        [c, 'waiting already']
+      ])
     })
   })
 

@@ -22,6 +22,7 @@ function answer(setup: unknown, ws: unknown, tickets: unknown[] = []): void {
     if (command === 'board.get') return { tickets }
     if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
+    if (command === 'usage.get') return { kind: 'ok' }
     if (command === 'orchestrator.get') return { status: 'idle', runs: [], events: [], proposals: [] }
     throw new Error(`unexpected ${command}`)
   })

@@ -63,6 +63,11 @@ export function TicketView(): ReactElement {
             Source: Local
           </Text>
         </Group>
+        {ticket.state.pausedByLimit && ticket.state.summary && (
+          <Text size="sm" c="dimmed">
+            {ticket.state.summary}
+          </Text>
+        )}
         {ticket.prError !== null && ticket.state.column === 'review' && <PrFailure ticket={ticket} />}
         <StuckEvidence stuck={ticket.stuck} />
       </Stack>
@@ -113,13 +118,13 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // A replaced run opened on its own, read-only; null for the live thread.
   const [viewing, setViewing] = useState<string | null>(null)
   const proposeReplace = useMainbus((s) => s.proposeReplace)
-  const { agentStatus, canContinue, phase, pausedByUser } = ticket.state
+  const { agentStatus, canContinue, phase, pausedByUser, pausedByLimit } = ticket.state
   const isDone = phase === 'done'
   const ended = agentStatus === 'failed' || agentStatus === 'handed_off'
   // A ticket whose latest run ended can be started again; a done ticket cannot (it would re-create the removed worktree).
   const canStart = !isDone && ((agentStatus === null && !canContinue) || ended)
   const runOpen =
-    canContinue || pausedByUser || agentStatus === 'working' || agentStatus === 'queued' || agentStatus === 'waiting_on_you'
+    canContinue || pausedByUser || pausedByLimit === true || agentStatus === 'working' || agentStatus === 'queued' || agentStatus === 'waiting_on_you'
 
   useEffect(() => {
     started.current = false
@@ -233,7 +238,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                 Pause
               </Button>
             )}
-            {pausedByUser && (
+            {(pausedByUser || pausedByLimit) && (
               <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
                 Resume
               </Button>

@@ -1,0 +1,26 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "emit": { "kind": "message", "text": "Planner: reading the ticket." } },
+    { "waitForSend": true },
+    { "emit": { "kind": "rate_limit", "status": "rejected", "resetsAt": 1793613600, "windows": {} } },
+    { "emit": { "kind": "turn_end", "ok": false, "error": "Claude AI usage limit reached" } },
+    { "waitForSend": true }
+  ],
+  "Planner resumed": [
+    { "emit": { "kind": "message", "text": "Planner: back after the reset." } },
+    { "waitForSend": true },
+    { "callTool": "handoff", "args": { "summary": "Plan: add hello.txt at the root", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "callTool": "handoff", "args": { "summary": "Added hello.txt", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "callTool": "handoff", "args": { "summary": "Reviewed: looks right", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ]
+}

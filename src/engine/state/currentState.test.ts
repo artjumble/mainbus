@@ -171,6 +171,28 @@ const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState
     expected: { column: 'in_progress', phase: 'testing', agentStatus: 'queued', summary: null, canContinue: false, queuePosition: 2 }
   },
   {
+    name: 'run not ended, paused by the usage limit: paused with the reason, and Continue is not offered',
+    input: { ...base, run: { endReason: null, events: [] }, processAlive: false, limitPaused: { reason: 'Usage limit; resumes at 14:00' } },
+    expected: {
+      column: 'in_progress',
+      phase: 'implementing',
+      agentStatus: 'paused',
+      summary: 'Usage limit; resumes at 14:00',
+      canContinue: false,
+      pausedByLimit: true
+    }
+  },
+  {
+    name: 'a pending decision wins over the usage limit pause',
+    input: { ...base, run: { endReason: null, events: [] }, processAlive: false, limitPaused: { reason: 'Usage limit' }, pendingDecisions: [pending('question', 'Which API?')] },
+    expected: { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', summary: 'Which API?', canContinue: false }
+  },
+  {
+    name: 'a pause by the user wins over the usage limit pause',
+    input: { ...base, run: { endReason: null, events: [stored(1, { kind: 'paused' })] }, processAlive: false, limitPaused: { reason: 'Usage limit' } },
+    expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', summary: null, canContinue: false, pausedByUser: true }
+  },
+  {
     name: 'a pending decision wins over the queue',
     input: { ...base, run: { endReason: null, events: [] }, processAlive: false, queuePosition: 1, pendingDecisions: [pending('question', 'Which API?')] },
     expected: { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', summary: 'Which API?', canContinue: false }

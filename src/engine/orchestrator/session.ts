@@ -20,7 +20,7 @@ import {
   type OrchestratorRunSpec,
   type RunHandle
 } from '../runtime/types'
-import { isUsageLimitText, limitFromEvent } from '../runner/usageLimit'
+import { isUsageLimitText, type UsageLimit } from '../runner/usageLimit'
 import type { OrchestratorRepo } from '../store/orchestrator'
 import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
@@ -72,6 +72,11 @@ export interface OrchestratorDeps {
   stuckSince: (workspaceId: string, since: string | null) => Promise<StuckReport[]>
   /** The wake queue's rows, to be marked as presented and acknowledged. */
   wakes: Pick<WakeRepo, 'markPresented' | 'ack'>
+  /** The app-wide usage limit, told when the orchestrator's own turns run into it. */
+  usage?: {
+    rateLimit(event: Extract<AgentEvent, { kind: 'rate_limit' }>, runId: string | null): void
+    hit(limit: UsageLimit, runId: string | null): void
+  }
   /**
    * What the pending wake rows are about now: the item for each row that still has something to say, the rows
    * whose ticket or referent is gone, and every open decision of the workspace.
@@ -86,9 +91,6 @@ export interface OrchestratorDeps {
 
 /** What the current turn answers: a message of the user, or the wake rows Mainbus presented. */
 type Turn = { kind: 'user'; message: string } | { kind: 'wake'; rowIds: string[] }
-
-/** How long a usage limit with no known reset is waited out. */
-const LIMIT_RETRY_MS = 15 * 60 * 1000
 
 interface Live {
   runId: string
@@ -120,8 +122,6 @@ export class OrchestratorSession {
   private turn: Turn | null = null
   /** Wake turns queued or being started. */
   private starting = 0
-  /** When the usage limit the orchestrator last ran into resets (ms since the epoch); null when none since a turn last succeeded. */
-  private limitedUntil: number | null = null
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -148,11 +148,6 @@ export class OrchestratorSession {
   /** True while a turn is running or a wake turn is being started. */
   get busy(): boolean {
     return this.status === 'working' || this.starting > 0
-  }
-
-  /** When the orchestrator's own last usage limit resets (ms since the epoch), while that is still ahead; otherwise null. */
-  usageLimitedUntil(): number | null {
-    return this.limitedUntil !== null && this.limitedUntil > this.deps.now().getTime() ? this.limitedUntil : null
   }
 
   /**
@@ -419,16 +414,13 @@ export class OrchestratorSession {
     }
     if (event.kind === 'session') await this.deps.repo.setSession(live.runId, event.sessionId)
     await this.record(live.runId, event)
-    if (event.kind === 'rate_limit') {
-      const limit = limitFromEvent(event)
-      if (limit) this.limitedUntil = limit.resetsAt ?? this.deps.now().getTime() + LIMIT_RETRY_MS
-    }
+    // A usage limit is the whole app's: the agents pause too, and wake turns wait for the reset.
+    if (event.kind === 'rate_limit') this.deps.usage?.rateLimit(event, null)
     if (event.kind === 'turn_end') {
       const turn = this.turn
       this.turn = null
       this.setStatus(event.ok || event.interrupted ? 'idle' : 'failed')
-      if (event.ok) this.limitedUntil = null
-      else if (isUsageLimitText(event.error)) this.limitedUntil ??= this.deps.now().getTime() + LIMIT_RETRY_MS
+      if (!event.ok && isUsageLimitText(event.error)) this.deps.usage?.hit({ resetsAt: null }, null)
       const finished = event.ok && !event.interrupted
       // Acknowledged only now that the turn finished: a failed or interrupted one leaves its rows to be presented again.
       if (turn?.kind === 'wake' && finished) await this.deps.wakes.ack(turn.rowIds)

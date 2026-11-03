@@ -16,13 +16,15 @@ export interface StateInput {
   processAlive: boolean
   /** The run is in the queue for a free agent slot, at this place (1 first); null or left out when it is not queued. */
   queuePosition?: number | null
+  /** The usage limit paused the run (it is not queued or alive); `reason` is what the card says. */
+  limitPaused?: { reason: string } | null
   activePhase: Phase
 }
 
 /**
  * Derives a ticket's board column, phase and agent status from its manual column,
  * its latest run, and the decisions still waiting on the user.
- * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, queued, paused, working.
+ * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, queued, paused by the usage limit, paused, working.
  */
 export function currentState(input: StateInput): TicketState {
   const { ticket, run, pendingDecisions, processAlive, activePhase } = input
@@ -73,6 +75,10 @@ export function currentState(input: StateInput): TicketState {
   if (run.endReason === null && !processAlive && input.queuePosition != null) {
     // Waiting for a free slot: the ticket stays in progress with its phase unchanged.
     return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'queued', queuePosition: input.queuePosition }
+  }
+  if (run.endReason === null && !processAlive && input.limitPaused) {
+    // Mainbus resumes it when the limit resets, or the user's Resume does it early; Continue does not.
+    return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'paused', pausedByLimit: true, summary: input.limitPaused.reason }
   }
   if (!processAlive || run.endReason === 'handed_back') {
     return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'paused', canContinue: true }

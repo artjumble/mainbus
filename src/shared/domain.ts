@@ -185,6 +185,8 @@ export interface TicketState {
   deferredUntil: string | null
   /** Only while the agent is Queued: its place in the queue for a slot, 1 first. */
   queuePosition?: number
+  /** The usage limit paused the agent: Mainbus resumes it at the reset, or the user's Resume does it early. `summary` says why. */
+  pausedByLimit?: boolean
 }
 
 /** Where one role of a ticket run stands. `stopped` is a role whose run the user stopped. */
@@ -252,6 +254,15 @@ export type UnattendedStatus =
   | { kind: 'waiting'; ticketNumber: number; until: string }
   /** Turned itself off; `reason` says why. */
   | { kind: 'stopped'; reason: string }
+
+/**
+ * Where the whole app stands on the usage limit. `limited`: every working agent is paused until `resetsAt` (null when
+ * unknown: Mainbus then tries again at `retryAt`). `warning`: a window is nearly used up, so new agents wait as Queued.
+ */
+export type UsageState =
+  | { kind: 'ok' }
+  | { kind: 'warning'; resetsAt: string | null }
+  | { kind: 'limited'; resetsAt: string | null; retryAt: string | null; paused: number }
 
 export interface UnattendedState {
   on: boolean

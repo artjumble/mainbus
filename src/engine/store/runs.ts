@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { DeclaredWait, LineupRole } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { Db } from '../db/open'
@@ -49,6 +49,8 @@ export type AgentRunRow = {
   queuedSeq: number | null
   /** The message a queued run starts with once it gets a slot; null when it is not queued. */
   queuedPrompt: string | null
+  /** Its place among the agents the usage limit paused (smaller resumes first); null when the limit did not pause it. */
+  limitPausedSeq: number | null
 }
 
 /** How a run ends when the user skipped its role. */
@@ -125,6 +127,17 @@ export interface RunRepo {
    * Runs already queued keep their order behind them.
    */
   enqueueFirst(runIds: string[], prompt: string): Promise<void>
+  /** Marks open runs as paused by the usage limit, in the order given, after those already marked; a run already marked keeps its place. */
+  markLimitPaused(runIds: string[]): Promise<void>
+  /** The open runs the usage limit paused, in the order they were paused. */
+  limitPaused(): Promise<AgentRunRow[]>
+  /** Clears the run's usage-limit mark; nothing happens when it has none. */
+  clearLimitPaused(runId: string): Promise<void>
+  /**
+   * Ends the pause of these runs (in one step): they go to the front of the queue in the order given, each with `prompt`,
+   * and lose their usage-limit mark. Runs that have ended or are queued already only lose the mark.
+   */
+  releaseLimitPaused(runIds: string[], prompt: string): Promise<void>
   /** Every run with a `claude` process recorded, open or ended. */
   withProcess(): Promise<AgentRunRow[]>
   /** Takes the run out of the queue; nothing happens when it is not in it. */
@@ -170,7 +183,8 @@ const runColumns = {
   replacedBy: agentRuns.replacedBy,
   handoffSummary: agentRuns.handoffSummary,
   queuedSeq: agentRuns.queuedSeq,
-  queuedPrompt: agentRuns.queuedPrompt
+  queuedPrompt: agentRuns.queuedPrompt,
+  limitPausedSeq: agentRuns.limitPausedSeq
 }
 
 /** A selected run with its declared wait (stored as JSON) parsed. */
@@ -179,7 +193,7 @@ function toRun(row: Omit<AgentRunRow, 'declaredWait'> & { declaredWait: string |
 }
 
 /** What an ending run sets so it leaves the queue. */
-const NOT_QUEUED = { queuedSeq: null, queuedPrompt: null } as const
+const NOT_QUEUED = { queuedSeq: null, queuedPrompt: null, limitPausedSeq: null } as const
 
 const TICKET_RUN_END: Record<EndingReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
 
@@ -370,6 +384,46 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
           .set({ queuedSeq: base + i, queuedPrompt: prompt })
           .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason), isNull(agentRuns.queuedSeq)))
       }
+    },
+
+    async markLimitPaused(runIds) {
+      for (const runId of runIds) {
+        await db
+          .update(agentRuns)
+          .set({ limitPausedSeq: sql`(select coalesce(max(limit_paused_seq), 0) + 1 from agent_runs)` })
+          .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason), isNull(agentRuns.limitPausedSeq)))
+      }
+    },
+
+    async limitPaused() {
+      const rows = await db
+        .select(runColumns)
+        .from(agentRuns)
+        .where(and(isNull(agentRuns.endReason), isNotNull(agentRuns.limitPausedSeq)))
+        .orderBy(asc(agentRuns.limitPausedSeq))
+      return rows.map(toRun)
+    },
+
+    async clearLimitPaused(runId) {
+      await db.update(agentRuns).set({ limitPausedSeq: null }).where(eq(agentRuns.id, runId))
+    },
+
+    async releaseLimitPaused(runIds, prompt) {
+      if (runIds.length === 0) return
+      await db.transaction(async (tx) => {
+        const [first] = await tx
+          .select({ min: sql<number | null>`min(${agentRuns.queuedSeq})` })
+          .from(agentRuns)
+          .where(isNotNull(agentRuns.queuedSeq))
+        const base = (first?.min ?? 1) - runIds.length
+        for (const [i, runId] of runIds.entries()) {
+          await tx
+            .update(agentRuns)
+            .set({ queuedSeq: base + i, queuedPrompt: prompt })
+            .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason), isNull(agentRuns.queuedSeq)))
+        }
+        await tx.update(agentRuns).set({ limitPausedSeq: null }).where(inArray(agentRuns.id, runIds))
+      })
     },
 
     async withProcess() {

@@ -116,7 +116,20 @@ describe('Pause, Resume and Skip to next role', () => {
     expect(mockInvoke).toHaveBeenCalledWith('agent.resume', paused.id)
   })
 
-  test('a pause by a usage limit offers Continue, not Resume', async () => {
+  test('a pause by the usage limit shows the reason and offers Resume, not Continue', async () => {
+    const ticket = show(
+      { phase: 'implementing', agentStatus: 'paused', column: 'in_progress', pausedByLimit: true, summary: 'Usage limit; resumes at 14:00' },
+      strip('i', 'paused')
+    )
+    renderWithMantine(<TicketView />)
+    expect(screen.getByText('Usage limit; resumes at 14:00')).toBeInTheDocument()
+    expect(screen.getByText('Paused', CHIP)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    expect(mockInvoke).toHaveBeenCalledWith('agent.resume', ticket.id)
+  })
+
+  test('a paused agent nobody paused on purpose offers Continue, not Resume', async () => {
     show({ phase: 'implementing', agentStatus: 'paused', column: 'in_progress', canContinue: true }, strip('i', 'paused'))
     renderWithMantine(<TicketView />)
     expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument()

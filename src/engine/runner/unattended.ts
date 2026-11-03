@@ -1,6 +1,5 @@
 import type { EngineEvent } from '../../shared/api'
 import type { Ticket, TicketState, UnattendedState, UnattendedStatus } from '../../shared/domain'
-import type { UsageLimit } from './usageLimit'
 
 /** Keeps the machine from sleeping: Electron's powerSaveBlocker in the app. */
 export interface KeepAwake {
@@ -11,9 +10,7 @@ export interface KeepAwake {
 export interface UnattendedDeps {
   runner: {
     start(ticketId: string): Promise<void>
-    continue(ticketId: string): Promise<void>
     stateOf(ticketId: string): Promise<TicketState>
-    usageLimit(ticketId: string): UsageLimit | undefined
     /** A launch is in flight, possibly before the ticket's run exists. */
     isLaunching(ticketId: string): boolean
   }
@@ -30,11 +27,10 @@ export interface UnattendedDeps {
   remember?: (on: boolean) => Promise<void>
   /** Whether the mode was on when the app last ran. */
   remembered?: () => Promise<boolean>
-  /** How long to wait for a usage limit whose reset time is unknown. */
-  retryMs?: number
+  /** While the app-wide usage limit holds: when it resets or is tried again (ms since the epoch); otherwise null. */
+  limitedUntil: () => number | null
 }
 
-const RETRY_MS = 15 * 60 * 1000
 const MAX_FAILURES = 3
 
 /** What became of the queue's ticket since it was started. */
@@ -43,7 +39,7 @@ type Outcome =
   /** Reached Review, or is waiting on the user in Needs you: the queue moves on. */
   | { kind: 'settled' }
   | { kind: 'failed'; error: string }
-  | { kind: 'limited'; limit: UsageLimit }
+  | { kind: 'limited' }
   /** The user stopped it or moved it to Done. */
   | { kind: 'taken' }
 
@@ -51,7 +47,7 @@ type Outcome =
  * Unattended mode: starts the lowest-numbered Ready ticket that isn't held, waits until it reaches Review or is blocked,
  * then starts the next. With Ready empty it stays on and waits for a ticket to arrive there. It starts a
  * ticket only while no ticket in the workspace is working, its own or one started by hand, through the
- * runner's own start and continue, and never merges, pushes or moves a ticket. It is driven by the engine's
+ * runner's own start, and never merges, pushes or moves a ticket. It is driven by the engine's
  * board events, not polled, and holds the machine awake only while a ticket is working or a usage limit is
  * being waited out. Whether it is on is remembered across a restart (see restore); quitting leaves it on.
  */
@@ -68,8 +64,7 @@ export class UnattendedMode {
   private readonly skipped = new Set<string>()
   /** Tickets the user stopped (back in Ready): not started again until the user moves them to Ready. */
   private readonly setAside = new Set<string>()
-  private timer: NodeJS.Timeout | null = null
-  /** A start or continue of the queue's ticket is under way. */
+  /** A start of the queue's ticket is under way. */
   private busy = false
   private evaluating: Promise<void> | null = null
   private again = false
@@ -188,7 +183,8 @@ export class UnattendedMode {
           this.keepAwake(true)
           return
         case 'limited':
-          if (this.timer === null) this.waitForLimit(current, outcome.limit)
+          // The shared usage limit resumes the ticket by itself at the reset; the board changing moves the mode on.
+          this.waitForLimit(current)
           this.keepAwake(true)
           return
         case 'taken':
@@ -221,9 +217,10 @@ export class UnattendedMode {
         if (state.agentStatus === 'working' || state.agentStatus === 'queued') return { kind: 'working' }
         // A deferred decision: the user will answer it later; the queue moves on.
         if (state.agentStatus === 'waiting_on_you') return { kind: 'settled' }
-        // Paused: the process is gone but the run is open.
-        const limit = this.deps.runner.usageLimit(ticket.id)
-        return limit ? { kind: 'limited', limit } : { kind: 'failed', error: 'The agent process ended unexpectedly' }
+        // Paused by the usage limit: the app resumes it at the reset.
+        if (state.pausedByLimit) return { kind: 'limited' }
+        // Paused otherwise: the process is gone but the run is open.
+        return { kind: 'failed', error: 'The agent process ended unexpectedly' }
       }
       default:
         return { kind: 'taken' }
@@ -239,7 +236,7 @@ export class UnattendedMode {
     for (const ticket of tickets) {
       const state = await this.deps.runner.stateOf(ticket.id)
       if (!this.on || this.current !== null || this.busy) return
-      if ((state.column === 'in_progress' && (state.agentStatus === 'working' || state.agentStatus === 'queued')) || this.deps.runner.isLaunching(ticket.id)) {
+      if ((state.column === 'in_progress' && (state.agentStatus === 'working' || state.agentStatus === 'queued' || state.pausedByLimit)) || this.deps.runner.isLaunching(ticket.id)) {
         this.setStatus({ kind: 'other_working', ticketNumber: ticket.number })
         this.keepAwake(true)
         return
@@ -256,22 +253,17 @@ export class UnattendedMode {
     }
     this.current = next
     const ticket = next
-    await this.launch(ticket, () => this.deps.runner.start(ticket.id), true)
+    await this.launch(ticket, () => this.deps.runner.start(ticket.id))
   }
 
-  private waitForLimit(ticket: Ticket, limit: UsageLimit): void {
-    const now = this.deps.now().getTime()
-    // A reset time already past would retry at once, and again, while the limit holds.
-    const until = limit.resetsAt !== null && limit.resetsAt > now ? limit.resetsAt : now + (this.deps.retryMs ?? RETRY_MS)
+  /** Says the mode is waiting for the usage limit's reset (or the next try, when the reset is unknown). */
+  private waitForLimit(ticket: Ticket): void {
+    const until = this.deps.limitedUntil() ?? this.deps.now().getTime()
     this.setStatus({ kind: 'waiting', ticketNumber: ticket.number, until: new Date(until).toISOString() })
-    this.timer = setTimeout(() => {
-      this.timer = null
-      if (this.on && this.current === ticket) void this.launch(ticket, () => this.deps.runner.continue(ticket.id), false)
-    }, until - now)
   }
 
-  /** Starts or continues the queue's ticket; a failure counts against the mode and moves the queue on. */
-  private async launch(ticket: Ticket, action: () => Promise<void>, starting: boolean): Promise<void> {
+  /** Starts the queue's ticket; a failure counts against the mode and moves the queue on. */
+  private async launch(ticket: Ticket, action: () => Promise<void>): Promise<void> {
     this.busy = true
     this.setStatus({ kind: 'working', ticketNumber: ticket.number })
     this.keepAwake(true)
@@ -285,7 +277,7 @@ export class UnattendedMode {
     }
     if (error !== null && this.on && this.current === ticket) {
       // A ticket that failed to start may still be in Ready: don't pick it again.
-      if (starting) this.skipped.add(ticket.id)
+      this.skipped.add(ticket.id)
       this.current = null
       this.failed(error)
     }
@@ -304,8 +296,6 @@ export class UnattendedMode {
     if (this.on && forget) this.remember(false)
     this.on = false
     this.current = null
-    if (this.timer !== null) clearTimeout(this.timer)
-    this.timer = null
     this.keepAwake(false)
     this.setStatus(status)
   }
