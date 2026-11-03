@@ -13,6 +13,7 @@ import type { RunSpec } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
 import { defaultLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
+import { testUsage, type TestUsage } from './testUsage'
 import { TicketRunner } from './ticketRunner'
 
 let tmp: string
@@ -42,15 +43,17 @@ function handsOffWhenSent(spec: RunSpec): FakeStep[] {
   ]
 }
 
-function makeRunner(runtime: FakeRuntime, opts: { unattended?: boolean } = {}): TicketRunner {
+function makeRunner(runtime: FakeRuntime, opts: { unattended?: boolean; usage?: TestUsage } = {}): TicketRunner {
   const runner = new TicketRunner({
     repos,
     worktrees,
     runtime,
     now: () => FIXED_NOW,
     emit: (e) => emitted.push(e),
-    unattended: () => opts.unattended ?? false
+    unattended: () => opts.unattended ?? false,
+    ...(opts.usage ? { usage: opts.usage.hooks } : {})
   })
+  opts.usage?.attach(runner)
   runners.push(runner)
   return runner
 }
@@ -250,24 +253,24 @@ describe('what uses a slot', () => {
     expect(runtime.specs[2]!.resumeSessionId).toBe(`session-${runtime.specs[0]!.cwd}-Implementer`)
   })
 
-  it('an agent stopped by a usage limit in unattended mode gives its slot up', async () => {
+  it('an agent paused by a usage limit gives its slot up, but nothing else starts while the limit holds', async () => {
     await repos.settings.setMaxAgents(1)
+    const usage = testUsage(repos)
     const runtime = new FakeRuntime((spec) =>
       spec.cwd.endsWith('1-a')
         ? [{ emit: { kind: 'rate_limit', status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600, windows: {} } },
             { emit: { kind: 'turn_end', ok: false, error: 'usage limit reached' } }]
         : [{ waitForSend: true }]
     )
-    const runner = makeRunner(runtime, { unattended: true })
+    const runner = makeRunner(runtime, { usage })
     const [a, b] = [await newTicket('A'), await newTicket('B')]
     await runner.start(a.id)
-    await vi.waitFor(() => expect(runner.usageLimit(a.id)).toBeDefined())
+    await vi.waitFor(async () => expect(await stateOf(runner, a)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
     await runner.start(b.id)
 
-    await waitForStatus(runner, b, 'working')
-    expect(await stateOf(runner, a)).toMatchObject({ agentStatus: 'paused' })
+    expect(await stateOf(runner, b)).toMatchObject({ agentStatus: 'queued' })
+    expect(runtime.specs).toHaveLength(1)
   })
-
 })
 
 describe('every start path goes through the queue', () => {

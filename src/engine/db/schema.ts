@@ -138,7 +138,9 @@ export const agentRuns = sqliteTable(
     /** Where the run stands in the queue for a slot (first in, first out); null when it is not queued. */
     queuedSeq: integer('queued_seq'),
     /** The message the queued run starts with once it gets a slot; null when it is not queued. */
-    queuedPrompt: text('queued_prompt')
+    queuedPrompt: text('queued_prompt'),
+    /** Where the run stands among the agents the usage limit paused (smaller resumes first); null when it is not one of them. */
+    limitPausedSeq: integer('limit_paused_seq')
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )

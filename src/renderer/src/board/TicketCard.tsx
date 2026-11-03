@@ -46,9 +46,9 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   )
 }
 
-/** "Paused", beside the phase chip, while the user has paused the active role. */
+/** "Paused", beside the phase chip, while the user or the usage limit has paused the active role. */
 export function PausedChip({ state }: { state: TicketState }): ReactElement | null {
-  if (!state.pausedByUser) return null
+  if (!state.pausedByUser && !state.pausedByLimit) return null
   return (
     <Badge color="gray" variant="outline" size="sm" radius="sm">
       Paused
@@ -129,7 +129,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
           </Badge>
         )}
       </Group>
-      {state.column === 'needs_you' && state.summary && (
+      {(state.column === 'needs_you' || state.pausedByLimit) && state.summary && (
         <Text size="xs" c="dimmed" mt={6} lineClamp={1}>
           {state.summary}
         </Text>

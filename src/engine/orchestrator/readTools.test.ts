@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
-import type { Hold, StripRole, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Hold, StripRole, Ticket, TicketState, UsageState, Workspace } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
@@ -18,6 +18,8 @@ let views: Map<string, { state: Partial<TicketState>; lineup: StripRole[] }>
 /** The holds on tickets, by ticket id. */
 let holds: Map<string, Hold>
 let tools: OrchestratorReadToolHandlers
+/** Where the app stands on the usage limit. */
+let usage: UsageState
 
 const planner = testRole({ id: 'p', name: 'Planner', position: 1, activePhase: 'planning', model: 'opus', effort: 'high' })
 const implementer = testRole({ id: 'i', name: 'Implementer', position: 2 })
@@ -44,11 +46,13 @@ beforeEach(async () => {
   ws = await repos.workspaces.create('C:\\code\\shop', 'main', 'shop', 'shop')
   views = new Map()
   holds = new Map()
+  usage = { kind: 'ok' }
   let open: Workspace | null = ws
   tools = createReadTools({
     repos,
     workspace: async () => open,
-    board: async (w) => (await repos.tickets.list(w.id)).map(boardTicket)
+    board: async (w) => (await repos.tickets.list(w.id)).map(boardTicket),
+    usage: async () => usage
   })
   noWorkspace = () => (open = null)
 })
@@ -214,6 +218,45 @@ describe('a queued agent', () => {
     const out = await tools.getRunStatus({ number: 1 })
     expect(out).toContain('2. Implementer: queued (active)')
     expect(out).toContain('Active role: Implementer · queued (2nd in line): every agent slot is in use')
+  })
+})
+
+describe('the usage limit', () => {
+  const at = '2026-11-02T14:00:00.000Z'
+  async function limited(): Promise<Ticket> {
+    const t = await ticket()
+    await running(t)
+    views.set(t.id, {
+      state: { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', pausedByLimit: true, summary: 'Usage limit; resumes at 14:00' },
+      lineup: [
+        { id: 'p', name: 'Planner', status: 'handed_off', active: false, replacements: 0 },
+        { id: 'i', name: 'Implementer', status: 'paused', active: true, replacements: 0 }
+      ]
+    })
+    return t
+  }
+
+  test('list_tickets says the ticket is paused by the limit and when it resumes', async () => {
+    await limited()
+    usage = { kind: 'limited', resetsAt: at, retryAt: null, paused: 1 }
+    expect(await tools.listTickets({})).toMatch(/ · paused by the usage limit \(resumes at \d\d:\d\d\); Mainbus resumes it by itself, or the user can resume it early/)
+  })
+
+  test('get_run_status explains the pause and gives the fleet line', async () => {
+    await limited()
+    usage = { kind: 'limited', resetsAt: at, retryAt: null, paused: 1 }
+    const out = await tools.getRunStatus({ number: 1 })
+    expect(out).toMatch(/Active role: Implementer · paused by the usage limit \(resumes at \d\d:\d\d\)/)
+    expect(out).toMatch(/Usage limit reached\. 1 agent paused; resuming at \d\d:\d\d\./)
+  })
+
+  test('get_run_status gives the warning line, and nothing at all when the limit is not close', async () => {
+    const t = await ticket()
+    await running(t)
+    usage = { kind: 'warning', resetsAt: at }
+    expect(await tools.getRunStatus({ number: 1 })).toMatch(/Close to the usage limit: new agents wait until it resets at \d\d:\d\d\./)
+    usage = { kind: 'ok' }
+    expect(await tools.getRunStatus({ number: 1 })).not.toMatch(/usage limit/i)
   })
 })
 

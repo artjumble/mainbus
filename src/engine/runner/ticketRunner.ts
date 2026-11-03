@@ -48,6 +48,24 @@ import type { StuckNote } from '../stuck/detector'
 import type { RunObservation } from '../stuck/observation'
 import { isUsageLimitText, limitFromEvent, type UsageLimit } from './usageLimit'
 
+/** What the runner needs of the app-wide usage limit (see UsageGate). */
+export interface UsageHooks {
+  /** True while the usage limit holds every agent. */
+  limited(): boolean
+  /** True while no new agent may start: limited, or close to the limit. */
+  blocksStarts(): boolean
+  /** Why an agent the limit paused is paused: "Usage limit; resumes at 14:00". */
+  pauseReason(): string
+  /** A `rate_limit` event from an agent (a rejected one enters the limited state). */
+  rateLimit(event: Extract<AgentEvent, { kind: 'rate_limit' }>, runId: string): void
+  /** An agent ran into the limit without a `rate_limit` event (its error text said so). */
+  hit(limit: UsageLimit, runId: string): void
+  /** An agent that was let through while limited got an answer: the limit is over. */
+  gotThrough(): void
+  /** The number of paused agents changed. */
+  changed(): void
+}
+
 export interface RunnerDeps {
   repos: Repos
   worktrees: WorktreeManager
@@ -55,10 +73,11 @@ export interface RunnerDeps {
   now: () => Date
   emit: (e: EngineEvent) => void
   /**
-   * True while unattended mode is on: permission requests that aren't hard stops are allowed without a card,
-   * and a run stopped by a usage limit is paused (its process stopped, the run kept open) rather than left idle.
+   * True while unattended mode is on: permission requests that aren't hard stops are allowed without a card.
    */
   unattended?: () => boolean
+  /** The app-wide usage limit; without it nothing is limited and a limit just fails the turn. */
+  usage?: UsageHooks
   /**
    * Pushes a handed-off ticket's branch and opens its pull request, when the workspace asks for that.
    * Mainbus runs it itself, after the handoff: it never goes through the agent's permissions.
@@ -123,7 +142,10 @@ const SHUTDOWN_SETTLE_MS = 5000
 /** How long shutdown waits for the sweeps of exited agents. */
 const SWEEP_WAIT_MS = 15_000
 const SHUTTING_DOWN = 'Mainbus is shutting down'
-const USAGE_LIMIT_PAUSE = 'Paused by the usage limit. Unattended mode continues this ticket when the limit resets.'
+/** What a run the usage limit paused starts with when it resumes. */
+export const USAGE_RESUME_TEXT = 'The usage limit has reset; continue where you left off.'
+const PAUSED_BY_LIMIT = 'Paused by the usage limit: use Resume to continue it now'
+const USAGE_PAUSED_FALLBACK = 'Usage limit; resuming'
 const AUTO_ALLOWED = 'Allowed by unattended mode'
 const PR_FAILED = "Couldn't open a PR"
 const PR_SETTING_OFF = 'Turn on "Open a PR when a ticket reaches Review" in the workspace settings first'
@@ -217,8 +239,10 @@ export class TicketRunner {
   private shuttingDown = false
   /** Permission decisions an agent is waiting on, by decision id. */
   private readonly waiters = new Map<string, PermissionWaiter>()
-  /** Tickets whose run was paused by a usage limit in unattended mode, until it is resumed, started or stopped. */
-  private readonly limited = new Map<string, UsageLimit>()
+  /** Runs allowed past the usage-limit gate: the probe, and a run the user resumed early. Cleared when the limit ends. */
+  private readonly limitBypass = new Set<string>()
+  /** The marking of the agents the latest usage-limit pause stopped; their processes' wrap-up waits for it. */
+  private limitMarking: Promise<unknown> = Promise.resolve()
   /** The `claude` process of each run launched in this session, once its start time is known (null: unknown). */
   private readonly processRefs = new Map<string, Promise<ProcessRef | null>>()
   /** The sweeps under way or queued, by run: a run is never swept twice at once. */
@@ -236,11 +260,6 @@ export class TicketRunner {
 
   constructor(private readonly deps: RunnerDeps) {
     this.repos = deps.repos
-  }
-
-  /** The usage limit that paused this ticket's run, if one did and nothing has touched the run since. */
-  usageLimit(ticketId: string): UsageLimit | undefined {
-    return this.limited.get(ticketId)
   }
 
   /**
@@ -302,7 +321,6 @@ export class TicketRunner {
    */
   private async holdsSlot(ticketId: string): Promise<boolean> {
     if (this.admitting.has(ticketId) || this.slotKept.has(ticketId)) return true
-    if (this.limited.has(ticketId)) return false
     const alive = [...this.live.values()].some((l) => l.ticketId === ticketId && !l.ended && !l.stopping)
     if (!alive) return false
     if ((await this.repos.decisions.pending(ticketId)).length > 0) return true
@@ -326,13 +344,21 @@ export class TicketRunner {
    */
   private admit(ticketId: string, runId: string, prompt: string): Promise<boolean> {
     return this.locked(async () => {
+      const bypass = this.limitBypass.has(runId)
+      // Near or at the usage limit nothing new starts (but the probe and a run resumed early): it waits as Queued.
+      if (this.deps.usage?.blocksStarts() && !bypass) {
+        this.slotKept.delete(ticketId)
+        await this.repos.runs.enqueue(runId, prompt)
+        this.queueHint = true
+        return false
+      }
       if (this.slotKept.delete(ticketId)) {
         this.admitting.add(ticketId)
         return true
       }
       const waiting = (await this.repos.runs.queued()).some((q) => q.id !== runId)
       const free = (await this.repos.settings.get()).maxAgents - (await this.slotsInUse(ticketId))
-      if (free > 0 && !waiting && !(await this.repos.runs.get(runId))?.queuedSeq) {
+      if (free > 0 && (bypass || !waiting) && !(await this.repos.runs.get(runId))?.queuedSeq) {
         this.admitting.add(ticketId)
         return true
       }
@@ -352,7 +378,9 @@ export class TicketRunner {
           this.queueHint = false
           return null
         }
-        const first = queue[0]!
+        // Blocked by the usage limit, only a run let past the gate starts.
+        const first = this.deps.usage?.blocksStarts() ? queue.find((q) => this.limitBypass.has(q.id)) : queue[0]
+        if (!first) return null
         const free = (await this.repos.settings.get()).maxAgents - (await this.slotsInUse(first.ticketId))
         if (free <= 0) return null
         this.admitting.add(first.ticketId)
@@ -451,7 +479,7 @@ export class TicketRunner {
       worktreePath: ticket.worktreePath,
       state,
       launching: this.isLaunching(ticketId),
-      usageLimited: this.limited.has(ticketId) || (live?.limit ?? null) !== null || endedOnUsageLimit(events),
+      usageLimited: run.limitPausedSeq !== null || (this.deps.usage?.limited() ?? false) || (live?.limit ?? null) !== null || endedOnUsageLimit(events),
       declaredWait: run.declaredWait,
       events,
       live: live
@@ -616,6 +644,7 @@ export class TicketRunner {
       deferredDecisions: deferred,
       processAlive: run ? this.live.has(run.id) || this.isLaunching(ticketId) : false,
       queuePosition: await this.queuePositionOf(run),
+      limitPaused: run && run.limitPausedSeq !== null ? { reason: this.deps.usage?.pauseReason() || USAGE_PAUSED_FALLBACK } : null,
       activePhase
     })
     return { state, run, roles, pending, deferred }
@@ -675,7 +704,7 @@ export class TicketRunner {
           await this.askAboutMissingFolder(run, ticket)
           return
         }
-        if (run.queuedSeq !== null || unswept.has(ticket.id)) return
+        if (run.queuedSeq !== null || run.limitPausedSeq !== null || unswept.has(ticket.id)) return
         const events = await this.repos.runs.events(run.id)
         if (pausedByUser(events) || endedOnUsageLimit(events)) return
         if ((await this.repos.decisions.unsettled(ticket.id)).length > 0) return
@@ -900,10 +929,10 @@ export class TicketRunner {
   private async stopNow(ticketId: string, expect?: RunExpectation): Promise<void> {
     // Everything queued before this stop has finished; later actions are not affected.
     this.stopRequested.delete(ticketId)
-    this.limited.delete(ticketId)
     this.slotKept.delete(ticketId)
     const run = await this.repos.runs.latest(ticketId)
     if (!run) return
+    this.limitBypass.delete(run.id)
     if (expect && (run.id !== expect.agentRunId || run.endReason !== null)) throw new Error(MOVED_ON)
     const ticket = await this.repos.tickets.get(ticketId)
     const target = this.target(run, ticket)
@@ -932,7 +961,8 @@ export class TicketRunner {
     if (!run || run.endReason !== null || this.live.has(run.id)) {
       throw new Error('There is no paused agent to continue on this ticket')
     }
-    // Only Resume ends the user's own pause: unattended mode continues a usage-limit pause through here.
+    // Only Resume ends the user's own pause, and a usage-limit pause ends with the limit or with Resume.
+    if (run.limitPausedSeq !== null) throw new Error(PAUSED_BY_LIMIT)
     if (pausedByUser(await this.repos.runs.events(run.id))) throw new Error(PAUSED_BY_USER)
     await this.resume(run, CONTINUE_TEXT)
   }
@@ -944,7 +974,6 @@ export class TicketRunner {
     if (!run || !live || live.ended) throw new Error(NOT_WORKING)
     // From here the agent gets no nudge, and its process ending is neither reported nor a usage-limit pause.
     live.ended = true
-    this.limited.delete(ticketId)
     const ticket = await this.repos.tickets.get(ticketId)
     // Recorded before the process goes, so the ticket shows Paused at once.
     await this.record(this.target(run, ticket), { kind: 'paused' })
@@ -984,7 +1013,6 @@ export class TicketRunner {
     try {
       // The fresh agent takes the replaced one's slot, when it had one.
       if (await this.holdsSlot(ticketId)) this.slotKept.add(ticketId)
-      this.limited.delete(ticketId)
       // A handed-off role's process may still be ending its last turn; it is stopped along with the active one.
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
@@ -1071,7 +1099,11 @@ export class TicketRunner {
   private async resumeNow(ticketId: string): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
     const run = await this.repos.runs.latest(ticketId)
-    if (!run || run.endReason !== null || !pausedByUser(await this.repos.runs.events(run.id))) throw new Error(NOTHING_PAUSED)
+    if (!run || run.endReason !== null) throw new Error(NOTHING_PAUSED)
+    const byLimit = run.limitPausedSeq !== null
+    if (!byLimit && !pausedByUser(await this.repos.runs.events(run.id))) throw new Error(NOTHING_PAUSED)
+    // Resuming a run the usage limit paused is the user trying early: it goes past the gate, and if it gets through the limit is over.
+    if (byLimit) this.limitBypass.add(run.id)
     // The paused process may still be going down.
     const live = this.live.get(run.id)
     if (live) await settleWithin(live.done, STOP_DRAIN_MS)
@@ -1094,7 +1126,6 @@ export class TicketRunner {
     try {
       // The next role takes the skipped one's slot, when it had one.
       if (next && (await this.holdsSlot(ticketId))) this.slotKept.add(ticketId)
-      this.limited.delete(ticketId)
       // A handed-off role's process may still be ending its last turn; it is stopped along with the active one.
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
@@ -1226,7 +1257,6 @@ export class TicketRunner {
       if (await this.repos.runs.end(run.id, 'stopped')) await this.record(this.target(run, ticket), { kind: 'stopped' })
     }
     await this.repos.tickets.setManualColumn(ticket.id, 'done')
-    this.limited.delete(ticket.id)
     await this.expirePending(where, () => true)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
     this.kickQueue()
@@ -1343,7 +1373,7 @@ export class TicketRunner {
     if (!current || current.id !== run.id || current.endReason !== null || this.live.has(run.id)) return
     if (current.queuedSeq !== null && !queued) {
       // Already waiting for a slot: it keeps its place, and starts with whatever was said meanwhile too.
-      if (prompt !== CONTINUE_TEXT && prompt !== RESUME_TEXT && prompt !== RESTART_TEXT) await this.repos.runs.enqueue(run.id, prompt)
+      if (prompt !== CONTINUE_TEXT && prompt !== RESUME_TEXT && prompt !== RESTART_TEXT && prompt !== USAGE_RESUME_TEXT) await this.repos.runs.enqueue(run.id, prompt)
       return
     }
     // Nothing recreates a missing folder behind the user's back while they are deciding what to do about it.
@@ -1377,7 +1407,7 @@ export class TicketRunner {
       if (current.sessionId === null && neverLaunched) {
         const handedBy = events.find((e) => e.event.kind === 'role_handoff')?.event
         const first = firstMessage(launch.ticket, handedBy?.kind === 'role_handoff' ? handedBy.from : undefined)
-        const bare = prompt === CONTINUE_TEXT || prompt === RESUME_TEXT || prompt === RESTART_TEXT
+        const bare = prompt === CONTINUE_TEXT || prompt === RESUME_TEXT || prompt === RESTART_TEXT || prompt === USAGE_RESUME_TEXT
         // A queued run's message is the whole of what it starts with.
         const message = bare ? first : queued ? prompt : `${first}\n\n${prompt}`
         await this.launch(launch, run.id, message, decisions, undefined, queued)
@@ -1411,7 +1441,6 @@ export class TicketRunner {
    * The board changes once more when it ends, so a launch that failed before its process started is seen too.
    */
   private async whileLaunching(ticketId: string, fn: () => Promise<void>): Promise<void> {
-    this.limited.delete(ticketId)
     this.launching.add(ticketId)
     try {
       await fn()
@@ -1489,6 +1518,15 @@ export class TicketRunner {
         if (await this.repos.runs.end(runId, 'stopped')) await this.endStopped(target)
         return
       }
+      if (this.deps.usage?.limited() && !this.limitBypass.has(runId)) {
+        // The limit was hit while this process was starting: it goes down at once and the run is paused with the others.
+        await this.deps.runtime.stop(handle).catch(() => {})
+        await this.repos.runs.markLimitPaused([runId])
+        await this.record(target, { kind: 'notice', text: this.deps.usage.pauseReason() })
+        this.deps.usage.changed()
+        return
+      }
+      await this.repos.runs.clearLimitPaused(runId)
       const live: LiveRun = {
         ...target,
         handle,
@@ -1528,11 +1566,11 @@ export class TicketRunner {
         }
       }
     } catch (err) {
-      if (isUsageLimitText(errorText(err))) live.limit ??= { resetsAt: null }
+      if (isUsageLimitText(errorText(err))) this.limitHit(live, { resetsAt: null })
       await this.record(live, { kind: 'error', message: errorText(err) }).catch(() => {})
     }
-    // The process ended over a usage limit with the run still open: the run is paused until the limit resets.
-    if (!live.ended && live.limit !== null && !this.shuttingDown && this.unattended()) this.limited.set(live.ticketId, live.limit)
+    // The agents the usage limit paused are marked before they leave `live`, so they never show as merely paused.
+    await this.limitMarking
     try {
       if (!live.ended) await this.record(live, { kind: 'process_exit', code: null })
       // A permission answer can no longer reach this process.
@@ -1555,8 +1593,16 @@ export class TicketRunner {
       return
     }
     if (event.kind === 'session') await this.repos.runs.setSession(live.runId, event.sessionId)
-    if (event.kind === 'rate_limit') live.limit = limitFromEvent(event)
-    if (event.kind === 'error' && isUsageLimitText(event.message)) live.limit ??= { resetsAt: null }
+    if (event.kind === 'rate_limit') {
+      const limit = limitFromEvent(event)
+      const was = live.limit
+      live.limit = limit
+      // A rejected event enters the limited state once per run; the others show how close the windows are, and an
+      // agent let past the gate that gets one has got through.
+      if (limit === null || was === null) this.deps.usage?.rateLimit(event, live.runId)
+      if (limit === null && this.limitBypass.has(live.runId)) this.deps.usage?.gotThrough()
+    }
+    if (event.kind === 'error' && isUsageLimitText(event.message)) this.limitHit(live, { resetsAt: null })
     await this.record(live, event)
     if (event.kind === 'turn_end') await this.onTurnEnd(live, event)
   }
@@ -1564,6 +1610,8 @@ export class TicketRunner {
   private async onTurnEnd(live: LiveRun, event: Extract<AgentEvent, { kind: 'turn_end' }>): Promise<void> {
     // The agent is going down with the app: no nudge, no failure.
     if (this.shuttingDown) return
+    // An agent let past the gate finished a turn: the API answers again.
+    if (event.ok && this.limitBypass.has(live.runId)) this.deps.usage?.gotThrough()
     if (live.ended) {
       // Handed off (or failed or stopped): the agent's last turn is over, so its process can go.
       void this.stopProcess(live)
@@ -1573,14 +1621,9 @@ export class TicketRunner {
     live.askedThisTurn = false
     // Mainbus's own interrupt is not the agent going quiet.
     if (event.interrupted) return
-    if (!event.ok && isUsageLimitText(event.error)) live.limit ??= { resetsAt: null }
-    if (!event.ok && live.limit !== null && this.unattended()) {
-      // A usage limit is not a failure: stop the process and keep the run open, so it can be continued once
-      // the limit resets. The pump marks the ticket as paused by the limit when the process has gone.
-      await this.record(live, { kind: 'notice', text: USAGE_LIMIT_PAUSE })
-      void this.stopProcess(live)
-      return
-    }
+    if (!event.ok && isUsageLimitText(event.error)) this.limitHit(live, { resetsAt: null })
+    // A usage limit is not a failure, a silent turn or a reason to nudge: the pause (already under way) deals with it.
+    if (this.deps.usage && !event.ok && live.limit !== null) return
     if (event.ok) live.limit = null
     if (!event.ok) {
       // An error (the API failing, say) is not the agent going quiet either; twice in a row fails the run.
@@ -1601,6 +1644,83 @@ export class TicketRunner {
     await this.record(live, { kind: 'nudge', text: NUDGE_TEXT })
     const failure = await this.deliver(live, NUDGE_TEXT)
     if (failure !== null) await this.record(live, { kind: 'error', message: `Mainbus could not send the nudge: ${failure}` })
+  }
+
+  /** The run ran into the usage limit (once per run until a turn succeeds): the app enters the limited state. */
+  private limitHit(live: LiveRun, limit: UsageLimit): void {
+    if (!this.deps.usage || live.limit !== null) return
+    live.limit = limit
+    this.deps.usage.hit(limit, live.runId)
+  }
+
+  /**
+   * The usage limit was hit: every working agent is interrupted and shown as Paused, the one that hit it first. The
+   * agents are picked and marked ended in the same breath, so none is nudged, failed or counted as stuck, and the
+   * rest (stopping the processes, marking the runs) goes on in the background: the event pump that calls this must
+   * not wait for the pause, which waits for the pump. Agents waiting on a decision are not working and are left alone.
+   */
+  pauseForUsageLimit(firstRunId: string | null): void {
+    const picked: LiveRun[] = []
+    const first = firstRunId === null ? undefined : this.live.get(firstRunId)
+    if (first && !first.ended && !first.stopping) picked.push(first)
+    for (const live of this.live.values()) {
+      if (live !== first && !live.ended && !live.stopping && live.inTurn) picked.push(live)
+    }
+    if (picked.length === 0) return
+    for (const live of picked) {
+      live.ended = true
+      this.limitBypass.delete(live.runId)
+    }
+    const marking = this.repos.runs
+      .markLimitPaused(picked.map((l) => l.runId))
+      .catch(() => {})
+      .then(() => this.deps.usage?.changed())
+    this.limitMarking = Promise.all([this.limitMarking, marking])
+    const reason = this.deps.usage?.pauseReason() || USAGE_PAUSED_FALLBACK
+    for (const live of picked) {
+      void (async () => {
+        await marking
+        await this.record(live, { kind: 'notice', text: reason })
+        await this.halt(live)
+        this.deps.emit({ type: 'board.changed', workspaceId: live.workspaceId })
+        this.kickQueue()
+      })().catch(() => {})
+    }
+  }
+
+  /**
+   * The limit is over: the agents it paused go to the front of the queue in the order they were paused, and start
+   * as the concurrency cap allows. Agents already alive only lose their mark.
+   */
+  async releaseLimitPaused(): Promise<void> {
+    const paused = await this.repos.runs.limitPaused()
+    for (const run of paused) if (this.live.has(run.id)) await this.repos.runs.clearLimitPaused(run.id)
+    await this.repos.runs.releaseLimitPaused(
+      paused.filter((r) => !this.live.has(r.id)).map((r) => r.id),
+      USAGE_RESUME_TEXT
+    )
+    this.limitBypass.clear()
+    this.queueHint = true
+    const workspace = await this.repos.workspaces.get()
+    if (workspace) this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
+    this.kickQueue()
+  }
+
+  async limitPausedCount(): Promise<number> {
+    return (await this.repos.runs.limitPaused()).length
+  }
+
+  /**
+   * Tries the limit with one agent: the first one it paused resumes, past the gate. False when there is none, or an
+   * earlier try is still running and has not got through yet.
+   */
+  async probe(): Promise<boolean> {
+    if ([...this.limitBypass].some((id) => this.live.get(id)?.ended === false)) return false
+    const first = (await this.repos.runs.limitPaused()).find((r) => !this.live.has(r.id))
+    if (!first || this.shuttingDown) return false
+    this.limitBypass.add(first.id)
+    await this.serial(first.ticketId, () => this.resume(first, USAGE_RESUME_TEXT)).catch(() => {})
+    return true
   }
 
   /** Ends the run as failed, unless something else ended it first; `message` becomes the card's summary. */

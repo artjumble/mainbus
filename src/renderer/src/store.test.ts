@@ -27,6 +27,7 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
     if (command === 'workspace.get') return workspace
     if (command === 'board.get') return { tickets: [ticket] }
     if (command === 'unattended.get') return { on: true, status: { kind: 'working', ticketNumber: 3 } }
+    if (command === 'usage.get') return { kind: 'ok' }
     throw new Error(`unexpected ${command}`)
   })
   await useMainbus.getState().checkSetup()

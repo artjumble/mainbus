@@ -13,7 +13,6 @@ import { defaultLineup } from '../store/lineups'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { RunSpec } from '../runtime/types'
 import { UnattendedMode, type UnattendedDeps } from './unattended'
-import type { UsageLimit } from './usageLimit'
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
@@ -434,7 +433,7 @@ describe('unattended mode', () => {
     // Paused, not failed, and the queue did not move on.
     expect(await columnOf(h, 1)).toBe('in_progress')
     expect(started(h)).toEqual([1])
-    expect(await threadOf(h, 1)).toContainEqual({ kind: 'notice', text: expect.stringContaining('Paused by the usage limit') })
+    expect(await threadOf(h, 1)).toContainEqual({ kind: 'notice', text: expect.stringContaining('Usage limit; resumes at') })
 
     // After the reset the same ticket is continued, and the queue goes on from there.
     await waitForState(h, { on: true, status: { kind: 'idle' } })
@@ -489,7 +488,7 @@ describe('UnattendedMode timing', () => {
   })
 
   /** One ticket, #7, Ready until started; the test sets `box.state` after that. */
-  function stub(limit: () => UsageLimit | undefined) {
+  function stub(limitedUntil: () => number | null = () => null) {
     const ticket = { id: 't1', number: 7 } as Ticket
     const box = { state: ready }
     const state = () => box.state
@@ -497,9 +496,7 @@ describe('UnattendedMode timing', () => {
       start: vi.fn(async () => {
         box.state = working
       }),
-      continue: vi.fn(async () => {}),
       stateOf: vi.fn(async () => state()),
-      usageLimit: vi.fn(() => limit()),
       isLaunching: vi.fn(() => false)
     }
     const emitted: UnattendedState[] = []
@@ -511,7 +508,8 @@ describe('UnattendedMode timing', () => {
         if (e.type === 'unattended.changed') emitted.push(e.state)
       },
       keepAwake: { start: () => {}, stop: () => {} },
-      now: () => new Date()
+      now: () => new Date(),
+      limitedUntil
     }
     return { mode: new UnattendedMode(deps), runner, emitted, box }
   }
@@ -520,9 +518,10 @@ describe('UnattendedMode timing', () => {
   const ready: TicketState = { ...none, column: 'ready', phase: 'not_started', agentStatus: null }
   const working: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'working' }
   const paused: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'paused', canContinue: true }
+  const limitPaused: TicketState = { ...paused, canContinue: false, pausedByLimit: true, summary: 'Usage limit; resumes at 14:00' }
 
   it('a ticket queued for a free agent slot counts as working: the queue waits for it and starts nothing else', async () => {
-    const { mode, runner, box } = stub(() => undefined)
+    const { mode, runner, box } = stub()
     await mode.set(true)
     await mode.settled()
     expect(runner.start).toHaveBeenCalledTimes(1)
@@ -531,46 +530,55 @@ describe('UnattendedMode timing', () => {
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
     expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumber: 7 } })
-    expect(runner.continue).not.toHaveBeenCalled()
     mode.dispose()
   })
 
-  it('without a reset time, retries every 15 minutes', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    const { mode, runner, box } = stub(() => ({ resetsAt: null }))
+  it('a ticket paused by the shared usage limit waits for its reset time, then the mode goes on when it is resumed', async () => {
+    const reset = Date.now() + 3_600_000
+    const { mode, runner, box } = stub(() => reset)
     await mode.set(true)
     await mode.settled()
     expect(runner.start).toHaveBeenCalledTimes(1)
-    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumber: 7 } })
 
-    box.state = paused
+    box.state = limitPaused
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    const until = new Date(Date.now() + 15 * 60 * 1000).toISOString()
-    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', ticketNumber: 7, until } })
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', ticketNumber: 7, until: new Date(reset).toISOString() } })
 
-    await vi.advanceTimersByTimeAsync(15 * 60 * 1000 - 1)
-    expect(runner.continue).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(1)
-    expect(runner.continue).toHaveBeenCalledWith('t1')
+    // The shared state resumes the ticket by itself (the mode neither continues it nor starts another).
+    box.state = working
+    mode.observe({ type: 'board.changed', workspaceId: 'w' })
+    await mode.settled()
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumber: 7 } })
+    expect(runner.start).toHaveBeenCalledTimes(1)
     mode.dispose()
   })
 
-  it('a reset time already past retries in 15 minutes, not at once', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    const { mode, runner, box } = stub(() => ({ resetsAt: Date.now() - 1000 }))
+  it('waits until the next try when the shared limit has no reset time', async () => {
+    const retry = Date.now() + 900_000
+    const { mode, box } = stub(() => retry)
     await mode.set(true)
     await mode.settled()
-    box.state = paused
+    box.state = limitPaused
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(runner.continue).not.toHaveBeenCalled()
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', ticketNumber: 7, until: new Date(retry).toISOString() } })
+    mode.dispose()
+  })
+
+  it('a ticket paused by the usage limit counts as working for the others', async () => {
+    const { mode, box } = stub(() => Date.now() + 1000)
+    await mode.set(true)
+    await mode.settled()
+    box.state = limitPaused
+    mode.observe({ type: 'board.changed', workspaceId: 'w' })
+    await mode.settled()
+    expect(mode.get().status.kind).toBe('waiting')
     mode.dispose()
   })
 
   it('a paused ticket without a usage limit counts as failed and the queue moves on', async () => {
-    const { mode, runner, box } = stub(() => undefined)
+    const { mode, box } = stub()
     await mode.set(true)
     await mode.settled()
     box.state = paused
@@ -578,11 +586,10 @@ describe('UnattendedMode timing', () => {
     await mode.settled()
     // Ticket 7 is no longer Ready, so the queue finds nothing else and waits.
     expect(mode.get()).toEqual({ on: true, status: { kind: 'idle' } })
-    expect(runner.continue).not.toHaveBeenCalled()
   })
 
   it('a ticket waiting on a deferred decision counts as settled, not failed', async () => {
-    const { mode, box } = stub(() => undefined)
+    const { mode, box } = stub()
     await mode.set(true)
     await mode.settled()
     box.state = { ...working, agentStatus: 'waiting_on_you', phase: 'waiting_on_you', deferredUntil: '2026-11-03T09:00:00.000Z' }
@@ -598,9 +605,7 @@ describe('UnattendedMode remembering', () => {
     const m = new UnattendedMode({
       runner: {
         start: async () => {},
-        continue: async () => {},
         stateOf: async () => ({ column: 'ready' }) as TicketState,
-        usageLimit: () => undefined,
         isLaunching: () => false
       },
       tickets: async () => [],
@@ -608,6 +613,7 @@ describe('UnattendedMode remembering', () => {
       emit: () => {},
       keepAwake: { start: () => {}, stop: () => {} },
       now: () => new Date(),
+      limitedUntil: () => null,
       remember: async (on) => void (stored.on = on),
       remembered: async () => stored.on,
       ...over

@@ -35,6 +35,7 @@ import { newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
 import { TicketRunner, type RunExpectation } from './runner/ticketRunner'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
+import { UsageGate, usageHooks } from './runner/usageGate'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
 import { createRepos } from './store'
@@ -68,6 +69,8 @@ export interface EngineConfig {
   clock?: Clock
   /** The stuck detector's timer, interval and file probe; tests pass fakes. By default a real timer, once a minute. */
   stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange'>>
+  /** How long to wait before trying again when a usage limit has no known reset; 15 minutes by default (tests shorten it). */
+  usageRetryMs?: number
 }
 
 export interface Engine {
@@ -113,11 +116,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const listeners = new Set<(e: EngineEvent) => void>()
     // Created below, once the runner it drives exists; it sees every event before the listeners do.
     let unattended: UnattendedMode | null = null
+    let usageGate: UsageGate | null = null
+    let wakeSchedulerRef: WakeScheduler | null = null
     let proposalService: ProposalService | null = null
     // The runner's, once it exists: a decision put off frees its agent's slot for the queue.
     let kickQueue: (() => void) | null = null
     const emit = (e: EngineEvent): void => {
       unattended?.observe(e)
+      // Wake turns that waited for the reset get their turn once the limit lifts.
+      if (e.type === 'usage.changed' && e.state.kind !== 'limited') void wakeSchedulerRef?.limitLifted()
       if (e.type === 'decision.changed' && e.decision.status === 'deferred') kickQueue?.()
       // A decision answered elsewhere or deferred ends the answer proposals still waiting on it.
       if (e.type === 'decision.changed' && e.decision.status !== 'pending') {
@@ -139,9 +146,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       clock,
       wake: (rows) => orchestratorSession?.wake(rows) ?? Promise.resolve(),
       busy: () => orchestratorSession?.busy ?? true,
-      usageLimitedUntil: () => orchestratorSession?.usageLimitedUntil() ?? null,
+      usageLimitedUntil: () => usageGate?.limitedUntil() ?? null,
       canWake: async () => cfg.runtime !== null && (await repos.workspaces.get()) !== null
     })
+    wakeSchedulerRef = wakeScheduler
     const addWake = async (workspaceId: string, kind: WakeKind, ref: string): Promise<void> => {
       // Losing the news must never break what produced it; the board still shows it.
       if (await repos.wakes.add(workspaceId, kind, ref).catch(() => false)) wakeScheduler.added()
@@ -159,13 +167,28 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
-    const runner = new TicketRunner({
+    // Created beside the runner it drives; it reads its stored state before anything can start (see below).
+    const gate: UsageGate = (usageGate = new UsageGate({
+      settings: repos.settings,
+      clock,
+      emit,
+      ...(cfg.usageRetryMs !== undefined ? { retryMs: cfg.usageRetryMs } : {}),
+      runner: {
+        pauseForUsageLimit: (runId) => runner.pauseForUsageLimit(runId),
+        releaseLimitPaused: () => runner.releaseLimitPaused(),
+        probe: () => runner.probe(),
+        limitPausedCount: () => runner.limitPausedCount(),
+        kickQueue: () => runner.kickQueue()
+      }
+    }))
+    const runner: TicketRunner = new TicketRunner({
       repos,
       worktrees,
       runtime: cfg.runtime ?? missingRuntime,
       now,
       emit,
       unattended: () => unattended?.isOn() ?? false,
+      usage: usageHooks(gate),
       pullRequests,
       processes: cfg.processes ?? new ProcessSweeper(),
       onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId)
@@ -183,6 +206,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
     })
     await worktrees.recoverPendingCleanups()
+    // Before recovery kicks the queue: a limit stored at the last quit must hold the agents back from the start.
+    await gate.load()
     await runner.markAllNotAlive()
     kickQueue = () => runner.kickQueue()
     // Holds that came due while Mainbus was closed are released before anything can start a ticket.
@@ -210,6 +235,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         await requireWorkspace()
       },
       emit,
+      limitedUntil: () => gate.limitedUntil(),
       held: () => holds.heldIds(),
       keepAwake: cfg.keepAwake ?? { start: () => {}, stop: () => {} },
       now,
@@ -442,7 +468,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit,
       workspace: () => repos.workspaces.get(),
       workspaceRequired: WORKSPACE_REQUIRED,
-      readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView }),
+      readTools: createReadTools({ repos, workspace: () => repos.workspaces.get(), board: boardView, usage: () => gate.state() }),
       proposals,
       answeredSince: (workspaceId, since) => repos.decisions.answeredSince(workspaceId, since),
       releasedSince: async (workspaceId, since) => {
@@ -485,6 +511,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return reports
       },
       wakes: repos.wakes,
+      usage: { rateLimit: (event, runId) => gate.rateLimit(event, runId), hit: (limit, runId) => gate.hit(limit, runId) },
       wakeItems: async (workspaceId, rows) => {
         const presented: { row: Wake; item: WakeItem }[] = []
         const gone: Wake[] = []
@@ -511,6 +538,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     // sweep of leftover processes: agents that were working resume, queued ones start, then unattended mode comes back.
     const recovery = runner
       .recover({ resume: cfg.runtime !== null })
+      // Timers and the reset that passed while closed: after recovery (which skips the paused agents), before the mode.
+      .then(() => (cfg.runtime !== null ? gate.start() : undefined))
       .then(() => mode.restore())
       .catch((err: unknown) => console.warn(`Mainbus could not finish restart recovery: ${err instanceof Error ? err.message : String(err)}`))
 
@@ -638,6 +667,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'unattended.get': () => mode.get(),
       'unattended.set': (on) => mode.set(on === true),
 
+      // Reached only through `invoke` (the renderer's IPC), like unattended.set.
+      'usage.get': () => gate.state(),
+      'usage.resumeNow': () => gate.resumeNow(),
+
       // Reached only through `invoke` (the renderer's IPC). Like Stop, stopping and reading need no runtime.
       'orchestrator.get': () => orchestrator.get(),
       'orchestrator.send': (text) => {
@@ -692,6 +725,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           try {
             // First, so the queue starts nothing while the agents are stopped.
             mode.dispose()
+            gate.dispose()
             holds.dispose()
             stuckDetector.dispose()
             wakeScheduler.dispose()

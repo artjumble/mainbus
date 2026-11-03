@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
-import type { Column, Decision, Phase, RoleStatus, StuckEpisode, Workspace } from '../../shared/domain'
+import type { Column, Decision, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { ordinal } from '../../shared/queue'
+import { usageBannerText } from '../../shared/usage'
 import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
@@ -16,6 +17,8 @@ export interface ReadToolDeps {
   workspace(): Promise<Workspace | null>
   /** The workspace's tickets as the board shows them: state and lineup strip. */
   board(ws: Workspace): Promise<BoardTicket[]>
+  /** Where the app stands on the usage limit; without it nothing is said about it. */
+  usage?: () => Promise<UsageState>
 }
 
 /** Agent messages, handoffs and the like are cut to this many characters. */
@@ -89,6 +92,14 @@ function queuedText(t: BoardTicket): string {
   if (t.state.agentStatus !== 'queued') return ''
   const place = t.state.queuePosition === undefined ? '' : ` (${ordinal(t.state.queuePosition)} in line)`
   return ` · queued${place}: every agent slot is in use, so its agent starts when one frees up (first in, first out)`
+}
+
+/** " · paused by the usage limit (resumes at 14:00)..." while the usage limit holds the ticket's agent, else nothing. */
+function limitText(t: BoardTicket, usage: UsageState): string {
+  if (!t.state.pausedByLimit) return ''
+  const when = usage.kind === 'limited' ? (usage.resetsAt ?? usage.retryAt) : null
+  const at = when === null ? '' : ` (${usage.kind === 'limited' && usage.resetsAt === null ? 'trying again' : 'resumes'} at ${clockTime(when)})`
+  return ` · paused by the usage limit${at}; Mainbus resumes it by itself, or the user can resume it early`
 }
 
 /** The ticket's folder; its path stays after Done, when the folder is removed. */
@@ -204,6 +215,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
 
 /** The orchestrator's read tools: plain text, scoped to the open workspace, with agent text marked as data. */
 export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandlers {
+  const usageNow = async (): Promise<UsageState> => (await deps.usage?.()) ?? { kind: 'ok' }
+
   /** The open workspace and its board, or the text to answer with instead. */
   async function board(): Promise<{ ws: Workspace; tickets: BoardTicket[] } | string> {
     const ws = await deps.workspace()
@@ -261,6 +274,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       }
       const b = await board()
       if (typeof b === 'string') return b
+      const usage = await usageNow()
       const tickets = b.tickets.filter((t) => column === undefined || t.state.column === column)
       const where = column === undefined ? '' : ` in ${COLUMNS[column as Column]}`
       if (tickets.length === 0) return `No tickets${where} in ${oneLine(b.ws.name)}.`
@@ -268,6 +282,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         (t) =>
           `- ${title(t)} · ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]} · active role: ${activeRole(t)} · labels: ${labels(t)}` +
           queuedText(t) +
+          limitText(t, usage) +
           heldText(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
       )
@@ -315,10 +330,12 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const pending = await pendingLines(t)
       const latest = await deps.repos.runs.latest(t.id)
       const stuck = latest ? await deps.repos.stuck.open(latest.id) : null
+      const usage = await usageNow()
       return [
         `${title(t)}: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}`,
         `Latest run, started ${localStamp(run.ticketRun.startedAt)} (${run.ticketRun.status}). Roles in order:\n${roles.join('\n')}`,
-        `Active role: ${activeRole(t)}${queuedText(t)}`,
+        `Active role: ${activeRole(t)}${queuedText(t)}${limitText(t, usage)}`,
+        ...(usage.kind === 'ok' ? [] : [usageBannerText(usage)]),
         pending.length ? `Pending decisions:\n${pending.join('\n')}` : 'Pending decisions: none',
         ...(stuck ? [stuckText(stuck)] : [])
       ].join('\n\n')

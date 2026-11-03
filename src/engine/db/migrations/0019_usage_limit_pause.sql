@@ -1,0 +1,1 @@
+ALTER TABLE `agent_runs` ADD `limit_paused_seq` integer;

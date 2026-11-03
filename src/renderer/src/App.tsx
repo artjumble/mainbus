@@ -8,6 +8,7 @@ import { SetupScreen } from './setup/SetupScreen'
 import { startSync, useMainbus } from './store'
 import { TicketView } from './ticket/TicketView'
 import { OpenWorkspace } from './workspace/OpenWorkspace'
+import { UsageBanner } from './UsageBanner'
 
 export function App(): ReactElement {
   const setup = useMainbus((s) => s.setup)
@@ -49,7 +50,10 @@ export function App(): ReactElement {
           </Title>
         </Group>
       </AppShell.Header>
-      <AppShell.Main>{screen()}</AppShell.Main>
+      <AppShell.Main>
+        {withPanel && <UsageBanner />}
+        {screen()}
+      </AppShell.Main>
       {withPanel && (
         <AppShell.Aside aria-label="Orchestrator">
           <OrchestratorPanel open={panelOpen} onOpenChange={onPanelOpenChange} />

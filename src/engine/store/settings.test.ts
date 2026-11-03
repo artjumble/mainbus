@@ -26,6 +26,18 @@ describe('settings repo', () => {
     expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3 })
   })
 
+  it('keeps the usage limit across a second repo, and clears it', async () => {
+    expect(await createSettingsRepo(db).usageLimit()).toBeNull()
+    await createSettingsRepo(db).setUsageLimit({ since: '2026-11-02T09:00:00.000Z', resetsAt: '2026-11-02T10:00:00.000Z' })
+    expect(await createSettingsRepo(db).usageLimit()).toEqual({ since: '2026-11-02T09:00:00.000Z', resetsAt: '2026-11-02T10:00:00.000Z' })
+    await createSettingsRepo(db).setUsageLimit({ since: '2026-11-02T09:00:00.000Z', resetsAt: null })
+    expect(await createSettingsRepo(db).usageLimit()).toEqual({ since: '2026-11-02T09:00:00.000Z', resetsAt: null })
+    await createSettingsRepo(db).setUsageLimit(null)
+    expect(await createSettingsRepo(db).usageLimit()).toBeNull()
+    // The agent cap is untouched.
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3 })
+  })
+
   it('accepts both ends of the range', async () => {
     await createSettingsRepo(db).setMaxAgents(10)
     expect((await createSettingsRepo(db).get()).maxAgents).toBe(10)
