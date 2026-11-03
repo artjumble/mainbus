@@ -401,7 +401,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           </Text>
         )
       }
-      return decision.kind === 'permission' ? <PermissionCard decision={decision} /> : <DecisionCard decision={decision} />
+      return decision.kind === 'permission' ? <PermissionCard decision={decision} /> : <DecisionCard decision={decision} role={lookup.role} />
     }
     case 'proposal':
       return lookup.proposal ? (

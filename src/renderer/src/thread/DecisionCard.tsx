@@ -25,13 +25,13 @@ export async function sendAnswer(decision: Decision, answer: DecisionAnswer, via
 /**
  * The options of a question, with the recommended one marked, an optional note and the Answer button. The
  * thread card and the board card's popover both show it; `via` says which one this is. A pending one also offers
- * Later…; `onAnswered` is called once it is answered or put off.
+ * Later…; `onAnswered` is called once it is answered (with the option's text) or put off (with nothing).
  */
 export function QuestionForm({
   decision,
   via,
   onAnswered
-}: Props & { via: AnsweredVia; onAnswered?: () => void }): ReactElement {
+}: Props & { via: AnsweredVia; onAnswered?: (option?: string) => void }): ReactElement {
   const [choice, setChoice] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
@@ -42,7 +42,7 @@ export function QuestionForm({
     const trimmed = note.trim()
     const sent = await sendAnswer(decision, { kind: 'option', index: Number(choice), ...(trimmed ? { note: trimmed } : {}) }, via)
     setSending(false)
-    if (sent) onAnswered?.()
+    if (sent) onAnswered?.(decision.options[Number(choice)])
   }
 
   return (
@@ -68,7 +68,8 @@ export function QuestionForm({
         </Stack>
       </Radio.Group>
       <Textarea
-        label="Note (optional)"
+        label="Note to agent (optional)"
+        placeholder="Anything it should know"
         autosize
         minRows={1}
         maxRows={4}
@@ -76,7 +77,7 @@ export function QuestionForm({
         onChange={(e) => setNote(e.currentTarget.value)}
       />
       <Group gap="xs">
-        <Button w="fit-content" disabled={choice === null} loading={sending} onClick={() => void submit()}>
+        <Button flex={1} disabled={choice === null} loading={sending} onClick={() => void submit()}>
           Answer
         </Button>
         {decision.status === 'pending' && <LaterMenu decision={decision} onDeferred={onAnswered} />}
@@ -86,10 +87,16 @@ export function QuestionForm({
 }
 
 /** A question from the agent, inline in the thread: pick an option, add a note, answer. */
-export function DecisionCard({ decision }: Props): ReactElement {
+export function DecisionCard({ decision, role }: Props & { role?: string }): ReactElement {
+  const open = decision.status === 'pending' || decision.status === 'deferred'
   return (
-    <Paper withBorder p="sm" radius="md" data-event="decision" bg="var(--mantine-color-needs-0)">
+    <Paper withBorder p="sm" radius="md" data-event="decision" bd={open ? '1px solid var(--mantine-color-needs-6)' : undefined}>
       <Stack gap="xs">
+        {open && (
+          <Text size="xs" fw={700} c="needs.7">
+            {`◆ ${role ?? 'The agent'} is waiting on you`}
+          </Text>
+        )}
         <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
           {decision.question}
         </Text>

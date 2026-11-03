@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactElement } from 'react'
 import type { Decision } from '../../../shared/domain'
 import { shortDay } from '../../../shared/hold'
 import { invoke } from '../api'
+import { phaseLabel } from '../board/TicketCard'
 import { asOwnChange } from '../board/ownChanges'
 import { useMainbus, type BoardTicket } from '../store'
 import { QuestionForm } from '../thread/DecisionCard'
@@ -28,12 +29,20 @@ function deferredOn(tickets: BoardTicket[]): Waiting[] {
     .sort((a, b) => (a.decision.deferredUntil ?? '').localeCompare(b.decision.deferredUntil ?? ''))
 }
 
-function Controls({ decision }: { decision: Decision }): ReactElement {
+function Controls({ decision, onAnswered }: { decision: Decision; onAnswered?: (option?: string) => void }): ReactElement {
   return decision.kind === 'permission' ? (
-    <PermissionChoices decision={decision} via="orchestrator" />
+    <PermissionChoices decision={decision} via="orchestrator" onAnswered={onAnswered} />
   ) : (
-    <QuestionForm decision={decision} via="orchestrator" />
+    <QuestionForm decision={decision} via="orchestrator" onAnswered={onAnswered} />
   )
+}
+
+/** A decision answered from the panel, kept for this session so the panel can say where the ticket went. */
+interface Receipt {
+  id: string
+  ticketId: string
+  title: string
+  option: string
 }
 
 function TicketLine({ ticket, openTicket }: { ticket: BoardTicket; openTicket: (id: string) => void }): ReactElement {
@@ -65,10 +74,18 @@ async function bringBack(decision: Decision): Promise<void> {
 export function WaitingOnYou(): ReactElement | null {
   const tickets = useMainbus((s) => s.tickets)
   const openTicket = useMainbus((s) => s.openTicket)
+  const workspaceName = useMainbus((s) => s.workspace?.name ?? '')
   const [showDeferred, setShowDeferred] = useState(false)
+  const [receipts, setReceipts] = useState<Receipt[]>([])
   const waiting = useMemo(() => waitingOn(tickets), [tickets])
   const deferred = useMemo(() => deferredOn(tickets), [tickets])
-  if (waiting.length === 0 && deferred.length === 0) return null
+  if (waiting.length === 0 && deferred.length === 0 && receipts.length === 0) return null
+
+  // A put-off decision calls this with no option; only an answer leaves a receipt.
+  const answered = (ticket: BoardTicket, decision: Decision) => (option?: string) => {
+    if (option === undefined) return
+    setReceipts((rs) => [...rs, { id: decision.id, ticketId: ticket.id, title: ticket.title, option }].slice(-3))
+  }
 
   return (
     <Box
@@ -77,6 +94,19 @@ export function WaitingOnYou(): ReactElement | null {
       mah="45%"
       style={{ overflowY: 'auto', flexShrink: 0, borderBottom: '1px solid var(--mantine-color-default-border)' }}
     >
+      {receipts.length > 0 && (
+        <Stack gap={4} mb={waiting.length > 0 || deferred.length > 0 ? 'xs' : 0} role="status">
+          {receipts.map((r) => {
+            // The ticket's live phase: where the answer took it.
+            const phase = tickets.find((t) => t.id === r.ticketId)?.state.phase
+            return (
+              <Text key={r.id} size="sm" data-receipt>
+                {`✓ Answered: ${r.option}. ${r.title}${phase ? ` is back in ${phaseLabel(phase)}.` : ''}`}
+              </Text>
+            )
+          })}
+        </Stack>
+      )}
       {waiting.length > 0 && (
         <Box role="region" aria-label="Waiting on you">
           <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>
@@ -84,13 +114,28 @@ export function WaitingOnYou(): ReactElement | null {
           </Text>
           <Stack gap="xs">
             {waiting.map(({ ticket, decision }) => (
-              <Paper key={decision.id} withBorder p="sm" radius="md" data-event="waiting-decision" bg="var(--mantine-color-needs-0)">
+              <Paper
+                key={decision.id}
+                withBorder
+                p="sm"
+                radius="md"
+                data-event="waiting-decision"
+                bd="1px solid var(--mantine-color-needs-6)"
+              >
                 <Stack gap="xs">
-                  <TicketLine ticket={ticket} openTicket={openTicket} />
+                  <Text size="xs" fw={700} c="needs.7">
+                    {`◆ ${ticket.title}${workspaceName ? ` · ${workspaceName}` : ''}`}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {`#${ticket.number}${ticket.lineup.find((r) => r.active)?.name ? ` · ${ticket.lineup.find((r) => r.active)!.name}` : ''}`}
+                  </Text>
                   <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
                     {decision.question}
                   </Text>
-                  <Controls decision={decision} />
+                  <Controls decision={decision} onAnswered={answered(ticket, decision)} />
+                  <Anchor component="button" type="button" size="xs" ta="left" onClick={() => openTicket(ticket.id)}>
+                    Open ticket for full context
+                  </Anchor>
                 </Stack>
               </Paper>
             ))}

@@ -22,7 +22,7 @@ export function PermissionChoices({
   decision,
   via,
   onAnswered
-}: Props & { via: AnsweredVia; onAnswered?: () => void }): ReactElement {
+}: Props & { via: AnsweredVia; onAnswered?: (option?: string) => void }): ReactElement {
   const [sending, setSending] = useState(false)
 
   async function choose(choice: Choice): Promise<void> {
@@ -30,7 +30,7 @@ export function PermissionChoices({
     setSending(true)
     const sent = await sendAnswer(decision, { kind: 'permission', choice }, via)
     setSending(false)
-    if (sent) onAnswered?.()
+    if (sent) onAnswered?.(PERMISSION_ANSWERS[choice])
   }
 
   return (
