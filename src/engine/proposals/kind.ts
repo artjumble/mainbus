@@ -55,6 +55,12 @@ export interface ExecContext {
     expect: { agentRunId: string },
     request: { model: string; effort: Effort; extraInstructions: string | null; proposalId: string; suggestedBy: 'orchestrator' | 'user' }
   ): Promise<void>
+  /** Why the Investigate ticket's report can't be promoted now, or null when it can. */
+  whyNotPromotable(ticket: Ticket): Promise<string | null>
+  /** The spec for promoting the ticket's report: drafted from it, or the report itself (`drafted` false). */
+  draftPromotionSpec(ticket: Ticket): Promise<{ spec: string; drafted: boolean }>
+  /** The same path as the ticket view's Promote: the new Change ticket in Ready; the original moves to Done. */
+  promoteTicket(ticketId: string, fields: { title: string; spec: string }): Promise<Ticket>
   /** A decision and its ticket, or null when there is none. */
   decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>
   /** The shared answer path (the board's and the thread's too), from the orchestrator panel; refuses a decision already answered. */

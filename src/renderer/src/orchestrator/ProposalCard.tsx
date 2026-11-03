@@ -8,6 +8,7 @@ import { createTicketsView } from './CreateTicketsProposal'
 import { holdView } from './HoldProposal'
 import type { ProposalView } from './proposalView'
 import { pauseView, skipView, stopView } from './RoleControlProposal'
+import { promoteView } from './PromoteProposal'
 import { redirectView } from './RedirectProposal'
 import { replaceView } from './ReplaceProposal'
 import { startLineupView } from './StartLineupProposal'
@@ -22,7 +23,8 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   hold: holdView,
   answer: answerView,
   redirect: redirectView,
-  replace: replaceView
+  replace: replaceView,
+  promote: promoteView
 }
 
 interface Props {

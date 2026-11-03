@@ -24,6 +24,14 @@ export interface TicketRepo {
   /** Records the ticket's pull request and clears any earlier failure. */
   setPr(id: string, pr: PullRequest): Promise<Ticket>
   setPrError(id: string, error: string | null): Promise<Ticket>
+  /**
+   * Promotes an Investigate ticket: inserts a Change ticket in Ready carrying the original's intent exactly (every
+   * entry, with its timestamp and source), its labels and its report, with `promotedFrom` set. Moving the original
+   * is not done here.
+   */
+  createPromoted(original: Ticket, fields: { title: string; spec: string }): Promise<Ticket>
+  /** The ticket promoted from this one, or null. */
+  promotedTo(id: string): Promise<Ticket | null>
   /** Saves the report an Investigate ticket's last role submitted. */
   setReport(id: string, markdown: string): Promise<Ticket>
   /**
@@ -52,6 +60,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     pr: row.prUrl !== null && row.prNumber !== null ? { url: row.prUrl, number: row.prNumber } : null,
     prError: row.prError,
     report: row.report,
+    promotedFrom: row.promotedFrom,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -104,6 +113,28 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     return [ticket, db.insert(criteria).values(input.criteria.map((text, position) => ({ ticketId: id, position, text, checked: false })))]
   }
 
+  async function createPromoted(original: Ticket, fields: { title: string; spec: string }): Promise<Ticket> {
+    const id = randomUUID()
+    const at = now().toISOString()
+    await db.insert(tickets).values({
+      id,
+      workspaceId: original.workspaceId,
+      // One statement, so the number is allocated atomically with the insert.
+      number: sql`(select coalesce(max(${tickets.number}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${original.workspaceId})`,
+      kind: 'change',
+      title: fields.title,
+      intent: JSON.stringify(original.intent),
+      spec: fields.spec,
+      labels: JSON.stringify(original.labels),
+      manualColumn: 'ready',
+      report: original.report,
+      promotedFrom: original.id,
+      createdAt: at,
+      updatedAt: at
+    })
+    return get(id)
+  }
+
   async function createMany(inputs: NewTicketInput[], alsoInBatch?: (ids: string[]) => BatchItem<'sqlite'>[]): Promise<Ticket[]> {
     if (inputs.length === 0) return []
     const ids = inputs.map(() => randomUUID())
@@ -119,6 +150,13 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     },
 
     createMany,
+
+    createPromoted,
+
+    async promotedTo(id) {
+      const [row] = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.promotedFrom, id))
+      return row ? get(row.id) : null
+    },
 
     get,
 

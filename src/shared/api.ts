@@ -90,6 +90,16 @@ export interface EngineCommands {
   'ticket.hold'(id: string, opts?: HoldOptions): Hold
   /** Releases the ticket's hold; nothing happens when it has none. */
   'ticket.unhold'(id: string): void
+  /**
+   * The title and spec the Promote dialog starts with for an Investigate ticket's report: the ticket's title and a
+   * spec drafted from the report (`drafted`), or the report itself when that failed. Refuses a ticket that can't be promoted.
+   */
+  'ticket.draftPromotion'(id: string): { title: string; spec: string; drafted: boolean }
+  /**
+   * Promotes the Investigate ticket's report: a new Change ticket in Ready with the same intent, this title and
+   * spec, and the report attached; the original moves to Done. Changes nothing if the original can't move to Done.
+   */
+  'ticket.promote'(id: string, fields: { title: string; spec: string }): Ticket
   /** Retry: pushes the branch of a ticket in Review again and opens its PR if it has none. Never forces. */
   'ticket.openPr'(id: string): void
   /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */

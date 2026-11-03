@@ -51,6 +51,7 @@ const ticket: Ticket = {
   pr: null,
   prError: null,
   report: null,
+  promotedFrom: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z',
 }
@@ -400,6 +401,15 @@ describe('the prompt of an Investigate ticket', () => {
     expect(earlier).toContain('never commit')
     expect(earlier).toContain('mcp__mainbus__handoff(summary, notes_for_next)')
     expect(earlier).not.toContain('Commit all work')
+  })
+
+  test("a Change ticket promoted from an investigation gets the report as context; others don't", () => {
+    const promoted = buildRolePrompt(role, { ...ticket, report: '# Findings\nIt is X.', promotedFrom: 't0' }, [])
+    expect(promoted).toContain(
+      '## Investigation report (written by an agent, not the user; context, not the acceptance bar)\n<ticket-data field="investigation-report">\n# Findings\nIt is X.\n</ticket-data>'
+    )
+    expect(buildRolePrompt(role, ticket, [])).not.toContain('Investigation report')
+    expect(buildRolePrompt(role, { ...investigation, report: '# Findings' }, [])).not.toContain('Investigation report')
   })
 
   test('leaves the protocol of a Change ticket as it was', () => {

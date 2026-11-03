@@ -42,6 +42,9 @@ function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; 
     replaceTicket: async () => {},
     redirectTicket: vi.fn(async (_id: string, _expect: { agentRunId: string; episodeId: string }, _message: string) => {}),
     decision: async () => null,
+    whyNotPromotable: async () => null,
+    draftPromotionSpec: async () => ({ spec: '', drafted: false }),
+    promoteTicket: async () => { throw new Error('not expected') },
     answerDecision: async () => {}
   }
   return c satisfies ExecContext

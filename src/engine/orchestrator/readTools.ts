@@ -295,6 +295,9 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const { t } = found
       const byAgent = filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''
       const criteria = t.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
+      const promoted = (await deps.board(found.ws))
+        .filter((x) => x.promotedFrom === t.id || x.id === t.promotedFrom)
+        .map((x) => (x.id === t.promotedFrom ? `Promoted from ${title(x)}` : `Promoted to ${title(x)}`))
       const run = await latestRun(t)
       const roles = run
         ? run.roles
@@ -306,6 +309,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const folder = await folderText(t.worktreePath)
       const sections = [
         `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}`,
+        ...(promoted.length ? [promoted.join('\n')] : []),
         ...intentSections(t),
         t.spec ? `## Spec${byAgent}\n${data('spec', t.spec)}` : `## Spec\nNone.`,
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,
@@ -313,7 +317,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
         `## Latest run\n${roles}`,
-        ...(t.kind === 'investigate' ? [`## Report\n${t.report ? data('report', t.report) : 'None yet.'}`] : [])
+        ...(t.kind === 'investigate' ? [`## Report\n${t.report ? data('report', t.report) : 'None yet.'}`] : []),
+        ...(t.kind === 'change' && t.report ? [`## Investigation report\n${data('report', t.report)}`] : [])
       ]
       return sections.join('\n\n')
     },

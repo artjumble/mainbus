@@ -72,7 +72,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_hold',
   'mcp__mainbus__propose_answer',
   'mcp__mainbus__propose_redirect',
-  'mcp__mainbus__propose_replace'
+  'mcp__mainbus__propose_replace',
+  'mcp__mainbus__propose_promote'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -687,6 +688,16 @@ export class SdkRuntime implements AgentRuntime {
             evidence: z.string().describe('What you read that shows the redirect did not help, shown to the user')
           },
           async (a) => toolText(await t.proposeReplace(a))
+        ),
+        sdk.tool(
+          'propose_promote',
+          "Propose promoting an Investigate ticket's report into a Change ticket: a new Change ticket in Ready that carries the report, with the original's intent, while the Investigate ticket moves to Done. Only for an Investigate ticket in Review or Done that has a report (get_ticket shows it); it is refused otherwise. Leave the title and spec out to use the ticket's title and a spec drafted from the report. The user confirms, edits the title and spec, or rejects it; nothing changes until then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The Investigate ticket number'),
+            title: z.string().optional().describe("The new Change ticket's title; the Investigate ticket's by default"),
+            spec: z.string().optional().describe("The new ticket's spec: what to change and how to verify it, using only what the report says; drafted from the report by default")
+          },
+          async (a) => toolText(await t.proposePromote(a))
         )
       ]
     })

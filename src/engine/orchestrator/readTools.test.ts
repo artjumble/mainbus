@@ -190,6 +190,18 @@ describe('get_ticket', () => {
     )
   })
 
+  test('links a promoted investigation and the Change ticket made from it, with the report', async () => {
+    const investigation = await ticket({ kind: 'investigate', title: 'Why slow' })
+    await repos.tickets.setReport(investigation.id, '# Findings')
+    const change = await repos.tickets.createPromoted(await repos.tickets.get(investigation.id), { title: 'Fix it', spec: 'Do X' })
+    const from = await tools.getTicket({ number: investigation.number })
+    expect(from).toContain(`Promoted to #${change.number} <ticket-data field="title">Fix it</ticket-data>`)
+    const to = await tools.getTicket({ number: change.number })
+    expect(to).toContain(`Promoted from #${investigation.number} <ticket-data field="title">Why slow</ticket-data>`)
+    expect(to).toContain('## Investigation report\n<ticket-data field="report">\n# Findings\n</ticket-data>')
+    expect(from).not.toContain('Promoted from')
+  })
+
   test('says when a ticket has not started, and when there is no such ticket', async () => {
     await ticket()
     expect(await tools.getTicket({ number: 1 })).toContain('## Latest run\nNot started.')

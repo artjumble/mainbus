@@ -74,6 +74,7 @@ describe('ticket repo', () => {
       pr: null,
       prError: null,
       report: null,
+      promotedFrom: null,
       createdAt: FIXED_NOW.toISOString(),
       updatedAt: FIXED_NOW.toISOString()
     })
@@ -231,6 +232,38 @@ describe('ticket repo', () => {
     expect(await repo.checkCriterion(t.id, 2)).toBeNull()
     expect(await repo.checkCriterion(t.id, -1)).toBeNull()
     expect(await repo.checkCriterion('missing', 0)).toBeNull()
+  })
+
+  it('createPromoted copies the intent exactly, the report and labels, into a Ready Change ticket linked to the original', async () => {
+    const repo = createTicketRepo(db, now)
+    const original = await repo.create(input({ kind: 'investigate', column: 'ready', source: { agent: 'Claude Code' } as never, criteria: ['c'], labels: ['perf'] }))
+    clock = new Date('2026-11-01T00:00:00.000Z')
+    await repo.appendIntent(original.id, 'Later words')
+    await repo.setReport(original.id, '# Findings')
+    const source = await repo.get(original.id)
+
+    clock = new Date('2026-11-02T00:00:00.000Z')
+    const promoted = await repo.createPromoted(source, { title: 'Fix it', spec: 'Do X' })
+    expect(promoted).toMatchObject({
+      kind: 'change',
+      title: 'Fix it',
+      spec: 'Do X',
+      manualColumn: 'ready',
+      report: '# Findings',
+      promotedFrom: original.id,
+      labels: ['perf'],
+      criteria: [],
+      number: source.number + 1,
+      createdAt: '2026-11-02T00:00:00.000Z'
+    })
+    expect(promoted.intent).toEqual(source.intent)
+    expect(promoted.intent).toHaveLength(2)
+    expect(promoted.intent[1]!.at).toBe('2026-11-01T00:00:00.000Z')
+    expect(source.promotedFrom).toBeNull()
+
+    expect(await repo.promotedTo(original.id)).toEqual(promoted)
+    expect(await repo.promotedTo(promoted.id)).toBeNull()
+    expect((await repo.get(promoted.id)).promotedFrom).toBe(original.id)
   })
 
   it('throws for an unknown ticket', async () => {

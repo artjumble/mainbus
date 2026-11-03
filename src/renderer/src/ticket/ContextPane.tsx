@@ -8,6 +8,7 @@ import { AgentBadge } from '../board/AgentBadge'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { PERMISSION_ANSWERS } from '../thread/PermissionCard'
+import { AgentText } from '../thread/Thread'
 
 interface Props {
   ticket: BoardTicket
@@ -21,8 +22,10 @@ interface Props {
 export function ContextPane({ ticket, events, decisions, onViewRun }: Props): ReactElement {
   return (
     <Stack gap="lg" p="md">
+      <Promotion ticket={ticket} />
       <YourWords ticket={ticket} />
       <Spec ticket={ticket} />
+      <InvestigationReport ticket={ticket} />
       <Criteria ticket={ticket} />
       <Labels labels={ticket.labels} />
       <Branch branch={ticket.branch} />
@@ -113,6 +116,41 @@ function YourWords({ ticket }: { ticket: BoardTicket }): ReactElement {
         </Stack>
       </Section>
     </>
+  )
+}
+
+/** The link between an Investigate ticket and the Change ticket promoted from its report, from either side. */
+function Promotion({ ticket }: { ticket: BoardTicket }): ReactElement | null {
+  const tickets = useMainbus((s) => s.tickets)
+  const openTicket = useMainbus((s) => s.openTicket)
+  const from = ticket.promotedFrom === null ? undefined : tickets.find((t) => t.id === ticket.promotedFrom)
+  const to = tickets.find((t) => t.promotedFrom === ticket.id)
+  const link = (label: string, other: BoardTicket) => (
+    <Text size="sm">
+      {`${label} `}
+      <Anchor component="button" type="button" size="sm" onClick={() => openTicket(other.id)}>
+        {`#${other.number} ${other.title}`}
+      </Anchor>
+    </Text>
+  )
+  if (!from && !to) return null
+  return (
+    <Section title="Promotion">
+      <Stack gap={2}>
+        {from && link('Promoted from', from)}
+        {to && link('Promoted to', to)}
+      </Stack>
+    </Section>
+  )
+}
+
+/** The report the Change ticket was promoted from; the agents get it too. */
+function InvestigationReport({ ticket }: { ticket: BoardTicket }): ReactElement | null {
+  if (ticket.kind !== 'change' || !ticket.report) return null
+  return (
+    <Section title="Investigation report">
+      <AgentText text={ticket.report} />
+    </Section>
   )
 }
 

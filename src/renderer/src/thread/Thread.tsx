@@ -493,7 +493,7 @@ function HandoffDivider({
 }
 
 /** Agent text is untrusted: markdown without raw HTML, no remote images, and links that open in the system browser. */
-function AgentText({ text }: { text: string }): ReactElement {
+export function AgentText({ text }: { text: string }): ReactElement {
   return (
     <Typography fz="sm">
       <Markdown
