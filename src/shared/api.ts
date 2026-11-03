@@ -3,6 +3,7 @@
 import type {
   AgentLauncher,
   AllowRule,
+  AppSettings,
   AnsweredVia,
   ClaudeSetup,
   Decision,
@@ -127,6 +128,13 @@ export interface EngineCommands {
   'allowRules.remove'(id: string): void
   /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */
   'agents.launcher'(): AgentLauncher | null
+  /** The app's global settings. */
+  'settings.get'(): AppSettings
+  /**
+   * "Agents running at once": a whole number from 1 to 10. Lowering it stops no running agent; new starts queue until
+   * fewer are running than the new number. Only the renderer can reach it.
+   */
+  'settings.setMaxAgents'(n: number): AppSettings
   /**
    * Unattended mode: works through Ready one ticket at a time. Only the renderer can reach these: the agent
    * intake (pipe, CLI, MCP) has no way to switch it on. It is off whenever the app starts.

@@ -56,6 +56,17 @@ test('a role the user paused shows a Paused chip beside the phase; another pause
   expect(screen.queryByText('Paused')).not.toBeInTheDocument()
 })
 
+test('a queued agent shows a Queued chip with its place beside the phase, in progress with the phase unchanged', () => {
+  const queued = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'queued', queuePosition: 2 })
+  const { unmount } = renderWithMantine(<TicketCard ticket={queued} onOpen={() => {}} />)
+  expect(screen.getByText('Implementing')).toBeInTheDocument()
+  expect(screen.getByText('Queued · 2nd')).toBeInTheDocument()
+  unmount()
+  const working = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'working' })
+  renderWithMantine(<TicketCard ticket={working} onOpen={() => {}} />)
+  expect(screen.queryByText(/Queued/)).not.toBeInTheDocument()
+})
+
 test('the summary shows only for a Needs you card', () => {
   const needsYou = makeTicket({}, { column: 'needs_you', phase: 'waiting_on_you', summary: 'Which database?' })
   const review = makeTicket({}, { column: 'review', phase: 'ready_for_review', summary: 'Should stay hidden' })

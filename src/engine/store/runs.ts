@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { DeclaredWait, LineupRole } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { Db } from '../db/open'
@@ -45,6 +45,10 @@ export type AgentRunRow = {
   replacedBy: string | null
   /** The handoff summary generated from this run's log when it was replaced, or null. */
   handoffSummary: string | null
+  /** Its place in the queue for a slot (smaller starts first); null when the run is not queued. */
+  queuedSeq: number | null
+  /** The message a queued run starts with once it gets a slot; null when it is not queued. */
+  queuedPrompt: string | null
 }
 
 /** How a run ends when the user skipped its role. */
@@ -111,6 +115,15 @@ export interface RunRepo {
   listForTicketRun(ticketRunId: string): Promise<AgentRunRow[]>
   /** Every run that has not ended, oldest first. */
   listOpen(): Promise<AgentRunRow[]>
+  /**
+   * Puts an open run in the queue for a slot, at the back, with the message it starts with. A run already queued keeps
+   * its place, and the message is added to the one it has.
+   */
+  enqueue(runId: string, prompt: string): Promise<void>
+  /** Takes the run out of the queue; nothing happens when it is not in it. */
+  dequeue(runId: string): Promise<void>
+  /** The open runs waiting for a slot, first in first out. */
+  queued(): Promise<AgentRunRow[]>
   ticketRun(ticketRunId: string): Promise<TicketRunRow>
   setSession(runId: string, sessionId: string): Promise<void>
   /** Records the run's `claude` process (or, with null, that nothing of it is left to sweep). */
@@ -148,13 +161,18 @@ const runColumns = {
   effort: agentRuns.effort,
   extraInstructions: agentRuns.extraInstructions,
   replacedBy: agentRuns.replacedBy,
-  handoffSummary: agentRuns.handoffSummary
+  handoffSummary: agentRuns.handoffSummary,
+  queuedSeq: agentRuns.queuedSeq,
+  queuedPrompt: agentRuns.queuedPrompt
 }
 
 /** A selected run with its declared wait (stored as JSON) parsed. */
 function toRun(row: Omit<AgentRunRow, 'declaredWait'> & { declaredWait: string | null }): AgentRunRow {
   return { ...row, declaredWait: row.declaredWait === null ? null : (JSON.parse(row.declaredWait) as DeclaredWait) }
 }
+
+/** What an ending run sets so it leaves the queue. */
+const NOT_QUEUED = { queuedSeq: null, queuedPrompt: null } as const
 
 const TICKET_RUN_END: Record<EndingReason, TicketRunStatus> = { handoff: 'done', stopped: 'stopped', failed: 'failed' }
 
@@ -214,7 +232,7 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
     if (inserted.length === 0) return null
     await db
       .update(agentRuns)
-      .set({ endReason: reason, endedAt: now().toISOString(), declaredWait: null, ...(skipped ? { skipped: true } : {}) })
+      .set({ endReason: reason, endedAt: now().toISOString(), declaredWait: null, ...NOT_QUEUED, ...(skipped ? { skipped: true } : {}) })
       .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
     await closeEpisode(prevRunId)
     return get(v.id)
@@ -264,7 +282,7 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       if (inserted.length === 0) return null
       await db
         .update(agentRuns)
-        .set({ endReason: 'replaced', endedAt: now().toISOString(), declaredWait: null, replacedBy: id, handoffSummary: opts.handoffSummary })
+        .set({ endReason: 'replaced', endedAt: now().toISOString(), declaredWait: null, ...NOT_QUEUED, replacedBy: id, handoffSummary: opts.handoffSummary })
         .where(and(eq(agentRuns.id, prevRunId), isNull(agentRuns.endReason)))
       await closeEpisode(prevRunId)
       return get(id)
@@ -321,6 +339,30 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       return rows.map(toRun)
     },
 
+    async enqueue(runId, prompt) {
+      // The next place is computed inside the update, so two runs queued at once can't take the same one.
+      await db
+        .update(agentRuns)
+        .set({
+          queuedSeq: sql`coalesce(${agentRuns.queuedSeq}, (select coalesce(max(queued_seq), 0) + 1 from agent_runs))`,
+          queuedPrompt: sql`case when ${agentRuns.queuedSeq} is null then ${prompt} else coalesce(${agentRuns.queuedPrompt}, '') || char(10) || char(10) || ${prompt} end`
+        })
+        .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason)))
+    },
+
+    async dequeue(runId) {
+      await db.update(agentRuns).set(NOT_QUEUED).where(eq(agentRuns.id, runId))
+    },
+
+    async queued() {
+      const rows = await db
+        .select(runColumns)
+        .from(agentRuns)
+        .where(and(isNull(agentRuns.endReason), isNotNull(agentRuns.queuedSeq)))
+        .orderBy(asc(agentRuns.queuedSeq))
+      return rows.map(toRun)
+    },
+
     async ticketRun(ticketRunId) {
       const [row] = await db.select().from(ticketRuns).where(eq(ticketRuns.id, ticketRunId))
       if (!row) throw new Error(`Ticket run not found: ${ticketRunId}`)
@@ -347,7 +389,7 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
       // The open-run check is part of the UPDATE, so of two concurrent enders only one wins.
       const [ended] = await db
         .update(agentRuns)
-        .set({ endReason: reason, endedAt, declaredWait: null, ...(opts?.skipped ? { skipped: true } : {}) })
+        .set({ endReason: reason, endedAt, declaredWait: null, ...NOT_QUEUED, ...(opts?.skipped ? { skipped: true } : {}) })
         .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason)))
         .returning({ ticketRunId: agentRuns.ticketRunId })
       if (!ended) return false

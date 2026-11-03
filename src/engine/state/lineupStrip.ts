@@ -10,6 +10,8 @@ export interface StripInput {
   latestRunId: string | null
   /** The ticket's agent status, which the latest run's open role takes. */
   agentStatus: AgentStatus | null
+  /** The latest run's place in the queue for a slot, when it is queued. */
+  queuePosition?: number
 }
 
 const ENDED: Record<NonNullable<AgentRunRow['endReason']>, RoleStatus> = {
@@ -27,7 +29,7 @@ const ENDED: Record<NonNullable<AgentRunRow['endReason']>, RoleStatus> = {
  * agent run, while open, is active; it takes the ticket's agent status. Another open run is one handing off
  * right now (the next role's run exists before the previous one ends), so it counts as handed off.
  */
-export function lineupStrip({ roles, runs, latestRunId, agentStatus }: StripInput): StripRole[] {
+export function lineupStrip({ roles, runs, latestRunId, agentStatus, queuePosition }: StripInput): StripRole[] {
   return roles.map((role) => {
     const run = runs.findLast((r) => r.roleId === role.id)
     const active = run !== undefined && run.id === latestRunId && run.endReason === null
@@ -37,12 +39,13 @@ export function lineupStrip({ roles, runs, latestRunId, agentStatus }: StripInpu
     else if (active) status = openStatus(agentStatus)
     else status = 'handed_off'
     const replacements = runs.filter((r) => r.roleId === role.id && r.endReason === 'replaced').length
-    return { id: role.id, name: role.name, status, active, replacements }
+    return { id: role.id, name: role.name, status, active, replacements, ...(status === 'queued' && queuePosition !== undefined ? { queuePosition } : {}) }
   })
 }
 
 function openStatus(agentStatus: AgentStatus | null): RoleStatus {
-  if (agentStatus === 'working' || agentStatus === 'queued') return 'working'
+  if (agentStatus === 'queued') return 'queued'
+  if (agentStatus === 'working') return 'working'
   if (agentStatus === 'waiting_on_you') return 'waiting_on_you'
   return 'paused'
 }

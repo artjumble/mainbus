@@ -7,6 +7,7 @@ import { createLineupRepo, type LineupRepo } from './lineups'
 import { createOrchestratorRepo, type OrchestratorRepo } from './orchestrator'
 import { createProposalRepo, type ProposalRepo } from './proposals'
 import { createRunRepo, type RunRepo } from './runs'
+import { createSettingsRepo, type SettingsRepo } from './settings'
 import { createStuckRepo, type StuckRepo } from './stuck'
 import { createTicketRepo, type TicketRepo } from './tickets'
 import { createWakeRepo, type WakeRepo } from './wakes'
@@ -25,6 +26,7 @@ export interface Repos {
   holds: HoldRepo
   stuck: StuckRepo
   wakes: WakeRepo
+  settings: SettingsRepo
 }
 
 export function createRepos(db: Db, now: () => Date): Repos {
@@ -40,6 +42,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     proposals: createProposalRepo(db, now),
     holds: createHoldRepo(db, now),
     stuck: createStuckRepo(db, now),
-    wakes: createWakeRepo(db, now)
+    wakes: createWakeRepo(db, now),
+    settings: createSettingsRepo(db)
   }
 }

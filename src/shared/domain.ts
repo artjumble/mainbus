@@ -21,6 +21,17 @@ export type AgentStatus =
   | 'failed'
   | 'replaced'
 
+/** The number of role agents that may run at once: its bounds and its default. */
+export const AGENT_CAP_MIN = 1
+export const AGENT_CAP_MAX = 10
+export const AGENT_CAP_DEFAULT = 3
+
+/** The app's global settings. */
+export interface AppSettings {
+  /** How many role agents may run at once; the orchestrator doesn't count. */
+  maxAgents: number
+}
+
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface Workspace {
@@ -172,10 +183,12 @@ export interface TicketState {
   pausedByUser: boolean
   /** The earliest date a deferred decision of the ticket comes back; null when none is deferred (or one is pending). */
   deferredUntil: string | null
+  /** Only while the agent is Queued: its place in the queue for a slot, 1 first. */
+  queuePosition?: number
 }
 
 /** Where one role of a ticket run stands. `stopped` is a role whose run the user stopped. */
-export type RoleStatus = 'not_started' | 'working' | 'waiting_on_you' | 'handed_off' | 'paused' | 'failed' | 'stopped'
+export type RoleStatus = 'not_started' | 'queued' | 'working' | 'waiting_on_you' | 'handed_off' | 'paused' | 'failed' | 'stopped'
 
 /** One role in the ticket view's lineup strip. */
 export interface StripRole {
@@ -187,6 +200,8 @@ export interface StripRole {
   active: boolean
   /** How many of the role's agents were replaced in this ticket run. */
   replacements: number
+  /** Only while the role is Queued: its place in the queue for a slot, 1 first. */
+  queuePosition?: number
 }
 
 export type NewTicketInput = {

@@ -14,13 +14,15 @@ export interface StateInput {
   /** Only deferred decisions (Later…); defaults to none. */
   deferredDecisions?: Decision[]
   processAlive: boolean
+  /** The run is in the queue for a free agent slot, at this place (1 first); null or left out when it is not queued. */
+  queuePosition?: number | null
   activePhase: Phase
 }
 
 /**
  * Derives a ticket's board column, phase and agent status from its manual column,
  * its latest run, and the decisions still waiting on the user.
- * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, paused, working.
+ * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, queued, paused, working.
  */
 export function currentState(input: StateInput): TicketState {
   const { ticket, run, pendingDecisions, processAlive, activePhase } = input
@@ -67,6 +69,10 @@ export function currentState(input: StateInput): TicketState {
   if (run.endReason === null && pausedByUser(run.events)) {
     // Paused at once, even while the process is still going down; only Resume continues it.
     return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'paused', pausedByUser: true }
+  }
+  if (run.endReason === null && !processAlive && input.queuePosition != null) {
+    // Waiting for a free slot: the ticket stays in progress with its phase unchanged.
+    return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'queued', queuePosition: input.queuePosition }
   }
   if (!processAlive || run.endReason === 'handed_back') {
     return { ...none, column: 'in_progress', phase: activePhase, agentStatus: 'paused', canContinue: true }

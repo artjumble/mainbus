@@ -521,6 +521,20 @@ describe('UnattendedMode timing', () => {
   const working: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'working' }
   const paused: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'paused', canContinue: true }
 
+  it('a ticket queued for a free agent slot counts as working: the queue waits for it and starts nothing else', async () => {
+    const { mode, runner, box } = stub(() => undefined)
+    await mode.set(true)
+    await mode.settled()
+    expect(runner.start).toHaveBeenCalledTimes(1)
+
+    box.state = { ...working, agentStatus: 'queued', queuePosition: 1 }
+    mode.observe({ type: 'board.changed', workspaceId: 'w' })
+    await mode.settled()
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumber: 7 } })
+    expect(runner.continue).not.toHaveBeenCalled()
+    mode.dispose()
+  })
+
   it('without a reset time, retries every 15 minutes', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const { mode, runner, box } = stub(() => ({ resetsAt: null }))

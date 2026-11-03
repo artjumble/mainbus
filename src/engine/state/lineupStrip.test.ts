@@ -28,6 +28,13 @@ describe('lineupStrip', () => {
     ])
   })
 
+  test('a queued role shows as queued with its place in the queue', () => {
+    const runs = [run('a', 'p', 'handoff'), run('b', 'i')]
+    const rows = lineupStrip({ roles, runs, latestRunId: 'b', agentStatus: 'queued', queuePosition: 3 })
+    expect(rows[1]).toMatchObject({ name: 'Implementer', status: 'queued', active: true, queuePosition: 3 })
+    expect(rows[0]).not.toHaveProperty('queuePosition')
+  })
+
   test('before the first run every role is not started and none is active', () => {
     expect(strip({})).toEqual([
       ['Planner', 'not_started', false],
@@ -47,7 +54,7 @@ describe('lineupStrip', () => {
 
   test.each<[AgentStatus | null, RoleStatus]>([
     ['working', 'working'],
-    ['queued', 'working'],
+    ['queued', 'queued'],
     ['waiting_on_you', 'waiting_on_you'],
     ['paused', 'paused'],
     [null, 'paused']

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
 import type { Column, Decision, Phase, RoleStatus, StuckEpisode, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
+import { ordinal } from '../../shared/queue'
 import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
@@ -48,6 +49,7 @@ const PHASES: Record<Phase, string> = {
 
 const ROLE_STATUSES: Record<RoleStatus, string> = {
   not_started: 'not started',
+  queued: 'queued',
   working: 'working',
   waiting_on_you: 'waiting on you',
   handed_off: 'handed off',
@@ -80,6 +82,13 @@ function heldText(t: BoardTicket): string {
 
 function activeRole(t: BoardTicket): string {
   return t.lineup.find((r) => r.active)?.name ?? 'none'
+}
+
+/** " · queued (2nd) for a free agent slot" while the ticket's agent waits for one, else nothing. */
+function queuedText(t: BoardTicket): string {
+  if (t.state.agentStatus !== 'queued') return ''
+  const place = t.state.queuePosition === undefined ? '' : ` (${ordinal(t.state.queuePosition)} in line)`
+  return ` · queued${place}: every agent slot is in use, so its agent starts when one frees up (first in, first out)`
 }
 
 /** The ticket's folder; its path stays after Done, when the folder is removed. */
@@ -258,6 +267,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const lines = tickets.map(
         (t) =>
           `- ${title(t)} · ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]} · active role: ${activeRole(t)} · labels: ${labels(t)}` +
+          queuedText(t) +
           heldText(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
       )
@@ -308,7 +318,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       return [
         `${title(t)}: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}`,
         `Latest run, started ${localStamp(run.ticketRun.startedAt)} (${run.ticketRun.status}). Roles in order:\n${roles.join('\n')}`,
-        `Active role: ${activeRole(t)}`,
+        `Active role: ${activeRole(t)}${queuedText(t)}`,
         pending.length ? `Pending decisions:\n${pending.join('\n')}` : 'Pending decisions: none',
         ...(stuck ? [stuckText(stuck)] : [])
       ].join('\n\n')

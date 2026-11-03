@@ -1,9 +1,11 @@
 import { Group, Paper, Text } from '@mantine/core'
 import { Fragment, type ReactElement } from 'react'
 import type { RoleStatus, StripRole } from '../../../shared/domain'
+import { queuedLabel } from '../../../shared/queue'
 
 export const ROLE_STATUS_LABELS: Record<RoleStatus, string> = {
   not_started: 'Not started',
+  queued: 'Queued',
   working: 'Working',
   waiting_on_you: 'Waiting on you',
   handed_off: 'Handed off',
@@ -46,7 +48,7 @@ export function LineupStrip({ roles }: { roles: StripRole[] }): ReactElement {
               {role.name}
             </Text>
             <Text size="xs" c={statusColor(role.status)} lh={1.3}>
-              {ROLE_STATUS_LABELS[role.status]}
+              {role.status === 'queued' ? queuedLabel(role.queuePosition) : ROLE_STATUS_LABELS[role.status]}
             </Text>
             {role.replacements > 0 && (
               <Text size="xs" c="dimmed" lh={1.3} data-replaced>
