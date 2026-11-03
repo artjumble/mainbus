@@ -1,0 +1,27 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-create-direct" } },
+    { "emit": { "kind": "message", "text": "Which workspace should these go in: mainbus or website?" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "tool_call", "id": "c1", "name": "mcp__mainbus__create_tickets", "input": {} } },
+    {
+      "callTool": "createTickets",
+      "args": {
+        "workspace": "website",
+        "request_messages_back": 1,
+        "tickets": [
+          {
+            "title": "Add a contact form",
+            "spec": "Drafted by the orchestrator: a form on /contact that emails the team."
+          }
+        ]
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "c1", "ok": true, "summary": "Created" } },
+    { "emit": { "kind": "message", "text": "Created #1 in website's Backlog." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

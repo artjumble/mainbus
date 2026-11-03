@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { Hold, Ticket, Workspace } from '../../shared/domain'
 import type { CreateTicketsPayload } from '../../shared/proposals'
-import { createTickets, listJoin } from './createTickets'
+import { createInBacklog, createTickets, listJoin, MAX_DRAFTS } from './createTickets'
 import { ProposalInvalid, type ExecContext } from './kind'
 
 const MESSAGE = '  Please add two tickets:\n login and logout.  '
@@ -144,10 +144,60 @@ describe('create_tickets: execute and outcome', () => {
     await expect(createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, ctx(null))).rejects.toThrow('was removed')
   })
 
+  test("keeps the user's later messages from propose through override to the created tickets", async () => {
+    const followUps = [{ text: 'With SSO', at: '2026-11-03T10:00:00.000Z' }]
+    const stored = createTickets.propose({ tickets: [{ title: 'Login' }] }, { userMessage: MESSAGE, followUps, workspaceId: ws.id }, {} as ExecContext) as CreateTicketsPayload
+    expect(stored.intentAdded).toEqual(followUps)
+    const edited = createTickets.override!(stored, { tickets: [{ title: 'Sign in' }], column: 'ready' })
+    expect(edited).toMatchObject({ intent: MESSAGE, intentAdded: followUps })
+    const c = ctx()
+    await createTickets.execute(edited, { workspaceId: 'ws1', proposalId: 'p1' }, c)
+    expect(c.createTickets.mock.calls[0]![1]).toEqual([
+      { title: 'Sign in', intent: MESSAGE, intentAdded: followUps, spec: '', criteria: [], labels: [], column: 'ready', kind: 'change' }
+    ])
+    // A proposal stored before it was kept has none, and none is passed on.
+    expect(propose({ tickets: [{ title: 'A' }] })).not.toHaveProperty('intentAdded')
+  })
+
   test('listJoin', () => {
     expect(listJoin([])).toBe('')
     expect(listJoin(['#1'])).toBe('#1')
     expect(listJoin(['#1', '#2'])).toBe('#1 and #2')
     expect(listJoin(['#1', '#2', '#3'])).toBe('#1, #2 and #3')
+  })
+})
+
+describe('createInBacklog', () => {
+  const create = () =>
+    vi.fn(async (_ws: Workspace, inputs: { title: string }[]) => inputs.map((i, n) => ({ id: `t${n + 1}`, number: n + 1, title: i.title }) as Ticket))
+
+  test('creates every draft in Backlog, marked as the orchestrator creating it at the user request, with no source', async () => {
+    const c = create()
+    const followUps = [{ text: 'website', at: '2026-11-03T10:00:00.000Z' }]
+    const made = await createInBacklog({ tickets: [{ title: 'Login', spec: 'S' }, { title: 'Why', kind: 'investigate' }] }, { userMessage: MESSAGE, followUps }, ws, c)
+    expect(made.map((t) => t.number)).toEqual([1, 2])
+    expect(c).toHaveBeenCalledTimes(1)
+    expect(c).toHaveBeenCalledWith(ws, [
+      { title: 'Login', intent: MESSAGE, intentAdded: followUps, spec: 'S', criteria: [], labels: [], column: 'backlog', kind: 'change', via: 'orchestrator' },
+      { title: 'Why', intent: MESSAGE, intentAdded: followUps, spec: '', criteria: [], labels: [], column: 'backlog', kind: 'investigate', via: 'orchestrator' }
+    ])
+  })
+
+  test.each([
+    [{ tickets: [{ title: 'A' }, { title: '' }] }, 'tickets.1.title: must not be empty'],
+    [{ tickets: Array.from({ length: MAX_DRAFTS + 1 }, (_, i) => ({ title: `T${i}` })) }, 'tickets: must have at most 20 tickets'],
+    [{ tickets: [{ title: 'A' }], column: 'ready' }, 'Unknown field: column'],
+    [{ tickets: [{ title: 'A' }], column: 'backlog' }, 'Unknown field: column'],
+    [{ tickets: [{ title: 'A', intent: 'Mine' }] }, 'Unknown field: tickets.0.intent']
+  ])('refuses %j, creating nothing', async (input, error) => {
+    const c = create()
+    await expect(createInBacklog(input, { userMessage: MESSAGE }, ws, c)).rejects.toThrow(new ProposalInvalid(error))
+    expect(c).not.toHaveBeenCalled()
+  })
+
+  test('refuses with no message of the user', async () => {
+    const c = create()
+    await expect(createInBacklog({ tickets: [{ title: 'A' }] }, { userMessage: null }, ws, c)).rejects.toThrow(ProposalInvalid)
+    expect(c).not.toHaveBeenCalled()
   })
 })

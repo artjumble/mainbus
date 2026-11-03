@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { OrchestratorRun, StoredEvent, ThreadEvent } from '../../shared/events'
+import type { IntentAddition } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { orchestratorEvents, orchestratorRuns } from '../db/schema'
 
@@ -20,6 +21,8 @@ export interface OrchestratorRepo {
   events(runId: string): Promise<StoredEvent[]>
   /** When the user's latest message was recorded, in any run; null before the first. */
   lastUserMessageAt(): Promise<string | null>
+  /** The user's last `n` messages in any run, oldest first, verbatim with when they were recorded. */
+  recentUserMessages(n: number): Promise<IntentAddition[]>
 }
 
 const columns = {
@@ -97,6 +100,17 @@ export function createOrchestratorRepo(db: Db, now: () => Date): OrchestratorRep
         .orderBy(desc(orchestratorEvents.at))
         .limit(1)
       return row?.at ?? null
+    },
+
+    async recentUserMessages(n) {
+      const rows = await db
+        .select({ at: orchestratorEvents.at, json: orchestratorEvents.json })
+        .from(orchestratorEvents)
+        .where(sql`json_extract(${orchestratorEvents.json}, '$.kind') = 'user_message'`)
+        // rowid breaks ties between messages recorded in the same millisecond.
+        .orderBy(desc(orchestratorEvents.at), desc(sql`rowid`))
+        .limit(n)
+      return rows.reverse().map((r) => ({ text: (JSON.parse(r.json) as { text: string }).text, at: r.at }))
     }
   }
 }

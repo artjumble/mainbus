@@ -122,6 +122,19 @@ test('the timeline begins with who created the ticket, and a ticket an agent fil
   expect(within(screen.getByRole('region', { name: 'Activity' })).getByText('Filed by codex')).toBeInTheDocument()
 })
 
+test('a ticket the orchestrator created says it did so at your request', () => {
+  const created = makeTicket({
+    intent: [
+      { text: 'Add a login ticket', at: '2026-10-30T09:00:00.000Z', via: 'orchestrator' },
+      { text: 'website', at: '2026-10-30T09:01:00.000Z' }
+    ]
+  })
+  renderWithMantine(<ContextPane ticket={created} events={[]} decisions={[]} />)
+  const activity = within(screen.getByRole('region', { name: 'Activity' }))
+  expect(activity.getByText('Created by the orchestrator at your request')).toBeInTheDocument()
+  expect(activity.queryByText('Created by you')).not.toBeInTheDocument()
+})
+
 test('entry times are the time of day, with the date when it is not today', () => {
   const now = new Date(2026, 10, 3, 15, 0)
   expect(entryTime(new Date(2026, 10, 3, 9, 5).toISOString(), now)).toBe('09:05')

@@ -96,7 +96,12 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
   /** The inserts of one ticket and its criteria, to run in a batch. */
   function inserts(id: string, input: NewTicketInput): BatchItem<'sqlite'>[] {
     const at = now().toISOString()
-    const intent: IntentEntry[] = [input.source ? { text: input.intent, at, source: input.source } : { text: input.intent, at }]
+    const first: IntentEntry = input.source
+      ? { text: input.intent, at, source: input.source }
+      : input.via
+        ? { text: input.intent, at, via: input.via }
+        : { text: input.intent, at }
+    const intent: IntentEntry[] = [first, ...(input.intentAdded ?? []).map((a) => ({ text: a.text, at: a.at }))]
     const ticket = db.insert(tickets).values({
       id,
       workspaceId: input.workspaceId,

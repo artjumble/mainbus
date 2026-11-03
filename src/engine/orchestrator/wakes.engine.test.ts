@@ -133,6 +133,16 @@ describe('a failure', () => {
     expect((await orchestratorOf(engine)).proposals).toEqual([])
   })
 
+  test('cannot create tickets either', async () => {
+    const { engine, runtime } = await failed([session('orch')])
+    await clock.advance(WAKE_DEBOUNCE_MS)
+    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    expect(await runtime.orchestratorSpecs[0]!.tools.createTickets({ tickets: [{ title: 'Another' }] })).toBe(
+      'Tickets can only be created in answer to a message of the user. Nothing was created.'
+    )
+    expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
+  })
+
   test('is acknowledged once the turn finished: the next launch presents nothing', async () => {
     const { engine, ticket } = await failed()
     await clock.advance(WAKE_DEBOUNCE_MS)

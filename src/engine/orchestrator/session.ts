@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import type { Proposal } from '../../shared/proposals'
-import type { Ticket, Workspace } from '../../shared/domain'
+import type { IntentAddition, NewTicketInput, Ticket, Workspace } from '../../shared/domain'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
@@ -11,6 +11,8 @@ import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
 import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
 import { ticketFoldersFor, type HomePaths } from '../home'
+import { createInBacklog, listJoin } from '../proposals/createTickets'
+import { ProposalInvalid } from '../proposals/kind'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
@@ -26,7 +28,7 @@ import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
 import { withHeader } from './header'
 import { orchestratorVerdict } from './permissions'
-import { resolveWorkspaceRef } from './workspaceRef'
+import { resolveTargetWorkspace, resolveWorkspaceRef } from './workspaceRef'
 import { buildOrchestratorPrompt } from './prompt'
 
 export const EMPTY_MESSAGE = 'Type a message first'
@@ -45,6 +47,17 @@ export function pendingText(id: string): string {
 }
 
 export const NO_TURN_MESSAGE = 'Mainbus could not tell which message of the user this turn answers, so nothing was stored.'
+
+export const WAKE_CREATE_MESSAGE = 'Tickets can only be created in answer to a message of the user. Nothing was created.'
+
+/** How far back request_messages_back may reach. */
+export const MAX_MESSAGES_BACK = 5
+
+/** What create_tickets answers once the tickets exist. */
+export function createdText(workspace: string, tickets: { number: number; title: string }[]): string {
+  const list = listJoin(tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}`))
+  return `Created ${list} in ${workspace}'s Backlog. Tell the user which workspace they went into.`
+}
 
 /** How long shutdown waits for a queued message to finish starting, and for the last events to land. */
 const SHUTDOWN_SETTLE_MS = 5000
@@ -67,6 +80,8 @@ export interface OrchestratorDeps {
   workspaceRequired: string
   readTools: OrchestratorReadToolHandlers
   proposals: ProposalService
+  /** The one way tickets are created (as a confirmed proposal's are): all of them or none, emitting board.changed. */
+  createTickets: (ws: Workspace, inputs: Omit<NewTicketInput, 'workspaceId'>[]) => Promise<Ticket[]>
   /** The decisions the user answered since `since` in any workspace, for the start of a message. */
   answeredSince: (since: string | null) => Promise<AnsweredDecision[]>
   /** The tickets whose hold was released since `since` in any workspace, by hand, by a start or by their date. */
@@ -121,6 +136,15 @@ function splitWorkspace(input: unknown): { workspace: string | undefined; rest: 
   return { workspace: typeof workspace === 'string' ? workspace : undefined, rest }
 }
 
+/** Takes the optional `request_messages_back` off a tool's input. */
+function splitMessagesBack(input: unknown): { back: unknown; rest: unknown } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input) || !('request_messages_back' in input)) {
+    return { back: undefined, rest: input }
+  }
+  const { request_messages_back: back, ...rest } = input as Record<string, unknown>
+  return { back, rest }
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -128,7 +152,8 @@ function errorText(err: unknown): string {
 /**
  * The one orchestrator session of this data home. It starts on the first message, stays live between messages,
  * and after a restart the next message resumes it by session id (or, when that fails, starts a fresh one from a
- * digest of the conversation). It never touches tickets, the board or unattended mode.
+ * digest of the conversation). It never touches the board or unattended mode, and touches tickets only to create
+ * them in a Backlog when the user asks (create_tickets).
  */
 export class OrchestratorSession {
   private status: OrchestratorStatus = 'idle'
@@ -353,9 +378,21 @@ export class OrchestratorSession {
     const turn = this.turn
     if (!live || turn === null) return NO_TURN_MESSAGE
     // A wake turn answers no message of the user: the kinds that need one refuse it themselves.
-    const userMessage = turn.kind === 'user' ? turn.message : null
+    let userMessage = turn.kind === 'user' ? turn.message : null
+    let followUps: IntentAddition[] | undefined
     // `workspace` names the ticket's workspace (or where new tickets go); the kinds' own schemas do not know it.
-    const { workspace: ref, rest } = splitWorkspace(input)
+    let { workspace: ref, rest } = splitWorkspace(input)
+    if (kind === 'create_tickets') {
+      // Only drafts carry the user's words; the other kinds' strict schemas refuse request_messages_back.
+      const split = splitMessagesBack(rest)
+      rest = split.rest
+      if (userMessage !== null) {
+        const req = await this.request(userMessage, split.back)
+        if (!req.ok) return `Invalid proposal: ${req.error}. Nothing was stored; fix it and propose again.`
+        userMessage = req.userMessage
+        followUps = req.followUps
+      }
+    }
     let workspaceId: string
     if (kind === 'answer') {
       // A decision belongs to one ticket, so it has one workspace.
@@ -374,12 +411,62 @@ export class OrchestratorSession {
     const made = await this.deps.proposals.propose(kind, rest, {
       workspaceId,
       orchestratorRunId: live.runId,
-      userMessage
+      userMessage,
+      ...(followUps ? { followUps } : {})
     })
     if (!made.ok) return `Invalid proposal: ${made.error}. Nothing was stored; fix it and propose again.`
     if (made.existing) return pendingText(made.proposal.id)
     await this.record(live.runId, { kind: 'proposal', proposalId: made.proposal.id })
     return proposedText(made.proposal.id)
+  }
+
+  /**
+   * The user's request that drafts are made from: this turn's message (`back` 0 or left out), or the one `back` messages
+   * before it, followed by every later message up to this turn's, verbatim.
+   */
+  private async request(
+    message: string,
+    back: unknown
+  ): Promise<{ ok: true; userMessage: string; followUps?: IntentAddition[] } | { ok: false; error: string }> {
+    if (back === undefined || back === null || back === 0) return { ok: true, userMessage: message }
+    if (typeof back !== 'number' || !Number.isInteger(back) || back < 0 || back > MAX_MESSAGES_BACK) {
+      return { ok: false, error: `request_messages_back: must be a whole number from 0 to ${MAX_MESSAGES_BACK}` }
+    }
+    const messages = await this.deps.repo.recentUserMessages(back + 1)
+    if (messages.length < back + 1) {
+      const earlier = messages.length - 1
+      const have = earlier === 0 ? 'is no earlier message' : earlier === 1 ? 'is only 1 earlier message' : `are only ${earlier} earlier messages`
+      return { ok: false, error: `request_messages_back: there ${have} of the user` }
+    }
+    const [first, ...followUps] = messages
+    return { ok: true, userMessage: first!.text, followUps }
+  }
+
+  /**
+   * create_tickets: creates the drafts in a workspace's Backlog at once, with no card, and puts a receipt in the thread.
+   * Everything is checked first: an invalid call creates nothing, and the orchestrator is told why.
+   */
+  private async createNow(input: unknown): Promise<string> {
+    const live = this.live
+    const turn = this.turn
+    if (!live || turn === null) return NO_TURN_MESSAGE
+    if (turn.kind !== 'user') return WAKE_CREATE_MESSAGE
+    const { workspace: ref, rest } = splitWorkspace(input)
+    const target = resolveTargetWorkspace(await this.deps.workspaces(), ref)
+    if (!target.ok) return `${target.text} Nothing was created.`
+    const { back, rest: drafts } = splitMessagesBack(rest)
+    const req = await this.request(turn.message, back)
+    if (!req.ok) return `Invalid: ${req.error}. Nothing was created; fix it and try again.`
+    let created: Ticket[]
+    try {
+      created = await createInBacklog(drafts, req, target.ws, this.deps.createTickets)
+    } catch (err) {
+      if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was created; fix it and try again.`
+      throw err
+    }
+    const tickets = created.map((t) => ({ id: t.id, number: t.number, title: t.title }))
+    await this.record(live.runId, { kind: 'tickets_created', workspaceId: target.ws.id, workspace: target.ws.name, tickets })
+    return createdText(target.ws.name, tickets)
   }
 
   /**
@@ -417,6 +504,7 @@ export class OrchestratorSession {
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
       tools: {
         ...this.deps.readTools,
+        createTickets: (a) => this.createNow(a),
         proposeCreateTickets: (a) => this.propose('create_tickets', a),
         proposeStart: (a) => this.propose('start_lineup', a),
         proposePause: (a) => this.propose('pause', a),

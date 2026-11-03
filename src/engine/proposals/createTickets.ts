@@ -1,7 +1,8 @@
 import { z } from 'zod'
-import type { CreateTicketsPayload, CreateTicketsResult, DraftColumn } from '../../shared/proposals'
+import type { IntentAddition, NewTicketInput, Ticket, Workspace } from '../../shared/domain'
+import type { CreateTicketsPayload, CreateTicketsResult, DraftColumn, TicketDraft } from '../../shared/proposals'
 import { ticketFields } from '../tickets/validate'
-import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
+import { parsePayload, ProposalInvalid, type ExecContext, type ProposalKind, type Turn } from './kind'
 
 export const MAX_DRAFTS = 20
 
@@ -17,14 +18,19 @@ const draftSchema = z.strictObject({
   kind: z.enum(['change', 'investigate']).optional()
 })
 
+const draftsSchema = z
+  .array(draftSchema)
+  .min(1, 'must have at least 1 ticket')
+  .max(MAX_DRAFTS, `must have at most ${MAX_DRAFTS} tickets`)
+
 /** What the orchestrator proposes and what the user's override sends: the same rules for both. */
 const editableSchema = z.strictObject({
-  tickets: z
-    .array(draftSchema)
-    .min(1, 'must have at least 1 ticket')
-    .max(MAX_DRAFTS, `must have at most ${MAX_DRAFTS} tickets`),
+  tickets: draftsSchema,
   column: z.enum(['backlog', 'ready']).default('backlog')
 })
+
+/** What create_tickets sends: the same drafts, and no column, since they always go to Backlog. */
+const directSchema = z.strictObject({ tickets: draftsSchema })
 
 /** "#21", "#21 and #22", "#21, #22 and #23". */
 export function listJoin(items: string[]): string {
@@ -33,8 +39,33 @@ export function listJoin(items: string[]): string {
 }
 
 /**
- * Drafts of new tickets. Each ticket's intent is the user's message that started the turn, verbatim, filled in
- * by Mainbus: the orchestrator can't write or widen the user's words, and its own drafting goes in the spec.
+ * The tickets to create from the drafts. No source: the intent is the user's own words, not an agent's. `via` marks
+ * a ticket the orchestrator created without a card.
+ */
+function ticketInputs(
+  intent: string,
+  intentAdded: IntentAddition[] | undefined,
+  drafts: TicketDraft[],
+  column: DraftColumn,
+  via?: 'orchestrator'
+): Omit<NewTicketInput, 'workspaceId'>[] {
+  return drafts.map((d) => ({
+    title: d.title,
+    intent,
+    ...(intentAdded?.length ? { intentAdded } : {}),
+    spec: d.spec,
+    criteria: d.criteria,
+    labels: d.labels,
+    column,
+    kind: d.kind ?? 'change',
+    ...(via ? { via } : {})
+  }))
+}
+
+/**
+ * Drafts of new tickets. Each ticket's intent is the user's request, verbatim, filled in by Mainbus: the message the
+ * turn answers or the earlier one it names, and the user's later messages. The orchestrator can't write or widen the
+ * user's words, and its own drafting goes in the spec.
  */
 export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResult> = {
   label: 'create tickets',
@@ -42,22 +73,20 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
 
   propose(input, turn) {
     if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
-    return { intent: turn.userMessage, ...parsePayload(editableSchema, input) }
+    return { intent: turn.userMessage, ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}), ...parsePayload(editableSchema, input) }
   },
 
   override(stored, input) {
-    return { intent: stored.intent, ...parsePayload(editableSchema, input) }
+    return { intent: stored.intent, ...(stored.intentAdded ? { intentAdded: stored.intentAdded } : {}), ...parsePayload(editableSchema, input) }
   },
 
   async execute(p, target, ctx) {
     const ws = await ctx.workspace(target.workspaceId)
     if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for was removed')
-    // No source: the intent is the user's own words, not an agent's.
-    const created = await ctx.createTickets(
-      ws,
-      p.tickets.map((d) => ({ title: d.title, intent: p.intent, spec: d.spec, criteria: d.criteria, labels: d.labels, column: p.column, kind: d.kind ?? 'change' })),
-      { proposalId: target.proposalId, column: p.column }
-    )
+    const created = await ctx.createTickets(ws, ticketInputs(p.intent, p.intentAdded, p.tickets, p.column), {
+      proposalId: target.proposalId,
+      column: p.column
+    })
     return { tickets: created.map((t) => ({ id: t.id, number: t.number, title: t.title })), column: p.column }
   },
 
@@ -65,4 +94,19 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
     const list = listJoin(r.tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}`))
     return `Created ${list} in ${COLUMN_NAMES[r.column]}.`
   }
+}
+
+/**
+ * create_tickets: the orchestrator creates the drafts in the workspace's Backlog at once, with no card. The same
+ * validation and the same path as a confirmed proposal: all of them or none. Throws ProposalInvalid, creating nothing.
+ */
+export async function createInBacklog(
+  input: unknown,
+  turn: Pick<Turn, 'userMessage' | 'followUps'>,
+  ws: Workspace,
+  create: ExecContext['createTickets']
+): Promise<Ticket[]> {
+  if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be created in answer to a message of the user')
+  const { tickets } = parsePayload(directSchema, input)
+  return create(ws, ticketInputs(turn.userMessage, turn.followUps, tickets, 'backlog', 'orchestrator'))
 }

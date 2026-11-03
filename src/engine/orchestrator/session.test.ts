@@ -532,3 +532,223 @@ describe('proposals', () => {
     )
   })
 })
+
+describe('create_tickets', () => {
+  /** The live session's tools, once the first message has started it. */
+  async function liveTools(runtime: FakeRuntime) {
+    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    return runtime.orchestratorSpecs[0]!.tools
+  }
+
+  /** A second workspace, "website", opened before the first message so the session can read it from the start. */
+  async function openWebsite(engine: Engine) {
+    const website = await engine.invoke('workspace.open', await makeRepo(path.join(tmp, 'website')))
+    const repo = (await engine.invoke('workspace.list')).find((w) => w.name === 'repo')!
+    // The focused workspace is not the answer: it stays on repo.
+    await engine.invoke('workspace.focus', repo.id)
+    return { website, repo }
+  }
+
+  const boardOf = async (engine: Engine, workspaceId: string) => (await engine.invoke('board.get', workspaceId)).tickets
+
+  const userMessages = async (engine: Engine) =>
+    (await engine.invoke('orchestrator.get')).events.filter((e) => e.event.kind === 'user_message')
+
+  test("creates the tickets in the named workspace's Backlog at once, with a receipt in the thread and no proposal", async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { waitForSend: true }] })
+    const { engine, events } = await makeEngine(runtime)
+    const { website, repo } = await openWebsite(engine)
+    await engine.invoke('orchestrator.send', 'Add login and logout to the website')
+    const tools = await liveTools(runtime)
+
+    const answer = await tools.createTickets({ workspace: 'website', tickets: [{ title: 'Login', spec: 'A form' }, { title: 'Logout', kind: 'investigate' }] })
+    expect(answer).toBe(`Created #1 "Login" and #2 "Logout" in website's Backlog. Tell the user which workspace they went into.`)
+
+    const created = await boardOf(engine, website.id)
+    expect(created.map((t) => [t.number, t.title, t.kind, t.spec, t.manualColumn])).toEqual([
+      [1, 'Login', 'change', 'A form', 'backlog'],
+      [2, 'Logout', 'investigate', '', 'backlog']
+    ])
+    // The intent is the user's message, marked as created by the orchestrator at their request; no agent source.
+    for (const t of created) {
+      expect(t.intent).toHaveLength(1)
+      expect(t.intent[0]).toMatchObject({ text: 'Add login and logout to the website', via: 'orchestrator' })
+      expect(t.intent[0]!.source).toBeUndefined()
+    }
+    expect(await boardOf(engine, repo.id)).toEqual([])
+
+    const thread = await engine.invoke('orchestrator.get')
+    expect(thread.proposals).toEqual([])
+    expect(thread.events.at(-1)?.event).toEqual({
+      kind: 'tickets_created',
+      workspaceId: website.id,
+      workspace: 'website',
+      tickets: created.map((t) => ({ id: t.id, number: t.number, title: t.title }))
+    })
+    // The board updates live.
+    expect(events).toContainEqual({ type: 'board.changed', workspaceId: website.id })
+  })
+
+  test('with more than one workspace open, a missing workspace creates nothing and the error lists them', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    const { website, repo } = await openWebsite(engine)
+    await engine.invoke('orchestrator.send', 'Add a login ticket')
+    const tools = await liveTools(runtime)
+
+    const answer = await tools.createTickets({ tickets: [{ title: 'Login' }] })
+    expect(answer).toBe(
+      `More than one workspace is open: repo (id ${repo.id}), website (id ${website.id}). Name one with workspace: infer it from the user's words or ` +
+        `the recent conversation; if they don't make it clear, ask the user which one and end your turn. Nothing was created.`
+    )
+    expect(await tools.createTickets({ workspace: '  ', tickets: [{ title: 'Login' }] })).toMatch(/^More than one workspace is open/)
+    expect(await boardOf(engine, repo.id)).toEqual([])
+    expect(await boardOf(engine, website.id)).toEqual([])
+    expect((await engine.invoke('orchestrator.get')).events.map((e) => e.event.kind)).not.toContain('tickets_created')
+  })
+
+  test('with one workspace open, the workspace may be left out', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Add a login ticket')
+    const tools = await liveTools(runtime)
+    expect(await tools.createTickets({ tickets: [{ title: 'Login' }] })).toBe(
+      `Created #1 "Login" in repo's Backlog. Tell the user which workspace they went into.`
+    )
+    expect((await engine.invoke('board.get')).tickets.map((t) => [t.title, t.manualColumn])).toEqual([['Login', 'backlog']])
+  })
+
+  test('an unknown workspace is refused with the open ones', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    const { website, repo } = await openWebsite(engine)
+    await engine.invoke('orchestrator.send', 'Add a login ticket')
+    const tools = await liveTools(runtime)
+    expect(await tools.createTickets({ workspace: 'shop', tickets: [{ title: 'Login' }] })).toBe(
+      `No workspace "shop". The workspaces are: repo (id ${repo.id}), website (id ${website.id}). Nothing was created.`
+    )
+    expect(await boardOf(engine, repo.id)).toEqual([])
+    expect(await boardOf(engine, website.id)).toEqual([])
+  })
+
+  test('creates all or none: an invalid draft, more than 20 drafts, a column or an intent creates nothing', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Add tickets')
+    const tools = await liveTools(runtime)
+
+    expect(await tools.createTickets({ tickets: [{ title: 'Good' }, { title: '' }] })).toMatch(/^Invalid: tickets\.1\.title: .*Nothing was created; fix it and try again\.$/)
+    const many = Array.from({ length: 21 }, (_, i) => ({ title: `T${i}` }))
+    expect(await tools.createTickets({ tickets: many })).toBe('Invalid: tickets: must have at most 20 tickets. Nothing was created; fix it and try again.')
+    expect(await tools.createTickets({ tickets: [{ title: 'Login' }], column: 'ready' })).toBe(
+      'Invalid: Unknown field: column. Nothing was created; fix it and try again.'
+    )
+    expect(await tools.createTickets({ tickets: [{ title: 'Login', intent: 'Mine' }] })).toBe(
+      'Invalid: Unknown field: tickets.0.intent. Nothing was created; fix it and try again.'
+    )
+    expect(await tools.createTickets({ tickets: [] })).toMatch(/^Invalid: tickets: must have at least 1 ticket/)
+    expect((await engine.invoke('board.get')).tickets).toEqual([])
+
+    // Exactly 20 is fine.
+    expect(await tools.createTickets({ tickets: many.slice(0, 20) })).toMatch(/^Created #1 "T0", .* and #20 "T19" in repo's Backlog\./)
+  })
+
+  test('the intent is the request named by request_messages_back and every later message, verbatim and in order', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, turnEnd(), { waitForSend: true }, turnEnd(), { waitForSend: true }]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', '  Add a login page\nwith SSO  ')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'And a logout button')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'repo')
+    const tools = await liveTools(runtime)
+    await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
+    const [, second, third] = await userMessages(engine)
+
+    await tools.createTickets({ tickets: [{ title: 'Zero' }] })
+    await tools.createTickets({ tickets: [{ title: 'One' }], request_messages_back: 1 })
+    await tools.createTickets({ tickets: [{ title: 'Two' }], request_messages_back: 2 })
+    const byTitle = new Map((await engine.invoke('board.get')).tickets.map((t) => [t.title, t.intent]))
+    expect(byTitle.get('Zero')!.map((e) => e.text)).toEqual(['repo'])
+    expect(byTitle.get('One')!.map((e) => e.text)).toEqual(['And a logout button', 'repo'])
+    expect(byTitle.get('Two')!.map((e) => e.text)).toEqual(['  Add a login page\nwith SSO  ', 'And a logout button', 'repo'])
+    // The later messages are marked with when the user sent them, as additions are; only the first is marked as the orchestrator's doing.
+    expect(byTitle.get('Two')!.slice(1)).toEqual([
+      { text: 'And a logout button', at: second!.at },
+      { text: 'repo', at: third!.at }
+    ])
+    expect(byTitle.get('Two')![0]!.via).toBe('orchestrator')
+  })
+
+  test('request_messages_back out of range or past the first message is refused, creating nothing', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Add a login ticket')
+    const tools = await liveTools(runtime)
+    const draft = { tickets: [{ title: 'Login' }] }
+    for (const back of [6, -1, 1.5, '1']) {
+      expect(await tools.createTickets({ ...draft, request_messages_back: back })).toBe(
+        'Invalid: request_messages_back: must be a whole number from 0 to 5. Nothing was created; fix it and try again.'
+      )
+    }
+    expect(await tools.createTickets({ ...draft, request_messages_back: 1 })).toBe(
+      'Invalid: request_messages_back: there is no earlier message of the user. Nothing was created; fix it and try again.'
+    )
+    expect(await tools.proposeCreateTickets({ ...draft, request_messages_back: 9 })).toBe(
+      'Invalid proposal: request_messages_back: must be a whole number from 0 to 5. Nothing was stored; fix it and propose again.'
+    )
+    expect((await engine.invoke('board.get')).tickets).toEqual([])
+    expect((await engine.invoke('orchestrator.get')).proposals).toEqual([])
+  })
+
+  test('propose_create_tickets takes request_messages_back too: the confirmed tickets carry every message of the request', async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, turnEnd(), { waitForSend: true }, turnEnd(), { waitForSend: true }]
+    })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', 'Draft a login ticket')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'With SSO')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'Put it in Ready')
+    const tools = await liveTools(runtime)
+    await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
+    const [, second, third] = await userMessages(engine)
+
+    expect(await tools.proposeCreateTickets({ tickets: [{ title: 'Login' }], column: 'ready', request_messages_back: 2 })).toMatch(/^Proposed /)
+    const [proposal] = (await engine.invoke('orchestrator.get')).proposals
+    expect(proposal!.payload).toMatchObject({
+      intent: 'Draft a login ticket',
+      intentAdded: [
+        { text: 'With SSO', at: second!.at },
+        { text: 'Put it in Ready', at: third!.at }
+      ]
+    })
+    // An override keeps the request as it was.
+    await engine.invoke('proposal.confirm', proposal!.id, { tickets: [{ title: 'Sign in', spec: '', criteria: [], labels: [] }], column: 'ready' })
+    const [ticket] = (await engine.invoke('board.get')).tickets
+    expect(ticket!.title).toBe('Sign in')
+    expect(ticket!.intent.map((e) => e.text)).toEqual(['Draft a login ticket', 'With SSO', 'Put it in Ready'])
+    // A confirmed proposal is the user's own creation, not the orchestrator's.
+    expect(ticket!.intent[0]!.via).toBeUndefined()
+
+    // 0 (or left out) is this turn's message alone, as before.
+    await tools.proposeCreateTickets({ tickets: [{ title: 'Only now' }], request_messages_back: 0 })
+    const latest = (await engine.invoke('orchestrator.get')).proposals.at(-1)!
+    expect(latest.payload).toMatchObject({ intent: 'Put it in Ready' })
+    expect((latest.payload as { intentAdded?: unknown }).intentAdded).toBeUndefined()
+  })
+
+  test('other propose tools refuse request_messages_back', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    const ticket = await engine.invoke('ticket.create', { title: 'T', intent: 'i', spec: '', criteria: [], labels: [], column: 'backlog' })
+    await engine.invoke('orchestrator.send', 'Hold it')
+    const tools = await liveTools(runtime)
+    expect(await tools.proposeHold({ ticket: ticket.number, reason: 'Wait', request_messages_back: 1 })).toBe(
+      'Invalid proposal: Unknown field: request_messages_back. Nothing was stored; fix it and propose again.'
+    )
+  })
+})

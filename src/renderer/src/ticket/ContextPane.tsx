@@ -285,8 +285,13 @@ interface Context {
  * person's answers.
  */
 function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, { ticket, workspaceName, runs }: Context): Entry[] {
-  const source = ticket.intent[0]?.source
-  const entries: Entry[] = [{ at: ticket.createdAt, title: source ? `Filed by ${source.agent}` : 'Created by you' }]
+  const first = ticket.intent[0]
+  const created = first?.source
+    ? `Filed by ${first.source.agent}`
+    : first?.via === 'orchestrator'
+      ? 'Created by the orchestrator at your request'
+      : 'Created by you'
+  const entries: Entry[] = [{ at: ticket.createdAt, title: created }]
   // The ticket runs seen so far: each role's run is its own run, but only the first of a ticket run is "started".
   const seen = new Set<string>()
   // The role a replacement is waiting to start, and what each run was last stuck on.

@@ -30,7 +30,9 @@ export function summariseTools(calls: { name: string }[]): string {
             ? 'board'
             : bare.startsWith('propose_')
               ? 'propose'
-              : 'other'
+              : bare === 'create_tickets'
+                ? 'create'
+                : 'other'
     counts.set(kind, (counts.get(kind) ?? 0) + 1)
   }
   const parts = [...counts].map(([kind, n]) => {
@@ -43,6 +45,8 @@ export function summariseTools(calls: { name: string }[]): string {
         return 'looked at the board'
       case 'propose':
         return `made ${plural(n, 'proposal', 'proposals')}`
+      case 'create':
+        return 'created tickets'
       default:
         return `used ${plural(n, 'tool', 'tools')}`
     }

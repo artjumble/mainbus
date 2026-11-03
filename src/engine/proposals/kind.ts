@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
-import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -81,8 +81,13 @@ export interface ActiveRole {
 
 /** What the turn a proposal is made in gives it. */
 export interface Turn {
-  /** The user's message that started the turn, verbatim; null when no orchestrator turn made the proposal. */
+  /**
+   * The user's request, verbatim: the message that started the turn, or the earlier one the orchestrator named with
+   * request_messages_back. Null when no orchestrator turn made the proposal.
+   */
   userMessage: string | null
+  /** The user's later messages, up to and including this turn's, when the request is an earlier one; oldest first. */
+  followUps?: IntentAddition[]
   /** The workspace the proposal is made for. */
   workspaceId: string
   /** Who makes it; the orchestrator when absent. */
