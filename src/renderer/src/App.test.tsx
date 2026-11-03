@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { invoke, onEngineEvent } from './api'
 import { App } from './App'
 import { useMainbus } from './store'
-import { makeTicket, renderWithMantine, workspace } from './test-utils'
+import { expectNoAxeViolations, makeTicket, renderWithMantine, workspace } from './test-utils'
 
 vi.mock('./api', () => ({
   invoke: vi.fn(),
@@ -142,4 +142,14 @@ test('revealing a proposal expands a collapsed orchestrator panel', async () => 
 
   act(() => useMainbus.getState().revealProposal('p1'))
   expect(await within(panel).findByRole('textbox', { name: 'Message the orchestrator' })).toBeInTheDocument()
+})
+
+test('the whole app, on the board and in a ticket, has no axe violations, with landmarks', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, workspace, [makeTicket({ title: 'First ticket' })])
+  renderWithMantine(<App />)
+  await screen.findByRole('button', { name: /First ticket/ })
+  await expectNoAxeViolations(document.body, { region: true })
+  await userEvent.click(screen.getByRole('button', { name: /First ticket/ }))
+  await screen.findByText('Source: Local')
+  await expectNoAxeViolations(document.body, { region: true })
 })

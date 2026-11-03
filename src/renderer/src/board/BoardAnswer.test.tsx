@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
-import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeTicket, renderWithMantine } from '../test-utils'
 import { TicketCard } from './TicketCard'
 
 vi.mock('../api', () => ({
@@ -75,4 +75,11 @@ test('a card with nothing pending, or outside Needs you, has no Answer control',
     <TicketCard ticket={makeTicket({ pendingDecisions: [makeDecision()] }, { column: 'in_progress' })} onOpen={() => {}} />
   )
   expect(screen.queryByRole('button', { name: 'Answer' })).not.toBeInTheDocument()
+})
+
+test('the open popover has no axe violations', async () => {
+  card()
+  await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+  await screen.findByRole('radio', { name: 'SQLite' })
+  await expectNoAxeViolations()
 })

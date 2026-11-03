@@ -17,7 +17,7 @@ export function ThinkingBlock({ text, durationMs, partial }: Props): ReactElemen
   if (partial) {
     return (
       <Group gap="xs" data-event="thinking">
-        <Loader size={12} type="dots" />
+        <Loader size={12} type="dots" aria-hidden />
         <Text size="sm" c="dimmed" fs="italic">
           Thinking…
         </Text>
@@ -38,7 +38,7 @@ export function ThinkingBlock({ text, durationMs, partial }: Props): ReactElemen
     <Box data-event="thinking">
       <UnstyledButton aria-expanded={opened} onClick={() => setOpened((o) => !o)}>
         <Text size="sm" c="dimmed" fs="italic">
-          {opened ? '▾' : '▸'} Thinking
+          <span aria-hidden>{opened ? '▾' : '▸'}</span> Thinking
         </Text>
       </UnstyledButton>
       <Collapse expanded={opened} keepMounted={false}>

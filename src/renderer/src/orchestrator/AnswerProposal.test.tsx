@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { AnswerPayload, Proposal } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -161,4 +161,19 @@ describe('receipts', () => {
     expect(screen.getByText('Failed: Already answered from the board')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
   })
+})
+
+test('the card and its Override editor have no axe violations', async () => {
+  renderWithMantine(<ProposalCard proposal={proposal(PAYLOAD)} />)
+  await expectNoAxeViolations()
+  const override = screen.queryByRole('button', { name: 'Override' })
+  if (override) {
+    await userEvent.click(override)
+    await expectNoAxeViolations()
+  }
+})
+
+test('a judgement card has no axe violations', async () => {
+  renderWithMantine(<ProposalCard proposal={proposal(JUDGED)} />)
+  await expectNoAxeViolations()
 })

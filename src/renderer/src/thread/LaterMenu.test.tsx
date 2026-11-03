@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { laterMonday, laterTomorrow } from '../../../shared/hold'
 import { TicketCard } from '../board/TicketCard'
 import { invoke } from '../api'
-import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeTicket, renderWithMantine } from '../test-utils'
 import { DecisionCard } from './DecisionCard'
 import { PermissionCard } from './PermissionCard'
 
@@ -109,4 +109,14 @@ test('a refused deferral keeps the card open', async () => {
   await pick('Tomorrow')
   await waitFor(() => expect(mockInvoke).toHaveBeenCalled())
   expect(screen.getByRole('radio', { name: 'SQLite' })).toBeInTheDocument()
+})
+
+test.each([
+  ['question card', () => <DecisionCard decision={makeDecision()} />],
+  ['permission card', () => <PermissionCard decision={makeDecision({ kind: 'permission', question: 'Run npm test?', options: [] })} />]
+])('the Later… menu on the %s has no axe violations', async (_name, card) => {
+  renderWithMantine(card())
+  await userEvent.click(screen.getByRole('button', { name: 'Later…' }))
+  await screen.findByRole('menuitem', { name: 'Tomorrow' })
+  await expectNoAxeViolations()
 })

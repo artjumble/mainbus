@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal, ReplacePayload } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -113,4 +113,14 @@ test('a stale replacement shows why it failed', () => {
   const result = { error: 'The Implementer on #3 is no longer stuck: that episode has closed. Nothing was replaced.' }
   renderWithMantine(<ProposalCard proposal={proposal({ status: 'failed', result })} />)
   expect(screen.getByText(/Nothing was replaced/)).toHaveTextContent('Failed: ')
+})
+
+test('the card and its Override editor have no axe violations', async () => {
+  renderWithMantine(<ProposalCard proposal={proposal()} />)
+  await expectNoAxeViolations()
+  const override = screen.queryByRole('button', { name: 'Override' })
+  if (override) {
+    await userEvent.click(override)
+    await expectNoAxeViolations()
+  }
 })

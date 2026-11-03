@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ThinkingBlock } from './ThinkingBlock'
 
 test('thinking with null text and a duration is a non-expandable "Thought for Ns" stub', () => {
@@ -31,4 +31,17 @@ test('thinking with text is a collapsible "Thinking" block', async () => {
   await userEvent.click(toggle)
   expect(toggle).toHaveAttribute('aria-expanded', 'true')
   expect(await screen.findByText('Weighing the options')).toBeVisible()
+})
+
+test('every kind of thinking block has no axe violations', async () => {
+  renderWithMantine(
+    <>
+      <ThinkingBlock text={null} durationMs={4200} />
+      <ThinkingBlock text={null} partial />
+      <ThinkingBlock text="Weighing the options" />
+    </>
+  )
+  await expectNoAxeViolations()
+  await userEvent.click(screen.getByRole('button', { name: /Thinking/ }))
+  await expectNoAxeViolations()
 })

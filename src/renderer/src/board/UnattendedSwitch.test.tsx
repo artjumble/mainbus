@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { UnattendedState } from '../../../shared/domain'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { UnattendedSwitch, unattendedText } from './UnattendedSwitch'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -59,4 +59,12 @@ test('an on switch shows the ticket and switches off', async () => {
   expect(toggle).toBeChecked()
   await userEvent.click(toggle)
   expect(mockInvoke).toHaveBeenCalledWith('unattended.set', false)
+})
+
+test.each([
+  [{ on: false, status: { kind: 'off' } }],
+  [{ on: true, status: { kind: 'working', ticketNumber: 4 } }]
+] as const)('the switch has no axe violations (%j)', async (state) => {
+  show(state as UnattendedState)
+  await expectNoAxeViolations()
 })

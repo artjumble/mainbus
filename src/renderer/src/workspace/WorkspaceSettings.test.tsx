@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AllowRule } from '../../../shared/domain'
 import { invoke } from '../api'
-import { makeLineup, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeLineup, renderWithMantine } from '../test-utils'
 import { WorkspaceSettings } from './WorkspaceSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -120,4 +120,10 @@ test('Connect agents shows no intake error while the pipe is open', async () => 
   const section = await screen.findByRole('region', { name: 'Connect agents' })
   await within(section).findByText(/claude mcp add/)
   expect(within(section).queryByText("Agents can't reach this board")).not.toBeInTheDocument()
+})
+
+test('the settings window, with its lineup, allow list and Connect agents, has no axe violations', async () => {
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
+  await screen.findByRole('region', { name: 'Connect agents' })
+  await expectNoAxeViolations()
 })

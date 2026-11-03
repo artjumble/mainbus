@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
-import { makeDecision, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, renderWithMantine } from '../test-utils'
 import { DecisionCard } from './DecisionCard'
 
 vi.mock('../api', () => ({
@@ -71,4 +71,14 @@ test('a setup error asks for a restart', async () => {
   await userEvent.click(screen.getByRole('radio', { name: 'SQLite' }))
   await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
   expect(await screen.findByText(/Restart Mainbus/)).toBeInTheDocument()
+})
+
+test.each([
+  ['pending', {}],
+  ['recommended', { recommended: 1 }],
+  ['answered', { status: 'answered', answer: { kind: 'option', index: 0 } }],
+  ['expired', { status: 'expired' }]
+] as const)('a %s card has no axe violations', async (_name, over) => {
+  renderWithMantine(<DecisionCard decision={makeDecision(over as never)} />)
+  await expectNoAxeViolations()
 })

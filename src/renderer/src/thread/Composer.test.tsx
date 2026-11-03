@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { Composer } from './Composer'
 
 const send = (): HTMLElement => screen.getByRole('button', { name: 'Send' })
@@ -107,4 +107,13 @@ test('a prefill fills the box, focuses it with the caret at the end, and reports
   rerender(<Composer onSend={async () => {}} prefill={{ text: 'Again ', n: 2 }} onPrefilled={onPrefilled} />)
   expect(box).toHaveValue('Again ')
   expect(onPrefilled).toHaveBeenCalledTimes(2)
+})
+
+test('the composer, empty, with text and while working, has no axe violations', async () => {
+  const { rerender } = renderWithMantine(<Composer onSend={async () => {}} placeholder="Message" />)
+  await expectNoAxeViolations()
+  await userEvent.type(screen.getByRole('textbox'), 'hello')
+  await expectNoAxeViolations()
+  rerender(<Composer onSend={async () => {}} placeholder="Message" working onStop={async () => {}} />)
+  await expectNoAxeViolations()
 })

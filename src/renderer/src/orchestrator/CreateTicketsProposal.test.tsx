@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { CreateTicketsOverride, CreateTicketsPayload } from '../../../shared/proposals'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { createTicketsView } from './CreateTicketsProposal'
 
 const payload: CreateTicketsPayload = {
@@ -23,4 +24,10 @@ test('Edit keeps the kind of each draft', () => {
   const override = createTicketsView.toOverride!(edit)! as CreateTicketsOverride
   expect(override.tickets.map((t) => t.kind)).toEqual(['investigate', undefined])
   expect(override.tickets[1]).not.toHaveProperty('kind')
+})
+
+test('the drafts have no axe violations', async () => {
+  const { Body } = createTicketsView
+  renderWithMantine(<Body payload={payload} />)
+  await expectNoAxeViolations()
 })

@@ -1,5 +1,6 @@
 import { AppShell, Button, Center, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { Announcer } from './Announcer'
 import { Board } from './board/Board'
 import { startNavigation } from './navigation'
 import { showError } from './notify'
@@ -58,6 +59,7 @@ export function App(): ReactElement {
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
       aside={withPanel ? { width: panelOpen ? PANEL_WIDTH : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >
+      <Announcer />
       <AppShell.Header>
         <Group h="100%" px="md">
           <Title order={1} size="h4">

@@ -1,9 +1,9 @@
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { UsageState } from '../../shared/domain'
 import { invoke } from './api'
 import { useMainbus } from './store'
-import { renderWithMantine } from './test-utils'
+import { expectNoAxeViolations, renderWithMantine } from './test-utils'
 import { UsageBanner } from './UsageBanner'
 
 vi.mock('./api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -24,9 +24,17 @@ function show(usage: UsageState): void {
   renderWithMantine(<UsageBanner />)
 }
 
-test('shows nothing while the limit is not close', () => {
+test('shows nothing while the limit is not close, but keeps an empty status region for the banner to appear in', () => {
   show({ kind: 'ok' })
-  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.getByRole('status', { name: 'Usage limit' })).toBeEmptyDOMElement()
+})
+
+test('the banner appears inside the same status region, so it is announced', () => {
+  show({ kind: 'ok' })
+  const region = screen.getByRole('status', { name: 'Usage limit' })
+  act(() => useMainbus.setState({ usage: { kind: 'warning', resetsAt: reset } }))
+  expect(screen.getByRole('status', { name: 'Usage limit' })).toBe(region)
+  expect(region).not.toBeEmptyDOMElement()
 })
 
 test('when limited it says how many agents are paused and when they resume, with a Resume now button', async () => {
@@ -47,4 +55,9 @@ test('near the limit it warns that new agents wait, with no button', () => {
   show({ kind: 'warning', resetsAt: reset })
   expect(screen.getByRole('status')).toHaveTextContent('Close to the usage limit: new agents wait until it resets at 14:00.')
   expect(screen.queryByRole('button', { name: 'Resume now' })).not.toBeInTheDocument()
+})
+
+test('has no accessibility violations, limited or close', async () => {
+  show({ kind: 'limited', resetsAt: reset, retryAt: null, paused: 3 })
+  await expectNoAxeViolations()
 })

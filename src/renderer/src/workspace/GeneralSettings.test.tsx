@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { GeneralSettings } from './GeneralSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -73,4 +73,10 @@ test('closing the window keeps running in the tray by default, and Always quit s
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setWhenClosed', 'quit'))
   expect(storedClose).toBe('quit')
   expect(screen.getByRole('radio', { name: 'Always quit' })).toBeChecked()
+})
+
+test('the general settings have no axe violations', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  await field()
+  await expectNoAxeViolations()
 })

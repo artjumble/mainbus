@@ -7,7 +7,7 @@ import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shar
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus, type BoardTicket } from '../store'
-import { makeDecision, makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { EMPTY_TEXT, OrchestratorPanel } from './OrchestratorPanel'
 import { readPanelOpen, writePanelOpen } from './panelState'
 
@@ -364,5 +364,54 @@ describe('Deferred group', () => {
     expect(within(waiting).getByText('Now?')).toBeInTheDocument()
     expect(within(waiting).getByRole('button', { name: 'Later…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Deferred \(2\)/ })).toBeInTheDocument()
+  })
+})
+
+describe('accessibility', () => {
+  test('the open panel, empty, working and with a thread and a proposal, has no axe violations', async () => {
+    history([ev({ kind: 'user_message', text: 'Add login' }), ev({ kind: 'message', text: 'Drafting.' }), ev({ kind: 'proposal', proposalId: 'p1' })], 'idle', [proposal()])
+    renderWithMantine(<Panel />)
+    await screen.findByRole('group', { name: 'Proposal: Create 1 ticket in Backlog' })
+    await expectNoAxeViolations()
+    act(() => emit({ type: 'orchestrator.status', status: 'working' }))
+    expect(screen.getByText('Working…')).toBeInTheDocument()
+    await expectNoAxeViolations()
+  })
+
+  test('the Working line sits in a status region that is there before it, so it is announced', async () => {
+    history()
+    renderWithMantine(<Panel />)
+    await screen.findByText(EMPTY_TEXT)
+    const region = screen.getByRole('status')
+    expect(region).toBeEmptyDOMElement()
+    act(() => emit({ type: 'orchestrator.status', status: 'working' }))
+    expect(within(screen.getByRole('status')).getByText('Working…')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toBe(region)
+  })
+
+  test('the collapsed strip has no axe violations', async () => {
+    history()
+    useMainbus.setState({ workspaces: [{ ...workspace, active: true, needsYou: 2 }] })
+    renderWithMantine(<Panel />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Collapse orchestrator panel' }))
+    await expectNoAxeViolations()
+  })
+
+  test('Waiting on you and Deferred, expanded, have no axe violations', async () => {
+    history()
+    const until = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+    const t = makeTicket(
+      {
+        title: 'Login',
+        pendingDecisions: [makeDecision({ id: 'q', question: 'Which database?' })],
+        deferredDecisions: [makeDecision({ id: 'a', question: 'Later?', status: 'deferred', deferredUntil: until })]
+      },
+      { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' }
+    )
+    useMainbus.setState({ tickets: [t] })
+    renderWithMantine(<Panel />)
+    await userEvent.click(await screen.findByRole('button', { name: /Deferred \(1\)/ }))
+    await screen.findByRole('region', { name: 'Waiting on you' })
+    await expectNoAxeViolations()
   })
 })

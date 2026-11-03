@@ -99,7 +99,7 @@ export function WorkspaceRail(): ReactElement {
                     {initials(w.name)}
                   </Text>
                   {w.needsYou > 0 && (
-                    <Badge color="needs" variant="filled" circle data-needs-you aria-label={`${w.needsYou} need you`}>
+                    <Badge color="needs" variant="filled" circle data-needs-you role="img" aria-label={`${w.needsYou} need you`}>
                       {w.needsYou}
                     </Badge>
                   )}

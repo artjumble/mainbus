@@ -1,0 +1,31 @@
+/*
+ * A hit area of at least 44 x 44 px for small controls (WCAG 2.5.8 target size, with the extra margin of AAA).
+ * The control keeps its look; an invisible ::after grows its clickable area. (Mantine uses ::before for loading.)
+ */
+.target {
+  position: relative;
+}
+
+.target::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+.menuItem {
+  min-height: 44px;
+}
+
+/* No spinning for people who prefer reduced motion: the loader stays as a still mark. */
+@media (prefers-reduced-motion: reduce) {
+  .loader,
+  .loader::before,
+  .loader::after,
+  .loader * {
+    animation: none !important;
+  }
+}

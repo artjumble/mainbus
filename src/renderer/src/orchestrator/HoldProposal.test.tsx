@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { HoldPayload, Proposal } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -85,4 +85,14 @@ test('once confirmed it is a receipt that links to the ticket', async () => {
   expect(screen.getByText(/^Held/)).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: '#3' }))
   expect(useMainbus.getState().currentTicketId).toBe('t3')
+})
+
+test('the card and its Override editor have no axe violations', async () => {
+  renderWithMantine(<ProposalCard proposal={proposal()} />)
+  await expectNoAxeViolations()
+  const override = screen.queryByRole('button', { name: 'Override' })
+  if (override) {
+    await userEvent.click(override)
+    await expectNoAxeViolations()
+  }
 })

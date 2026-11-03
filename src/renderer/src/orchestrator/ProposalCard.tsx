@@ -141,7 +141,7 @@ function Receipt({ proposal, view }: Props & { view: ProposalView<any, any, any>
   } else if (proposal.result === null) {
     line = (
       <Group gap="xs">
-        <Loader size={12} type="dots" />
+        <Loader size={12} type="dots" aria-hidden />
         <Text size="sm" c="dimmed">
           Working…
         </Text>
@@ -151,7 +151,14 @@ function Receipt({ proposal, view }: Props & { view: ProposalView<any, any, any>
     line = <view.Receipt result={proposal.result} />
   }
   return (
-    <Paper withBorder px="sm" py={6} radius="md" data-proposal="receipt" data-proposal-id={proposal.id} data-status={proposal.status}>
+    <Paper
+      withBorder
+      px="sm"
+      py={6}
+      radius="md"
+      // The Working line is announced, politely, once; finished receipts are plain text.
+      role={proposal.status !== 'rejected' && proposal.status !== 'failed' && proposal.result === null ? 'status' : undefined}
+      data-proposal="receipt" data-proposal-id={proposal.id} data-status={proposal.status}>
       {line}
     </Paper>
   )
