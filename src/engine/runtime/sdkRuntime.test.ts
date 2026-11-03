@@ -85,6 +85,7 @@ function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
   const roleTools: RoleToolHandlers = {
     askUser: vi.fn(async () => 'asked'),
     handoff: vi.fn(async () => 'handed off'),
+    submitReport: vi.fn(async () => 'submitted'),
     reportProblem: vi.fn(async () => 'reported'),
     reportWaiting: vi.fn(async () => 'waiting'),
     checkCriterion: vi.fn(async () => 'checked')
@@ -414,6 +415,18 @@ describe('SdkRuntime', () => {
     expect(Object.keys(f.tools[4].shape)).toEqual(['index'])
     expect(Object.keys(f.calls[0].options.mcpServers)).toEqual(['mainbus'])
     expect(f.calls[0].options.mcpServers.mainbus.name).toBe('mainbus')
+  })
+
+  test('the last role of an Investigate lineup is offered submit_report instead of handoff', async () => {
+    const f = fakeSdk()
+    const spec = makeSpec({ endsWithReport: true })
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    expect(f.tools.map((t) => t.name)).toEqual(['ask_user', 'submit_report', 'report_problem', 'report_waiting', 'check_criterion'])
+    expect(Object.keys(f.tools[1].shape)).toEqual(['markdown'])
+    expect(f.calls[0].options.allowedTools).toContain('mcp__mainbus__submit_report')
+    expect(f.calls[0].options.allowedTools).not.toContain('mcp__mainbus__handoff')
+    await f.tools[1].handler({ markdown: '# R' }, {})
+    expect(spec.roleTools.submitReport).toHaveBeenCalledWith({ markdown: '# R' })
   })
 
   test("the handoff tool's zod field notes_for_next is mapped to notesForNext", async () => {

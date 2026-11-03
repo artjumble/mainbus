@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
-import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -21,8 +21,8 @@ export interface ExecContext {
     /** The proposal being carried out: its result is recorded in the same transaction as the tickets. */
     record?: { proposalId: string; column: DraftColumn }
   ): Promise<Ticket[]>
-  /** The workspace's lineup, in order. */
-  lineup(workspaceId: string): Promise<LineupRole[]>
+  /** The workspace's lineup of that kind (the one a ticket of that kind runs), in order. */
+  lineup(workspaceId: string, lineup: Lineup): Promise<LineupRole[]>
   ticketByNumber(workspaceId: string, number: number): Promise<Ticket | null>
   /** Why the ticket can't be started now (it is running, or not in Backlog or Ready), or null when it can. */
   whyNotStartable(ticket: Ticket): Promise<string | null>

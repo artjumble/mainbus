@@ -1,10 +1,12 @@
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
 
-/** What the in-process role tools (ask_user, handoff, report_problem, report_waiting, check_criterion) call back into. */
+/** What the in-process role tools (ask_user, handoff or submit_report, report_problem, report_waiting, check_criterion) call back into. */
 export interface RoleToolHandlers {
   askUser(a: { question: string; options: string[]; recommended?: number }): Promise<string>
   handoff(a: { summary: string; notesForNext: string }): Promise<string>
+  /** The last role of an Investigate lineup ends with this instead of handoff. */
+  submitReport(a: { markdown: string }): Promise<string>
   reportProblem(a: { details: string }): Promise<string>
   /** `until` is an ISO date-time; the handler checks it, since the agent sends whatever it likes. */
   reportWaiting(a: { reason: string; until: string }): Promise<string>
@@ -67,6 +69,8 @@ export interface RunSpec {
   model?: string
   effort?: Effort
   toolProfile: 'read_only' | 'edit'
+  /** The role ends with submit_report instead of handoff: the last role of an Investigate lineup. */
+  endsWithReport?: boolean
   disallowedTools: string[]
   additionalDirectories: string[]
   resumeSessionId?: string

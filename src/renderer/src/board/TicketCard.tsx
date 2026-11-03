@@ -121,6 +121,11 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <QueuedChip state={state} />
         <HoldChip hold={ticket.hold} />
         <StuckChip stuck={ticket.stuck} />
+        {ticket.kind === 'investigate' && (
+          <Badge color="gray" variant="outline" size="sm" radius="sm">
+            Investigate
+          </Badge>
+        )}
         {source && <AgentBadge source={source} />}
         {ticket.pr && <PrLink pr={ticket.pr} />}
         {cleaningUp && (

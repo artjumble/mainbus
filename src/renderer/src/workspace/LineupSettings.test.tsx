@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { LineupRole, LineupRoleInput } from '../../../shared/domain'
 import { invoke } from '../api'
 import { makeLineup, optionLabels, renderWithMantine } from '../test-utils'
-import { LineupSettings } from './LineupSettings'
+import { LineupEditor, LineupSettings } from './LineupSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
 
@@ -41,7 +41,7 @@ const lastSaved = (): LineupRoleInput[] => {
 }
 
 async function renderLoaded(): Promise<void> {
-  renderWithMantine(<LineupSettings opened />)
+  renderWithMantine(<LineupEditor opened lineup="change" />)
   await screen.findByRole('button', { name: 'Edit Planner' })
 }
 
@@ -228,4 +228,31 @@ test('a role whose name is cleared is still listed by its place', async () => {
 test('loads nothing while closed', () => {
   renderWithMantine(<LineupSettings opened={false} />)
   expect(mockInvoke).not.toHaveBeenCalled()
+})
+
+test('has a tab for each lineup; the Investigate tab loads and saves the Investigate lineup', async () => {
+  const investigator: LineupRole = { ...makeLineup()[0]!, id: 'inv', name: 'Investigator', lineup: 'investigate' }
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'lineup.get') return args[0] === 'investigate' ? [investigator] : makeLineup()
+    if (command === 'lineup.save') return savedFrom(args[0] as LineupRoleInput[]).map((r) => ({ ...r, lineup: args[1] as 'change' | 'investigate' }))
+    return undefined
+  })
+  renderWithMantine(<LineupSettings opened />)
+  expect(screen.getByRole('tab', { name: 'Change' })).toHaveAttribute('aria-selected', 'true')
+  await screen.findByRole('button', { name: 'Edit Planner' })
+  expect(mockInvoke).toHaveBeenCalledWith('lineup.get', 'change')
+  expect(mockInvoke).toHaveBeenCalledWith('lineup.get', 'investigate')
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Investigate' }))
+  expect(screen.getByText(/The last role ends with a report instead of a handoff/)).toBeVisible()
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit Investigator' }))
+  // The Change panel stays mounted, hidden, with a Name field of its own.
+  const name = within(screen.getByRole('tabpanel', { name: 'Investigate' })).getByLabelText('Name')
+  await userEvent.clear(name)
+  await userEvent.type(name, 'Detective')
+  await userEvent.click(saveButton())
+  const saves = mockInvoke.mock.calls.filter((c) => c[0] === 'lineup.save')
+  expect(saves).toHaveLength(1)
+  expect(saves[0]![2]).toBe('investigate')
+  expect((saves[0]![1] as LineupRoleInput[]).map((r) => r.name)).toEqual(['Detective'])
 })

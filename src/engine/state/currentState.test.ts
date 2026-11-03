@@ -18,6 +18,7 @@ const ticket: Ticket = {
   worktreePath: null,
   pr: null,
   prError: null,
+  report: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z'
 }

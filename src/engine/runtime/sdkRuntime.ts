@@ -47,6 +47,12 @@ const ROLE_TOOLS = [
   'mcp__mainbus__report_waiting',
   'mcp__mainbus__check_criterion'
 ]
+/** A role offers either handoff or submit_report, never both. */
+function roleTools(endsWithReport: boolean | undefined): string[] {
+  return endsWithReport
+    ? ROLE_TOOLS.map((t) => (t === 'mcp__mainbus__handoff' ? 'mcp__mainbus__submit_report' : t))
+    : ROLE_TOOLS
+}
 /**
  * The orchestrator's Mainbus tools, pre-approved like the role tools: the read tools, and the propose tools,
  * which only store a proposal for the user to decide.
@@ -385,15 +391,22 @@ export class SdkRuntime implements AgentRuntime {
             return toolText(answer)
           }
         ),
-        sdk.tool(
-          'handoff',
-          'Hand the ticket on when your part is finished. Commit all work first.',
-          {
-            summary: z.string().describe('What you did and what you verified'),
-            notes_for_next: z.string().describe('What the next role needs to know')
-          },
-          async (a) => toolText(await spec.roleTools.handoff({ summary: a.summary, notesForNext: a.notes_for_next }))
-        ),
+        spec.endsWithReport
+          ? sdk.tool(
+              'submit_report',
+              "Submit your report when your investigation is finished. It ends your part; the ticket goes to Review. Don't commit anything.",
+              { markdown: z.string().describe('Your report, in markdown') },
+              async (a) => toolText(await spec.roleTools.submitReport({ markdown: a.markdown }))
+            )
+          : sdk.tool(
+              'handoff',
+              'Hand the ticket on when your part is finished. Commit all work first.',
+              {
+                summary: z.string().describe('What you did and what you verified'),
+                notes_for_next: z.string().describe('What the next role needs to know')
+              },
+              async (a) => toolText(await spec.roleTools.handoff({ summary: a.summary, notesForNext: a.notes_for_next }))
+            ),
         sdk.tool(
           'report_problem',
           'Report a problem that stops you, such as one an earlier role must fix. Call it, then end your turn.',
@@ -475,7 +488,7 @@ export class SdkRuntime implements AgentRuntime {
       strictMcpConfig: true,
       includePartialMessages: true,
       disallowedTools,
-      allowedTools: ROLE_TOOLS,
+      allowedTools: roleTools(spec.endsWithReport),
       additionalDirectories: spec.additionalDirectories,
       mcpServers: { mainbus: server },
       hooks: { PreToolUse: [{ hooks: [guard] }] },
@@ -567,7 +580,11 @@ export class SdkRuntime implements AgentRuntime {
                   title: z.string().describe('A short title, one line'),
                   spec: z.string().optional().describe('Your draft: the approach, the files involved, the details'),
                   criteria: z.array(z.string()).optional().describe('Acceptance criteria, one per item'),
-                  labels: z.array(z.string()).optional().describe('Labels, one word or short phrase each')
+                  labels: z.array(z.string()).optional().describe('Labels, one word or short phrase each'),
+                  kind: z
+                    .enum(['change', 'investigate'])
+                    .optional()
+                    .describe('change (the default) to change code, or investigate to look into something and write up a report without changing code')
                 })
               )
               .describe('The tickets, in the order to create them'),

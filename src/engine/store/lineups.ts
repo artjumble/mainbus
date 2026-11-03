@@ -15,16 +15,14 @@ import type { Db } from '../db/open'
 import { lineupRoles } from '../db/schema'
 
 export interface LineupRepo {
-  /** The workspace's Change lineup, first role first. */
-  get(workspaceId: string): Promise<LineupRole[]>
-  /** Replaces the whole Change lineup in one transaction. Throws, with a message for the user, when it's invalid. */
-  save(workspaceId: string, roles: LineupRoleInput[]): Promise<LineupRole[]>
+  /** The workspace's lineup of that kind (Change unless given), first role first. */
+  get(workspaceId: string, lineup?: Lineup): Promise<LineupRole[]>
+  /** Replaces the whole lineup of that kind in one transaction. Throws, with a message for the user, when it's invalid. */
+  save(workspaceId: string, roles: LineupRoleInput[], lineup?: Lineup): Promise<LineupRole[]>
 }
 
-const CHANGE: Lineup = 'change'
-
 // The ids here only link the defaults to each other; saving gives every role a fresh one.
-// Migrations 0002 and 0012 have their own copies of these texts, as they were when each was written.
+// Migrations 0002, 0012 and 0020 have their own copies of these texts, as they were when each was written.
 /** The lineup every new workspace starts with: Planner → Implementer → Reviewer. */
 export function defaultLineup(): LineupRoleInput[] {
   return [
@@ -77,6 +75,25 @@ export function defaultLineup(): LineupRoleInput[] {
   ]
 }
 
+/** The lineup every new workspace's Investigate tickets run: one read-only Investigator who ends with a report. */
+export function defaultInvestigateLineup(): LineupRoleInput[] {
+  return [
+    {
+      id: 'investigator',
+      name: 'Investigator',
+      instructions:
+        "Find out what's going on and write it up; don't change code. Your report may recommend changes but does " +
+        'not authorize them.',
+      activePhase: 'planning',
+      onProblem: 'ask_me',
+      handBackTo: null,
+      model: null,
+      effort: null,
+      toolProfile: 'read_only'
+    }
+  ]
+}
+
 const TOOL_PROFILES: ToolProfile[] = ['read_only', 'edit']
 const ON_PROBLEM: OnProblem[] = ['hand_back', 'ask_me']
 
@@ -115,12 +132,12 @@ export function lineupProblem(roles: LineupRoleInput[]): string | null {
  * The rows for `roles` in order: ids in `keep` stay, any other id gets a fresh one, and hand-backs follow.
  * A hand-back to a role not in the lineup, or from a role that asks the user, is stored as null.
  */
-function toRows(workspaceId: string, roles: LineupRoleInput[], keep: Set<string>): (typeof lineupRoles.$inferInsert)[] {
+function toRows(workspaceId: string, lineup: Lineup, roles: LineupRoleInput[], keep: Set<string>): (typeof lineupRoles.$inferInsert)[] {
   const ids = new Map(roles.map((r) => [r.id, keep.has(r.id) ? r.id : randomUUID()]))
   return roles.map((role, i) => ({
     id: ids.get(role.id)!,
     workspaceId,
-    lineup: CHANGE,
+    lineup,
     position: i + 1,
     name: role.name.trim(),
     instructions: role.instructions,
@@ -150,36 +167,41 @@ function toRole(row: typeof lineupRoles.$inferSelect): LineupRole {
   }
 }
 
-/** Adds the default lineup to a new workspace. */
+/** Adds the default lineups (Change and Investigate) to a new workspace. */
 export async function insertDefaultLineup(db: Db, workspaceId: string): Promise<void> {
-  await db.insert(lineupRoles).values(toRows(workspaceId, defaultLineup(), new Set()))
+  await db
+    .insert(lineupRoles)
+    .values([
+      ...toRows(workspaceId, 'change', defaultLineup(), new Set()),
+      ...toRows(workspaceId, 'investigate', defaultInvestigateLineup(), new Set())
+    ])
 }
 
 export function createLineupRepo(db: Db): LineupRepo {
-  async function get(workspaceId: string): Promise<LineupRole[]> {
+  async function get(workspaceId: string, lineup: Lineup = 'change'): Promise<LineupRole[]> {
     const rows = await db
       .select()
       .from(lineupRoles)
-      .where(and(eq(lineupRoles.workspaceId, workspaceId), eq(lineupRoles.lineup, CHANGE)))
+      .where(and(eq(lineupRoles.workspaceId, workspaceId), eq(lineupRoles.lineup, lineup)))
       .orderBy(asc(lineupRoles.position))
     return rows.map(toRole)
   }
 
   return {
     get,
-    async save(workspaceId, roles) {
+    async save(workspaceId, roles, lineup = 'change') {
       const problem = lineupProblem(roles)
       if (problem) throw new Error(problem)
-      const existing = new Set((await get(workspaceId)).map((r) => r.id))
+      const existing = new Set((await get(workspaceId, lineup)).map((r) => r.id))
       if (existing.size === 0) throw new Error(`No lineup for workspace ${workspaceId}`)
-      const rows = toRows(workspaceId, roles, existing)
+      const rows = toRows(workspaceId, lineup, roles, existing)
       await db.transaction(async (tx) => {
         await tx
           .delete(lineupRoles)
-          .where(and(eq(lineupRoles.workspaceId, workspaceId), eq(lineupRoles.lineup, CHANGE)))
+          .where(and(eq(lineupRoles.workspaceId, workspaceId), eq(lineupRoles.lineup, lineup)))
         await tx.insert(lineupRoles).values(rows)
       })
-      return get(workspaceId)
+      return get(workspaceId, lineup)
     }
   }
 }

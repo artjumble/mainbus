@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { Hold, LineupRole, StartOptions, Ticket, Workspace } from '../../shared/domain'
+import type { Hold, Lineup, LineupRole, StartOptions, Ticket, Workspace } from '../../shared/domain'
 import type { StartLineupPayload } from '../../shared/proposals'
 import { testRole } from '../store/testDb'
 import { ProposalInvalid, type ExecContext } from './kind'
@@ -13,7 +13,7 @@ const LINEUP: LineupRole[] = [
   testRole({ id: 'r', name: 'Reviewer', position: 3 })
 ]
 
-const TICKET = { id: 't12', number: 12, title: 'Rate-limit login' } as Ticket
+const TICKET = { id: 't12', number: 12, title: 'Rate-limit login', kind: 'change' } as Ticket
 
 /** A fake engine: ticket #12 exists; `why` says whether it can be started now. */
 function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: LineupRole[] } = {}) {
@@ -21,7 +21,7 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
   const c = {
     workspace: async () => (over.open === undefined ? ws : over.open),
     createTickets: async () => [],
-    lineup: async () => over.lineup ?? LINEUP,
+    lineup: vi.fn(async (_w: string, _kind: Lineup) => over.lineup ?? LINEUP),
     ticketByNumber: async (_w: string, n: number) => (n === 12 ? TICKET : null),
     whyNotStartable: vi.fn(async () => why),
     startTicket: vi.fn(async (_id: string, _opts: StartOptions) => {}),
@@ -107,6 +107,18 @@ describe('start_lineup: propose', () => {
 
   test('rejects a workspace with no roles', async () => {
     await expect(propose({ ticket: 12 }, ctx({ lineup: [] }))).rejects.toThrow('roles: this workspace has no roles')
+  })
+})
+
+describe('start_lineup: the kind of the ticket', () => {
+  test('asks for the lineup of the ticket kind', async () => {
+    const c = ctx()
+    await propose({ ticket: 12 }, c)
+    expect(c.lineup).toHaveBeenLastCalledWith(ws.id, 'change')
+    const investigate = { ...TICKET, kind: 'investigate' as const }
+    const d = { ...c, ticketByNumber: async () => investigate }
+    await propose({ ticket: 12 }, d)
+    expect(c.lineup).toHaveBeenLastCalledWith(ws.id, 'investigate')
   })
 })
 

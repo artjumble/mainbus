@@ -400,3 +400,16 @@ test('a wake turn of one item says thing, not things', () => {
   const { container } = renderWithMantine(<Thread events={[ev({ kind: 'wake', items: ['#3 "Checkout": the Implementer failed'] })]} decisions={[]} />)
   expect(container.querySelector('[data-event="wake"]')).toHaveTextContent('Mainbus: 1 thing to look at')
 })
+
+test('a report is rendered as markdown in a Report region after the earlier rows', () => {
+  const events = [
+    ev({ kind: 'message', text: 'Looking into it.' }),
+    ev({ kind: 'report', markdown: '# Findings\n\nThe cause is **X**.' })
+  ]
+  renderWithMantine(<Thread events={events} decisions={[]} />)
+  const report = screen.getByRole('region', { name: 'Report' })
+  expect(within(report).getByRole('heading', { name: 'Findings' })).toBeInTheDocument()
+  expect(within(report).getByText('X').tagName).toBe('STRONG')
+  const message = screen.getByText('Looking into it.')
+  expect(message.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})

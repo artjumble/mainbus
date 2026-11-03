@@ -12,6 +12,7 @@ import {
   type StartOptions,
   type StripRole,
   type Ticket,
+  type TicketKind,
   type TicketState,
   type Workspace
 } from '../../shared/domain'
@@ -96,6 +97,16 @@ export interface RunnerDeps {
 
 export const NUDGE_TEXT =
   'You ended your turn without asking the user or handing off. If you are done, commit and call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
+/** The nudge for an Investigate role: it never commits, and the last one ends with a report. */
+const INVESTIGATE_NUDGE_TEXT =
+  'You ended your turn without asking the user or handing off. If you are done, call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
+const REPORT_NUDGE_TEXT =
+  'You ended your turn without asking the user or submitting your report. If you are done, call mcp__mainbus__submit_report with your report. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
+
+function nudgeText(kind: TicketKind, endsWithReport: boolean): string {
+  if (endsWithReport) return REPORT_NUDGE_TEXT
+  return kind === 'investigate' ? INVESTIGATE_NUDGE_TEXT : NUDGE_TEXT
+}
 const CONTINUE_TEXT = 'Continue where you left off.'
 /** What an agent that was working when Mainbus closed is told when it comes back. */
 export const RESTART_TEXT = 'Mainbus restarted; continue where you left off.'
@@ -111,6 +122,15 @@ const ASK_RECORDED = 'Recorded. End your turn now; the answer will arrive as you
 const HANDED_OFF = 'Handed off. Your part is done; end your turn now.'
 const COMMIT_FIRST =
   'Not handed off: the worktree has uncommitted changes. Commit all your work on the current branch, then call mcp__mainbus__handoff again.'
+const REPORT_SUBMITTED = 'Report submitted. Your part is done; end your turn now.'
+const MUST_SUBMIT_REPORT =
+  'Not handed off: an Investigate ticket ends with a report. Call mcp__mainbus__submit_report with your report in markdown.'
+const NOT_INVESTIGATE =
+  'Not submitted: submit_report is only for Investigate tickets. When your part is finished, call mcp__mainbus__handoff.'
+const NOT_LAST_ROLE =
+  'Not submitted: only the last role of an Investigate lineup submits a report. When your part is finished, call mcp__mainbus__handoff.'
+const EMPTY_REPORT = 'Not submitted: the report is empty. Write up what you found and call mcp__mainbus__submit_report again.'
+const NEVER_PUBLISHED = 'Investigate tickets never push or open a pull request'
 const RUN_ENDED = 'This run has ended.'
 const REDIRECT_STALE = 'The agent is no longer stuck in that episode, or it was already redirected'
 const NOT_WORKING = 'No agent is working on this ticket'
@@ -171,6 +191,8 @@ interface ThreadTarget {
 /** A run whose agent process is alive. Exists from `start` until its events have ended and been wrapped up. */
 interface LiveRun extends ThreadTarget {
   handle: RunHandle
+  /** What a silent turn is nudged with. */
+  nudge: string
   /** Turns ended in a row without ask_user, handoff or a pending decision. */
   silentTurns: number
   /** Turns ended in a row with an error. */
@@ -773,10 +795,10 @@ export class TicketRunner {
     if (latest && latest.endReason === null) {
       throw new Error('This ticket already has an agent; continue or stop it instead')
     }
-    const { workspaceId } = await this.repos.tickets.get(ticketId)
+    const { workspaceId, kind } = await this.repos.tickets.get(ticketId)
     // Copied into the ticket run, so editing the lineup later never changes this run. Each role's model and
     // effort are resolved now, so every launch of the run uses the same ones.
-    const picked = pickRoles(await this.repos.lineups.get(workspaceId), opts?.roleIds)
+    const picked = pickRoles(await this.repos.lineups.get(workspaceId, kind), opts?.roleIds)
     const { roles: chosen, extraInstructions } = checkStartOptions(picked, opts)
     const roles = picked.map((role) => {
       const { model, effort } = resolveModelEffort(role, { user: chosen[role.id] })
@@ -1279,6 +1301,7 @@ export class TicketRunner {
     const run = await this.repos.runs.latest(ticketId)
     const publisher = this.deps.pullRequests
     const { branch, worktreePath } = ticket
+    if (ticket.kind === 'investigate') return cannotPublish(retry, NEVER_PUBLISHED)
     if (!publisher || !workspace.openPrOnReview) return cannotPublish(retry, PR_SETTING_OFF)
     if (!run || run.endReason !== 'handoff' || ticket.manualColumn === 'done') return cannotPublish(retry, PR_NOT_IN_REVIEW)
     if (branch === null || worktreePath === null) return cannotPublish(retry, PR_NO_BRANCH)
@@ -1477,6 +1500,7 @@ export class TicketRunner {
     }
     // Ticket runs started before models were resolved at start hold nulls: those get the default table.
     const fallback = defaultFor(role.name)
+    const endsWithReport = await this.endsWithReport(ticket, role.id, launch.ticketRunId)
     // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
     let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {
@@ -1485,15 +1509,16 @@ export class TicketRunner {
       tempDir: worktree.scratch,
       ownBranch: worktree.branch,
       prompt,
-      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs, launch.extraInstructions),
+      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs, launch.extraInstructions, endsWithReport),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,
       toolProfile: role.toolProfile,
+      endsWithReport,
       disallowedTools: DISALLOWED_TOOLS,
       // Edits and simple file commands in the scratch folder run without asking, as in the worktree.
       additionalDirectories: [worktree.scratch],
       ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
-      roleTools: this.roleTools(target, worktree.path),
+      roleTools: this.roleTools(target, worktree.path, ticket.kind, endsWithReport),
       onPermission: (req) => this.onPermission(target, worktree, req),
       onProcessStart: (p) => void (claude = this.processStarted(target, p)),
       onProcessExit: () => void (claude && this.sweepRun(target, claude).catch(() => {}))
@@ -1530,6 +1555,7 @@ export class TicketRunner {
       const live: LiveRun = {
         ...target,
         handle,
+        nudge: nudgeText(ticket.kind, endsWithReport),
         silentTurns: 0,
         errorTurns: 0,
         askedThisTurn: false,
@@ -1641,8 +1667,8 @@ export class TicketRunner {
       await this.fail(live, SILENT_FAILURE)
       return
     }
-    await this.record(live, { kind: 'nudge', text: NUDGE_TEXT })
-    const failure = await this.deliver(live, NUDGE_TEXT)
+    await this.record(live, { kind: 'nudge', text: live.nudge })
+    const failure = await this.deliver(live, live.nudge)
     if (failure !== null) await this.record(live, { kind: 'error', message: `Mainbus could not send the nudge: ${failure}` })
   }
 
@@ -1754,7 +1780,13 @@ export class TicketRunner {
 
   // --- role tools (called by the agent, not queued) ---
 
-  private roleTools(target: ThreadTarget, worktreePath: string): RoleToolHandlers {
+  /** Whether the role ends with submit_report: the last role of an Investigate ticket run. */
+  private async endsWithReport(ticket: Ticket, roleId: string, ticketRunId: string): Promise<boolean> {
+    if (ticket.kind !== 'investigate') return false
+    return (await this.repos.runs.ticketRun(ticketRunId)).roles.at(-1)?.id === roleId
+  }
+
+  private roleTools(target: ThreadTarget, worktreePath: string, kind: TicketKind, endsWithReport: boolean): RoleToolHandlers {
     return {
       askUser: async ({ question, options, recommended }) => {
         if (options.length === 0) return 'Not asked: give the user at least one option to choose from.'
@@ -1765,7 +1797,9 @@ export class TicketRunner {
       handoff: async ({ summary, notesForNext }) => {
         const run = await this.repos.runs.latest(target.ticketId)
         if (!run || run.id !== target.runId || run.endReason !== null) return RUN_ENDED
-        if (await this.deps.worktrees.hasUncommitted(worktreePath)) return COMMIT_FIRST
+        if (endsWithReport) return MUST_SUBMIT_REPORT
+        // Investigate roles never commit, so there is nothing to check.
+        if (kind !== 'investigate' && (await this.deps.worktrees.hasUncommitted(worktreePath))) return COMMIT_FIRST
         const next = await this.nextRole(run)
         let nextRun: AgentRunRow | null = null
         if (next) {
@@ -1810,6 +1844,23 @@ export class TicketRunner {
           void this.serial(target.ticketId, () => this.publishNow(target.ticketId, false)).catch(() => {})
         }
         return HANDED_OFF
+      },
+
+      submitReport: async ({ markdown }) => {
+        const run = await this.repos.runs.latest(target.ticketId)
+        if (!run || run.id !== target.runId || run.endReason !== null) return RUN_ENDED
+        if (kind !== 'investigate') return NOT_INVESTIGATE
+        if (!endsWithReport) return NOT_LAST_ROLE
+        if (markdown.trim() === '') return EMPTY_REPORT
+        // End the run first: a lost race must not leave a report on a run that someone else ended.
+        if (!(await this.repos.runs.end(target.runId, 'handoff'))) return RUN_ENDED
+        const live = this.live.get(target.runId)
+        if (live) live.ended = true
+        await this.repos.tickets.setReport(target.ticketId, markdown)
+        await this.record(target, { kind: 'report', markdown })
+        await this.expirePending(target, (d) => d.kind === 'question' && d.agentRunId === target.runId)
+        // Investigate tickets never push or open a pull request, so unlike handoff there is no publish here.
+        return REPORT_SUBMITTED
       },
 
       reportProblem: async ({ details }) => {

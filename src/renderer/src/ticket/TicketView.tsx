@@ -280,7 +280,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               </Button>
             )}
           </Group>
-          <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} />
+          <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} lineup={ticket.kind} />
           <SkipModal
             opened={skipping && runOpen && activeRole !== undefined}
             role={activeRole?.name ?? ''}

@@ -1,5 +1,5 @@
 // Shared by the engine and the renderer: types only, no Node imports.
-import type { Effort } from './domain'
+import type { Effort, TicketKind } from './domain'
 import type { ModelSource } from './models'
 
 /**
@@ -40,6 +40,8 @@ export interface TicketDraft {
   spec: string
   criteria: string[]
   labels: string[]
+  /** Absent means change. */
+  kind?: TicketKind
 }
 
 export type DraftColumn = 'backlog' | 'ready'

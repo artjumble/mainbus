@@ -43,6 +43,15 @@ describe('ticket repo', () => {
     expect([a.number, b.number, c.number]).toEqual([1, 2, 1])
   })
 
+  it('keeps the kind (change unless asked) and saves a report', async () => {
+    const repo = createTicketRepo(db, now)
+    expect((await repo.create(input())).kind).toBe('change')
+    const t = await repo.create(input({ kind: 'investigate' }))
+    expect(t).toMatchObject({ kind: 'investigate', report: null })
+    expect(await repo.setReport(t.id, '# Findings')).toMatchObject({ kind: 'investigate', report: '# Findings' })
+    expect(await repo.get(t.id)).toMatchObject({ report: '# Findings' })
+  })
+
   it('creates a ticket with its criteria unchecked and in order', async () => {
     const repo = createTicketRepo(db, now)
     const t = await repo.create(input({ column: 'ready' }))
@@ -64,6 +73,7 @@ describe('ticket repo', () => {
       worktreePath: null,
       pr: null,
       prError: null,
+      report: null,
       createdAt: FIXED_NOW.toISOString(),
       updatedAt: FIXED_NOW.toISOString()
     })

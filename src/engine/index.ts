@@ -9,7 +9,7 @@ import {
   type EngineEvent
 } from '../shared/api'
 import type { DraftColumn } from '../shared/proposals'
-import type { AgentLauncher, LineupRole, NewTicketInput, StuckEpisode, Ticket, Workspace } from '../shared/domain'
+import { LINEUPS, type AgentLauncher, type Lineup, type LineupRole, type NewTicketInput, type StuckEpisode, type Ticket, type Workspace } from '../shared/domain'
 import { openDb } from './db/open'
 import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
@@ -99,6 +99,12 @@ const missingRuntime: AgentRuntime = {
 }
 
 const WORKSPACE_REQUIRED = 'Open a workspace first'
+
+/** The lineup a request names, or an error: the renderer sends whatever it likes. */
+function knownLineup(lineup: string): Lineup {
+  if (!(LINEUPS as readonly string[]).includes(lineup)) throw new Error(`Unknown lineup: ${lineup}`)
+  return lineup as Lineup
+}
 
 function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
@@ -330,7 +336,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       exec: {
         workspace: () => repos.workspaces.get(),
         createTickets,
-        lineup: (workspaceId) => repos.lineups.get(workspaceId),
+        lineup: (workspaceId, kind) => repos.lineups.get(workspaceId, kind),
         ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
         async whyNotStartable(ticket) {
           const held = await holds.active(ticket.id)
@@ -400,13 +406,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const tickets = await repos.tickets.list(ws.id)
       const holdOf = new Map((await repos.holds.activeOf('ticket')).map((h) => [h.targetId, h]))
       // Read once, for every ticket that hasn't run yet.
-      let lineup: Promise<LineupRole[]> | undefined
-      const workspaceLineup = () => (lineup ??= repos.lineups.get(ws.id))
+      const lineups = new Map<Lineup, Promise<LineupRole[]>>()
+      const workspaceLineup = (kind: Lineup) => {
+        let lineup = lineups.get(kind)
+        if (!lineup) lineups.set(kind, (lineup = repos.lineups.get(ws.id, kind)))
+        return lineup
+      }
       const stuckOf = await repos.stuck.openByTicket()
       return Promise.all(
         tickets.map(async (t) => ({
           ...t,
-          ...(await runner.boardView(t.id, workspaceLineup)),
+          ...(await runner.boardView(t.id, () => workspaceLineup(t.kind))),
           hold: holdOf.get(t.id) ?? null,
           stuck: stuckOf.get(t.id) ?? null
         }))
@@ -568,7 +578,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
-      'ticket.create': async (input) => createTicket(await requireWorkspace(), { ...input, source: undefined }),
+      'ticket.create': async (input) => createTicket(await requireWorkspace(), {
+          ...input,
+          kind: input.kind === 'investigate' ? 'investigate' : 'change',
+          source: undefined
+        }),
       'ticket.update': async (id, patch) => {
         const ticket = await repos.tickets.update(id, patch)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
@@ -634,11 +648,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'decision.defer': (id, until) => holds.defer(id, until),
       'decision.bringBack': (id) => holds.bringBack(id),
 
-      'lineup.get': async () => repos.lineups.get((await requireWorkspace()).id),
+      'lineup.get': async (lineup = 'change') => repos.lineups.get((await requireWorkspace()).id, knownLineup(lineup)),
       // The board changes too: before a ticket's first run, its lineup strip is the workspace lineup.
-      'lineup.save': async (roles) => {
+      'lineup.save': async (roles, lineup = 'change') => {
         const ws = await requireWorkspace()
-        const saved = await repos.lineups.save(ws.id, roles)
+        const saved = await repos.lineups.save(ws.id, roles, knownLineup(lineup))
         emit({ type: 'board.changed', workspaceId: ws.id })
         return saved
       },

@@ -16,6 +16,7 @@ import {
   Paper,
   Radio,
   Stack,
+  Tabs,
   Text,
   TextInput,
   Textarea,
@@ -23,7 +24,7 @@ import {
   UnstyledButton
 } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { ROLE_PHASES, type Effort, type LineupRole, type OnProblem, type RolePhase, type ToolProfile } from '../../../shared/domain'
+import { ROLE_PHASES, type Effort, type Lineup, type LineupRole, type OnProblem, type RolePhase, type ToolProfile } from '../../../shared/domain'
 import { DEFAULT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS, OTHER_ROLE_DEFAULT, modelLabel } from '../../../shared/models'
 import { invoke } from '../api'
 import { phaseLabel } from '../board/TicketCard'
@@ -55,8 +56,37 @@ interface Props {
   opened: boolean
 }
 
-/** The workspace's Change lineup: the roles that work a ticket in turn. One Save writes the whole lineup. */
+const LINEUP_TEXT: Record<Lineup, string> = {
+  change: 'Change tickets are worked by these roles in turn, top to bottom. Drag a role, or use its arrows, to reorder.',
+  investigate:
+    'Investigate tickets are worked by these roles in turn, top to bottom. The last role ends with a report instead of a handoff. Drag a role, or use its arrows, to reorder.'
+}
+
+/** The workspace's lineups, one tab each. Both editors stay mounted, so unsaved edits survive a tab switch. */
 export function LineupSettings({ opened }: Props): ReactElement {
+  return (
+    <Stack gap="sm" component="section" aria-labelledby="lineup-heading">
+      <Title order={3} size="h4" id="lineup-heading">
+        Lineup
+      </Title>
+      <Tabs defaultValue="change" keepMounted>
+        <Tabs.List>
+          <Tabs.Tab value="change">Change</Tabs.Tab>
+          <Tabs.Tab value="investigate">Investigate</Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="change" pt="sm">
+          <LineupEditor opened={opened} lineup="change" />
+        </Tabs.Panel>
+        <Tabs.Panel value="investigate" pt="sm">
+          <LineupEditor opened={opened} lineup="investigate" />
+        </Tabs.Panel>
+      </Tabs>
+    </Stack>
+  )
+}
+
+/** One lineup: the roles that work a ticket of that kind in turn. One Save writes the whole lineup. */
+export function LineupEditor({ opened, lineup: kind }: Props & { lineup: Lineup }): ReactElement {
   // The saved lineup is what Save compares against, and what stays on screen after a save.
   const [saved, setSaved] = useState<DraftRole[] | null>(null)
   const [roles, setRoles] = useState<DraftRole[]>([])
@@ -79,7 +109,7 @@ export function LineupSettings({ opened }: Props): ReactElement {
     if (!opened) return
     let cancelled = false
     setError(null)
-    void invoke('lineup.get')
+    void invoke('lineup.get', kind)
       .then((lineup) => {
         if (!cancelled) adopt(lineup)
       })
@@ -89,7 +119,7 @@ export function LineupSettings({ opened }: Props): ReactElement {
     return () => {
       cancelled = true
     }
-  }, [opened])
+  }, [opened, kind])
 
   useEffect(() => {
     if (refocus === null) return
@@ -145,7 +175,7 @@ export function LineupSettings({ opened }: Props): ReactElement {
     setError(null)
     try {
       const selectedIndex = Math.max(0, roles.findIndex((r) => r.id === selectedId))
-      adopt(await invoke('lineup.save', roles), selectedIndex)
+      adopt(await invoke('lineup.save', roles, kind), selectedIndex)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -157,12 +187,9 @@ export function LineupSettings({ opened }: Props): ReactElement {
   const selected = selectedIndex >= 0 ? roles[selectedIndex]! : null
 
   return (
-    <Stack gap="sm" component="section" aria-labelledby="lineup-heading">
-      <Title order={3} size="h4" id="lineup-heading">
-        Lineup
-      </Title>
+    <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        Change tickets are worked by these roles in turn, top to bottom. Drag a role, or use its arrows, to reorder.
+        {LINEUP_TEXT[kind]}
       </Text>
 
       <DndContext sensors={sensors} onDragEnd={onDragEnd}>

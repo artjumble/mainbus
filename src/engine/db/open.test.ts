@@ -1,12 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { count, sql } from 'drizzle-orm'
+import { count, eq, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHome, type HomePaths } from '../home'
 import { openDb } from './open'
 import { createDecisionRepo } from '../store/decisions'
-import { createLineupRepo, defaultLineup } from '../store/lineups'
+import { createLineupRepo, defaultInvestigateLineup, defaultLineup } from '../store/lineups'
 import { createRunRepo } from '../store/runs'
 import { createHoldRepo } from '../store/holds'
 import { criteria, lineupRoles, tickets, workspaces } from './schema'
@@ -118,7 +118,11 @@ describe('openDb', () => {
 
     const { db } = await open(realMigrations, () => new Date(2026, 9, 31, 9, 0, 0))
     expect(backupFiles()).toEqual(['mainbus-20261031-090000.db'])
-    const roles = await db.select().from(lineupRoles).orderBy(lineupRoles.workspaceId, lineupRoles.position)
+    const roles = await db
+      .select()
+      .from(lineupRoles)
+      .where(eq(lineupRoles.lineup, 'change'))
+      .orderBy(lineupRoles.workspaceId, lineupRoles.position)
     const lineups = createLineupRepo(db)
     const defaults = defaultLineup()
     for (const [workspaceId, instructions, model, effort] of [
@@ -145,6 +149,40 @@ describe('openDb', () => {
     expect(new Set(roles.map((r) => r.id)).size).toBe(6)
     const tables = await db.values<[string]>(sql`select name from sqlite_master where type = 'table' and name = 'roles'`)
     expect(tables).toEqual([])
+  })
+
+  it('seeds the Investigate lineup for every existing workspace and adds the report column', async () => {
+    // The migrations as they were before Investigate tickets.
+    const first = await open(firstMigrations(20))
+    for (const id of ['w1', 'w2']) {
+      await first.db.run(
+        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+            values (${id}, 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'backlog', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 9, 31, 9, 0, 0))
+    expect(backupFiles()).toHaveLength(1)
+    const lineups = createLineupRepo(db)
+    const [investigator] = defaultInvestigateLineup()
+    const ids = new Set<string>()
+    for (const workspaceId of ['w1', 'w2']) {
+      const lineup = await lineups.get(workspaceId, 'investigate')
+      expect(lineup).toHaveLength(1)
+      expect(lineup[0]).toMatchObject({ ...investigator, id: lineup[0]!.id, lineup: 'investigate', position: 1, workspaceId })
+      expect(lineup[0]!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      ids.add(lineup[0]!.id)
+      expect(await lineups.get(workspaceId)).toHaveLength(0)
+    }
+    expect(ids.size).toBe(2)
+    const [ticket] = await db.select().from(tickets)
+    expect(ticket).toMatchObject({ id: 't1', kind: 'change', report: null })
   })
 
   it('gives every existing agent run its own one-role ticket run, keeping its thread and decisions', async () => {

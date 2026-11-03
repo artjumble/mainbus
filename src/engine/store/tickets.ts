@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { Criterion, IntentEntry, NewTicketInput, PullRequest, Ticket, TicketPatch } from '../../shared/domain'
+import type { Criterion, IntentEntry, NewTicketInput, PullRequest, Ticket, TicketKind, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
 
@@ -24,6 +24,8 @@ export interface TicketRepo {
   /** Records the ticket's pull request and clears any earlier failure. */
   setPr(id: string, pr: PullRequest): Promise<Ticket>
   setPrError(id: string, error: string | null): Promise<Ticket>
+  /** Saves the report an Investigate ticket's last role submitted. */
+  setReport(id: string, markdown: string): Promise<Ticket>
   /**
    * Ticks the criterion at `position` (never unticks). Returns it with `wasChecked` (whether it was already
    * ticked), or null when the ticket has no criterion there.
@@ -38,7 +40,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     id: row.id,
     workspaceId: row.workspaceId,
     number: row.number,
-    kind: 'change',
+    kind: row.kind as TicketKind,
     title: row.title,
     intent: JSON.parse(row.intent) as IntentEntry[],
     spec: row.spec,
@@ -49,6 +51,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     worktreePath: row.worktreePath,
     pr: row.prUrl !== null && row.prNumber !== null ? { url: row.prUrl, number: row.prNumber } : null,
     prError: row.prError,
+    report: row.report,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -88,7 +91,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       workspaceId: input.workspaceId,
       // One statement, so the number is allocated atomically with the insert.
       number: sql`(select coalesce(max(${tickets.number}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${input.workspaceId})`,
-      kind: 'change',
+      kind: input.kind ?? 'change',
       title: input.title,
       intent: JSON.stringify(intent),
       spec: input.spec,
@@ -195,6 +198,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
 
     async setPrError(id, error) {
       await patchRow(id, { prError: error })
+      return get(id)
+    },
+
+    async setReport(id, markdown) {
+      await patchRow(id, { report: markdown })
       return get(id)
     },
 

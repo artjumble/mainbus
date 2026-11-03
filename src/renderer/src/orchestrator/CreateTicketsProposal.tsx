@@ -6,6 +6,7 @@ import type {
   CreateTicketsResult,
   DraftColumn
 } from '../../../shared/proposals'
+import type { TicketKind } from '../../../shared/domain'
 import { splitCriteria } from '../board/NewTicketModal'
 import { useMainbus } from '../store'
 import type { ProposalView } from './proposalView'
@@ -20,6 +21,8 @@ interface DraftEdit {
   criteria: string
   /** Comma separated. */
   labels: string
+  /** Not editable here: the edit keeps what was proposed. */
+  kind?: TicketKind
 }
 
 export interface CreateTicketsEdit {
@@ -43,9 +46,16 @@ function Body({ payload }: { payload: CreateTicketsPayload }): ReactElement {
       {payload.tickets.map((draft, i) => (
         <Paper key={i} withBorder p="xs" radius="sm" data-draft>
           <Stack gap={4}>
-            <Text size="sm" fw={600}>
-              {draft.title}
-            </Text>
+            <Group gap={6}>
+              <Text size="sm" fw={600}>
+                {draft.title}
+              </Text>
+              {draft.kind === 'investigate' && (
+                <Badge size="xs" variant="outline" color="gray">
+                  Investigate
+                </Badge>
+              )}
+            </Group>
             {draft.spec !== '' && (
               <Text size="xs" c="dimmed" lineClamp={4} style={{ whiteSpace: 'pre-wrap' }}>
                 {draft.spec}
@@ -166,7 +176,8 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
       title: d.title,
       spec: d.spec,
       criteria: d.criteria.join('\n'),
-      labels: d.labels.join(', ')
+      labels: d.labels.join(', '),
+      ...(d.kind ? { kind: d.kind } : {})
     })),
     column: p.column
   }),
@@ -174,7 +185,13 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
   toOverride: (edit): CreateTicketsOverride | null => {
     const tickets = edit.drafts
       .filter((d) => d.include)
-      .map((d) => ({ title: d.title, spec: d.spec, criteria: splitCriteria(d.criteria), labels: splitLabels(d.labels) }))
+      .map((d) => ({
+        title: d.title,
+        spec: d.spec,
+        criteria: splitCriteria(d.criteria),
+        labels: splitLabels(d.labels),
+        ...(d.kind ? { kind: d.kind } : {})
+      }))
     return tickets.length === 0 ? null : { tickets, column: edit.column }
   },
   Receipt
