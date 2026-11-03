@@ -184,6 +184,10 @@ describe('not stuck', () => {
       const before = scene
       scene = () => ({ ...before(), launching: true })
     },
+    'the agent is queued for a free slot': () => {
+      const before = scene
+      scene = () => ({ ...before(), live: null, state: { ...WORKING, agentStatus: 'queued', queuePosition: 1 } })
+    },
     'a usage limit stopped the agent': () => {
       const before = scene
       scene = () => ({ ...before(), usageLimited: true })

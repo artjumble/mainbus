@@ -190,6 +190,33 @@ describe('get_ticket', () => {
   })
 })
 
+describe('a queued agent', () => {
+  async function queued(): Promise<Ticket> {
+    const t = await ticket()
+    await running(t)
+    views.set(t.id, {
+      state: { column: 'in_progress', phase: 'implementing', agentStatus: 'queued', queuePosition: 2 },
+      lineup: [
+        { id: 'p', name: 'Planner', status: 'handed_off', active: false, replacements: 0 },
+        { id: 'i', name: 'Implementer', status: 'queued', active: true, replacements: 0, queuePosition: 2 }
+      ]
+    })
+    return t
+  }
+
+  test('list_tickets says it is queued, with its place, so the orchestrator can explain it', async () => {
+    await queued()
+    expect(await tools.listTickets({})).toContain('active role: Implementer · labels: none · queued (2nd in line): every agent slot is in use')
+  })
+
+  test('get_run_status shows the role as queued and says why', async () => {
+    await queued()
+    const out = await tools.getRunStatus({ number: 1 })
+    expect(out).toContain('2. Implementer: queued (active)')
+    expect(out).toContain('Active role: Implementer · queued (2nd in line): every agent slot is in use')
+  })
+})
+
 describe('get_run_status', () => {
   test('gives the roles in order with status, model and effort, the active role and pending decisions', async () => {
     const t = await ticket()

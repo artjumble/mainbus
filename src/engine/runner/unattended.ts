@@ -197,7 +197,8 @@ export class UnattendedMode {
           ? { kind: 'failed', error: (state.summary ?? 'Failed').replace(/^Failed: /, '') }
           : { kind: 'settled' }
       case 'in_progress': {
-        if (state.agentStatus === 'working') return { kind: 'working' }
+        // Queued counts as working: it starts when a slot frees up, and the queue waits for it like any other ticket.
+        if (state.agentStatus === 'working' || state.agentStatus === 'queued') return { kind: 'working' }
         // A deferred decision: the user will answer it later; the queue moves on.
         if (state.agentStatus === 'waiting_on_you') return { kind: 'settled' }
         // Paused: the process is gone but the run is open.
@@ -218,7 +219,7 @@ export class UnattendedMode {
     for (const ticket of tickets) {
       const state = await this.deps.runner.stateOf(ticket.id)
       if (!this.on || this.current !== null || this.busy) return
-      if ((state.column === 'in_progress' && state.agentStatus === 'working') || this.deps.runner.isLaunching(ticket.id)) {
+      if ((state.column === 'in_progress' && (state.agentStatus === 'working' || state.agentStatus === 'queued')) || this.deps.runner.isLaunching(ticket.id)) {
         this.setStatus({ kind: 'other_working', ticketNumber: ticket.number })
         this.keepAwake(true)
         return

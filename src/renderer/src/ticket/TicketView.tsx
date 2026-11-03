@@ -4,7 +4,7 @@ import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
 import { HoldChip } from '../board/HoldChip'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
-import { PausedChip, PhaseChip, PrLink } from '../board/TicketCard'
+import { PausedChip, PhaseChip, PrLink, QueuedChip } from '../board/TicketCard'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { showAgentError } from '../thread/agentError'
@@ -55,6 +55,7 @@ export function TicketView(): ReactElement {
           <Text>is</Text>
           <PhaseChip state={ticket.state} />
           <PausedChip state={ticket.state} />
+          <QueuedChip state={ticket.state} />
           <HoldChip hold={ticket.hold} />
           <StuckChip stuck={ticket.stuck} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}

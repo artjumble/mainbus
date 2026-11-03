@@ -4,6 +4,7 @@ import type { AllowRule } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { ConnectAgents } from './ConnectAgents'
+import { GeneralSettings } from './GeneralSettings'
 import { LineupSettings } from './LineupSettings'
 import { PullRequestSettings } from './PullRequestSettings'
 
@@ -49,6 +50,8 @@ export function WorkspaceSettings({ opened, onClose }: Props): ReactElement {
   return (
     <Drawer opened={opened} onClose={onClose} position="right" size="lg" title="Workspace settings">
       <Stack gap="xl">
+        <GeneralSettings opened={opened} />
+
         <LineupSettings opened={opened} />
 
         <PullRequestSettings opened={opened} />

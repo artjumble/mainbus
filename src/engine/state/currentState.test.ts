@@ -166,6 +166,16 @@ const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState
     expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'paused', summary: null, canContinue: true }
   },
   {
+    name: 'run not ended, in the queue for a slot: queued, in progress, phase unchanged',
+    input: { ...base, activePhase: 'testing', run: { endReason: null, events: [] }, processAlive: false, queuePosition: 2 },
+    expected: { column: 'in_progress', phase: 'testing', agentStatus: 'queued', summary: null, canContinue: false, queuePosition: 2 }
+  },
+  {
+    name: 'a pending decision wins over the queue',
+    input: { ...base, run: { endReason: null, events: [] }, processAlive: false, queuePosition: 1, pendingDecisions: [pending('question', 'Which API?')] },
+    expected: { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', summary: 'Which API?', canContinue: false }
+  },
+  {
     name: 'run not ended, process alive',
     input: { ...base, run: { endReason: null, events: [] }, processAlive: true },
     expected: { column: 'in_progress', phase: 'implementing', agentStatus: 'working', summary: null, canContinue: false }

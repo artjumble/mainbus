@@ -134,7 +134,11 @@ export const agentRuns = sqliteTable(
     /** The handoff summary Mainbus generated from this run's log when the user replaced it, or null. */
     handoffSummary: text('handoff_summary'),
     /** Extra instructions the user added when this run replaced another; null for none. */
-    extraInstructions: text('extra_instructions')
+    extraInstructions: text('extra_instructions'),
+    /** Where the run stands in the queue for a slot (first in, first out); null when it is not queued. */
+    queuedSeq: integer('queued_seq'),
+    /** The message the queued run starts with once it gets a slot; null when it is not queued. */
+    queuedPrompt: text('queued_prompt')
   },
   (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
 )
@@ -330,3 +334,9 @@ export const orchestratorWakes = sqliteTable(
     index('orchestrator_wakes_acked_idx').on(t.ackedAt)
   ]
 )
+
+/** App-wide settings, one row per key; the repository knows the keys and their defaults. */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull()
+})

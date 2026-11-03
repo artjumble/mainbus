@@ -2,6 +2,7 @@ import { Anchor, Badge, Group, Loader, Paper, Text, UnstyledButton } from '@mant
 import { memo, type ReactElement } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import { waitingLabel } from '../../../shared/hold'
+import { queuedLabel } from '../../../shared/queue'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
@@ -51,6 +52,16 @@ export function PausedChip({ state }: { state: TicketState }): ReactElement | nu
   return (
     <Badge color="gray" variant="outline" size="sm" radius="sm">
       Paused
+    </Badge>
+  )
+}
+
+/** "Queued · 2nd", beside the phase chip, while every agent slot is in use and the ticket's agent waits for one. */
+export function QueuedChip({ state }: { state: TicketState }): ReactElement | null {
+  if (state.agentStatus !== 'queued') return null
+  return (
+    <Badge color="gray" variant="outline" size="sm" radius="sm" tt="none">
+      {queuedLabel(state.queuePosition)}
     </Badge>
   )
 }
@@ -107,6 +118,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       <Group gap="xs">
         <PhaseChip state={state} />
         <PausedChip state={state} />
+        <QueuedChip state={state} />
         <HoldChip hold={ticket.hold} />
         <StuckChip stuck={ticket.stuck} />
         {source && <AgentBadge source={source} />}

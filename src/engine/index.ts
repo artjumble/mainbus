@@ -111,8 +111,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     // Created below, once the runner it drives exists; it sees every event before the listeners do.
     let unattended: UnattendedMode | null = null
     let proposalService: ProposalService | null = null
+    // The runner's, once it exists: a decision put off frees its agent's slot for the queue.
+    let kickQueue: (() => void) | null = null
     const emit = (e: EngineEvent): void => {
       unattended?.observe(e)
+      if (e.type === 'decision.changed' && e.decision.status === 'deferred') kickQueue?.()
       // A decision answered elsewhere or deferred ends the answer proposals still waiting on it.
       if (e.type === 'decision.changed' && e.decision.status !== 'pending') {
         void proposalService?.decisionSettled(e.decision).catch(() => {})
@@ -178,6 +181,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     })
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()
+    kickQueue = () => runner.kickQueue()
+    // Agents that were queued when the app last closed start again, in order, as slots allow.
+    if (cfg.runtime !== null) runner.kickQueue()
     // Holds that came due while Mainbus was closed are released before anything can start a ticket.
     await holds.start()
     stuckDetector.start()
@@ -611,6 +617,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       // Reached only through `invoke` (the renderer's IPC); the intake handler below has no way to it.
+      'settings.get': () => repos.settings.get(),
+      'settings.setMaxAgents': async (n) => {
+        const settings = await repos.settings.setMaxAgents(n)
+        // A higher cap may let queued agents start; a lower one waits for the count to fall.
+        runner.kickQueue()
+        return settings
+      },
+
       'unattended.get': () => mode.get(),
       'unattended.set': (on) => mode.set(on === true),
 

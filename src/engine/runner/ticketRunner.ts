@@ -167,6 +167,11 @@ interface LiveRun extends ThreadTarget {
   done: Promise<void>
 }
 
+/** A launch that already has its slot: the queue's turn came, or a failed resume starts afresh. */
+interface QueuedStart {
+  granted: true
+}
+
 /** A ticket with its worktree ready. */
 interface Prepared {
   ticket: Ticket
@@ -214,6 +219,16 @@ export class TicketRunner {
   private readonly processRefs = new Map<string, Promise<ProcessRef | null>>()
   /** The sweeps under way or queued, by run: a run is never swept twice at once. */
   private readonly sweeps = new Map<string, Promise<void>>()
+  /** Tickets that were given a slot and are launching their agent: from the grant until the process is up or the launch has failed. */
+  private readonly admitting = new Set<string>()
+  /** Tickets whose role handed off (or was skipped or replaced) while it held a slot: their next launch takes that slot. */
+  private readonly slotKept = new Set<string>()
+  /** Serializes the decisions about slots, so two starts never take the last one together. */
+  private slotLock: Promise<unknown> = Promise.resolve()
+  /** There may be runs in the queue (true until a look at it finds none); lets the common case skip the database. */
+  private queueHint = true
+  private draining: Promise<void> | null = null
+  private drainAgain = false
 
   constructor(private readonly deps: RunnerDeps) {
     this.repos = deps.repos
@@ -234,6 +249,136 @@ export class TicketRunner {
 
   private unattended(): boolean {
     return this.deps.unattended?.() ?? false
+  }
+
+  /**
+   * Starts queued agents, first in first out, while slots are free. Called whenever a slot may have freed up: an agent
+   * ended, paused or deferred, the cap rose, or the app started with a queue left over. Several calls at once make one pass.
+   */
+  kickQueue(): void {
+    if (this.shuttingDown || !this.queueHint) return
+    if (this.draining) {
+      this.drainAgain = true
+      return
+    }
+    this.draining = this.drain()
+      .catch(() => {})
+      .finally(() => {
+        this.draining = null
+        if (this.drainAgain) {
+          this.drainAgain = false
+          this.kickQueue()
+        }
+      })
+  }
+
+  /** Settles when the queue has been looked at and everything that could start has been started (for tests). */
+  async queueSettled(): Promise<void> {
+    while (this.draining) await this.draining
+  }
+
+  /** The place in the queue (1 first) of the ticket's open run, or null when it isn't queued. */
+  private async queuePositionOf(run: AgentRunRow | null): Promise<number | null> {
+    if (!run || run.endReason !== null || run.queuedSeq === null) return null
+    const i = (await this.repos.runs.queued()).findIndex((q) => q.id === run.id)
+    return i < 0 ? null : i + 1
+  }
+
+  /** Runs `fn` after the slot decisions made before it. */
+  private locked<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.slotLock.then(fn)
+    this.slotLock = result.catch(() => {})
+    return result
+  }
+
+  /**
+   * True when the ticket's agent uses a slot: a launch the ticket was granted, a slot a handoff passed on, or an agent
+   * alive and not paused, not stopped by a usage limit and not waiting only on a deferred decision. One waiting on a
+   * pending decision still uses it. The orchestrator is not a ticket's agent and never comes here.
+   */
+  private async holdsSlot(ticketId: string): Promise<boolean> {
+    if (this.admitting.has(ticketId) || this.slotKept.has(ticketId)) return true
+    if (this.limited.has(ticketId)) return false
+    const alive = [...this.live.values()].some((l) => l.ticketId === ticketId && !l.ended && !l.stopping)
+    if (!alive) return false
+    if ((await this.repos.decisions.pending(ticketId)).length > 0) return true
+    return (await this.repos.decisions.deferred(ticketId)).length === 0
+  }
+
+  /** How many slots are in use by tickets other than `except`. */
+  private async slotsInUse(except?: string): Promise<number> {
+    const tickets = new Set<string>([...this.admitting, ...this.slotKept])
+    for (const live of this.live.values()) tickets.add(live.ticketId)
+    if (except !== undefined) tickets.delete(except)
+    let used = 0
+    for (const id of tickets) if (await this.holdsSlot(id)) used++
+    return used
+  }
+
+  /**
+   * Decides whether the run may launch now. It may when a slot is free and nobody is waiting ahead of it, or when a
+   * handoff passed its ticket's slot on. Otherwise it joins the back of the queue (a run already in it keeps its
+   * place, and `prompt` is added to its message) and false comes back.
+   */
+  private admit(ticketId: string, runId: string, prompt: string): Promise<boolean> {
+    return this.locked(async () => {
+      if (this.slotKept.delete(ticketId)) {
+        this.admitting.add(ticketId)
+        return true
+      }
+      const waiting = (await this.repos.runs.queued()).some((q) => q.id !== runId)
+      const free = (await this.repos.settings.get()).maxAgents - (await this.slotsInUse(ticketId))
+      if (free > 0 && !waiting && !(await this.repos.runs.get(runId))?.queuedSeq) {
+        this.admitting.add(ticketId)
+        return true
+      }
+      await this.repos.runs.enqueue(runId, prompt)
+      this.queueHint = true
+      return false
+    })
+  }
+
+  /** Starts the queue's runs, oldest first, until the slots are full. */
+  private async drain(): Promise<void> {
+    for (;;) {
+      const head = await this.locked(async () => {
+        if (this.shuttingDown) return null
+        const queue = await this.repos.runs.queued()
+        if (queue.length === 0) {
+          this.queueHint = false
+          return null
+        }
+        const first = queue[0]!
+        const free = (await this.repos.settings.get()).maxAgents - (await this.slotsInUse(first.ticketId))
+        if (free <= 0) return null
+        this.admitting.add(first.ticketId)
+        return first
+      })
+      if (head === null) return
+      await this.startQueued(head)
+    }
+  }
+
+  /** Launches a run that has been given a slot, as the next step of its ticket's queue of actions. */
+  private async startQueued(queued: AgentRunRow): Promise<void> {
+    try {
+      await this.serial(queued.ticketId, async () => {
+        const run = await this.repos.runs.latest(queued.ticketId)
+        // Stopped (or moved on) while it waited: nothing to start.
+        if (!run || run.id !== queued.id || run.endReason !== null || run.queuedSeq === null) return
+        await this.repos.runs.dequeue(run.id)
+        await this.resume(run, run.queuedPrompt ?? CONTINUE_TEXT, undefined, { granted: true })
+      })
+    } catch (err) {
+      // The launch records its own failures; this is for the ones it never got to (the worktree, say).
+      const ticket = await this.repos.tickets.get(queued.ticketId).catch(() => null)
+      const last = (await this.repos.runs.events(queued.id).catch(() => [])).at(-1)?.event
+      if (ticket && !(last?.kind === 'error' && last.message === errorText(err))) {
+        await this.record(this.target(queued, ticket), { kind: 'error', message: errorText(err) }).catch(() => {})
+      }
+    } finally {
+      this.admitting.delete(queued.ticketId)
+    }
   }
 
   /** Runs the ticket through its lineup as a new ticket run: the roles in `opts.roleIds`, or all of them. */
@@ -379,6 +524,7 @@ export class TicketRunner {
     await this.record(this.target(run, ticket), { kind: 'error', message: account })
     if (live) void this.stopProcess(live)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    this.kickQueue()
     await this.deps.onFailed?.({ workspaceId: ticket.workspaceId, ticketId, runId: run.id })
     return true
   }
@@ -435,7 +581,7 @@ export class TicketRunner {
     const runs = await this.repos.runs.listForTicketRun(run.ticketRunId)
     // The role Skip would start, named in its confirmation.
     const skipTo = run.endReason === null && state.column !== 'done' ? ((await this.nextRole(run))?.name ?? null) : null
-    const lineup = lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus })
+    const lineup = lineupStrip({ roles, runs, latestRunId: run.id, agentStatus: state.agentStatus, queuePosition: state.queuePosition })
     return { state, lineup, skipTo, pendingDecisions: pending, deferredDecisions: deferred }
   }
 
@@ -465,6 +611,7 @@ export class TicketRunner {
       pendingDecisions: pending,
       deferredDecisions: deferred,
       processAlive: run ? this.live.has(run.id) || this.isLaunching(ticketId) : false,
+      queuePosition: await this.queuePositionOf(run),
       activePhase
     })
     return { state, run, roles, pending, deferred }
@@ -647,6 +794,7 @@ export class TicketRunner {
     // Everything queued before this stop has finished; later actions are not affected.
     this.stopRequested.delete(ticketId)
     this.limited.delete(ticketId)
+    this.slotKept.delete(ticketId)
     const run = await this.repos.runs.latest(ticketId)
     if (!run) return
     if (expect && (run.id !== expect.agentRunId || run.endReason !== null)) throw new Error(MOVED_ON)
@@ -661,6 +809,8 @@ export class TicketRunner {
     if (await this.repos.runs.end(run.id, 'stopped')) await this.endStopped(target)
     await this.expirePending(target, () => true)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    // A stopped queued run has left the queue, and a stopped live one has freed its slot.
+    this.kickQueue()
   }
 
   /** Records the stop of a run this call just ended, and puts its ticket back in Ready. */
@@ -694,6 +844,7 @@ export class TicketRunner {
     // The run stays open with its session, as after a restart: Resume continues it by session id.
     await this.halt(live)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    this.kickQueue()
   }
 
   private async redirectNow(ticketId: string, expect: RunExpectation, message: string, claim: () => Promise<boolean>, proposalId?: string): Promise<void> {
@@ -724,6 +875,8 @@ export class TicketRunner {
     this.handingOn.add(ticketId)
     let launching = false
     try {
+      // The fresh agent takes the replaced one's slot, when it had one.
+      if (await this.holdsSlot(ticketId)) this.slotKept.add(ticketId)
       this.limited.delete(ticketId)
       // A handed-off role's process may still be ending its last turn; it is stopped along with the active one.
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
@@ -753,7 +906,9 @@ export class TicketRunner {
       }
     } finally {
       if (!launching && !(await this.awaitingLaunch(ticketId, run.id))) this.handingOn.delete(ticketId)
+      this.slotKept.delete(ticketId)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
     }
   }
 
@@ -830,6 +985,8 @@ export class TicketRunner {
     this.handingOn.add(ticketId)
     let launching = false
     try {
+      // The next role takes the skipped one's slot, when it had one.
+      if (next && (await this.holdsSlot(ticketId))) this.slotKept.add(ticketId)
       this.limited.delete(ticketId)
       // A handed-off role's process may still be ending its last turn; it is stopped along with the active one.
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
@@ -867,7 +1024,9 @@ export class TicketRunner {
       }
     } finally {
       if (!launching && !(await this.awaitingLaunch(ticketId, run.id))) this.handingOn.delete(ticketId)
+      if (!launching) this.slotKept.delete(ticketId)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
     }
   }
 
@@ -963,6 +1122,7 @@ export class TicketRunner {
     this.limited.delete(ticket.id)
     await this.expirePending(where, () => true)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+    this.kickQueue()
     return 'done'
   }
 
@@ -1058,6 +1218,9 @@ export class TicketRunner {
       await this.resume(run, prompt)
     } finally {
       this.handingOn.delete(run.ticketId)
+      // The slot was the next role's to take; if it never launched, the slot is free again.
+      this.slotKept.delete(run.ticketId)
+      this.kickQueue()
     }
   }
 
@@ -1067,10 +1230,15 @@ export class TicketRunner {
    * runs in this ticket run. A role that was handed the ticket but never launched gets a fresh session with
    * its first message instead.
    */
-  private async resume(run: AgentRunRow, prompt: string, digestBefore?: number): Promise<void> {
+  private async resume(run: AgentRunRow, prompt: string, digestBefore?: number, queued?: QueuedStart): Promise<void> {
     if (this.shuttingDown) return
     const current = await this.repos.runs.latest(run.ticketId)
     if (!current || current.id !== run.id || current.endReason !== null || this.live.has(run.id)) return
+    if (current.queuedSeq !== null && !queued) {
+      // Already waiting for a slot: it keeps its place, and starts with whatever was said meanwhile too.
+      if (prompt !== CONTINUE_TEXT && prompt !== RESUME_TEXT) await this.repos.runs.enqueue(run.id, prompt)
+      return
+    }
     await this.whileLaunching(run.ticketId, async () => {
       const prepared = await this.prepare(run.ticketId)
       const ticketRun = await this.repos.runs.ticketRun(current.ticketRunId)
@@ -1101,21 +1269,25 @@ export class TicketRunner {
         const handedBy = events.find((e) => e.event.kind === 'role_handoff')?.event
         const first = firstMessage(launch.ticket, handedBy?.kind === 'role_handoff' ? handedBy.from : undefined)
         const bare = prompt === CONTINUE_TEXT || prompt === RESUME_TEXT
-        await this.launch(launch, run.id, bare ? first : `${first}\n\n${prompt}`, decisions)
+        // A queued run's message is the whole of what it starts with.
+        const message = queued ? prompt : bare ? first : `${first}\n\n${prompt}`
+        await this.launch(launch, run.id, message, decisions, undefined, queued)
         return
       }
       if (current.sessionId !== null) {
         try {
-          await this.launch(launch, run.id, prompt, decisions, current.sessionId)
+          await this.launch(launch, run.id, prompt, decisions, current.sessionId, queued)
           return
         } catch (err) {
           if (!(err instanceof ResumeFailedError)) throw err
         }
       }
-      // launch() checks stopRequested first, so a stop queued meanwhile prevents the fresh agent.
+      // launch() checks stopRequested first, so a stop queued meanwhile prevents the fresh agent. The resume that
+      // failed had been given a slot, so the fresh agent has it too.
       const own = digestBefore === undefined ? events : events.filter((e) => e.seq < digestBefore)
       const digest = previousAttempt([...before, ...own], decisions, launch.role.name)
-      await this.launch(launch, run.id, `${digest}\n\n${prompt}`, decisions)
+      this.admitting.add(run.ticketId)
+      await this.launch(launch, run.id, `${digest}\n\n${prompt}`, decisions, undefined, { granted: true })
     })
   }
 
@@ -1140,10 +1312,18 @@ export class TicketRunner {
     runId: string,
     prompt: string,
     decisions: Decision[],
-    resumeSessionId?: string
+    resumeSessionId?: string,
+    slot?: QueuedStart
   ): Promise<void> {
     const { ticket, role, worktree } = launch
     if (this.stopRequested.has(ticket.id) || this.shuttingDown) return
+    // Every agent start takes a slot, or waits for one in the queue. The run stays open and queued, and the ticket
+    // keeps its column and phase.
+    if (!slot && !(await this.admit(ticket.id, runId, prompt))) {
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
+      return
+    }
     const target: ThreadTarget = {
       runId,
       ticketRunId: launch.ticketRunId,
@@ -1212,7 +1392,10 @@ export class TicketRunner {
       this.live.set(runId, live)
       live.done = this.pump(live)
     } finally {
+      // The process is up (it holds the slot as a live agent) or the launch failed: either way the grant is spent.
+      this.admitting.delete(ticket.id)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
     }
   }
 
@@ -1244,6 +1427,7 @@ export class TicketRunner {
     }
     this.live.delete(live.runId)
     this.deps.emit({ type: 'board.changed', workspaceId: live.workspaceId })
+    this.kickQueue()
   }
 
   private async onEvent(live: LiveRun, event: AgentEvent): Promise<void> {
@@ -1310,6 +1494,7 @@ export class TicketRunner {
     live.ended = true
     await this.record(live, { kind: 'error', message })
     void this.stopProcess(live)
+    this.kickQueue()
     const ticket = await this.repos.tickets.get(live.ticketId)
     await this.deps.onFailed?.({ workspaceId: ticket.workspaceId, ticketId: live.ticketId, runId: live.runId })
   }
@@ -1353,9 +1538,13 @@ export class TicketRunner {
           // so it never shows in Review between roles.
           const wasHandingOn = this.handingOn.has(target.ticketId)
           this.handingOn.add(target.ticketId)
+          // The next role takes this role's slot, so work that is waiting can't overtake a ticket mid-lineup.
+          const keptSlot = !this.slotKept.has(target.ticketId) && (await this.holdsSlot(target.ticketId))
+          if (keptSlot) this.slotKept.add(target.ticketId)
           nextRun = await this.repos.runs.handOn(target.runId, next)
           if (nextRun === null) {
             if (!wasHandingOn) this.handingOn.delete(target.ticketId)
+            if (keptSlot) this.slotKept.delete(target.ticketId)
             return RUN_ENDED
           }
         } else if (!(await this.repos.runs.end(target.runId, 'handoff'))) {
@@ -1503,9 +1692,13 @@ export class TicketRunner {
   ): Promise<AgentRunRow | null> {
     const wasHandingOn = this.handingOn.has(target.ticketId)
     this.handingOn.add(target.ticketId)
+    // The role handed back to takes this role's slot, as a handoff's next role does.
+    const keptSlot = !this.slotKept.has(target.ticketId) && (await this.holdsSlot(target.ticketId))
+    if (keptSlot) this.slotKept.add(target.ticketId)
     const back = await this.repos.runs.handBack(target.runId, to, from.id)
     if (back === null) {
       if (!wasHandingOn) this.handingOn.delete(target.ticketId)
+      if (keptSlot) this.slotKept.delete(target.ticketId)
       return null
     }
     const live = this.live.get(target.runId)

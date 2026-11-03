@@ -58,7 +58,74 @@ describe('run repo', () => {
       effort: 'high',
       extraInstructions: null,
       replacedBy: null,
-      handoffSummary: null
+      handoffSummary: null,
+      queuedSeq: null,
+      queuedPrompt: null
+    })
+  })
+
+  describe('the queue for a slot', () => {
+    // A second ticket, to queue its run next to the first's.
+    async function otherRun(): Promise<string> {
+      const other = await createTicketRepo(db, now).create({
+        workspaceId: (await createTicketRepo(db, now).get(ticketId)).workspaceId,
+        title: 'U',
+        intent: 'i',
+        spec: '',
+        criteria: [],
+        labels: [],
+        column: 'ready'
+      })
+      return createRunRepo(db, now).create(other.id, [testRole()])
+    }
+
+    it('lists queued runs first in, first out, with their messages', async () => {
+      const repo = createRunRepo(db, now)
+      const a = await repo.create(ticketId, [testRole()])
+      const b = await otherRun()
+      expect(await repo.queued()).toEqual([])
+      await repo.enqueue(b, 'second ticket first')
+      await repo.enqueue(a, 'first ticket second')
+      const queued = await repo.queued()
+      expect(queued.map((r) => [r.id, r.queuedPrompt])).toEqual([
+        [b, 'second ticket first'],
+        [a, 'first ticket second']
+      ])
+      expect(queued[0]!.queuedSeq).toBeLessThan(queued[1]!.queuedSeq!)
+    })
+
+    it('a run queued again keeps its place and adds to its message', async () => {
+      const repo = createRunRepo(db, now)
+      const a = await repo.create(ticketId, [testRole()])
+      const b = await otherRun()
+      await repo.enqueue(a, 'one')
+      await repo.enqueue(b, 'two')
+      await repo.enqueue(a, 'three')
+      const queued = await repo.queued()
+      expect(queued.map((r) => r.id)).toEqual([a, b])
+      expect(queued[0]!.queuedPrompt).toBe('one\n\nthree')
+    })
+
+    it('dequeue, and the run ending, take it out of the queue', async () => {
+      const repo = createRunRepo(db, now)
+      const a = await repo.create(ticketId, [testRole()])
+      const b = await otherRun()
+      await repo.enqueue(a, 'one')
+      await repo.enqueue(b, 'two')
+      await repo.dequeue(a)
+      expect((await repo.queued()).map((r) => r.id)).toEqual([b])
+      expect(await repo.get(a)).toMatchObject({ queuedSeq: null, queuedPrompt: null })
+      expect(await repo.end(b, 'stopped')).toBe(true)
+      expect(await repo.queued()).toEqual([])
+      expect(await repo.get(b)).toMatchObject({ queuedSeq: null, queuedPrompt: null })
+    })
+
+    it('does not queue a run that has ended', async () => {
+      const repo = createRunRepo(db, now)
+      const a = await repo.create(ticketId, [testRole()])
+      await repo.end(a, 'stopped')
+      await repo.enqueue(a, 'late')
+      expect(await repo.queued()).toEqual([])
     })
   })
 
