@@ -87,8 +87,8 @@ test('it collapses to a strip with the needs-you count, expands on click, and re
   // Counted across workspaces, whichever one is on the board.
   useMainbus.setState({
     workspaces: [
-      { ...workspace, active: false, needsYou: 1 },
-      { ...workspace, id: 'w2', name: 'other', active: true, needsYou: 1 }
+      { ...workspace, active: false, needsYou: 1, working: 0, waiting: 0, idle: 0 },
+      { ...workspace, id: 'w2', name: 'other', active: true, needsYou: 1, working: 0, waiting: 0, idle: 0 }
     ]
   })
   const { unmount } = renderWithMantine(<Panel />)
@@ -391,7 +391,7 @@ describe('accessibility', () => {
 
   test('the collapsed strip has no axe violations', async () => {
     history()
-    useMainbus.setState({ workspaces: [{ ...workspace, active: true, needsYou: 2 }] })
+    useMainbus.setState({ workspaces: [{ ...workspace, active: true, needsYou: 2, working: 0, waiting: 0, idle: 0 }] })
     renderWithMantine(<Panel />)
     await userEvent.click(await screen.findByRole('button', { name: 'Collapse orchestrator panel' }))
     await expectNoAxeViolations()

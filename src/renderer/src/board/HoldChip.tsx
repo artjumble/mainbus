@@ -8,6 +8,7 @@ export function HoldChip({ hold, now = new Date() }: { hold: Hold | null; now?: 
   if (!hold) return null
   return (
     <Badge color="gray" variant="outline" size="sm" radius="sm" data-hold-chip>
+      <span aria-hidden>– </span>
       {holdLabel(hold, now)}
     </Badge>
   )

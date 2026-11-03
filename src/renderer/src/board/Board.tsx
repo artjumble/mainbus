@@ -13,7 +13,6 @@ import {
 } from '@dnd-kit/core'
 import {
   ActionIcon,
-  Badge,
   Box,
   Button,
   Center,
@@ -29,7 +28,16 @@ import {
 } from '@mantine/core'
 import { useHotkeys } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type KeyboardEventHandler, type ReactElement } from 'react'
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type KeyboardEventHandler,
+  type ReactElement
+} from 'react'
 import type { Column } from '../../../shared/domain'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
@@ -78,6 +86,16 @@ export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, cu
   return { x: next.left + 8, y: next.top + 48 }
 }
 
+const GRID_STYLE = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(6, minmax(220px, 1fr))',
+  gap: 'var(--mantine-spacing-sm)',
+  overflowX: 'auto',
+  alignItems: 'start',
+  // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
+  position: 'relative'
+} as const
+
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
 const SCREEN_READER_INSTRUCTIONS = {
@@ -85,7 +103,7 @@ const SCREEN_READER_INSTRUCTIONS = {
     'To move this ticket, press Space, then the Left or Right arrow key to choose a column, then Space again to drop it. Press Escape to cancel.'
 }
 
-const DIRTY_MESSAGE ='This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
+const DIRTY_MESSAGE = 'This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
 
 export function Board(): ReactElement {
   const workspace = useMainbus((s) => s.workspace)
@@ -111,17 +129,20 @@ export function Board(): ReactElement {
    * Shows the card in the target column at once and asks the engine to move it; the engine refuses moves it
    * can't make (an open run, uncommitted work), and the card then goes back. One move per card at a time.
    */
-  const moveTicket = useCallback(async (ticket: BoardTicket, target: ManualColumn): Promise<void> => {
-    if (ticket.id in useMainbus.getState().pendingMoves || ticket.state.column === target) return
-    try {
-      const result = await move(ticket.id, target)
-      if (result === 'dirty') {
-        notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
+  const moveTicket = useCallback(
+    async (ticket: BoardTicket, target: ManualColumn): Promise<void> => {
+      if (ticket.id in useMainbus.getState().pendingMoves || ticket.state.column === target) return
+      try {
+        const result = await move(ticket.id, target)
+        if (result === 'dirty') {
+          notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
+        }
+      } catch (err) {
+        showError(err, "Can't move this ticket")
       }
-    } catch (err) {
-      showError(err, "Can't move this ticket")
-    }
-  }, [move])
+    },
+    [move]
+  )
 
   /**
    * Dragging a Backlog or Ready card into In progress doesn't move it: it proposes starting it, in the
@@ -215,14 +236,17 @@ export function Board(): ReactElement {
   return (
     <Stack gap="md" p="md" h="100%">
       <Group justify="space-between">
-        <Group gap="sm" align="baseline">
+        <Stack gap={0}>
           <Title order={2}>{workspace?.name ?? 'Board'}</Title>
           {workspace && (
-            <Text size="sm" c="dimmed">
-              {workspace.repoPath}
+            <Text size="xs" c="dimmed">
+              <Text span ff="monospace" inherit>
+                {workspace.repoPath}
+              </Text>
+              {empty ? ' · just added' : ' · local tickets'}
             </Text>
           )}
-        </Group>
+        </Stack>
         <Group gap="md">
           {!empty && (
             <TextInput
@@ -262,51 +286,67 @@ export function Board(): ReactElement {
       </Group>
 
       {empty ? (
-        <Center flex={1}>
-          <Stack align="center" gap="sm" maw={420} ta="center">
-            <Title order={3}>No tickets yet</Title>
-            <Text c="dimmed">Write a ticket yourself, or let the orchestrator draft some from what you want done.</Text>
-            <Group gap="sm" justify="center">
-              <Button onClick={() => setCreating(true)}>New ticket</Button>
-              <Button variant="default" onClick={() => askOrchestrator(DRAFT_PREFILL)}>
-                Ask orchestrator to draft tickets
-              </Button>
-            </Group>
-          </Stack>
-        </Center>
-      ) : (
-      <DndContext
-        sensors={sensors}
-        onDragEnd={onDragEnd}
-        accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
-      >
-        <Box
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(220px, 1fr))',
-            gap: 'var(--mantine-spacing-sm)',
-            overflowX: 'auto',
-            alignItems: 'start',
-            // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
-            position: 'relative'
-          }}
-        >
-          {COLUMNS.map((c) => (
-            <BoardColumn
-              key={c.id}
-              id={c.id}
-              title={c.title}
-              tickets={byColumn.get(c.id) ?? []}
-              pendingMoves={pendingMoves}
-              recentlyChanged={recentlyChanged}
-              filtering={filtering}
-              onOpen={openTicket}
-              onMove={onMove}
-              onPropose={onPropose}
-            />
-          ))}
+        <Box pos="relative" flex={1}>
+          {/* Faint placeholder columns behind the message, as the board will look once it has tickets. */}
+          <Box aria-hidden style={GRID_STYLE} h="100%">
+            {COLUMNS.map((c) => (
+              <Paper
+                key={c.id}
+                radius="md"
+                withBorder
+                bd="1px dashed var(--mantine-color-default-border)"
+                bg="transparent"
+                mih={160}
+                opacity={0.5}
+              />
+            ))}
+          </Box>
+          <Center pos="absolute" inset={0}>
+            <Stack
+              align="center"
+              gap="sm"
+              maw={460}
+              ta="center"
+              p="md"
+              bg="var(--mantine-color-body)"
+              style={{ borderRadius: 'var(--mantine-radius-md)' }}
+            >
+              <Title order={3}>No tickets in {workspace?.name ?? 'this workspace'} yet</Title>
+              <Text c="dimmed">
+                Write one yourself, or have the orchestrator read the repo and draft a starter set for you to review.
+              </Text>
+              <Group gap="sm" justify="center">
+                <Button onClick={() => setCreating(true)}>New ticket</Button>
+                <Button variant="default" onClick={() => askOrchestrator(DRAFT_PREFILL)}>
+                  Ask orchestrator to draft tickets
+                </Button>
+              </Group>
+            </Stack>
+          </Center>
         </Box>
-      </DndContext>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          onDragEnd={onDragEnd}
+          accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
+        >
+          <Box style={GRID_STYLE}>
+            {COLUMNS.map((c) => (
+              <BoardColumn
+                key={c.id}
+                id={c.id}
+                title={c.title}
+                tickets={byColumn.get(c.id) ?? []}
+                pendingMoves={pendingMoves}
+                recentlyChanged={recentlyChanged}
+                filtering={filtering}
+                onOpen={openTicket}
+                onMove={onMove}
+                onPropose={onPropose}
+              />
+            ))}
+          </Box>
+        </DndContext>
       )}
 
       <NewTicketModal opened={creating} onClose={closeNewTicket} />
@@ -348,16 +388,16 @@ const BoardColumn = memo(function BoardColumn({
       p="xs"
       radius="md"
       withBorder
-      bg={isOver ? 'working.0' : 'transparent'}
+      bg={isOver ? 'working.0' : id === 'needs_you' ? 'needs.0' : 'transparent'}
       mih={160}
     >
       <Group justify="space-between" mb="xs" px={4}>
-        <Title order={3} size="h5" id={headingId}>
+        <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
           {title}
         </Title>
-        <Badge variant="default" size="sm" circle data-testid="column-count" aria-hidden>
+        <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
           {tickets.length}
-        </Badge>
+        </Text>
         <VisuallyHidden>{tickets.length === 1 ? '1 ticket' : `${tickets.length} tickets`}</VisuallyHidden>
       </Group>
       <Stack gap="xs">
@@ -397,7 +437,14 @@ interface DraggableProps {
  * a menu opened by right-click, the context-menu key or Shift+F10 on the focused card. A card being moved
  * can't be moved again until the engine answers.
  */
-const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, changedAt, onOpen, onMove, onPropose }: DraggableProps): ReactElement {
+const DraggableTicket = memo(function DraggableTicket({
+  ticket,
+  movingTo,
+  changedAt,
+  onOpen,
+  onMove,
+  onPropose
+}: DraggableProps): ReactElement {
   const moving = movingTo !== null
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
     id: ticket.id,
@@ -433,7 +480,10 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, change
         opener.current = null
         // A card moved to another column is a new element: find its title again.
         setTimeout(() => {
-          const target = back instanceof HTMLElement && back.isConnected ? back : document.querySelector<HTMLElement>(`[data-card-title="${ticket.id}"]`)
+          const target =
+            back instanceof HTMLElement && back.isConnected
+              ? back
+              : document.querySelector<HTMLElement>(`[data-card-title="${ticket.id}"]`)
           target?.focus()
         }, 0)
       }}

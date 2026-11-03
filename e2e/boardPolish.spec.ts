@@ -60,7 +60,7 @@ test('welcome, empty workspace, search, and the first message on a new ticket', 
     // A fresh data home: the welcome. Adding the repo shows the empty workspace.
     await expect(page.getByRole('heading', { name: 'Welcome to Mainbus' })).toBeVisible()
     await page.getByRole('button', { name: 'Add workspace' }).click()
-    await expect(page.getByRole('heading', { name: 'No tickets yet' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /No tickets in .* yet/ })).toBeVisible()
 
     // "Ask orchestrator to draft tickets" opens the panel with the box filled in and focused.
     await page.getByRole('button', { name: 'Ask orchestrator to draft tickets' }).click()

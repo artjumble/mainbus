@@ -464,7 +464,7 @@ describe('empty states', () => {
   test('a workspace with no tickets shows No tickets yet with both actions and no header New ticket', async () => {
     useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [] }, true)
     renderWithMantine(<Board />)
-    expect(screen.getByText('No tickets yet')).toBeInTheDocument()
+    expect(screen.getByText(/No tickets in .* yet/)).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'New ticket' })).toHaveLength(1)
     expect(screen.queryByRole('textbox', { name: 'Search tickets' })).not.toBeInTheDocument()
 
@@ -478,7 +478,7 @@ describe('empty states', () => {
   test('the empty state waits for the first board read', () => {
     useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, tickets: [] }, true)
     renderWithMantine(<Board />)
-    expect(screen.queryByText('No tickets yet')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No tickets in .* yet/)).not.toBeInTheDocument()
   })
 
   test('an empty column has a quiet placeholder', () => {

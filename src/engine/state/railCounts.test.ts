@@ -12,7 +12,7 @@ function ticket(state: Partial<TicketState>): BoardTicket {
 describe('railCounts', () => {
   it('counts the tickets in Needs you', () => {
     const tickets = [ticket({ column: 'needs_you' }), ticket({ column: 'needs_you' }), ticket({ column: 'ready' })]
-    expect(railCounts(tickets, false)).toEqual({ active: false, needsYou: 2 })
+    expect(railCounts(tickets, false)).toMatchObject({ active: false, needsYou: 2 })
   })
 
   it('is active while an agent works or waits for a slot', () => {
@@ -31,5 +31,17 @@ describe('railCounts', () => {
   it('never counts an agent the user or a usage limit paused', () => {
     expect(railCounts([ticket({ agentStatus: 'paused', canContinue: true, pausedByUser: true })], true).active).toBe(false)
     expect(railCounts([ticket({ agentStatus: 'paused', canContinue: true, pausedByLimit: true })], true).active).toBe(false)
+  })
+
+  it('counts agents working, waiting on you, and idle (paused or queued)', () => {
+    const tickets = [
+      ticket({ agentStatus: 'working' }),
+      ticket({ agentStatus: 'working' }),
+      ticket({ agentStatus: 'waiting_on_you', column: 'needs_you' }),
+      ticket({ agentStatus: 'paused' }),
+      ticket({ agentStatus: 'queued' }),
+      ticket({ agentStatus: null, column: 'backlog' })
+    ]
+    expect(railCounts(tickets, false)).toMatchObject({ working: 2, waiting: 1, idle: 2 })
   })
 })
