@@ -72,80 +72,82 @@ export function WorkspaceRail(): ReactElement {
     <Stack component="nav" aria-label="Workspaces" gap="xs" p="xs" pb="md" h="100%" justify="space-between">
       <Stack gap={4}>
         {workspaces.map((w) => (
-          <Group key={w.id} gap={2} wrap="nowrap" justify="space-between">
-            <Tooltip label={`${w.name} — ${w.repoPath}`} position="right" openDelay={400}>
-              <UnstyledButton
-                onClick={() => void focus(w)}
-                aria-current={w.id === focusedId ? 'true' : undefined}
-                aria-label={describe(w)}
-                p={6}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  borderRadius: 'var(--mantine-radius-sm)',
-                  background: w.id === focusedId ? 'var(--mantine-color-default-hover)' : undefined
-                }}
-              >
-                <Stack gap={0}>
-                  <Group gap={6} wrap="nowrap">
-                    {/* Always laid out, so the name doesn't shift when the dot comes and goes. */}
-                    <Box
-                      role={w.active ? 'img' : undefined}
-                      aria-label={w.active ? 'agents working' : undefined}
-                      data-activity={w.active ? '' : undefined}
-                      w={8}
-                      h={8}
-                      style={{
-                        flexShrink: 0,
-                        borderRadius: '50%',
-                        background: w.active ? 'var(--mantine-color-working-filled)' : 'transparent'
-                      }}
-                    />
-                    <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate visibleFrom="lg">
-                      {w.name}
-                    </Text>
-                    {/* The button's label already says all of this, so the initials stay out of the screen reader's name. */}
-                    <Text size="sm" fw={w.id === focusedId ? 700 : 500} hiddenFrom="lg" aria-hidden>
-                      {initials(w.name)}
-                    </Text>
-                    {w.needsYou > 0 && (
-                      <>
-                        {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}{' '}
-                        <Badge
-                          color="needs"
-                          variant="filled"
-                          circle
-                          data-needs-you
-                          role="img"
-                          aria-hidden
-                          aria-label={`${w.needsYou} need you`}
-                        >
-                          {w.needsYou}
-                        </Badge>
-                      </>
-                    )}
-                  </Group>
-                  {/* Hidden from assistive technology: the button's label already says it, and must contain its visible text. */}
-                  <Text size="xs" c="dimmed" pl={14} visibleFrom="lg" aria-hidden data-rail-status>
-                    {railStatus(w)}
-                  </Text>
-                </Stack>
-              </UnstyledButton>
-            </Tooltip>
-            <Menu position="right-start" withinPortal>
-              <Menu.Target>
-                <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Options for ${w.name}`}>
-                  <span aria-hidden>⋯</span>
-                </ActionIcon>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={() => void settings(w)}>Settings</Menu.Item>
-                <Menu.Item color="red" onClick={() => setRemoving(w)}>
-                  Remove…
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          </Group>
+          <Box key={w.id}>
+            <Group gap={2} wrap="nowrap" justify="space-between">
+              <Tooltip label={`${w.name} — ${w.repoPath}`} position="right" openDelay={400}>
+                <UnstyledButton
+                  onClick={() => void focus(w)}
+                  aria-current={w.id === focusedId ? 'true' : undefined}
+                  aria-label={describe(w)}
+                  p={6}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    borderRadius: 'var(--mantine-radius-sm)',
+                    background: w.id === focusedId ? 'var(--mantine-color-default-hover)' : undefined
+                  }}
+                >
+                  <Stack gap={0}>
+                    <Group gap={6} wrap="nowrap">
+                      {/* Always laid out, so the name doesn't shift when the dot comes and goes. */}
+                      <Box
+                        role={w.active ? 'img' : undefined}
+                        aria-label={w.active ? 'agents working' : undefined}
+                        data-activity={w.active ? '' : undefined}
+                        w={8}
+                        h={8}
+                        style={{
+                          flexShrink: 0,
+                          borderRadius: '50%',
+                          background: w.active ? 'var(--mantine-color-working-filled)' : 'transparent'
+                        }}
+                      />
+                      <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate visibleFrom="lg">
+                        {w.name}
+                      </Text>
+                      {/* The button's label already says all of this, so the initials stay out of the screen reader's name. */}
+                      <Text size="sm" fw={w.id === focusedId ? 700 : 500} hiddenFrom="lg" aria-hidden>
+                        {initials(w.name)}
+                      </Text>
+                      {w.needsYou > 0 && (
+                        <>
+                          {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}{' '}
+                          <Badge
+                            color="needs"
+                            variant="filled"
+                            circle
+                            data-needs-you
+                            role="img"
+                            aria-hidden
+                            aria-label={`${w.needsYou} need you`}
+                          >
+                            {w.needsYou}
+                          </Badge>
+                        </>
+                      )}
+                    </Group>
+                  </Stack>
+                </UnstyledButton>
+              </Tooltip>
+              <Menu position="right-start" withinPortal>
+                <Menu.Target>
+                  <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Options for ${w.name}`}>
+                    <span aria-hidden>⋯</span>
+                  </ActionIcon>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item onClick={() => void settings(w)}>Settings</Menu.Item>
+                  <Menu.Item color="red" onClick={() => setRemoving(w)}>
+                    Remove…
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Group>
+            {/* Under the button, not in it: the button's label says all this, and must contain the button's own visible text. */}
+            <Text size="xs" c="dimmed" pl={20} visibleFrom="lg" aria-hidden data-rail-status>
+              {railStatus(w)}
+            </Text>
+          </Box>
         ))}
       </Stack>
       <Stack gap={6}>
