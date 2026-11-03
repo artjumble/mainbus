@@ -19,7 +19,8 @@ import type { GitRunner } from './git/git'
 import { PullRequestPublisher } from './git/pullRequests'
 import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
-import { ticketFoldersFor, type HomePaths } from './home'
+import { scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
+import { Attachments, type AttachmentWithPath } from './attachments/attachments'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import type { AnsweredDecision } from './orchestrator/answeredBlock'
@@ -117,6 +118,8 @@ function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
 /** How long quitting waits for restart recovery to notice the shutdown. */
 const RECOVERY_WAIT_MS = 5_000
 
@@ -182,6 +185,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     })
 
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
+    const attachments = new Attachments({
+      repo: repos.attachments,
+      paths: cfg.paths,
+      ticket: (id) => repos.tickets.get(id),
+      workspace: (id) => repos.workspaces.get(id)
+    })
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
     // Created beside the runner it drives; it reads its stored state before anything can start (see below).
     const gate: UsageGate = (usageGate = new UsageGate({
@@ -207,7 +216,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       usage: usageHooks(gate),
       pullRequests,
       processes: cfg.processes ?? new ProcessSweeper(),
-      onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId)
+      onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId),
+      attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) }
     })
     const stuckDetector = new StuckDetector({
       repos,
@@ -407,6 +417,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           keptFolders.push(t.worktreePath)
         }
       }
+      // The images go with the workspace; the repo never had them.
+      await attachments.removeWorkspace(ws).catch((err: unknown) => console.warn(`Mainbus could not remove ${ws.name}'s attachments: ${errorText(err)}`))
       emit({ type: 'workspaces.changed', focusedId: (await repos.workspaces.focused())?.id ?? null })
       return { keptFolders }
     }
@@ -489,6 +501,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           throw new Error(`#${original.number}'s folder has uncommitted changes, so it can't move to Done; nothing was promoted`)
         }
         const created = await repos.tickets.createPromoted(await repos.tickets.get(ticketId), fields)
+        // The promoted ticket's agents get the same images; a failed copy doesn't undo the promotion.
+        await attachments.copyAll(original, created).catch((err: unknown) => console.warn(`Mainbus could not copy #${original.number}'s attachments: ${errorText(err)}`))
         emit({ type: 'board.changed', workspaceId: created.workspaceId })
         return created
       } finally {
@@ -583,14 +597,47 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return lineup
       }
       const stuckOf = await repos.stuck.openByTicket()
+      const attached = await repos.attachments.listForWorkspace(ws.id)
       return Promise.all(
         tickets.map(async (t) => ({
           ...t,
           ...(await runner.boardView(t.id, () => workspaceLineup(t.kind))),
           hold: holdOf.get(t.id) ?? null,
-          stuck: stuckOf.get(t.id) ?? null
+          stuck: stuckOf.get(t.id) ?? null,
+          attachments: attached.filter((a) => a.ticketId === t.id)
         }))
       )
+    }
+
+    /** What the renderer is told of an attachment: never where its file is. */
+    const withoutPath = ({ path: _path, ...a }: AttachmentWithPath) => a
+
+    /**
+     * After an attachment was added or removed: the board shows it, the scratch folder's copies follow, and the ticket's
+     * working agent is told in a short message, queued like the user's own (so it never interrupts a turn).
+     */
+    const attachmentChanged = async (change: 'attached' | 'removed', a: AttachmentWithPath): Promise<void> => {
+      const ticket = await repos.tickets.get(a.ticketId)
+      emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      if (ticket.worktreePath === null) return
+      const copies = await attachments.sync(ticket.id, scratchPathFor(cfg.paths, ticket.worktreePath)).catch(() => [])
+      const copy = copies.find((c) => c.filename === a.filename)
+      const text =
+        change === 'removed'
+          ? `The user removed the attachment ${a.filename}; its copy is gone from your scratch folder.`
+          : copy
+            ? `The user attached ${a.filename}: ${copy.path}`
+            : null
+      if (text !== null) void runner.announce(ticket.id, text).catch(() => {})
+    }
+
+    /** The New ticket dialog's images: all checked before the ticket exists, so a refused one creates nothing. */
+    const checkNewAttachments = (files: unknown): { name: string; bytes: Uint8Array }[] => {
+      if (files === undefined) return []
+      if (!Array.isArray(files)) throw new Error('Attachments must be a list')
+      const why = attachments.check(files as { name: string; bytes: unknown }[], 0)
+      if (why !== null) throw new Error(why)
+      return files as { name: string; bytes: Uint8Array }[]
     }
 
     /** What a wake row says now, or null when its run, episode, hold, decision or ticket is gone. */
@@ -666,7 +713,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         focused: () => repos.workspaces.focused(),
         list: () => repos.workspaces.list(),
         board: boardView,
-        usage: () => gate.state()
+        usage: () => gate.state(),
+        attachments: (ticketId) => attachments.list(ticketId)
       }),
       proposals,
       createTickets: (ws, inputs) => createTickets(ws, inputs),
@@ -799,17 +847,39 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
-      'ticket.create': async (input, workspaceId) => {
-        const ticket = await createTicket(await requireWorkspace(workspaceId), {
+      'ticket.create': async ({ attachments: files, ...input }, workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
+        const images = checkNewAttachments(files)
+        const ticket = await createTicket(ws, {
           ...input,
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
           source: undefined,
           via: undefined,
           intentAdded: undefined
         })
+        for (const image of images) {
+          try {
+            await attachments.add(ticket.id, image.name, image.bytes)
+          } catch (err) {
+            emit({ type: 'board.changed', workspaceId: ws.id })
+            throw new Error(`#${ticket.number} was created, but ${image.name} couldn't be attached: ${errorText(err)}`)
+          }
+        }
+        if (images.length > 0) emit({ type: 'board.changed', workspaceId: ws.id })
         if (input.column === 'ready') await proposeStartIfAsked(ticket.id)
         return ticket
       },
+      'attachment.add': async (ticketId, name, bytes) => {
+        const added = await attachments.add(ticketId, name, bytes)
+        await attachmentChanged('attached', added)
+        return withoutPath(added)
+      },
+      'attachment.remove': async (id) => {
+        const removed = await attachments.remove(id)
+        if (removed) await attachmentChanged('removed', removed)
+      },
+      'attachment.list': async (ticketId) => (await attachments.list(ticketId)).map(withoutPath),
+      'attachment.data': (id) => attachments.dataUrl(id),
       'ticket.update': async (id, patch) => {
         const ticket = await repos.tickets.update(id, patch)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import type { AgentEvent } from '../../shared/events'
 import {
   ResumeFailedError,
@@ -33,6 +34,13 @@ export type FakeStep =
   | { waitForSend: true }
   /** Fails the script, with an error event and the run closed, unless the run's launch prompt contains this text. */
   | { expectPrompt: string }
+  /**
+   * Reads a file whose path is the first group of a pattern, matched in the run's system prompt (`fromPrompt`) or in
+   * the last message sent to it (`fromMessage`), as the Read tool would: inside the run's folder or an additional
+   * directory it runs without reaching onPermission, as with the real runtime; anywhere else it asks first. Emits the
+   * tool call and its result; fails the script when nothing matches or the file can't be read.
+   */
+  | { readFile: { fromPrompt?: string; fromMessage?: string } }
   | { exit: number | null }
 
 /**
@@ -80,6 +88,13 @@ function fill(args: unknown, captured: Record<string, string>): unknown {
   return args
 }
 
+/** True when `file` is inside the folder `dir` (ignoring case on Windows). */
+function within(dir: string, file: string): boolean {
+  const fold = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p)
+  const rel = path.relative(fold(path.resolve(dir)), fold(path.resolve(file)))
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
 /** An async queue that can be closed; the consumer side is an AsyncIterable. */
 class EventQueue implements AsyncIterable<AgentEvent> {
   private readonly items: AgentEvent[] = []
@@ -121,6 +136,8 @@ interface Run {
   queue: EventQueue
   abort: AbortController
   pendingSends: number
+  /** The last text sent to the run. */
+  lastSent: string | null
   sendWaiter: (() => void) | null
   stopped: boolean
   /** The fake `claude` process, until it has exited. */
@@ -189,6 +206,7 @@ export class FakeRuntime implements AgentRuntime {
       queue: new EventQueue(),
       abort: new AbortController(),
       pendingSends: 0,
+      lastSent: null,
       sendWaiter: null,
       stopped: false,
       proc: null
@@ -206,6 +224,7 @@ export class FakeRuntime implements AgentRuntime {
   async send(handle: RunHandle, text: string): Promise<void> {
     const run = this.get(handle)
     this.sent.push(text)
+    run.lastSent = text
     run.pendingSends++
     const w = run.sendWaiter
     run.sendWaiter = null
@@ -268,10 +287,31 @@ export class FakeRuntime implements AgentRuntime {
     return typeof this.script === 'function' ? this.script(spec) : this.script
   }
 
+  /** The `readFile` step: see FakeStep. */
+  private async readFile(spec: AnyRunSpec, run: Run, from: { fromPrompt?: string; fromMessage?: string }, n: number): Promise<void> {
+    const [pattern, text] = from.fromPrompt !== undefined ? [from.fromPrompt, spec.appendSystemPrompt] : [from.fromMessage ?? '', run.lastSent ?? '']
+    const file = new RegExp(pattern).exec(text)?.[1]
+    if (!file) throw new Error(`readFile: ${pattern} matched no path`)
+    const id = `read-${n}`
+    const input = { file_path: file }
+    run.queue.push({ kind: 'tool_call', id, name: 'Read', input })
+    const inside = [spec.cwd, ...spec.additionalDirectories].some((dir) => within(dir, file))
+    if (!inside) {
+      const verdict = await spec.onPermission({ toolName: 'Read', input, toolUseId: id, signal: run.abort.signal })
+      if (!verdict.allow) {
+        run.queue.push({ kind: 'tool_result', id, ok: false, summary: verdict.message })
+        return
+      }
+    }
+    const bytes = fs.readFileSync(file).length
+    run.queue.push({ kind: 'tool_result', id, ok: true, summary: `Read ${bytes} bytes` })
+  }
+
   private async play(spec: AnyRunSpec, run: Run): Promise<void> {
     // Yield first so nothing fires until the caller has the handle, as with a real runtime.
     await new Promise<void>((resolve) => setImmediate(resolve))
     const captured: Record<string, string> = {}
+    let reads = 0
     try {
       for (const step of this.steps(spec)) {
         if (run.stopped) return
@@ -294,6 +334,8 @@ export class FakeRuntime implements AgentRuntime {
           captured[c.as] = m[1]
         } else if ('requestPermission' in step) {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })
+        } else if ('readFile' in step) {
+          await this.readFile(spec, run, step.readFile, ++reads)
         } else if ('expectPrompt' in step) {
           if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
         } else if ('waitForSend' in step) {

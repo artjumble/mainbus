@@ -1,5 +1,6 @@
 import { Button, Textarea } from '@mantine/core'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactElement } from 'react'
+import { dragHasFiles, filesOf } from '../attachments/files'
 
 interface Props {
   /** Rejects when the message could not be sent; the text then stays in the box. */
@@ -18,6 +19,8 @@ interface Props {
   prefill?: { text: string; n: number } | null
   /** Called once the prefill is in the box. */
   onPrefilled?: () => void
+  /** Images pasted or dropped into the box; without it they are left to the browser. */
+  onAttach?: (files: File[]) => void
 }
 
 /** A message box with Send inside it (not beside it). Ctrl+Enter sends, or Enter with `enterSends`. */
@@ -30,7 +33,8 @@ export function Composer({
   working = false,
   onStop,
   prefill = null,
-  onPrefilled
+  onPrefilled,
+  onAttach
 }: Props): ReactElement {
   const [text, setText] = useState('')
   const input = useRef<HTMLTextAreaElement>(null)
@@ -86,6 +90,25 @@ export function Composer({
 
   const showStop = working && onStop !== undefined
 
+  // A pasted image is attached; text pasted with it still goes into the box.
+  function onPaste(e: ClipboardEvent): void {
+    const files = onAttach ? filesOf(e.clipboardData) : []
+    if (files.length === 0) return
+    if (e.clipboardData.getData('text/plain') === '') e.preventDefault()
+    onAttach?.(files)
+  }
+
+  function onDragOver(e: DragEvent): void {
+    if (onAttach && dragHasFiles(e.dataTransfer)) e.preventDefault()
+  }
+
+  function onDrop(e: DragEvent): void {
+    const files = onAttach ? filesOf(e.dataTransfer) : []
+    if (files.length === 0) return
+    e.preventDefault()
+    onAttach?.(files)
+  }
+
   return (
     <Textarea
       ref={input}
@@ -99,6 +122,9 @@ export function Composer({
       value={text}
       onChange={(e) => setText(e.currentTarget.value)}
       onKeyDown={onKeyDown}
+      onPaste={onPaste}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       rightSectionWidth={sendLabel === 'Send' ? 72 : 130}
       rightSectionProps={{ style: { alignItems: 'flex-end', padding: 6 } }}
       rightSection={

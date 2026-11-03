@@ -1,6 +1,6 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, pngFile, renderWithMantine, transfer } from '../test-utils'
 import { Composer } from './Composer'
 
 const send = (): HTMLElement => screen.getByRole('button', { name: 'Send' })
@@ -122,4 +122,25 @@ test('a label is shown above the box and names it; the button can read different
   renderWithMantine(<Composer onSend={async () => {}} label="Message the Implementer" placeholder="Steer it" sendLabel="Send and start" />)
   expect(screen.getByLabelText('Message the Implementer')).toHaveAttribute('placeholder', 'Steer it')
   expect(screen.getByRole('button', { name: 'Send and start' })).toBeInTheDocument()
+})
+
+test('an image pasted or dropped into the box is attached, and text pasted with it still goes in', () => {
+  const onAttach = vi.fn()
+  renderWithMantine(<Composer onSend={async () => {}} onAttach={onAttach} />)
+  const box = screen.getByRole('textbox')
+
+  const pasted = fireEvent.paste(box, { clipboardData: transfer([pngFile('a.png')]) })
+  expect(onAttach).toHaveBeenLastCalledWith([expect.objectContaining({ name: 'a.png' })])
+  // Nothing for the box to take: the paste is handled.
+  expect(pasted).toBe(false)
+
+  expect(fireEvent.paste(box, { clipboardData: transfer([pngFile('b.png')], 'caption') })).toBe(true)
+  expect(onAttach).toHaveBeenLastCalledWith([expect.objectContaining({ name: 'b.png' })])
+
+  fireEvent.drop(box, { dataTransfer: transfer([pngFile('c.png')]) })
+  expect(onAttach).toHaveBeenLastCalledWith([expect.objectContaining({ name: 'c.png' })])
+
+  onAttach.mockClear()
+  expect(fireEvent.paste(box, { clipboardData: transfer([], 'plain text') })).toBe(true)
+  expect(onAttach).not.toHaveBeenCalled()
 })

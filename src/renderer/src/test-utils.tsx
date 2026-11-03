@@ -62,6 +62,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     updatedAt: '2026-10-30T00:00:00.000Z',
     hold: null,
     stuck: null,
+    attachments: [],
     lineup: makeLineup().map((r) => ({ id: r.id, name: r.name, status: 'not_started', active: false, replacements: 0 })),
     skipTo: null,
     pendingDecisions: [],
@@ -106,6 +107,22 @@ export function makeDecision(overrides: Partial<Decision> = {}): Decision {
     answeredBy: null,
     answeredVia: null,
     ...overrides
+  }
+}
+
+/** A PNG's leading bytes and a little more: enough for the image check. */
+export const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
+
+export const pngFile = (name = 'shot.png'): File => new File([PNG_BYTES], name, { type: 'image/png' })
+export const svgFile = (): File => new File(['<svg><script>alert(1)</script></svg>'], 'logo.svg', { type: 'image/svg+xml' })
+
+/** A paste's or drop's data carrying `files` (and `text`), as jsdom has no DataTransfer. */
+export function transfer(files: File[], text = ''): Partial<DataTransfer> {
+  return {
+    files: files as unknown as FileList,
+    items: [] as unknown as DataTransferItemList,
+    types: [...(files.length ? ['Files'] : []), ...(text ? ['text/plain'] : [])],
+    getData: (type: string) => (type === 'text/plain' ? text : '')
   }
 }
 

@@ -4,6 +4,7 @@ import { ANSWERED_VIA_PHRASES, type Criterion, type Decision } from '../../../sh
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { stuckHeadline } from '../../../shared/stuck'
 import { invoke } from '../api'
+import { AttachmentsSection } from '../attachments/Attachments'
 import { AgentBadge } from '../board/AgentBadge'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
@@ -20,7 +21,7 @@ interface Props {
   onViewRun?: (runId: string) => void
 }
 
-/** The left side of the ticket: what an agent filed and what the person asked for, the spec, criteria, labels and what has happened so far. */
+/** The left side of the ticket: what an agent filed and what the person asked for, the spec, criteria, images, labels and what has happened so far. */
 export function ContextPane({ ticket, events, decisions, runs, onViewRun }: Props): ReactElement {
   return (
     <Stack gap="lg" p="md">
@@ -29,6 +30,9 @@ export function ContextPane({ ticket, events, decisions, runs, onViewRun }: Prop
       <Spec ticket={ticket} />
       <InvestigationReport ticket={ticket} />
       <Criteria ticket={ticket} />
+      <Section title="Attachments">
+        <AttachmentsSection ticket={ticket} />
+      </Section>
       <Labels labels={ticket.labels} />
       <Branch branch={ticket.branch} />
       <Activity ticket={ticket} events={events} decisions={decisions} runs={runs} onViewRun={onViewRun} />

@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-export type HomePaths = { root: string; db: string; worktrees: string; scratch: string; backups: string }
+export type HomePaths = { root: string; db: string; worktrees: string; scratch: string; backups: string; attachments: string }
 
 /**
  * The directory a command was run from. npm runs a package script in the package root, and records the
@@ -36,8 +36,14 @@ export function resolveHome(
     db: path.join(root, 'mainbus.db'),
     worktrees: path.join(root, 'work'),
     scratch: path.join(root, 'scratch'),
-    backups: path.join(root, 'backups')
+    backups: path.join(root, 'backups'),
+    attachments: path.join(root, 'attachments')
   }
+}
+
+/** The folder holding all of a workspace's ticket attachments: `attachments\<workspace slug>`. */
+export function attachmentFoldersFor(paths: HomePaths, slug: string): string {
+  return path.join(paths.attachments, slug)
 }
 
 /**

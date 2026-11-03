@@ -1,5 +1,6 @@
 // Shared by the engine, the preload and the renderer: no Node imports (the renderer typechecks this file).
 // Mostly types; the channel names and error name at the bottom are the only runtime values.
+import type { Attachment } from './attachments'
 import type {
   AgentLauncher,
   AllowRule,
@@ -58,6 +59,14 @@ export type BoardTicket = Ticket & {
   hold: Hold | null
   /** The open stuck episode of the ticket's open run, or null. */
   stuck: StuckEpisode | null
+  /** The images the user attached, oldest first. */
+  attachments: Attachment[]
+}
+
+/** An image to attach to a ticket being created: its name as given and its bytes. */
+export interface NewAttachment {
+  name: string
+  bytes: Uint8Array
 }
 
 /**
@@ -111,8 +120,25 @@ export interface EngineCommands {
   'github.check'(workspaceId?: string): GhStatus
   /** The tickets of the workspace (the focused one unless given). */
   'board.get'(workspaceId?: string): { tickets: BoardTicket[] }
-  /** The user's own ticket: a source can only come in through agent intake. */
-  'ticket.create'(i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded'>, workspaceId?: string): Ticket
+  /**
+   * The user's own ticket: a source can only come in through agent intake. `attachments` are images to attach to it,
+   * checked before the ticket is created: one that can't be attached creates nothing.
+   */
+  'ticket.create'(
+    i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded'> & { attachments?: NewAttachment[] },
+    workspaceId?: string
+  ): Ticket
+  /**
+   * Attaches an image to the ticket: a PNG, JPEG, GIF or WebP (by its leading bytes), at most 10 MB, at most 20 per
+   * ticket; anything else is refused with a plain reason. A ticket's working agent is told in a message. Only the renderer can reach these.
+   */
+  'attachment.add'(ticketId: string, name: string, bytes: Uint8Array): Attachment
+  /** Removes the attachment and its file; a ticket's working agent is told. Nothing happens when it is already gone. */
+  'attachment.remove'(id: string): void
+  /** The ticket's attachments, oldest first. */
+  'attachment.list'(ticketId: string): Attachment[]
+  /** The image as a data URL: the renderer's only way to an attachment's file. */
+  'attachment.data'(id: string): string
   'ticket.update'(id: string, p: TicketPatch): Ticket
   'ticket.appendIntent'(id: string, text: string): Ticket
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */

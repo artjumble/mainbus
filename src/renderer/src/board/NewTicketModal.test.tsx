@@ -1,8 +1,8 @@
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, PNG_BYTES, pngFile, renderWithMantine, svgFile, transfer } from '../test-utils'
 import { NewTicketModal } from './NewTicketModal'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -120,4 +120,38 @@ test('the open modal has no axe violations, empty or filled in', async () => {
   await expectNoAxeViolations()
   await userEvent.type(screen.getByLabelText(/Title/), 'Add dark mode')
   await expectNoAxeViolations()
+})
+
+test('images picked, dropped or pasted are shown and saved with the ticket on Create; a refused one is not', async () => {
+  const onClose = vi.fn()
+  const { baseElement } = renderWithMantine(<NewTicketModal opened onClose={onClose} />)
+  await userEvent.type(screen.getByLabelText(/Title/), 'Fix the header')
+  await userEvent.type(screen.getByLabelText(/In your words/), 'Like the picture')
+
+  const input = baseElement.querySelector('input[type="file"]') as HTMLInputElement
+  await userEvent.upload(input, pngFile('picked.png'))
+  await screen.findByRole('img', { name: 'picked.png' })
+  fireEvent.drop(baseElement.querySelector('[data-drop-zone]')!, { dataTransfer: transfer([pngFile('dropped.png')]) })
+  await screen.findByRole('img', { name: 'dropped.png' })
+  // A screenshot pasted while typing in a field: it comes without a name.
+  fireEvent.paste(screen.getByLabelText(/Spec/), { clipboardData: transfer([pngFile('')]) })
+  await screen.findByRole('img', { name: 'pasted-image.png' })
+  await userEvent.upload(input, svgFile(), { applyAccept: false })
+  expect(await screen.findByText(/can carry script/)).toBeInTheDocument()
+  expect(screen.queryByRole('img', { name: 'logo.svg' })).toBeNull()
+  expect(screen.getByRole('img', { name: 'picked.png' }).getAttribute('src')).toMatch(/^data:image\/png;base64,/)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove dropped.png' }))
+  await userEvent.click(create())
+  expect(mockInvoke).toHaveBeenCalledWith(
+    'ticket.create',
+    expect.objectContaining({
+      title: 'Fix the header',
+      attachments: [
+        { name: 'picked.png', bytes: PNG_BYTES },
+        { name: 'pasted-image.png', bytes: PNG_BYTES }
+      ]
+    })
+  )
+  expect(onClose).toHaveBeenCalled()
 })

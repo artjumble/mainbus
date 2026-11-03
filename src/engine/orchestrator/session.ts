@@ -10,7 +10,7 @@ import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
 import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
-import { ticketFoldersFor, type HomePaths } from '../home'
+import { attachmentFoldersFor, ticketFoldersFor, type HomePaths } from '../home'
 import { createInBacklog, listJoin } from '../proposals/createTickets'
 import { ProposalInvalid } from '../proposals/kind'
 import type { ProposalService } from '../proposals/service'
@@ -470,15 +470,17 @@ export class OrchestratorSession {
   }
 
   /**
-   * Every open workspace's repo and ticket folders: the whole folder, not each ticket's, because tickets start and
-   * finish while the session runs. The folders exist up front because the CLI may skip a folder it cannot find.
+   * Every open workspace's repo, ticket folders and attachments folder: the whole folder, not each ticket's, because
+   * tickets start, finish and gain images while the session runs. The folders exist up front because the CLI may skip a
+   * folder it cannot find. Nothing else of Mainbus's data is readable.
    */
-  private async readable(): Promise<{ folders: string[]; ticketFolders: string[]; key: string }> {
+  private async readable(): Promise<{ folders: string[]; ticketFolders: string[]; attachmentFolders: string[]; key: string }> {
     const all = await this.deps.workspaces()
     const ticketFolders = all.map((w) => ticketFoldersFor(this.deps.paths, w.slug))
-    await Promise.all(ticketFolders.map((f) => fs.mkdir(f, { recursive: true })))
-    const folders = [...all.map((w) => w.repoPath), ...ticketFolders]
-    return { folders, ticketFolders, key: JSON.stringify(folders) }
+    const attachmentFolders = all.map((w) => attachmentFoldersFor(this.deps.paths, w.slug))
+    await Promise.all([...ticketFolders, ...attachmentFolders].map((f) => fs.mkdir(f, { recursive: true })))
+    const folders = [...all.map((w) => w.repoPath), ...ticketFolders, ...attachmentFolders]
+    return { folders, ticketFolders, attachmentFolders, key: JSON.stringify(folders) }
   }
 
   /** Ends the live session without recording a failure; the run stays open to be resumed. */
@@ -491,12 +493,12 @@ export class OrchestratorSession {
 
   private async launch(runId: string, ws: Workspace, prompt: string, resumeSessionId?: string): Promise<void> {
     const cwd = this.folder
-    const { folders: readable, ticketFolders, key } = await this.readable()
+    const { folders: readable, ticketFolders, attachmentFolders, key } = await this.readable()
     const spec: OrchestratorRunSpec = {
       kind: 'orchestrator',
       cwd,
       prompt,
-      appendSystemPrompt: buildOrchestratorPrompt(ticketFolders),
+      appendSystemPrompt: buildOrchestratorPrompt(ticketFolders, attachmentFolders),
       model: ORCHESTRATOR_MODEL,
       effort: ORCHESTRATOR_EFFORT,
       additionalDirectories: readable,

@@ -343,3 +343,42 @@ describe('FakeRuntime: sessions kept across processes', () => {
     }
   })
 })
+
+describe('FakeRuntime: readFile', () => {
+  test('reads inside the extra folders without asking, as the real runtime does, and asks for anything else', async () => {
+    const fsm = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const tmp = await fsm.mkdtemp(path.join(os.tmpdir(), 'mainbus-fake-read-'))
+    try {
+      const scratch = path.join(tmp, 'scratch')
+      await fsm.mkdir(scratch)
+      const inside = path.join(scratch, 'shot.png')
+      const outside = path.join(tmp, 'secret.png')
+      await fsm.writeFile(inside, 'abc')
+      await fsm.writeFile(outside, 'abcd')
+      const rt = new FakeRuntime([
+        { readFile: { fromPrompt: 'image: (.+)$' } },
+        { waitForSend: true },
+        { readFile: { fromMessage: 'look at (.+)$' } },
+        { exit: 0 }
+      ])
+      const { spec, onPermission } = makeSpec({ cwd: path.join(tmp, 'work'), additionalDirectories: [scratch], appendSystemPrompt: `image: ${inside}` })
+      onPermission.mockResolvedValue({ allow: false, message: 'Denied by the user' })
+      const run = await rt.start(spec)
+      const events = collect(rt.events(run))
+      await tick()
+      await rt.send(run, `look at ${outside}`)
+      expect(await events).toEqual([
+        { kind: 'tool_call', id: 'read-1', name: 'Read', input: { file_path: inside } },
+        { kind: 'tool_result', id: 'read-1', ok: true, summary: 'Read 3 bytes' },
+        { kind: 'tool_call', id: 'read-2', name: 'Read', input: { file_path: outside } },
+        { kind: 'tool_result', id: 'read-2', ok: false, summary: 'Denied by the user' }
+      ])
+      expect(onPermission).toHaveBeenCalledTimes(1)
+      expect(onPermission.mock.calls[0]![0]).toMatchObject({ toolName: 'Read', input: { file_path: outside } })
+    } finally {
+      await fsm.rm(tmp, { recursive: true, force: true })
+    }
+  })
+})
