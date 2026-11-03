@@ -59,7 +59,7 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
     if (!ticket) throw new ProposalInvalid(`ticket: there is no ticket #${p.ticket}`)
     const why = await ctx.whyNotStartable(ticket)
     if (why !== null) throw new ProposalInvalid(`ticket: ${why}`)
-    const lineup = await ctx.lineup(turn.workspaceId)
+    const lineup = await ctx.lineup(turn.workspaceId, ticket.kind)
     if (lineup.length === 0) throw new ProposalInvalid('roles: this workspace has no roles')
 
     const chosen = new Map<string, { model?: string; effort?: Effort }>()

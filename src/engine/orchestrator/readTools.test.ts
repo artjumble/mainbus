@@ -174,6 +174,22 @@ describe('get_ticket', () => {
     expect(out).toContain('## Latest run\n- Planner: handed off\n- Implementer: working (active)')
   })
 
+  test("shows a ticket's kind, and an Investigate ticket's report", async () => {
+    const change = await ticket()
+    const out = await tools.getTicket({ number: change.number })
+    expect(out).toContain('Kind: Change · column:')
+    expect(out).not.toContain('## Report')
+
+    const investigation = await ticket({ kind: 'investigate' })
+    const before = await tools.getTicket({ number: investigation.number })
+    expect(before).toContain('Kind: Investigate · column:')
+    expect(before).toContain('## Report\nNone yet.')
+    await repos.tickets.setReport(investigation.id, '# Findings\n\nIt is X.')
+    expect(await tools.getTicket({ number: investigation.number })).toContain(
+      '## Report\n<ticket-data field="report">\n# Findings\n\nIt is X.\n</ticket-data>'
+    )
+  })
+
   test('says when a ticket has not started, and when there is no such ticket', async () => {
     await ticket()
     expect(await tools.getTicket({ number: 1 })).toContain('## Latest run\nNot started.')

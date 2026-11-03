@@ -31,8 +31,8 @@ test('shows the lineup, the pull request switch, the allow list and Connect agen
   expect(screen.getByRole('heading', { name: 'Lineup' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeInTheDocument()
   expect(await screen.findByRole('region', { name: 'Connect agents' })).toBeInTheDocument()
-  // Only the Change lineup for now: no Investigate tab.
-  expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+  // One tab per lineup.
+  expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Change', 'Investigate'])
 })
 
 test('lists allow rules and removes one', async () => {

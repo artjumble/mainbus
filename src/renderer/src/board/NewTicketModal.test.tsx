@@ -52,7 +52,8 @@ test('Create sends the intent unchanged and one criterion per non-blank line', a
       spec: '',
       criteria: ['Toggle exists', 'Persists after restart'],
       labels: [],
-      column: 'backlog'
+      column: 'backlog',
+      kind: 'change'
     })
   )
   await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
@@ -79,4 +80,14 @@ test('a failed create keeps the dialog open and shows the message', async () => 
   expect(await screen.findByText('Open a workspace first')).toBeInTheDocument()
   expect(onClose).not.toHaveBeenCalled()
   expect(screen.getByLabelText(/Title/)).toHaveValue('T')
+})
+
+test('the Kind choice defaults to Change and sends Investigate when picked', async () => {
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  expect(screen.getByRole('radio', { name: /^Change/ })).toBeChecked()
+  await userEvent.click(screen.getByRole('radio', { name: /^Investigate/ }))
+  await userEvent.type(screen.getByLabelText(/Title/), 'Why is login slow')
+  await userEvent.type(screen.getByLabelText(/In your words/), 'Find out')
+  await userEvent.click(create())
+  expect(mockInvoke).toHaveBeenCalledWith('ticket.create', expect.objectContaining({ kind: 'investigate' }))
 })

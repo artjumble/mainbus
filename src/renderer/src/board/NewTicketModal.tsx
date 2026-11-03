@@ -1,5 +1,6 @@
-import { Button, Checkbox, Group, Modal, Stack, Textarea, TextInput } from '@mantine/core'
+import { Button, Checkbox, Group, Modal, Radio, Stack, Textarea, TextInput } from '@mantine/core'
 import { useState, type FormEvent, type ReactElement } from 'react'
+import type { TicketKind } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
@@ -24,6 +25,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
   const [spec, setSpec] = useState('')
   const [criteria, setCriteria] = useState('')
   const [ready, setReady] = useState(false)
+  const [kind, setKind] = useState<TicketKind>('change')
   const [saving, setSaving] = useState(false)
 
   const canCreate = title.trim() !== '' && intent.trim() !== ''
@@ -40,13 +42,15 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
         spec,
         criteria: splitCriteria(criteria),
         labels: [],
-        column: ready ? 'ready' : 'backlog'
+        column: ready ? 'ready' : 'backlog',
+        kind
       })
       setTitle('')
       setIntent('')
       setSpec('')
       setCriteria('')
       setReady(false)
+      setKind('change')
       onClose()
       // The board also refreshes on board.changed; a failure here is not a failed create.
       void refreshBoard().catch((err) => showError(err, 'Could not refresh the board'))
@@ -61,6 +65,12 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
     <Modal opened={opened} onClose={onClose} title="New ticket" size="lg">
       <form onSubmit={(e) => void submit(e)}>
         <Stack gap="sm">
+          <Radio.Group label="Kind" value={kind} onChange={(v) => setKind(v as TicketKind)}>
+            <Group mt={4}>
+              <Radio value="change" label="Change" />
+              <Radio value="investigate" label="Investigate" description="Finds out and writes a report; changes no code" />
+            </Group>
+          </Radio.Group>
           <TextInput label="Title" required data-autofocus value={title} onChange={(e) => setTitle(e.currentTarget.value)} />
           <Textarea
             label="In your words"

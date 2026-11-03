@@ -1,0 +1,8 @@
+{
+  "Investigator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-investigator" } },
+    { "emit": { "kind": "message", "text": "Investigator: reading the code." } },
+    { "callTool": "submitReport", "args": { "markdown": "# Findings\n\nThe cause is **X**." } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ]
+}

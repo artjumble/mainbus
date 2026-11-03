@@ -44,8 +44,12 @@ export interface Workspace {
   openPrOnReview: boolean
 }
 
-/** A workspace's lineups. Only Change for now; M7 adds Investigate. */
-export type Lineup = 'change'
+/** A workspace's lineups: Change tickets run the Change lineup, Investigate tickets the Investigate one. */
+export type Lineup = 'change' | 'investigate'
+export const LINEUPS: readonly Lineup[] = ['change', 'investigate']
+
+/** What a ticket is for; it picks the lineup the ticket runs. */
+export type TicketKind = Lineup
 
 /** The phases a role can put its ticket in while it is active. */
 export const ROLE_PHASES = ['planning', 'implementing', 'testing', 'reviewing'] as const
@@ -104,7 +108,7 @@ export interface Ticket {
   id: string
   workspaceId: string
   number: number
-  kind: 'change'
+  kind: TicketKind
   title: string
   intent: IntentEntry[]
   spec: string
@@ -117,6 +121,8 @@ export interface Ticket {
   pr: PullRequest | null
   /** Why the last push or pull request failed; null once one succeeds. */
   prError: string | null
+  /** The markdown report an Investigate ticket's last role submitted; null until then. */
+  report: string | null
   createdAt: string
   updatedAt: string
 }
@@ -214,6 +220,8 @@ export type NewTicketInput = {
   criteria: string[]
   labels: string[]
   column: 'backlog' | 'ready'
+  /** Absent means change. */
+  kind?: TicketKind
   /** Set only by agent intake: marks the first intent entry as agent-written. */
   source?: IntentSource
 }

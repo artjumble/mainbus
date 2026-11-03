@@ -49,6 +49,20 @@ describe('create_tickets: propose', () => {
   })
 })
 
+describe('create_tickets: kind', () => {
+  test('is optional and kept as sent, in propose and in override', () => {
+    const stored = propose({ tickets: [{ title: 'Why slow', kind: 'investigate' }, { title: 'Fix' }] })
+    expect(stored.tickets.map((t) => t.kind)).toEqual(['investigate', undefined])
+    const edited = createTickets.override!(stored, { tickets: [{ title: 'Why slow', kind: 'investigate' }], column: 'ready' })
+    expect(edited.tickets[0]!.kind).toBe('investigate')
+  })
+
+  test('refuses an unknown kind', () => {
+    expect(() => propose({ tickets: [{ title: 'A', kind: 'research' }] })).toThrow(ProposalInvalid)
+  })
+
+})
+
 describe('create_tickets: override', () => {
   const stored = propose({ tickets: [{ title: 'Login' }, { title: 'Logout' }] })
 
@@ -95,13 +109,21 @@ describe('create_tickets: execute and outcome', () => {
     }
   }
 
+  test('is passed on when creating, change by default', async () => {
+    const c = ctx()
+    const p = propose({ tickets: [{ title: 'Why slow', kind: 'investigate' }, { title: 'Fix' }] })
+    await createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, c)
+    const inputs = c.createTickets.mock.calls[0]![1]
+    expect(inputs.map((i: { kind?: string }) => i.kind)).toEqual(['investigate', 'change'])
+  })
+
   test('creates the drafts in order, each with the stored intent and no source, in the column', async () => {
     const c = ctx()
     const p = propose({ tickets: [{ title: 'Login', spec: 'S', criteria: ['c'], labels: ['l'] }, { title: 'Logout' }], column: 'ready' })
     const result = await createTickets.execute(p, { workspaceId: 'ws1', proposalId: 'p1' }, c)
     expect(c.createTickets).toHaveBeenCalledWith(ws, [
-      { title: 'Login', intent: MESSAGE, spec: 'S', criteria: ['c'], labels: ['l'], column: 'ready' },
-      { title: 'Logout', intent: MESSAGE, spec: '', criteria: [], labels: [], column: 'ready' }
+      { title: 'Login', intent: MESSAGE, spec: 'S', criteria: ['c'], labels: ['l'], column: 'ready', kind: 'change' },
+      { title: 'Logout', intent: MESSAGE, spec: '', criteria: [], labels: [], column: 'ready', kind: 'change' }
     ], { proposalId: 'p1', column: 'ready' })
     expect(result).toEqual({
       tickets: [

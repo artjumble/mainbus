@@ -1,6 +1,6 @@
 import { Button, Center, Group, Loader, Modal, Stack, Text, Textarea } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import type { StartOptions } from '../../../shared/domain'
+import type { Lineup, StartOptions } from '../../../shared/domain'
 import { EXTRA_INSTRUCTIONS_MAX, resolveModelEffort } from '../../../shared/models'
 import { invoke } from '../api'
 import { showError } from '../notify'
@@ -11,29 +11,31 @@ interface Props {
   onClose: () => void
   /** Starts the ticket with these options; resolves true once it has started. */
   onStart: (opts: StartOptions) => Promise<boolean>
+  /** The ticket's kind: which lineup's roles to offer. */
+  lineup: Lineup
 }
 
 /**
  * "Adjust before starting": pick the lineup roles to run this time, all ticked to begin with, each one's model and
  * effort (its own setting, else Mainbus's default), and instructions for every role of this run.
  */
-export function AdjustStartModal({ opened, onClose, onStart }: Props): ReactElement {
+export function AdjustStartModal({ opened, onClose, onStart, lineup }: Props): ReactElement {
   return (
     <Modal opened={opened} onClose={onClose} title="Adjust before starting" size="lg">
       {/* Mounted while open only, so every opening reads the lineup afresh with every role ticked. */}
-      {opened && <RolePicker onClose={onClose} onStart={onStart} />}
+      {opened && <RolePicker onClose={onClose} onStart={onStart} lineup={lineup} />}
     </Modal>
   )
 }
 
-function RolePicker({ onClose, onStart }: Omit<Props, 'opened'>): ReactElement {
+function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): ReactElement {
   const [roles, setRoles] = useState<RoleChoice[] | null>(null)
   const [extra, setExtra] = useState('')
   const [starting, setStarting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    invoke('lineup.get').then(
+    invoke('lineup.get', kind).then(
       (lineup) => {
         if (cancelled) return
         setRoles(

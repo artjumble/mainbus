@@ -257,6 +257,19 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           <AgentText text={event.text} />
         </Stack>
       )
+    case 'report':
+      // The run's last event: the report sits where the final message would be, with the thread above it.
+      return (
+        <Stack gap={2} data-event="report">
+          <RoleTag role={lookup.role} />
+          <Paper withBorder p="sm" radius="md" component="section" aria-label="Report">
+            <Text fw={600} size="sm" mb={4}>
+              Report
+            </Text>
+            <AgentText text={event.markdown} />
+          </Paper>
+        </Stack>
+      )
     case 'user_message':
       return (
         <Paper

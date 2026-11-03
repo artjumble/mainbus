@@ -7,6 +7,7 @@ function makeSpec(over: Partial<RunSpec> = {}) {
   const roleTools = {
     askUser: vi.fn(async () => 'answer'),
     handoff: vi.fn(async () => 'recorded'),
+    submitReport: vi.fn(async () => 'submitted'),
     reportProblem: vi.fn(async () => 'reported'),
     reportWaiting: vi.fn(async () => 'waiting'),
     checkCriterion: vi.fn(async () => 'checked')

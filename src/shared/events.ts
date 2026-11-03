@@ -58,6 +58,8 @@ export type ThreadEvent =
   | { kind: 'wake'; items: string[] }
   /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
+  /** The run's role submitted its report (Investigate tickets); the ticket view shows it where the final message would be. */
+  | { kind: 'report'; markdown: string }
   /** The first event of a role's run when an earlier role of the same ticket run handed off to it. */
   | { kind: 'role_handoff'; from: string; to: string }
   /**

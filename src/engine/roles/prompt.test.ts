@@ -50,6 +50,7 @@ const ticket: Ticket = {
   worktreePath: 'C:/work/14-rate-limit-login',
   pr: null,
   prError: null,
+  report: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z',
 }
@@ -382,6 +383,29 @@ describe('earlier handoffs in the role prompt', () => {
         'The user skipped the Implementer. Mainbus built this digest from its log; the Implementer did not write it.\n' +
         '<ticket-data field="handoff-summary">\nImplementer: edited a file\n</ticket-data>'
     )).toBe(true)
+  })
+})
+
+describe('the prompt of an Investigate ticket', () => {
+  const investigation: Ticket = { ...ticket, kind: 'investigate' }
+
+  test('tells every role never to commit, and the last to submit its report instead of handing off', () => {
+    const last = buildRolePrompt(role, investigation, [], [], null, true)
+    expect(last).toContain('This is an Investigate ticket: never commit, and leave the branch as you found it.')
+    expect(last).toContain('mcp__mainbus__submit_report(markdown)')
+    expect(last).toContain('does not authorize them')
+    expect(last).not.toContain('mcp__mainbus__handoff')
+    expect(last).toContain('submitting your report ends it')
+    const earlier = buildRolePrompt(role, investigation, [])
+    expect(earlier).toContain('never commit')
+    expect(earlier).toContain('mcp__mainbus__handoff(summary, notes_for_next)')
+    expect(earlier).not.toContain('Commit all work')
+  })
+
+  test('leaves the protocol of a Change ticket as it was', () => {
+    const prompt = buildRolePrompt(role, ticket, [])
+    expect(prompt).toContain(ROLE_PROTOCOL)
+    expect(prompt).not.toContain('submit_report')
   })
 })
 

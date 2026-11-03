@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { LineupRole, LineupRoleInput } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { createLineupRepo, defaultLineup, lineupProblem, type LineupRepo } from './lineups'
+import { createLineupRepo, defaultInvestigateLineup, defaultLineup, lineupProblem, type LineupRepo } from './lineups'
 import { FIXED_NOW, openTestDb } from './testDb'
 import { createWorkspaceRepo } from './workspaces'
 
@@ -127,5 +127,23 @@ describe('lineup repo', () => {
     const saved = await repo.save(workspaceId, [newRole(theirs[0]!.id, 'Solo')])
     expect(saved[0]!.id).not.toBe(theirs[0]!.id)
     expect(await repo.get(other)).toEqual(theirs)
+  })
+})
+
+describe('investigate lineup', () => {
+  it('a new workspace has both lineups', async () => {
+    const [investigator] = defaultInvestigateLineup()
+    expect(await repo.get(workspaceId, 'investigate')).toMatchObject([{ ...investigator, id: expect.any(String), lineup: 'investigate', position: 1 }])
+    expect((await repo.get(workspaceId)).map((r) => r.name)).toEqual(['Planner', 'Implementer', 'Reviewer'])
+  })
+
+  it('saving one lineup leaves the other alone', async () => {
+    const change = (await repo.get(workspaceId)).map(input)
+    const saved = await repo.save(workspaceId, [newRole('a', 'Looker'), newRole('b', 'Writer')], 'investigate')
+    expect(saved.map((r) => [r.name, r.lineup, r.position])).toEqual([['Looker', 'investigate', 1], ['Writer', 'investigate', 2]])
+    expect((await repo.get(workspaceId)).map(input)).toEqual(change)
+    await repo.save(workspaceId, [newRole('c', 'Solo')])
+    expect((await repo.get(workspaceId, 'investigate')).map((r) => r.name)).toEqual(['Looker', 'Writer'])
+    expect((await repo.get(workspaceId)).map((r) => r.name)).toEqual(['Solo'])
   })
 })

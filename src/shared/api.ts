@@ -11,6 +11,7 @@ import type {
   GhStatus,
   Hold,
   HoldOptions,
+  Lineup,
   LineupRole,
   LineupRoleInput,
   NewTicketInput,
@@ -119,13 +120,13 @@ export interface EngineCommands {
   'decision.defer'(id: string, until: string): Decision
   /** Brings a deferred decision back now; refuses one that isn't deferred. */
   'decision.bringBack'(id: string): void
-  /** The workspace's Change lineup, first role first. */
-  'lineup.get'(): LineupRole[]
+  /** The workspace's lineup of that kind (Change unless given), first role first. */
+  'lineup.get'(lineup?: Lineup): LineupRole[]
   /**
-   * Replaces the whole Change lineup, in order. Rejects, with a message for the settings screen, a lineup with no
+   * Replaces the whole lineup of that kind (Change unless given), in order. Rejects, with a message for the settings screen, a lineup with no
    * roles, an empty or duplicate name, or a hand-back to a role that isn't earlier in the lineup.
    */
-  'lineup.save'(roles: LineupRoleInput[]): LineupRole[]
+  'lineup.save'(roles: LineupRoleInput[], lineup?: Lineup): LineupRole[]
   'allowRules.list'(): AllowRule[]
   'allowRules.remove'(id: string): void
   /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */

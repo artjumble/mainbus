@@ -71,8 +71,8 @@ test('a new workspace has the default lineup, and edits to it are saved', async 
     ;({ app, page } = await launch(home, repo))
     let roles = await openSettings(page)
     expect(await roleNames(roles)).toEqual(['Planner', 'Implementer', 'Reviewer'])
-    await expect(page.getByLabel('Phase while active')).toHaveValue('planning')
-    await expect(page.getByLabel('Tool profile')).toHaveValue('read_only')
+    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Phase while active')).toHaveValue('planning')
+    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Tool profile')).toHaveValue('read_only')
     await expect(page.getByRole('radio', { name: 'Ask me' })).toBeChecked()
 
     // Move the Reviewer up with the keyboard; focus stays on it.
@@ -106,11 +106,11 @@ test('a new workspace has the default lineup, and edits to it are saved', async 
     // dnd-kit swallows clicks for 50 ms after a drop, so this click may need a second try.
     await expect(async () => {
       await roles.getByRole('button', { name: 'Edit Implementer' }).click()
-      await expect(page.getByLabel('Name')).toHaveValue('Implementer', { timeout: 200 })
+      await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name')).toHaveValue('Implementer', { timeout: 200 })
     }).toPass()
-    await page.getByLabel('Name').fill('Builder')
+    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name').fill('Builder')
     await page.getByRole('button', { name: 'Add role' }).click()
-    await page.getByLabel('Name').fill('Doc writer')
+    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name').fill('Doc writer')
     await page.getByRole('button', { name: 'Save lineup' }).click()
     await expect(page.getByRole('button', { name: 'Save lineup' })).toBeDisabled()
     await app.close()
@@ -121,8 +121,8 @@ test('a new workspace has the default lineup, and edits to it are saved', async 
     roles = await openSettings(page)
     expect(await roleNames(roles)).toEqual(['Reviewer', 'Planner', 'Builder', 'Doc writer'])
     await roles.getByRole('button', { name: 'Edit Builder' }).click()
-    await expect(page.getByLabel('Phase while active')).toHaveValue('implementing')
-    await expect(page.getByLabel('Tool profile')).toHaveValue('edit')
+    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Phase while active')).toHaveValue('implementing')
+    await expect(page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Tool profile')).toHaveValue('edit')
   } finally {
     await app?.close()
     fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
@@ -137,7 +137,7 @@ test("the lineup settings show why a lineup can't be saved", async () => {
     ;({ app, page } = await launch(home, repo))
     const roles = await openSettings(page)
     await roles.getByRole('button', { name: 'Edit Reviewer' }).click()
-    await page.getByLabel('Name').fill('implementer')
+    await page.getByRole('tabpanel', { name: 'Change' }).getByLabel('Name').fill('implementer')
     await page.getByRole('button', { name: 'Save lineup' }).click()
     const alert = page.getByRole('alert')
     await expect(alert).toContainText('Two roles are called "Implementer". Give each role its own name.')

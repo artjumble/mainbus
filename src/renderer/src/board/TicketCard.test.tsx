@@ -155,3 +155,10 @@ test('a ticket with no pull request shows no PR link', () => {
   renderWithMantine(<TicketCard ticket={makeTicket()} onOpen={() => {}} />)
   expect(screen.queryByRole('link')).not.toBeInTheDocument()
 })
+
+test('an Investigate ticket shows an Investigate badge, a Change ticket does not', () => {
+  const { rerender } = renderWithMantine(<TicketCard ticket={makeTicket({ kind: 'investigate' })} onOpen={() => {}} />)
+  expect(screen.getByText('Investigate')).toBeInTheDocument()
+  rerender(<TicketCard ticket={makeTicket()} onOpen={() => {}} />)
+  expect(screen.queryByText('Investigate')).not.toBeInTheDocument()
+})
