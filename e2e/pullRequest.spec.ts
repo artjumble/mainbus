@@ -39,7 +39,7 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
     env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/handoff.json', MAINBUS_TEST_REPO: repo }
   })
   const page = await app.firstWindow()
-  await page.getByRole('button', { name: 'Open a repo folder' }).click()
+  await page.getByRole('button', { name: 'Add workspace' }).click()
   return { app, page }
 }
 

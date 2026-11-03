@@ -40,7 +40,7 @@ test('dragging a Backlog card into In progress proposes a start in the panel; th
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-drag.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Add hello file')

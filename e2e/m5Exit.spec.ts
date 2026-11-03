@@ -51,7 +51,7 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
       }
     })
     const page: Page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Alpha')
     await page.getByLabel('In your words').fill('Fix the flaky test')

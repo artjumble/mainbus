@@ -3,12 +3,13 @@ import { useState, type ReactElement } from 'react'
 import type { Decision } from '../../../shared/domain'
 import { atNine, dateInputValue, fromDateInput, laterMonday, laterTomorrow, tomorrow } from '../../../shared/hold'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { showAgentError } from './agentError'
 
 /** Defers the decision until `until` (ISO); resolves false (after showing why) when the engine refused. */
 export async function deferDecision(decision: Decision, until: string): Promise<boolean> {
   try {
-    await invoke('decision.defer', decision.id, until)
+    await asOwnChange(decision.ticketId, () => invoke('decision.defer', decision.id, until))
     return true
   } catch (err) {
     showAgentError(err, 'Could not put this off')

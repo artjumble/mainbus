@@ -43,7 +43,7 @@ test('a Ready ticket held until tomorrow is released when the fake clock passes 
       }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Wait for the API')

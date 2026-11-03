@@ -93,7 +93,7 @@ test('closing the window with an agent working keeps it running in the tray; the
     const { home, repo } = makeRepo(tmp)
     session = await launch(home, repo, 'tray-by-role.json')
     const { app, page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     await createTicket(page, 'Alpha ticket')
     await page.getByRole('button', { name: /Alpha ticket/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
@@ -141,7 +141,7 @@ test('closing the window with no agent open quits as before', async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
     const { home, repo } = makeRepo(tmp)
     session = await launch(home, repo, 'tray-by-role.json')
-    await session.page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await session.page.getByRole('button', { name: 'Add workspace' }).click()
     await createTicket(session.page, 'Idle ticket')
     await session.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
     expect(await exitsByItself(session)).toBe(0)
@@ -159,7 +159,7 @@ test('a ticket reaching Needs you while the window is hidden gets one toast, and
     const { home, repo } = makeRepo(tmp)
     session = await launch(home, repo, 'board-answer-by-role.json', { MAINBUS_FAKE_CLOCK: 'now' })
     const { app, page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     await createTicket(page, 'Add hello file')
     await page.getByRole('button', { name: /Add hello file/ }).click()
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')

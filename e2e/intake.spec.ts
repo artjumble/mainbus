@@ -84,7 +84,7 @@ test('agents file tickets through the CLI and the MCP server, and the board show
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
 
     // The CLI, with the ticket as JSON on stdin.
@@ -188,7 +188,7 @@ test("the settings say so when the app can't open its intake pipe, and the board
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Workspace settings' }).click()

@@ -1,5 +1,6 @@
 import type { EngineEvent } from '../../shared/api'
 import { invoke, onEngineEvent } from './api'
+import { asOwnChange, resetOwnChanges } from './board/ownChanges'
 import { startSync, useMainbus } from './store'
 import { makeTicket, workspace } from './test-utils'
 
@@ -219,6 +220,72 @@ test('a refresh that finds the same board keeps the stored tickets, and an uncha
   expect(next[1]).not.toBe(stored[1])
   expect(next[1]?.title).toBe('b2')
   off()
+})
+
+describe('recently changed tickets', () => {
+  const read = async (...tickets: ReturnType<typeof makeTicket>[]): Promise<void> => {
+    mockInvoke.mockResolvedValueOnce({ tickets: structuredClone(tickets) })
+    await useMainbus.getState().refreshBoard()
+  }
+  const working = (t: ReturnType<typeof makeTicket>): ReturnType<typeof makeTicket> => ({
+    ...t,
+    state: { ...t.state, column: 'in_progress', phase: 'implementing', agentStatus: 'working' }
+  })
+
+  beforeEach(() => resetOwnChanges())
+
+  test.each([
+    ['column', (t: ReturnType<typeof makeTicket>) => ({ ...t, state: { ...t.state, column: 'ready' as const } })],
+    ['phase', (t: ReturnType<typeof makeTicket>) => ({ ...t, state: { ...t.state, phase: 'reviewing' as const } })],
+    ['agent status', (t: ReturnType<typeof makeTicket>) => ({ ...t, state: { ...t.state, agentStatus: 'failed' as const } })]
+  ])('a changed %s is marked, and nothing else is', async (_what, change) => {
+    const a = makeTicket({}, { column: 'backlog' })
+    const b = makeTicket({}, { column: 'backlog' })
+    await read(a, b)
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+    await read(change(a), b)
+    expect(Object.keys(useMainbus.getState().recentlyChanged)).toEqual([a.id])
+  })
+
+  test('a change that is only to the title or summary is not marked', async () => {
+    const a = makeTicket({}, { column: 'backlog' })
+    await read(a)
+    await read({ ...a, title: 'New title', state: { ...a.state, summary: 'hello' } })
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+  })
+
+  test("the person's own change is not marked, during the command and just after", async () => {
+    const a = makeTicket({}, { column: 'backlog' })
+    await read(a)
+    await asOwnChange(a.id, () => read(working(a)))
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+    await read({ ...working(a), state: { ...working(a).state, phase: 'reviewing' } })
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+  })
+
+  test('a new ticket, the first load and a workspace switch are not marked', async () => {
+    const a = makeTicket({}, { column: 'backlog' })
+    await read(a)
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+    await read(a, makeTicket({}, { column: 'ready' }))
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+
+    useMainbus.setState({ recentlyChanged: { [a.id]: Date.now() } })
+    mockInvoke.mockImplementation(async (command: string) =>
+      command === 'workspace.get' ? { ...workspace, id: 'other' } : command === 'board.get' ? { tickets: [working(a)] } : { on: false, status: { kind: 'off' } }
+    )
+    await useMainbus.getState().reloadFocused()
+    expect(useMainbus.getState().recentlyChanged).toEqual({})
+  })
+
+  test('entries older than the outline are dropped on the next change', async () => {
+    const a = makeTicket({}, { column: 'backlog' })
+    const b = makeTicket({}, { column: 'backlog' })
+    await read(a, b)
+    useMainbus.setState({ recentlyChanged: { [a.id]: Date.now() - 10_000 } })
+    await read(a, working(b))
+    expect(Object.keys(useMainbus.getState().recentlyChanged)).toEqual([b.id])
+  })
 })
 
 test('1,000 board.changed events in a tight loop cost a handful of board.get calls and no React warning', async () => {

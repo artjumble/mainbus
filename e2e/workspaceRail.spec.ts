@@ -48,7 +48,7 @@ test('the rail adds a second workspace, switches between them, and counts a deci
       }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
     const entryA = rail.getByRole('button', { name: /^alpha-repo/ })

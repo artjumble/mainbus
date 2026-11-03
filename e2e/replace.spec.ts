@@ -35,7 +35,7 @@ test('the user replaces the working agent from the ticket view: the card opens, 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/replace-by-role.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Alpha')

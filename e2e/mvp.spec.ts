@@ -50,7 +50,7 @@ test('ticket goes from idea to review with a question, a permission and a restar
     let { page } = session
 
     // Open the repo (the hook skips the folder dialog).
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     // 1. Create the ticket.
     await page.getByRole('button', { name: 'New ticket' }).click()

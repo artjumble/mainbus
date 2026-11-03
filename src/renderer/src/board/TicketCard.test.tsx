@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
 import { TicketCard } from './TicketCard'
@@ -161,4 +161,51 @@ test('an Investigate ticket shows an Investigate badge, a Change ticket does not
   expect(screen.getByText('Investigate')).toBeInTheDocument()
   rerender(<TicketCard ticket={makeTicket()} onOpen={() => {}} />)
   expect(screen.queryByText('Investigate')).not.toBeInTheDocument()
+})
+
+describe('the recently changed outline', () => {
+  const ticket = (): ReturnType<typeof makeTicket> => makeTicket({}, { column: 'in_progress', phase: 'implementing' })
+  const mockMotion = (reduce: boolean): void => {
+    window.matchMedia = ((query: string) => ({
+      matches: reduce && query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+      onchange: null
+    })) as unknown as typeof window.matchMedia
+  }
+  const outlined = (): string | null =>
+    screen.getByText('Implementing').closest('.mantine-Paper-root')?.getAttribute('data-recently-changed') ?? null
+
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  test('a change fades out after about 4 seconds', () => {
+    mockMotion(false)
+    renderWithMantine(<TicketCard ticket={ticket()} changedAt={Date.now()} onOpen={() => {}} />)
+    expect(outlined()).toBe('fade')
+    act(() => void vi.advanceTimersByTime(3900))
+    expect(outlined()).toBe('fade')
+    act(() => void vi.advanceTimersByTime(200))
+    expect(outlined()).toBeNull()
+  })
+
+  test('with reduced motion there is no fade, just a short outline', async () => {
+    mockMotion(true)
+    renderWithMantine(<TicketCard ticket={ticket()} changedAt={Date.now()} onOpen={() => {}} />)
+    await vi.waitFor(() => expect(outlined()).toBe('still'))
+    act(() => void vi.advanceTimersByTime(1300))
+    expect(outlined()).toBeNull()
+  })
+
+  test('a card with no recent change has no outline, and an old one is not outlined', () => {
+    mockMotion(false)
+    const { rerender } = renderWithMantine(<TicketCard ticket={ticket()} onOpen={() => {}} />)
+    expect(outlined()).toBeNull()
+    rerender(<TicketCard ticket={ticket()} changedAt={Date.now() - 10_000} onOpen={() => {}} />)
+    expect(outlined()).toBeNull()
+  })
 })

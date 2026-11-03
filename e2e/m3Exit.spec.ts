@@ -40,7 +40,7 @@ test('M3 exit: ask for tickets in plain words, confirm the drafts, ask to start 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-exit.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     const panel = page.getByRole('complementary', { name: 'Orchestrator' })
     const box = panel.getByRole('textbox', { name: 'Message the orchestrator' })
 

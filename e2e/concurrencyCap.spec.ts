@@ -50,7 +50,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
 
     // The cap is three until the user changes it in the general settings; set it to one.
     await page.getByRole('button', { name: 'Workspace settings' }).click()

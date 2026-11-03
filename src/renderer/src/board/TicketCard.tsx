@@ -1,5 +1,6 @@
 import { Anchor, Badge, Group, Loader, Paper, Text, UnstyledButton } from '@mantine/core'
-import { memo, type ReactElement } from 'react'
+import { useReducedMotion } from '@mantine/hooks'
+import { memo, useEffect, useState, type ReactElement } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import { waitingLabel } from '../../../shared/hold'
 import { queuedLabel } from '../../../shared/queue'
@@ -8,6 +9,7 @@ import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
 import { HoldChip } from './HoldChip'
 import { StuckChip } from './StuckChip'
+import classes from './TicketCard.module.css'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
   not_started: 'Not started',
@@ -86,20 +88,53 @@ interface Props {
   ticket: BoardTicket
   /** True while the card has been moved to Done and the engine is still removing its worktree. */
   cleaningUp?: boolean
+  /** When Mainbus last changed the card's column, phase or agent status (ms); it is outlined for a few seconds after. */
+  changedAt?: number
   onOpen: (id: string) => void
+}
+
+/** How long the outline fades, and how long it stays for people who prefer reduced motion. */
+export const FADE_MS = 4000
+export const STILL_MS = 1200
+
+/** Whether the "recently changed" outline is still showing; it ends on its own, and a remount shows what is left. */
+function useRecentlyChanged(changedAt: number | undefined, duration: number): boolean {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    setNow(Date.now())
+    if (changedAt === undefined) return
+    const left = changedAt + duration - Date.now()
+    if (left <= 0) return
+    const timer = setTimeout(() => setNow(Date.now()), left + 1)
+    return () => clearTimeout(timer)
+  }, [changedAt, duration])
+  return changedAt !== undefined && now < changedAt + duration
 }
 
 /**
  * A board card: number, title and phase chip, a badge when an agent filed the ticket, a link to its pull request
  * once there is one, and in Needs you a one-line summary and an Answer control for a pending decision.
  */
-export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false, onOpen }: Props): ReactElement {
+export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false, changedAt, onOpen }: Props): ReactElement {
   const { state } = ticket
   const source = ticket.intent[0]?.source
+  const reducedMotion = useReducedMotion()
+  const duration = reducedMotion ? STILL_MS : FADE_MS
+  const recent = useRecentlyChanged(changedAt, duration)
 
   return (
     // A click on the card's empty area opens the ticket too, as a pointer convenience; the title is the control.
-    <Paper withBorder p="sm" radius="md" shadow="xs" style={{ cursor: 'pointer' }} onClick={() => onOpen(ticket.id)}>
+    <Paper
+      withBorder
+      p="sm"
+      radius="md"
+      shadow="xs"
+      className={recent ? (reducedMotion ? classes.recentStill : classes.recent) : undefined}
+      data-recently-changed={recent ? (reducedMotion ? 'still' : 'fade') : undefined}
+      // Resumes the fade where it was when the card is shown again part-way through.
+      style={{ cursor: 'pointer', ...(recent && !reducedMotion ? { animationDelay: `-${Date.now() - changedAt!}ms` } : {}) }}
+      onClick={() => onOpen(ticket.id)}
+    >
       <Text size="xs" c="dimmed">
         #{ticket.number}
       </Text>

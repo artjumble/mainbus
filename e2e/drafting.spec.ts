@@ -42,7 +42,7 @@ test('the orchestrator drafts two tickets; the user edits one title in Override 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-drafting.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Open a repo folder' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     const panel = page.getByRole('complementary', { name: 'Orchestrator' })
 
     // The user asks in plain words.

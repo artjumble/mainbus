@@ -93,6 +93,16 @@ function openExternally(url: string): void {
   if (isExternalWebUrl(url)) void shell.openExternal(url)
 }
 
+/** Opens the main window and keeps `mainWindow` pointing at it; the tray calls this when no window is left. */
+function openMainWindow(): BrowserWindow {
+  const win = createWindow()
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
+  return win
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -222,10 +232,7 @@ if (!app.requestSingleInstanceLock()) {
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testReposFromEnv(process.env))
-        mainWindow = createWindow()
-        mainWindow.on('closed', () => {
-          mainWindow = null
-        })
+        openMainWindow()
       } catch (err) {
         // The window never opened: close the database cleanly before giving up.
         await engine.dispose().catch(() => {})

@@ -2,6 +2,7 @@ import { Alert, Anchor, Box, Button, Center, Flex, Group, Loader, Stack, Text, T
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { HoldChip } from '../board/HoldChip'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
 import { PausedChip, PhaseChip, PrLink, QueuedChip } from '../board/TicketCard'
@@ -142,7 +143,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     working.current = true
     setBusy(true)
     try {
-      await step()
+      await asOwnChange(ticket.id, step)
       return true
     } catch (err) {
       showAgentError(err, title)
