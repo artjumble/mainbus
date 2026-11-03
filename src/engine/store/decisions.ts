@@ -9,11 +9,13 @@ import { decisions, holds, tickets } from '../db/schema'
  * ticket run's snapshot; `fromRoleId` is the role that reported the problem.
  * - problem: the role reported a problem; one option hands it back to `toRoleId` (null: no earlier role), the
  *   other ("Keep going") reaches the agent as an answer.
+ * - missing_worktree: the run's folder is gone after a restart; one option recreates it from `branch` and continues, the other stops the run.
  * - round_trip: the pair has gone back and forth too often; "Keep going" does the hand-back, "Take over" stops.
  */
 export type DecisionAction =
   | { kind: 'problem'; fromRoleId: string; toRoleId: string | null; details: string }
   | { kind: 'round_trip'; fromRoleId: string; toRoleId: string; details: string }
+  | { kind: 'missing_worktree'; path: string; branch: string }
 
 export interface DecisionRepo {
   open(d: Omit<Decision, 'id' | 'status' | 'deferredUntil' | 'answer' | 'createdAt' | 'answeredAt' | 'answeredBy' | 'answeredVia'>, action?: DecisionAction): Promise<Decision>

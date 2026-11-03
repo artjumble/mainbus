@@ -80,6 +80,19 @@ export class WorktreeManager {
     return { branch, path: wtPath, scratch }
   }
 
+  /**
+   * Brings back the folder of a ticket whose folder is missing: the same path, checked out on the ticket's existing
+   * branch. It never creates a branch or uses another path; it throws when the branch is gone.
+   */
+  async recreate(ws: Workspace, t: Ticket): Promise<void> {
+    if (t.branch === null || t.worktreePath === null) throw new Error('The ticket has no folder to recreate')
+    const found = await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${t.branch}`], ws.repoPath)
+    if (found.code !== 0) throw new Error(`The branch ${t.branch} no longer exists, so the folder can't be recreated`)
+    await this.run(['worktree', 'prune'], ws.repoPath)
+    await this.run(['worktree', 'add', t.worktreePath, t.branch], ws.repoPath)
+    await fs.mkdir(scratchPathFor(this.paths, t.worktreePath), { recursive: true })
+  }
+
   /** Untracked files count; the flag keeps a user's status.showUntrackedFiles=no from hiding them. */
   async hasUncommitted(wtPath: string): Promise<boolean> {
     const status = await this.run(['status', '--porcelain', '--untracked-files=normal'], wtPath)

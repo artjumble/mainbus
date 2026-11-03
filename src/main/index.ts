@@ -106,7 +106,11 @@ async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: Ex
   const fake = process.env['MAINBUS_RUNTIME']
   if (fake?.startsWith('fake:') && process.env['MAINBUS_HOME']) {
     const script = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), fake.slice('fake:'.length)), 'utf8')) as FakeScriptFile
-    const runtime = new FakeRuntime(scriptFromFile(script), { orchestrator: orchestratorScriptFromFile(script) })
+    const runtime = new FakeRuntime(scriptFromFile(script), {
+      orchestrator: orchestratorScriptFromFile(script),
+      // Sessions outlive the process, so an agent can be resumed after the app was killed.
+      sessionsFile: path.join(home.root, 'fake-sessions.json')
+    })
     return { runtime, exec: fakeClaudeExec, commands: new FakeGh().runner(runCommand) }
   }
   const setup = await resolveClaude(execFileNode)

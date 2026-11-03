@@ -101,6 +101,9 @@ function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
+/** How long quitting waits for restart recovery to notice the shutdown. */
+const RECOVERY_WAIT_MS = 5_000
+
 export async function createEngine(cfg: EngineConfig): Promise<Engine> {
   const clock = cfg.clock ?? realClock
   const now = () => clock.now()
@@ -182,8 +185,6 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     await worktrees.recoverPendingCleanups()
     await runner.markAllNotAlive()
     kickQueue = () => runner.kickQueue()
-    // Agents that were queued when the app last closed start again, in order, as slots allow.
-    if (cfg.runtime !== null) runner.kickQueue()
     // Holds that came due while Mainbus was closed are released before anything can start a ticket.
     await holds.start()
     stuckDetector.start()
@@ -197,7 +198,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       if (cfg.runtime === null) throw new SetupRequiredError()
     }
 
-    // Always off at launch: nothing about it is stored.
+    // Whether it is on is stored, and restored once the agents are back (see recovery below).
     const mode = new UnattendedMode({
       runner,
       tickets: async () => {
@@ -211,7 +212,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit,
       held: () => holds.heldIds(),
       keepAwake: cfg.keepAwake ?? { start: () => {}, stop: () => {} },
-      now
+      now,
+      remember: (on) => repos.settings.setUnattendedOn(on),
+      remembered: () => repos.settings.unattendedOn()
     })
     unattended = mode
 
@@ -504,6 +507,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     }))
     await wakeScheduler.start()
 
+    // Restart recovery runs in the background, so the window and the board (read from the DB) don't wait for the
+    // sweep of leftover processes: agents that were working resume, queued ones start, then unattended mode comes back.
+    const recovery = runner
+      .recover({ resume: cfg.runtime !== null })
+      .then(() => mode.restore())
+      .catch((err: unknown) => console.warn(`Mainbus could not finish restart recovery: ${err instanceof Error ? err.message : String(err)}`))
+
     const handlers: Handlers = {
       'setup.check': async () => {
         const setup = await resolveClaude(cfg.exec)
@@ -686,6 +696,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             stuckDetector.dispose()
             wakeScheduler.dispose()
             await Promise.all([runner.shutdown(), orchestrator.shutdown()])
+            // Recovery stops at its next step once the runner is shutting down; wait for it, but not for long.
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, RECOVERY_WAIT_MS)
+              void recovery.finally(() => {
+                clearTimeout(timer)
+                resolve()
+              })
+            })
           } finally {
             listeners.clear()
             handle.close()

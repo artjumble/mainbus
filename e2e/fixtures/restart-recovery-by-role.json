@@ -1,0 +1,23 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-restart-planner" } },
+    { "emit": { "kind": "message", "text": "Planner: on it." } },
+    { "waitForSend": true }
+  ],
+  "Planner resumed": [
+    { "expectPrompt": "Mainbus restarted; continue where you left off." },
+    { "emit": { "kind": "message", "text": "Planner: back after the restart." } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-restart-implementer" } },
+    { "callTool": "askUser", "args": { "question": "Where should hello.txt go?", "options": ["Repo root", "docs folder"], "recommended": 0 } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Implementer resumed": [
+    { "expectPrompt": "Answer: " },
+    { "emit": { "kind": "message", "text": "Implementer: got the answer." } },
+    { "waitForSend": true }
+  ]
+}

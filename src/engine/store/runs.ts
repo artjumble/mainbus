@@ -120,6 +120,13 @@ export interface RunRepo {
    * its place, and the message is added to the one it has.
    */
   enqueue(runId: string, prompt: string): Promise<void>
+  /**
+   * Puts open runs that are not queued at the front of the queue, in the order given, each with `prompt`.
+   * Runs already queued keep their order behind them.
+   */
+  enqueueFirst(runIds: string[], prompt: string): Promise<void>
+  /** Every run with a `claude` process recorded, open or ended. */
+  withProcess(): Promise<AgentRunRow[]>
   /** Takes the run out of the queue; nothing happens when it is not in it. */
   dequeue(runId: string): Promise<void>
   /** The open runs waiting for a slot, first in first out. */
@@ -348,6 +355,30 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
           queuedPrompt: sql`case when ${agentRuns.queuedSeq} is null then ${prompt} else coalesce(${agentRuns.queuedPrompt}, '') || char(10) || char(10) || ${prompt} end`
         })
         .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason)))
+    },
+
+    async enqueueFirst(runIds, prompt) {
+      if (runIds.length === 0) return
+      const [first] = await db
+        .select({ min: sql<number | null>`min(${agentRuns.queuedSeq})` })
+        .from(agentRuns)
+        .where(isNotNull(agentRuns.queuedSeq))
+      const base = (first?.min ?? 1) - runIds.length
+      for (const [i, runId] of runIds.entries()) {
+        await db
+          .update(agentRuns)
+          .set({ queuedSeq: base + i, queuedPrompt: prompt })
+          .where(and(eq(agentRuns.id, runId), isNull(agentRuns.endReason), isNull(agentRuns.queuedSeq)))
+      }
+    },
+
+    async withProcess() {
+      const rows = await db
+        .select(runColumns)
+        .from(agentRuns)
+        .where(isNotNull(agentRuns.processPid))
+        .orderBy(asc(agentRuns.startedAt), asc(sql`rowid`))
+      return rows.map(toRun)
     },
 
     async dequeue(runId) {

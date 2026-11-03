@@ -26,6 +26,10 @@ export interface UnattendedDeps {
   emit: (e: EngineEvent) => void
   keepAwake: KeepAwake
   now: () => Date
+  /** Stores whether the mode is on, so it comes back after a restart. */
+  remember?: (on: boolean) => Promise<void>
+  /** Whether the mode was on when the app last ran. */
+  remembered?: () => Promise<boolean>
   /** How long to wait for a usage limit whose reset time is unknown. */
   retryMs?: number
 }
@@ -49,7 +53,7 @@ type Outcome =
  * ticket only while no ticket in the workspace is working, its own or one started by hand, through the
  * runner's own start and continue, and never merges, pushes or moves a ticket. It is driven by the engine's
  * board events, not polled, and holds the machine awake only while a ticket is working or a usage limit is
- * being waited out. Nothing about it persists across a restart.
+ * being waited out. Whether it is on is remembered across a restart (see restore); quitting leaves it on.
  */
 export class UnattendedMode {
   private on = false
@@ -95,9 +99,24 @@ export class UnattendedMode {
     this.skipped.clear()
     this.setAside.clear()
     this.current = null
+    this.remember(true)
     this.setStatus({ kind: 'starting' })
     this.kick()
     return this.get()
+  }
+
+  /**
+   * Called once after the app has recovered its agents: turns the mode back on when it was on at quit. If agents can't
+   * run now, it stays off, says why, and is forgotten. The agents that came back count as other tickets working.
+   */
+  async restore(): Promise<void> {
+    if (this.on || this.disposed || !(await this.deps.remembered?.())) return
+    try {
+      await this.set(true)
+    } catch (err) {
+      this.remember(false)
+      this.setStatus({ kind: 'stopped', reason: errorText(err) })
+    }
   }
 
   /**
@@ -130,7 +149,8 @@ export class UnattendedMode {
 
   dispose(): void {
     this.disposed = true
-    this.turnOff({ kind: 'off' })
+    // Quitting is not the user switching it off: it stays remembered as on.
+    this.turnOff({ kind: 'off' }, false)
   }
 
   /** Settles when nothing is left to look at (for tests). */
@@ -280,13 +300,18 @@ export class UnattendedMode {
     return true
   }
 
-  private turnOff(status: UnattendedStatus): void {
+  private turnOff(status: UnattendedStatus, forget = true): void {
+    if (this.on && forget) this.remember(false)
     this.on = false
     this.current = null
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
     this.keepAwake(false)
     this.setStatus(status)
+  }
+
+  private remember(on: boolean): void {
+    void this.deps.remember?.(on).catch(() => {})
   }
 
   /** Holds the machine awake while there is work, and lets it sleep while the mode is idle or off. */

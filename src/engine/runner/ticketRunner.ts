@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import type { EngineEvent } from '../../shared/api'
 import {
   ANSWERED_VIA,
@@ -77,6 +78,9 @@ export interface RunnerDeps {
 export const NUDGE_TEXT =
   'You ended your turn without asking the user or handing off. If you are done, commit and call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
 const CONTINUE_TEXT = 'Continue where you left off.'
+/** What an agent that was working when Mainbus closed is told when it comes back. */
+export const RESTART_TEXT = 'Mainbus restarted; continue where you left off.'
+const FOLDER_MISSING = "This ticket's folder is missing: answer the decision about it first"
 /** What Resume sends to a role the user paused. */
 const RESUME_TEXT = 'Continue.'
 /** How long the summary call for a skipped role may take before the digest is used instead. */
@@ -632,6 +636,75 @@ export class TicketRunner {
   }
 
   /**
+   * Called at launch, once the board can show: brings the agents that were working back, and leaves every other run as it
+   * was. Processes a crash left behind are swept first, so no old agent runs beside its resumed self. A working run (open,
+   * not paused by the user, not waiting on a decision, not stopped by a usage limit) is resumed by its session through the
+   * queue, ahead of runs that were already queued, oldest first. A run whose folder is missing is never restarted: it
+   * becomes a decision. With `resume` false (no runtime) only the sweeps and decisions happen.
+   */
+  async recover(opts: { resume: boolean }): Promise<void> {
+    const unswept = new Set<string>()
+    for (const run of await this.repos.runs.withProcess()) {
+      if (this.shuttingDown) return
+      const ticket = await this.repos.tickets.get(run.ticketId)
+      const target = this.target(run, ticket)
+      const stored = { pid: run.processPid!, startedAt: run.processStartedAt ?? 0 }
+      await this.serial(ticket.id, async () => {
+        try {
+          await this.sweepRun(target, stored)
+        } catch {
+          if (run.endReason === null) unswept.add(ticket.id)
+          await this.record(target, {
+            kind: 'notice',
+            text: `Mainbus couldn't check whether the ${run.role}'s old process is still running, so it didn't restart it. Use Continue when you're ready.`
+          })
+        }
+      }).catch(() => {})
+    }
+
+    const working: string[] = []
+    for (const open of await this.repos.runs.listOpen()) {
+      if (this.shuttingDown) return
+      await this.serial(open.ticketId, async () => {
+        const run = await this.repos.runs.latest(open.ticketId)
+        if (!run || run.id !== open.id || run.endReason !== null) return
+        const ticket = await this.repos.tickets.get(run.ticketId)
+        if (ticket.manualColumn === 'done') return
+        if (ticket.worktreePath !== null && !(await pathExists(ticket.worktreePath))) {
+          await this.repos.runs.dequeue(run.id)
+          await this.askAboutMissingFolder(run, ticket)
+          return
+        }
+        if (run.queuedSeq !== null || unswept.has(ticket.id)) return
+        const events = await this.repos.runs.events(run.id)
+        if (pausedByUser(events) || endedOnUsageLimit(events)) return
+        if ((await this.repos.decisions.unsettled(ticket.id)).length > 0) return
+        working.push(run.id)
+      }).catch(() => {})
+    }
+    if (this.shuttingDown) return
+    await this.repos.runs.enqueueFirst(working, RESTART_TEXT)
+    if (working.length > 0) this.queueHint = true
+    const workspace = await this.repos.workspaces.get()
+    if (workspace) this.deps.emit({ type: 'board.changed', workspaceId: workspace.id })
+    if (opts.resume) this.kickQueue()
+  }
+
+  /** Opens the decision about a run whose folder is gone, unless one is open already. */
+  private async askAboutMissingFolder(run: AgentRunRow, ticket: Ticket): Promise<void> {
+    if (await this.openFolderDecision(ticket.id, run.id)) return
+    const folder = ticket.worktreePath!
+    const branch = ticket.branch ?? ''
+    await this.ask(
+      this.target(run, ticket),
+      `The ${run.role}'s folder for this ticket is missing (${folder}). Mainbus won't restart it anywhere else.`,
+      [`Recreate the folder from ${branch} and continue`, 'Stop the run'],
+      null,
+      { kind: 'missing_worktree', path: folder, branch }
+    )
+  }
+
+  /**
    * Called when the app quits: lets launches and queued user actions finish (bounded), stops every live
    * agent process and lets its last events land. Nothing launches once it has begun, and a process that
    * finishes starting meanwhile is stopped. The runs stay open (not stopped), so they show as paused
@@ -729,6 +802,8 @@ export class TicketRunner {
   private async answerNow(decisionId: string, a: DecisionAnswer, via: AnsweredVia): Promise<void> {
     const decision = await this.repos.decisions.get(decisionId)
     checkAnswer(decision, a)
+    const folder = await this.openFolderDecision(decision.ticketId, decision.agentRunId)
+    if (folder && folder.id !== decisionId) throw new Error(FOLDER_MISSING)
     const answered = await this.repos.decisions.answer(decisionId, a, via)
     const ticket = await this.repos.tickets.get(decision.ticketId)
     this.announceDecision(answered, ticket.workspaceId)
@@ -765,6 +840,7 @@ export class TicketRunner {
     a: Extract<DecisionAnswer, { kind: 'option' }>
   ): Promise<boolean> {
     const chosen = decision.options[a.index]
+    if (action.kind === 'missing_worktree') return this.answerMissingFolder(decision, a.index)
     if (action.kind === 'round_trip' && chosen === TAKE_OVER) {
       await this.stopNow(decision.ticketId)
       return true
@@ -787,6 +863,37 @@ export class TicketRunner {
     const live = this.live.get(run.id)
     if (live) void this.stopProcess(live)
     await this.handOnNow(back, problemText(from, action.details) + note)
+    return true
+  }
+
+  /** The open decision about the run's missing folder, or null. */
+  private async openFolderDecision(ticketId: string, runId: string): Promise<Decision | null> {
+    for (const d of await this.repos.decisions.unsettled(ticketId)) {
+      if (d.agentRunId === runId && (await this.repos.decisions.actionOf(d.id))?.kind === 'missing_worktree') return d
+    }
+    return null
+  }
+
+  /** Recreate (option 0): the folder comes back from the ticket's branch and the run continues. Otherwise the run stops. */
+  private async answerMissingFolder(decision: Decision, index: number): Promise<boolean> {
+    if (index !== 0) {
+      await this.stopNow(decision.ticketId)
+      return true
+    }
+    const run = await this.repos.runs.latest(decision.ticketId)
+    if (!run || run.id !== decision.agentRunId || run.endReason !== null) return true
+    const ticket = await this.repos.tickets.get(decision.ticketId)
+    const target = this.target(run, ticket)
+    try {
+      await this.deps.worktrees.recreate(await this.workspaceOf(ticket), ticket)
+    } catch (err) {
+      await this.record(target, { kind: 'error', message: errorText(err) })
+      if (await this.repos.runs.end(run.id, 'failed')) await this.deps.onFailed?.({ workspaceId: ticket.workspaceId, ticketId: ticket.id, runId: run.id })
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
+      return true
+    }
+    await this.resume(run, RESTART_TEXT)
     return true
   }
 
@@ -1236,9 +1343,11 @@ export class TicketRunner {
     if (!current || current.id !== run.id || current.endReason !== null || this.live.has(run.id)) return
     if (current.queuedSeq !== null && !queued) {
       // Already waiting for a slot: it keeps its place, and starts with whatever was said meanwhile too.
-      if (prompt !== CONTINUE_TEXT && prompt !== RESUME_TEXT) await this.repos.runs.enqueue(run.id, prompt)
+      if (prompt !== CONTINUE_TEXT && prompt !== RESUME_TEXT && prompt !== RESTART_TEXT) await this.repos.runs.enqueue(run.id, prompt)
       return
     }
+    // Nothing recreates a missing folder behind the user's back while they are deciding what to do about it.
+    if (await this.openFolderDecision(run.ticketId, run.id)) throw new Error(FOLDER_MISSING)
     await this.whileLaunching(run.ticketId, async () => {
       const prepared = await this.prepare(run.ticketId)
       const ticketRun = await this.repos.runs.ticketRun(current.ticketRunId)
@@ -1268,9 +1377,9 @@ export class TicketRunner {
       if (current.sessionId === null && neverLaunched) {
         const handedBy = events.find((e) => e.event.kind === 'role_handoff')?.event
         const first = firstMessage(launch.ticket, handedBy?.kind === 'role_handoff' ? handedBy.from : undefined)
-        const bare = prompt === CONTINUE_TEXT || prompt === RESUME_TEXT
+        const bare = prompt === CONTINUE_TEXT || prompt === RESUME_TEXT || prompt === RESTART_TEXT
         // A queued run's message is the whole of what it starts with.
-        const message = queued ? prompt : bare ? first : `${first}\n\n${prompt}`
+        const message = bare ? first : queued ? prompt : `${first}\n\n${prompt}`
         await this.launch(launch, run.id, message, decisions, undefined, queued)
         return
       }
@@ -1287,6 +1396,12 @@ export class TicketRunner {
       const own = digestBefore === undefined ? events : events.filter((e) => e.seq < digestBefore)
       const digest = previousAttempt([...before, ...own], decisions, launch.role.name)
       this.admitting.add(run.ticketId)
+      if (current.sessionId !== null) {
+        await this.record(this.target(current, launch.ticket), {
+          kind: 'notice',
+          text: `Mainbus couldn't resume the ${launch.role.name}'s session, so it started a fresh one in the same folder with a summary of the previous attempt.`
+        })
+      }
       await this.launch(launch, run.id, `${digest}\n\n${prompt}`, decisions, undefined, { granted: true })
     })
   }
@@ -2078,4 +2193,11 @@ async function settleWithin(p: Promise<void>, ms: number): Promise<void> {
   const gaveUp = new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))
   await Promise.race([p, gaveUp])
   clearTimeout(timer)
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  return fs.access(p).then(
+    () => true,
+    () => false
+  )
 }

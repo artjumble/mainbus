@@ -12,6 +12,7 @@ import { createEngine, SetupRequiredError, type Engine } from './index'
 import { FakeRuntime, scriptFromFile } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
+import { ProcessSweeper } from './processes/sweep'
 import { createRepos } from './store'
 
 const migrationsDir = path.join(import.meta.dirname, 'db', 'migrations')
@@ -534,5 +535,58 @@ describe('pull requests', () => {
     await engine.invoke('ticket.openPr', ticket.id)
     expect(gh.prs).toHaveLength(1)
     expect((await engine.invoke('board.get')).tickets[0]).toMatchObject({ pr, state: { column: 'review' } })
+  })
+})
+
+describe('createEngine: restart recovery', () => {
+  it('shows the board before the sweep of leftover processes ends, then resumes the agent and restores unattended mode', async () => {
+    const working = [
+      { emit: { kind: 'session' as const, sessionId: 'sess-1' } },
+      { emit: { kind: 'message' as const, text: 'on it' } },
+      { waitForSend: true as const }
+    ]
+    const first = await makeEngine(new FakeRuntime(working))
+    await first.invoke('workspace.open', repoPath)
+    const created = await first.invoke('ticket.create', newTicket)
+    await first.invoke('agent.start', created.id)
+    await vi.waitFor(async () => expect((await first.invoke('thread.get', created.id)).events.some((e) => e.event.kind === 'message')).toBe(true))
+    await first.invoke('unattended.set', true)
+    await first.dispose()
+
+    // A crash would have left the old process recorded.
+    const handle = await openDb(paths, migrationsDir)
+    const repos = createRepos(handle.db, () => new Date())
+    const run = (await repos.runs.latest(created.id))!
+    await repos.runs.setProcess(run.id, { pid: 4242, startedAt: 1 })
+    handle.close()
+
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const runtime = new FakeRuntime(working)
+    const engine = await createEngine({
+      paths,
+      migrationsDir,
+      runtime,
+      git: runGit,
+      exec,
+      processes: new ProcessSweeper(
+        async () => {
+          await gate
+          return []
+        },
+        async () => {}
+      )
+    })
+    engines.push(engine)
+
+    // The sweep is still waiting: the board answers from the DB, and nothing has started.
+    expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
+    expect(runtime.specs).toHaveLength(0)
+    expect((await engine.invoke('unattended.get')).on).toBe(false)
+
+    release()
+    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 'sess-1', prompt: 'Mainbus restarted; continue where you left off.' })
+    await vi.waitFor(async () => expect((await engine.invoke('unattended.get')).on).toBe(true))
   })
 })
