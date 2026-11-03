@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
-import { ToolRow } from './ToolRow'
+import { ToolRow, toolTarget } from './ToolRow'
 
 test('a ToolRow starts collapsed, showing the tool name and the result summary', () => {
   renderWithMantine(<ToolRow name="Edit" input={{ file_path: 'a.ts' }} result={{ ok: true, summary: 'Edited a.ts' }} />)
@@ -37,4 +37,12 @@ test('a collapsed, expanded, running and failed row have no axe violations', asy
   await expectNoAxeViolations()
   await userEvent.click(screen.getByRole('button', { name: /Edit/ }))
   await expectNoAxeViolations()
+})
+
+test('a ToolRow names what the tool acted on, from its input', () => {
+  renderWithMantine(<ToolRow name="Read" input={{ file_path: 'tests/fixtures/cart.ts' }} result={{ ok: true, summary: '42 lines' }} />)
+  expect(screen.getByText('tests/fixtures/cart.ts')).toBeInTheDocument()
+  expect(toolTarget({ pattern: 'TODO' })).toBe('TODO')
+  expect(toolTarget({})).toBeNull()
+  expect(toolTarget('x')).toBeNull()
 })

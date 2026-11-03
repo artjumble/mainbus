@@ -88,7 +88,7 @@ export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, cu
 
 const GRID_STYLE = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(6, minmax(140px, 1fr))',
+  gridTemplateColumns: 'repeat(6, minmax(120px, 1fr))',
   gap: 'var(--mantine-spacing-sm)',
   overflowX: 'auto',
   alignItems: 'start',
@@ -286,31 +286,19 @@ export function Board(): ReactElement {
       </Group>
 
       {empty ? (
-        <Box pos="relative" flex={1}>
-          {/* Faint placeholder columns behind the message, as the board will look once it has tickets. */}
-          <Box aria-hidden style={GRID_STYLE} h="100%">
+        <Stack flex={1} gap="lg" mih={0}>
+          {/* The columns the board will have, faint, with their names: no scrolling, they share the width. */}
+          <Box aria-hidden style={{ ...GRID_STYLE, gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', overflowX: 'hidden', opacity: 0.6 }}>
             {COLUMNS.map((c) => (
-              <Paper
-                key={c.id}
-                radius="md"
-                withBorder
-                bd="1px dashed var(--mantine-color-default-border)"
-                bg="transparent"
-                mih={160}
-                opacity={0.5}
-              />
+              <Paper key={c.id} radius="md" withBorder bd="1px dashed var(--mantine-color-default-border)" bg="transparent" p="xs" mih={180}>
+                <Text size="xs" fw={700} tt="uppercase" lts="0.04em" c="dimmed">
+                  {c.title}
+                </Text>
+              </Paper>
             ))}
           </Box>
-          <Center pos="absolute" inset={0}>
-            <Stack
-              align="center"
-              gap="sm"
-              maw={460}
-              ta="center"
-              p="md"
-              bg="var(--mantine-color-body)"
-              style={{ borderRadius: 'var(--mantine-radius-md)' }}
-            >
+          <Center>
+            <Stack align="center" gap="sm" maw={460} ta="center" p="md">
               <Title order={3}>No tickets in {workspace?.name ?? 'this workspace'} yet</Title>
               <Text c="dimmed">
                 Write one yourself, or have the orchestrator read the repo and draft a starter set for you to review.
@@ -323,7 +311,7 @@ export function Board(): ReactElement {
               </Group>
             </Stack>
           </Center>
-        </Box>
+        </Stack>
       ) : (
         <DndContext
           sensors={sensors}

@@ -20,9 +20,21 @@ function showInput(input: unknown): string {
   return text.length > MAX_INPUT_CHARS ? `${text.slice(0, MAX_INPUT_CHARS)}\n…` : text
 }
 
+/** What the tool acted on, from its input: a file, a pattern or a command; null when there is nothing to name. */
+export function toolTarget(input: unknown): string | null {
+  if (typeof input !== 'object' || input === null) return null
+  for (const key of ['file_path', 'notebook_path', 'path', 'pattern', 'command']) {
+    const value = (input as Record<string, unknown>)[key]
+    if (typeof value === 'string' && value !== '') return value
+  }
+  return null
+}
+
 /** One tool call and its result, collapsed to a line; expanding shows what the agent passed to the tool. */
 export function ToolRow({ name, input, result }: Props): ReactElement {
   const [opened, setOpened] = useState(false)
+  const target = toolTarget(input)
+  const outcome = result ? result.summary : 'Running…'
   return (
     <Paper withBorder radius="sm" data-event="tool">
       <UnstyledButton w="100%" px="xs" py={6} aria-expanded={opened} onClick={() => setOpened((o) => !o)}>
@@ -31,8 +43,13 @@ export function ToolRow({ name, input, result }: Props): ReactElement {
             {opened ? '▾' : '▸'}
           </Text>
           <Code>{name}</Code>
+          {target && (
+            <Text size="sm" truncate style={{ minWidth: 0, flexShrink: 1 }} data-tool-target>
+              {target}
+            </Text>
+          )}
           <Text size="sm" c="dimmed" truncate style={{ flex: 1, minWidth: 0 }}>
-            {result ? result.summary : 'Running…'}
+            {outcome}
           </Text>
           {result && !result.ok && (
             <Badge color="needs" variant="light" size="sm">

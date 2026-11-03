@@ -373,7 +373,8 @@ function NobodyWorking({
   onAdjust: () => void
 }): ReactElement {
   return (
-    <Center flex={1} p="md" data-nobody-working>
+    // mih 0 and its own scrolling, so a short window scrolls this panel and the composer stays on screen.
+    <Center flex={1} mih={0} p="md" data-nobody-working style={{ overflowY: 'auto' }}>
       <Stack align="center" gap="sm" maw={460} ta="center">
         <Title order={3} size="h4">
           Nobody is working on this yet

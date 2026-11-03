@@ -9,6 +9,7 @@ import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
 import { HoldChip } from './HoldChip'
 import { StuckChip } from './StuckChip'
+import { WRAPPING_CHIP } from './chipStyles'
 import classes from './TicketCard.module.css'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
@@ -62,7 +63,14 @@ function chipFor({ phase, agentStatus, deferredUntil }: TicketState): Chip {
 export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   const chip = chipFor(state)
   return (
-    <Badge color={chip.color} variant={chip.variant} size="sm" radius="sm">
+    // Sentence case, and the text wraps rather than being cut off: in a narrow column the state must stay readable.
+    <Badge
+      color={chip.color}
+      variant={chip.variant}
+      size="sm"
+      radius="sm"
+      {...WRAPPING_CHIP}
+    >
       <span aria-hidden>{chip.symbol} </span>
       <span>{chip.label}</span>
     </Badge>
@@ -73,7 +81,7 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
 export function PausedChip({ state }: { state: TicketState }): ReactElement | null {
   if (!state.pausedByUser && !state.pausedByLimit) return null
   return (
-    <Badge color="gray" variant="outline" size="sm" radius="sm">
+    <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
       Paused
     </Badge>
   )
@@ -83,7 +91,7 @@ export function PausedChip({ state }: { state: TicketState }): ReactElement | nu
 export function QueuedChip({ state }: { state: TicketState }): ReactElement | null {
   if (state.agentStatus !== 'queued') return null
   return (
-    <Badge color="gray" variant="outline" size="sm" radius="sm" tt="none">
+    <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
       {queuedLabel(state.queuePosition)}
     </Badge>
   )
@@ -192,7 +200,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <HoldChip hold={ticket.hold} />
         <StuckChip stuck={ticket.stuck} />
         {ticket.kind === 'investigate' && (
-          <Badge color="gray" variant="outline" size="sm" radius="sm">
+          <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
             Investigate
           </Badge>
         )}

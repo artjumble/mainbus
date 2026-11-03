@@ -70,6 +70,15 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await expect(column('Needs you').getByText(/Failed in /)).toBeVisible()
     await expect(column('Review').getByText('Health check endpoint')).toBeVisible({ timeout: 30_000 })
     await expect(column('Done').getByText('Fix README links')).toBeVisible()
+    await shot(page, 'board')
+    // All six columns fit beside the rail and the panel, with no sideways scrolling, and no chip is cut off.
+    await expect(column('Done')).toBeInViewport({ ratio: 1 })
+    expect(await page.evaluate(() => Array.from(document.querySelectorAll('section[aria-labelledby^="column-"]')).every((c) => c.parentElement!.scrollWidth <= c.parentElement!.clientWidth))).toBe(true)
+    expect(
+      await page.evaluate(() =>
+        Array.from(document.querySelectorAll('section[aria-labelledby^="column-"] .mantine-Badge-label')).every((l) => l.scrollWidth <= l.clientWidth + 1)
+      )
+    ).toBe(true)
 
     // The orchestrator panel: Fleet line, the start proposal and the pending decision.
     await expect(panel.getByText(/^Fleet: \d+ working · \d+ need you · \d+ idle$/)).toBeVisible()
@@ -270,6 +279,9 @@ test('Empty states: an empty workspace, and a ticket nobody is working on', asyn
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask orchestrator to draft tickets' })).toBeVisible()
     await expect(page.getByText(/· just added$/)).toBeVisible()
+    // The six faint columns are all on screen, named, with no sideways scrolling.
+    await expect(page.getByText('Done', { exact: true })).toBeInViewport({ ratio: 1 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     await shot(page, 'empty-workspace')
 
     // A ticket with no agent: the panel in place of the empty thread.
@@ -281,7 +293,10 @@ test('Empty states: an empty workspace, and a ticket nobody is working on', asyn
     await expect(page.getByRole('button', { name: 'Adjust before starting' })).toBeVisible()
     await expect(page.getByText('Past runs on this ticket appear in the activity timeline.')).toBeVisible()
     await expect(page.getByLabel('First message (starts the lineup)')).toHaveAttribute('placeholder', 'Optional instructions for the lineup')
-    await expect(page.getByRole('button', { name: 'Send and start' })).toBeVisible()
+    // The composer stays on screen, and the window itself does not scroll.
+    await expect(page.getByRole('button', { name: 'Send and start' })).toBeInViewport()
+    await expect(page.getByLabel('First message (starts the lineup)')).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= document.documentElement.clientHeight)).toBe(true)
     await shot(page, 'empty-ticket')
   })
 })

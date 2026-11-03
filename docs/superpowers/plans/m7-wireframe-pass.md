@@ -31,8 +31,8 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | B4 | content | Header: name, then the repo path in monospace and "· local tickets" | The path beside the name, in the body font | Fixed. Empty workspace says "· just added" |
 | B5 | wording | A "Search" label beside the box | Box labelled for assistive technology only, placeholder "Search (Ctrl+K)" | Kept: the placeholder carries the shortcut (search ticket) |
 | B6 | layout | Uppercase small column headings with a plain count; Needs you tinted | Title-case headings, circled count, no tint | Fixed. Grey-filled columns are styling: not done |
-| B7 | layout | Six columns fit beside the rail and the panel | Columns scrolled sideways from 220 px | Fixed: columns shrink to 140 px |
-| B8 | state | Chips lead with a symbol: ◆ filled orange, • light blue, – / ○ / ✓ outlined, ✕ dark | Colour-only chips | Fixed (`PhaseChip`, Held chip, lineup strip). Failed reads "✕ Failed in <phase>" |
+| B7 | layout | Six columns fit beside the rail and the panel at 1440 px | Columns scrolled sideways from 220 px | Fixed: the rail is 190 px and the panel 340 px (was 220 and 380), and the columns shrink to 120 px, so all six fit at 1440 (checked in the artboard e2e). Wide sentence-case chips wrap instead of being cut off |
+| B8 | state | Chips lead with a symbol: ◆ filled orange, • light blue, – / ○ / ✓ outlined, ✕ dark; full text, wrapping to two lines | Colour-only, uppercase chips cut off in narrow columns | Fixed (`PhaseChip`, Held, Paused, Queued, Looks stuck chips, lineup strip), in sentence case that wraps. Failed reads "✕ Failed in <phase>" |
 | B9 | state | Needs you card has an orange border; a failed card a dashed one | No border change | Fixed |
 | B10 | content | Needs you card shows the question | Question's first line (clamped) | Kept as is |
 | B11 | missing | No Answer button on the card (options in the panel) | Answer button on Needs you cards | Kept: decided in M4 |
@@ -51,6 +51,7 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | T6 | content | Read-only description | Editable Spec, and "Your words" | Kept: spec §13 |
 | T7 | layout | Lineup pills on one line: "Planner ✓ Handed off" | Name above status, no symbol | Fixed; "replaced ×N" kept |
 | T8 | content | Timeline times as HH:MM; "Created by you"; "Started with the web-app lineup"; "Planner handed off to the Implementer" | Locale date and time; "Run started"; "Handed off" | Fixed. Only the first run of a ticket run says it started the lineup. The phase after "·" is not shown: the strip does not know a role's phase |
+| T10 | content | Tool rows name their target: "Read tests/fixtures/cart.ts" | The tool name and the result summary ("42 lines") | Fixed: the file, pattern or command from the tool's input is shown between the name and the summary |
 | T9 | styling | The user's messages as dark bubbles on the right | Light bubble | Kept: styling only |
 
 ## Orchestrator panel (Board and Decision artboards)
@@ -108,9 +109,9 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 
 | # | Area | Wireframe | App before | Action |
 |---|------|-----------|------------|--------|
-| E1 | layout | Six faint dashed columns behind the message | Message only | Fixed |
+| E1 | layout | Six faint dashed columns, named, side by side above the message | Message only | Fixed: named columns share the width with no sideways scrolling, the message sits below them (checked in the artboard e2e) |
 | E2 | wording | "No tickets in web-app yet"; "Write one yourself, or have the orchestrator read the repo and draft a starter set for you to review."; both buttons | "No tickets yet"; shorter text | Fixed |
-| E3 | state | "Nobody is working on this yet", Start, Adjust before starting, note about past runs | Empty thread | Fixed. Start and Adjust sit in this panel instead of the controls row while it shows |
+| E3 | state | "Nobody is working on this yet", Start, Adjust before starting, note about past runs | Empty thread | Fixed. Start and Adjust sit in this panel instead of the controls row while it shows. The panel scrolls inside its own region, so the composer stays on screen (checked in the artboard e2e) |
 | E4 | wording | Composer "First message (starts the lineup)", placeholder "Optional instructions for the lineup", button "Send and start" | Same label; button "Send" | Fixed |
 
 ## Workspace agent lineup — `workspace-lineup.png` · `Workspace agent lineup@1x.png`
