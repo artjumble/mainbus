@@ -465,12 +465,16 @@ function HandoffDivider({
   /** Beside the toggle. */
   children?: ReactNode
 }): ReactElement {
-  const [open, setOpen] = useState(false)
   const replaced = kind === 'replaced'
+  // A replacement's handoff is the new agent's whole start, so it opens shown.
+  const [open, setOpen] = useState(replaced)
   return (
     <Stack gap={4} role="group" aria-label={label}>
       <div data-event={kind} className={`${classes.divider} ${classes.handoff}`}>
         <span className={classes.label}>{label}</span>
+        {/* The way back to the old run sits in the line itself: "Implementer replaced · View previous run". */}
+        {replaced && children && <span aria-hidden>·</span>}
+        {replaced && children}
       </div>
       <Group gap="xs" justify="center">
         <Button variant="subtle" size="compact-xs" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -484,7 +488,7 @@ function HandoffDivider({
             toggle.show
           )}
         </Button>
-        {children}
+        {!replaced && children}
       </Group>
       {open && (
         <Paper withBorder p="sm" radius="md">

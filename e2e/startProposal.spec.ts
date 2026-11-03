@@ -83,7 +83,7 @@ test('the orchestrator proposes starting a Backlog ticket; the user drops the Pl
     await receipt.getByRole('button', { name: '#1' }).click()
     await expect(page.getByRole('heading', { name: 'Add hello file' })).toBeVisible()
     await expect(page.getByRole('list', { name: 'Lineup' }).getByRole('listitem')).toHaveText(
-      ['Implementer Working', 'Reviewer Not started'],
+      ['Implementer • Working', 'Reviewer ○ Not started'],
       { useInnerText: true }
     )
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()

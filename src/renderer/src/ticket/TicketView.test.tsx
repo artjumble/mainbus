@@ -419,7 +419,7 @@ test('the lineup strip shows the run’s roles in order with their status, the a
   show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
   renderWithMantine(<TicketView />)
   const items = within(screen.getByRole('list', { name: 'Lineup' })).getAllByRole('listitem')
-  expect(items.map((li) => li.textContent)).toEqual(['PlannerHanded off', 'ImplementerWorking', 'ReviewerNot started'])
+  expect(items.map((li) => li.textContent)).toEqual(['Planner✓ Handed off', 'Implementer• Working', 'Reviewer○ Not started'])
   expect(items.map((li) => li.getAttribute('aria-current'))).toEqual([null, 'step', null])
 })
 

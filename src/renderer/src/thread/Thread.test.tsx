@@ -335,24 +335,22 @@ describe('a replacement', () => {
   const replaced = (over: Partial<Extract<ThreadEvent, { kind: 'replaced' }>> = {}) =>
     ev({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary', ...over })
 
-  test('is a divider where the new run starts, with the handoff block collapsed under it', async () => {
-    const { container } = renderWithMantine(<Thread events={[replaced()]} decisions={[]} />)
-    expect(container.querySelector('[data-event="replaced"]')).toHaveTextContent('Implementer replaced')
+  test('is a divider where the new run starts, with the handoff block open under it', async () => {
+    const { container } = renderWithMantine(<Thread events={[replaced()]} decisions={[]} onViewRun={() => {}} />)
+    // The way to the old run is in the divider line itself.
+    expect(container.querySelector('[data-event="replaced"]')).toHaveTextContent(/Implementer replaced.*View previous run/)
     const toggle = screen.getByRole('button', { name: /Handoff from the previous run/ })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('It tried X; Y failed.')).not.toBeInTheDocument()
-
-    await userEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('It tried X; Y failed.')).toBeInTheDocument()
     expect(screen.queryByText('Summary from the log digest')).not.toBeInTheDocument()
+
     await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('It tried X; Y failed.')).not.toBeInTheDocument()
   })
 
-  test('says so when the summary came from the log digest', async () => {
+  test('says so when the summary came from the log digest', () => {
     renderWithMantine(<Thread events={[replaced({ source: 'digest' })]} decisions={[]} />)
-    await userEvent.click(screen.getByRole('button', { name: /Handoff from the previous run/ }))
     expect(screen.getByText('Summary from the log digest')).toBeInTheDocument()
   })
 
