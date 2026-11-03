@@ -259,6 +259,8 @@ export class TicketRunner {
   private readonly stopRequested = new Set<string>()
   /** Set by shutdown(): nothing new launches, and a process that finishes starting is stopped at once. */
   private shuttingDown = false
+  /** True from the start of restart recovery until just before its last board refresh. */
+  private recovering = false
   /** Permission decisions an agent is waiting on, by decision id. */
   private readonly waiters = new Map<string, PermissionWaiter>()
   /** Runs allowed past the usage-limit gate: the probe, and a run the user resumed early. Cleared when the limit ends. */
@@ -701,6 +703,20 @@ export class TicketRunner {
    * becomes a decision. With `resume` false (no runtime) only the sweeps and decisions happen.
    */
   async recover(opts: { resume: boolean }): Promise<void> {
+    this.recovering = true
+    try {
+      await this.recoverRuns(opts)
+    } finally {
+      this.recovering = false
+    }
+  }
+
+  /** True while restart recovery has not finished: agents shown as paused may be about to resume. */
+  isRecovering(): boolean {
+    return this.recovering
+  }
+
+  private async recoverRuns(opts: { resume: boolean }): Promise<void> {
     const unswept = new Set<string>()
     for (const run of await this.repos.runs.withProcess()) {
       if (this.shuttingDown) return
@@ -743,6 +759,8 @@ export class TicketRunner {
     if (this.shuttingDown) return
     await this.repos.runs.enqueueFirst(working, RESTART_TEXT)
     if (working.length > 0) this.queueHint = true
+    // The queued runs now show as active on their own, so the refresh below needs no recovery allowance.
+    this.recovering = false
     await this.emitBoardChangedEverywhere()
     if (opts.resume) this.kickQueue()
   }

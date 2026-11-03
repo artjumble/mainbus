@@ -32,6 +32,7 @@ import type { OpenDecision, WakeItem } from './orchestrator/wakeDigest'
 import type { Wake, WakeKind } from './store/wakes'
 import { createProposalService, type ProposalService } from './proposals/service'
 import { ProcessSweeper } from './processes/sweep'
+import { railCounts } from './state/railCounts'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
 import { newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
@@ -754,6 +755,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       'workspace.get': () => repos.workspaces.focused(),
       'workspace.list': () => repos.workspaces.list(),
+      'workspace.summaries': async () => {
+        return Promise.all(
+          (await repos.workspaces.list()).map(async (ws) => ({
+            ...ws,
+            ...railCounts(await boardView(ws), runner.isRecovering())
+          }))
+        )
+      },
       'workspace.open': openWorkspace,
       'workspace.focus': async (id) => {
         const ws = await requireWorkspace(id)

@@ -464,3 +464,42 @@ describe('stuck detector and holds across workspaces', () => {
     expect((await engine.invoke('board.get', b.id)).tickets[0]!.hold).not.toBeNull()
   })
 })
+
+describe('workspace summaries for the rail', () => {
+  it('counts what needs you in each workspace, flags working agents, and lists no removed workspace', async () => {
+    const request: FakeStep[] = [
+      { emit: { kind: 'session', sessionId: 's' } },
+      { requestPermission: { toolName: 'Bash', input: { command: 'npm install zod' }, toolUseId: 'tool-1' } },
+      { waitForSend: true }
+    ]
+    const runtime = new FakeRuntime([...request])
+    const { engine, a, b } = await two(runtime)
+    expect((await engine.invoke('workspace.summaries')).map((w) => [w.name, w.active, w.needsYou])).toEqual([
+      ['alpha', false, 0],
+      ['bravo', false, 0]
+    ])
+
+    // B is focused; the decision is in A.
+    const inA = await engine.invoke('ticket.create', ticketInput('Alpha', 'backlog'), a.id)
+    await engine.invoke('agent.start', inA.id)
+    await vi.waitFor(async () => expect((await engine.invoke('thread.get', inA.id)).decisions).toHaveLength(1))
+    await vi.waitFor(async () => {
+      const summaries = await engine.invoke('workspace.summaries')
+      expect(summaries.find((w) => w.id === a.id)).toMatchObject({ needsYou: 1 })
+      expect(summaries.find((w) => w.id === b.id)).toMatchObject({ needsYou: 0, active: false })
+    })
+
+    await engine.invoke('agent.stop', inA.id)
+    await engine.invoke('workspace.remove', a.id)
+    expect((await engine.invoke('workspace.summaries')).map((w) => w.id)).toEqual([b.id])
+  })
+
+  it('shows a working agent as active', async () => {
+    const { engine, a } = await two(new FakeRuntime(WAIT))
+    const inA = await engine.invoke('ticket.create', ticketInput('Alpha', 'backlog'), a.id)
+    await engine.invoke('agent.start', inA.id)
+    await vi.waitFor(async () =>
+      expect((await engine.invoke('workspace.summaries')).find((w) => w.id === a.id)).toMatchObject({ active: true, needsYou: 0 })
+    )
+  })
+})

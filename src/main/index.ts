@@ -20,7 +20,7 @@ import { isAppUrl, isExternalWebUrl } from './appUrl'
 import { fakeClaudeExec } from './fakeExec'
 import { registerIpc } from './ipc'
 import { agentLauncher } from './launcher'
-import { testClockStartFromEnv, testRepoFromEnv } from './testHooks'
+import { testClockStartFromEnv, testReposFromEnv } from './testHooks'
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
@@ -169,7 +169,7 @@ if (!app.requestSingleInstanceLock()) {
         ...(clock ? { clock, stuck: { timer: clock } } : {})
       })
       try {
-        registerIpc(engine, () => mainWindow, appUrl(), testRepoFromEnv(process.env))
+        registerIpc(engine, () => mainWindow, appUrl(), testReposFromEnv(process.env))
         mainWindow = createWindow()
         mainWindow.on('closed', () => {
           mainWindow = null
