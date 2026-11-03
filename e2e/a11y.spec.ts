@@ -1,0 +1,203 @@
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import os from 'node:os'
+import path from 'node:path'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+
+const root = path.resolve(import.meta.dirname, '..')
+const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync('git', ['-c', 'user.name=Mainbus E2E', '-c', 'user.email=e2e@mainbus.test', ...args], {
+    cwd,
+    windowsHide: true,
+    stdio: 'pipe'
+  })
+}
+
+async function launch(home: string, repo: string): Promise<{ app: ElectronApplication; page: Page }> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+  delete env['ELECTRON_RUN_AS_NODE']
+  const app = await electron.launch({
+    args: ['.'],
+    cwd: root,
+    env: {
+      ...env,
+      MAINBUS_HOME: home,
+      MAINBUS_RUNTIME: 'fake:e2e/fixtures/ask-then-handoff-by-role.json',
+      MAINBUS_TEST_REPO: repo
+    }
+  })
+  return { app, page: await app.firstWindow() }
+}
+
+/** Runs axe over the page with every rule on, colour contrast included, and fails with what it found. */
+async function expectNoAxeViolations(page: Page, what: string): Promise<void> {
+  // Evaluated, not injected as a script tag, so the page's content security policy does not apply.
+  await page.evaluate(axeSource)
+  const violations = await page.evaluate(async () => {
+    const results = await (window as unknown as { axe: { run: (c: Document) => Promise<{ violations: AxeViolation[] }> } }).axe.run(document)
+    interface AxeViolation {
+      id: string
+      help: string
+      nodes: { target: string[]; failureSummary?: string }[]
+    }
+    return results.violations.map((v) => ({
+      id: v.id,
+      help: v.help,
+      nodes: v.nodes.map((n) => `${n.target.join(' ')}: ${n.failureSummary?.replace(/\s+/g, ' ').slice(0, 220) ?? ''}`)
+    }))
+  })
+  expect(violations, `axe violations on ${what}`).toEqual([])
+}
+
+/**
+ * Every visible control must be hit by a pointer within 22 px of its centre in each direction, i.e. have a 44 px
+ * square target, unless it is a link inside a sentence. Returns what fails.
+ */
+async function smallTargets(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const selector =
+      'button, a[href], [role="button"], [role="menuitem"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], input, select, textarea'
+    const failures: string[] = []
+    for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+      const style = getComputedStyle(el)
+      if (style.visibility === 'hidden' || style.display === 'none' || el.closest('[aria-hidden="true"]')) continue
+      if ((el as HTMLButtonElement).disabled) continue
+      el.scrollIntoView({ block: 'center', inline: 'center' })
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      // A link inside running text is exempt (WCAG 2.5.8 inline exception).
+      if (el instanceof HTMLAnchorElement) {
+        const parent = el.parentElement
+        const own = (parent?.textContent ?? '').replace(el.textContent ?? '', '').trim()
+        if (parent && own.length > 0 && getComputedStyle(parent).display !== 'flex') continue
+      }
+      const labelFor = (target: Element | null): boolean =>
+        target !== null && ((el as HTMLInputElement).labels ? [...(el as HTMLInputElement).labels!].some((l) => l.contains(target)) : false)
+      const cx = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      const w = Math.max(r.width, 44) / 2 - 1
+      const h = Math.max(r.height, 44) / 2 - 1
+      for (const [dx, dy] of [[-w, -h], [w, -h], [-w, h], [w, h]] as const) {
+        const x = cx + dx
+        const y = cy + dy
+        if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue
+        const hit = document.elementFromPoint(x, y)
+        if (hit && (el.contains(hit) || labelFor(hit))) continue
+        const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 30) ?? ''
+        failures.push(`${el.tagName.toLowerCase()} "${name}" ${Math.round(r.width)}x${Math.round(r.height)}: ${Math.round(x)},${Math.round(y)} hits ${hit?.tagName.toLowerCase()} "${hit?.textContent?.trim().slice(0, 20)}"`)
+        break
+      }
+    }
+    return failures
+  })
+}
+
+async function withSession(body: (page: Page) => Promise<void>): Promise<void> {
+  let tmp: string | null = null
+  let session: { app: ElectronApplication; page: Page } | null = null
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
+    const home = path.join(tmp, 'home')
+    const repo = path.join(tmp, 'repo')
+    fs.mkdirSync(repo)
+    git(repo, 'init')
+    fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
+    git(repo, 'add', '.')
+    git(repo, 'commit', '-m', 'initial')
+    session = await launch(home, repo)
+    await session.page.getByRole('button', { name: 'Add workspace' }).click()
+    await body(session.page)
+  } finally {
+    await session?.app.close().catch(() => {})
+    // Cleanup must never hide the test's own failure.
+    if (tmp) {
+      try {
+        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      } catch {
+        // A temp folder left behind is harmless.
+      }
+    }
+  }
+}
+
+async function createTicket(page: Page, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'New ticket' }).click()
+  await page.getByLabel('Title').fill(title)
+  await page.getByLabel('In your words').fill('Add hello.txt')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await expect(page.getByRole('dialog', { name: 'New ticket' })).toBeHidden()
+}
+
+/** Gets the ticket to its question and permission card, as mvp.spec does. */
+async function askAndRequest(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Add hello file/ }).click()
+  await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
+  await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
+  await expect(page.getByText('Looking at the repo before I add hello.txt.')).toBeVisible()
+  await expect(page.getByLabel('Message the Implementer')).toHaveValue('')
+  await page.getByLabel('Message the Implementer').fill('Go ahead')
+  await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
+  await expect(page.locator('[data-event="decision"]')).toBeVisible()
+}
+
+test('every screen passes axe, with colour contrast, and every control has a 44 px target', async () => {
+  await withSession(async (page) => {
+    // The empty board.
+    await expectNoAxeViolations(page, 'the empty board')
+    expect(await smallTargets(page), 'small targets on the empty board').toEqual([])
+
+    // A board with cards in two columns.
+    await createTicket(page, 'Add hello file')
+    await createTicket(page, 'Second ticket')
+    await page.getByRole('button', { name: 'Move ticket #2' }).focus()
+    await page.keyboard.press('Space')
+    await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('Picked up')
+    await page.keyboard.press('Escape')
+    await expectNoAxeViolations(page, 'the board with cards')
+    expect(await smallTargets(page), 'small targets on the board').toEqual([])
+
+    // The card menu.
+    await page.getByRole('button', { name: /Second ticket/ }).focus()
+    await page.keyboard.press('Shift+F10')
+    await expect(page.getByRole('menuitem', { name: 'Move to Ready' })).toBeVisible()
+    await expect(page.getByRole('menu')).toBeVisible()
+    expect(await smallTargets(page), 'small targets in the card menu').toEqual([])
+    await page.keyboard.press('Escape')
+
+    // The ticket view with a question and a permission waiting.
+    await askAndRequest(page)
+    await expect(page.locator('[data-event="decision"]')).toBeVisible()
+    await page.locator('[data-event="decision"]').getByRole('radio').first().check()
+    await page.locator('[data-event="decision"]').getByRole('button', { name: 'Answer' }).click()
+    await expect(page.locator('[data-event="permission"]')).toBeVisible()
+    await expectNoAxeViolations(page, 'the ticket view with a permission card')
+    expect(await smallTargets(page), 'small targets in the ticket view').toEqual([])
+
+    // The settings window.
+    await page.getByRole('button', { name: 'Workspace settings' }).first().click()
+    await expect(page.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeVisible()
+    await expectNoAxeViolations(page, 'the settings window')
+    expect(await smallTargets(page), 'small targets in the settings window').toEqual([])
+  })
+})
+
+test('reduced motion stops the outline fade and the spinners', async () => {
+  await withSession(async (page) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await createTicket(page, 'Add hello file')
+    await askAndRequest(page)
+    // The Working-line style loader animates nothing.
+    const animations = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('.mantine-Loader-root, .mantine-Loader-root *')].map((el) => getComputedStyle(el).animationName)
+    )
+    expect(animations.filter((a) => a !== 'none')).toEqual([])
+    // A card that just changed is outlined without a fade.
+    await page.getByRole('button', { name: /board/ }).click()
+    const outlined = page.locator('[data-recently-changed]').first()
+    await expect(outlined).toHaveAttribute('data-recently-changed', 'still')
+  })
+})

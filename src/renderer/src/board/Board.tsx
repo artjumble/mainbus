@@ -146,14 +146,21 @@ export function Board(): ReactElement {
     const shown = tickets.filter((t) => matchesSearch(t, search))
     return new Map(COLUMNS.map((c) => [c.id, shown.filter((t) => (pendingMoves[t.id] ?? t.state.column) === c.id)]))
   }, [tickets, pendingMoves, search])
-  // The empty state's New ticket button is gone once the first ticket exists, so focus has nowhere to return to
-  // after the dialog closes: send it to the header's New ticket button instead.
+  // The empty state's New ticket button is gone once the first ticket exists, so focus can have nowhere to return to
+  // after the dialog closes: once the dialog is gone and focus is on nothing, send it to the header's button.
   const closeNewTicket = useCallback((): void => {
     setCreating(false)
-    setTimeout(() => {
-      const active = document.activeElement
-      if (!active || active === document.body) newTicketRef.current?.focus()
-    }, 100)
+    const settle = (tries: number): void => {
+      if (document.querySelector('[role="dialog"]') && tries > 0) {
+        setTimeout(() => settle(tries - 1), 50)
+        return
+      }
+      setTimeout(() => {
+        const active = document.activeElement
+        if (!active || active === document.body) newTicketRef.current?.focus()
+      }, 50)
+    }
+    setTimeout(() => settle(20), 50)
   }, [])
   const filtering = search.trim() !== ''
   const searchRef = useRef<HTMLInputElement>(null)
