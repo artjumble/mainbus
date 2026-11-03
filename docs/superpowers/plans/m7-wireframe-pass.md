@@ -52,6 +52,7 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | T7 | layout | Lineup pills on one line: "Planner ✓ Handed off" | Name above status, no symbol | Fixed; "replaced ×N" kept |
 | T8 | content | Timeline times as HH:MM; "Created by you"; "Started with the web-app lineup"; "Planner handed off to the Implementer" | Locale date and time; "Run started"; "Handed off" | Fixed. Only the first run of a ticket run says it started the lineup. The phase after "·" is not shown: the strip does not know a role's phase |
 | T10 | content | Tool rows name their target: "Read tests/fixtures/cart.ts" | The tool name and the result summary ("42 lines") | Fixed: the file, pattern or command from the tool's input is shown between the name and the summary |
+| T11 | layout | Split view: the rail collapses to initials (WA/AS/DS/IN) and the orchestrator panel to a strip with the needs-you count, giving the thread room | Rail and panel stay fully open when a ticket opens | Asked → answer: no, keep both as they are. Spec §13 only has the panel collapsible by hand; auto-collapsing is not wanted |
 | T9 | styling | The user's messages as dark bubbles on the right | Light bubble | Kept: styling only |
 
 ## Orchestrator panel (Board and Decision artboards)
