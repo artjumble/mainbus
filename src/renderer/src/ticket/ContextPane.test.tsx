@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { makeDecision, makeEvent, makeTicket, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeEvent, makeTicket, renderWithMantine } from '../test-utils'
 import { ContextPane } from './ContextPane'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -254,4 +254,10 @@ describe('the Activity of a stuck agent', () => {
     await userEvent.click(within(activity()).getByRole('button', { name: 'View run' }))
     expect(onViewRun).toHaveBeenCalledWith('r1')
   })
+})
+
+test('the context pane has no axe violations', async () => {
+  const ticket = makeTicket({ title: 'Add dark mode', spec: 'The spec.', criteria: [{ position: 1, text: 'It works', checked: false }], labels: ['ui'], branch: 'mainbus/1-x' })
+  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
+  await expectNoAxeViolations()
 })

@@ -274,23 +274,24 @@ function RoleRow({ role, index, count, selected, onSelect, onMove, onRemove }: R
         outline: drop.isOver && !drag.isDragging ? '2px solid var(--mantine-primary-color-filled)' : undefined
       }}
     >
-      <Group gap="xs" wrap="nowrap">
-        <ActionIcon variant="subtle" color="gray" aria-label={`Drag ${name}`} style={{ cursor: 'grab' }} {...drag.attributes} {...drag.listeners}>
+      {/* Small buttons side by side sit 44 px apart centre to centre, so their hit areas don't overlap. */}
+      <Group gap={16} wrap="nowrap">
+        {/* Pointer-only: by keyboard, the Move up and Move down buttons reorder, so the handle is not a tab stop. */}
+        <ActionIcon variant="subtle" color="gray" aria-label={`Drag ${name}`} style={{ cursor: 'grab' }} {...drag.attributes} {...drag.listeners} tabIndex={-1}>
           <span aria-hidden>⠿</span>
         </ActionIcon>
+        {/* The button holds only the name, so its label "Edit <role>" contains its visible text. */}
+        <Text size="sm" c="dimmed">
+          {index + 1}.
+        </Text>
         <UnstyledButton onClick={onSelect} aria-label={`Edit ${name}`} aria-pressed={selected} style={{ flex: 1, minWidth: 0 }}>
-          <Group gap="xs" wrap="nowrap">
-            <Text size="sm" c="dimmed">
-              {index + 1}.
-            </Text>
-            <Text size="sm" fw={500} truncate>
-              {name}
-            </Text>
-            <Text size="xs" c="dimmed">
-              {phaseLabel(role.activePhase)}
-            </Text>
-          </Group>
+          <Text size="sm" fw={500} truncate>
+            {name}
+          </Text>
         </UnstyledButton>
+        <Text size="xs" c="dimmed">
+          {phaseLabel(role.activePhase)}
+        </Text>
         <ActionIcon variant="subtle" color="gray" aria-label={`Move ${name} up`} data-move="up" disabled={index === 0} onClick={() => onMove(index - 1)}>
           <span aria-hidden>↑</span>
         </ActionIcon>

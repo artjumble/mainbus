@@ -76,7 +76,7 @@ export function WorkspaceSettings({ opened, onClose }: Props): ReactElement {
                   aria-label={`Remove ${describeRule(rule)}`}
                   onClick={() => void remove(rule)}
                 >
-                  ×
+                  <span aria-hidden>×</span>
                 </ActionIcon>
               </Group>
             ))

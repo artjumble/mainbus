@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import type { StuckEpisode } from '../../../shared/domain'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
-import { makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { TicketView } from '../ticket/TicketView'
 import { StuckChip, StuckEvidence } from './StuckChip'
 import { TicketCard } from './TicketCard'
@@ -95,4 +95,11 @@ describe('the evidence', () => {
     expect(container.querySelector('[data-stuck-chip]')).toBeNull()
     expect(container.querySelector('[data-stuck-evidence]')).toBeNull()
   })
+})
+
+test('the chip, the card and the evidence have no axe violations', async () => {
+  const ticket = makeTicket({ stuck: episode({ needsCloserLook: true, hitCount: 3 }) }, { column: 'in_progress', phase: 'implementing', agentStatus: 'working' })
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  renderWithMantine(<TicketView />)
+  await expectNoAxeViolations()
 })

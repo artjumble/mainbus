@@ -1,0 +1,57 @@
+/*
+ * A hit area of at least 44 x 44 px for small controls (WCAG 2.5.8 target size, with the extra margin of AAA).
+ * The control keeps its look; an invisible ::after grows its clickable area. (Mantine uses ::before for loading.)
+ */
+/* Doubled for specificity: Mantine's Button and ActionIcon clip their overflow, which would clip the hit area. */
+.target.target {
+  position: relative;
+  overflow: visible;
+}
+
+.target::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+/* A text field without a label of its own, like the search box, is 44 px tall. */
+.field {
+  min-height: 44px;
+}
+
+/* One option of a radio group or checkbox list: rows are 44 px apart, so no hit area runs into the next row's. */
+.choice {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* The label of such an option is a real box 44 px tall, so a press anywhere in it toggles the option. */
+.choiceLabel {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* A tab is 44 px tall itself (a hit area drawn past its edge is covered by the panel next to it). */
+.tab {
+  min-height: 44px;
+}
+
+.menuItem {
+  min-height: 44px;
+}
+
+/* No spinning for people who prefer reduced motion: the loader stays as a still mark. */
+@media (prefers-reduced-motion: reduce) {
+  .loader,
+  .loader::before,
+  .loader::after,
+  .loader * {
+    animation: none !important;
+  }
+}

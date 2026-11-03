@@ -2,7 +2,7 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LineupRole, LineupRoleInput } from '../../../shared/domain'
 import { invoke } from '../api'
-import { makeLineup, optionLabels, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeLineup, optionLabels, renderWithMantine } from '../test-utils'
 import { LineupEditor, LineupSettings } from './LineupSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -255,4 +255,9 @@ test('has a tab for each lineup; the Investigate tab loads and saves the Investi
   expect(saves).toHaveLength(1)
   expect(saves[0]![2]).toBe('investigate')
   expect((saves[0]![1] as LineupRoleInput[]).map((r) => r.name)).toEqual(['Detective'])
+})
+
+test('the lineup editor has no axe violations', async () => {
+  await renderLoaded()
+  await expectNoAxeViolations()
 })

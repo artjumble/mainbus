@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -174,4 +174,24 @@ describe('receipt', () => {
     renderWithMantine(<ProposalCard proposal={proposal({ status: 'confirmed', result: null })} />)
     expect(screen.getByText('Working…')).toBeInTheDocument()
   })
+})
+
+test('the card and its Override editor have no axe violations', async () => {
+  renderWithMantine(<ProposalCard proposal={proposal()} />)
+  await expectNoAxeViolations()
+  const override = screen.queryByRole('button', { name: 'Override' })
+  if (override) {
+    await userEvent.click(override)
+    await expectNoAxeViolations()
+  }
+})
+
+test.each([
+  ['accepted', { status: 'accepted', result: { tickets: [] } }],
+  ['rejected', { status: 'rejected' }],
+  ['failed', { status: 'failed', result: { error: 'Nope' } }],
+  ['working', { status: 'accepted', result: null }]
+] as const)('a %s receipt has no axe violations', async (_name, over) => {
+  renderWithMantine(<ProposalCard proposal={proposal(over as never)} />)
+  await expectNoAxeViolations()
 })

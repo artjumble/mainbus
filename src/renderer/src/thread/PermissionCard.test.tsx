@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Decision } from '../../../shared/domain'
 import { invoke } from '../api'
-import { makeDecision, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, renderWithMantine } from '../test-utils'
 import { PermissionCard } from './PermissionCard'
 
 vi.mock('../api', () => ({
@@ -58,4 +58,9 @@ test('a rejected answer is shown', async () => {
   renderWithMantine(<PermissionCard decision={permission()} />)
   await userEvent.click(screen.getByRole('button', { name: 'Deny' }))
   expect(await screen.findByText(/not offered/)).toBeInTheDocument()
+})
+
+test.each([[{}], [{ allowAlways: false }], [{ status: 'expired' }]] as const)('a permission card %j has no axe violations', async (over) => {
+  renderWithMantine(<PermissionCard decision={permission(over as never)} />)
+  await expectNoAxeViolations()
 })

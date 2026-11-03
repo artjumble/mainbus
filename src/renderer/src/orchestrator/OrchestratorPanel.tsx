@@ -105,14 +105,17 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
       ) : (
         <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} proposals={thread.proposals} reveal={reveal} summariseTools />
       )}
-      {working && (
-        <Group gap="xs" px="md" py={4} data-working>
-          <Loader size={12} type="dots" />
-          <Text size="sm" c="dimmed" fs="italic">
-            Working…
-          </Text>
-        </Group>
-      )}
+      {/* Always mounted, so a screen reader announces the line when it appears, once, and politely. */}
+      <div role="status">
+        {working && (
+          <Group gap="xs" px="md" py={4} data-working>
+            <Loader size={12} type="dots" aria-hidden />
+            <Text size="sm" c="dimmed" fs="italic">
+              Working…
+            </Text>
+          </Group>
+        )}
+      </div>
       <Box p="sm" pt={4}>
         <Composer
           placeholder="Message the orchestrator"

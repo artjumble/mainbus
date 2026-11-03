@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { GhStatus } from '../../../shared/domain'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
 import { PullRequestSettings } from './PullRequestSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -56,4 +56,10 @@ test('says so when gh is missing or signed out while it is on', async () => {
 
   await userEvent.click(await toggle())
   await vi.waitFor(() => expect(screen.queryByText(/No PR can be opened/)).not.toBeInTheDocument())
+})
+
+test('the pull request settings have no axe violations', async () => {
+  renderWithMantine(<PullRequestSettings opened />)
+  await toggle()
+  await expectNoAxeViolations()
 })

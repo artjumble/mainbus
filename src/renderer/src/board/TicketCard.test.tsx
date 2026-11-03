@@ -1,6 +1,6 @@
 import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { makeDecision, makeTicket, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeTicket, renderWithMantine } from '../test-utils'
 import { TicketCard } from './TicketCard'
 
 test('TicketCard shows number, title and phase chip only', () => {
@@ -207,5 +207,33 @@ describe('the recently changed outline', () => {
     expect(outlined()).toBeNull()
     rerender(<TicketCard ticket={ticket()} changedAt={Date.now() - 10_000} onOpen={() => {}} />)
     expect(outlined()).toBeNull()
+  })
+})
+
+describe('accessibility', () => {
+  test('a card with every chip has no axe violations', async () => {
+    const ticket = makeTicket(
+      {
+        kind: 'investigate',
+        hold: { id: 'h1', targetKind: 'ticket', targetId: 't', reason: 'Waiting on a design', until: null, createdAt: '2026-10-30T00:00:00.000Z' } as never,
+        pr: { number: 12, url: 'https://github.com/o/r/pull/12' } as never,
+        intent: [{ text: 'words', at: '2026-10-30T00:00:00.000Z', source: { kind: 'agent', agent: 'codex', cwd: '/home/me/tools' } }]
+      },
+      { column: 'in_progress', phase: 'implementing', agentStatus: 'queued', queuePosition: 2, pausedByUser: true }
+    )
+    renderWithMantine(<TicketCard ticket={ticket} cleaningUp onOpen={() => {}} handle={<button type="button">Move ticket #1</button>} />)
+    await expectNoAxeViolations()
+  })
+
+  test('a Needs you card with its Answer control has no axe violations, closed or open', async () => {
+    const ticket = makeTicket(
+      { pendingDecisions: [makeDecision({ recommended: 1 })] },
+      { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you', summary: 'Which database?' }
+    )
+    renderWithMantine(<TicketCard ticket={ticket} onOpen={() => {}} />)
+    await expectNoAxeViolations()
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+    await screen.findByRole('radio', { name: 'SQLite' })
+    await expectNoAxeViolations()
   })
 })

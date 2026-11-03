@@ -104,7 +104,7 @@ export function WaitingOnYou(): ReactElement | null {
             onClick={() => setShowDeferred((o) => !o)}
             style={{ fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--mantine-color-dimmed)' }}
           >
-            {`${showDeferred ? '▾' : '▸'} Deferred (${deferred.length})`}
+            <span aria-hidden>{showDeferred ? '▾' : '▸'}</span> {`Deferred (${deferred.length})`}
           </UnstyledButton>
           <Collapse expanded={showDeferred}>
             <Stack gap="xs" mt={6}>

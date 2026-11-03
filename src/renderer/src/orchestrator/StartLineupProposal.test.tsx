@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal, StartLineupPayload, StartLineupResult } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { optionLabels, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, optionLabels, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -131,4 +131,14 @@ test('the receipt names the roles started, its number opening the ticket', async
   expect(document.querySelector('[data-proposal="receipt"]')).toHaveTextContent('Started #12 with Implementer and Reviewer')
   await userEvent.click(screen.getByRole('button', { name: '#12' }))
   expect(useMainbus.getState().currentTicketId).toBe('t12')
+})
+
+test('the card and its Override editor have no axe violations', async () => {
+  renderWithMantine(<ProposalCard proposal={proposal()} />)
+  await expectNoAxeViolations()
+  const override = screen.queryByRole('button', { name: 'Override' })
+  if (override) {
+    await userEvent.click(override)
+    await expectNoAxeViolations()
+  }
 })

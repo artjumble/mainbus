@@ -188,7 +188,7 @@ const ToolGroup = memo(function ToolGroup({ role, items }: { role: string; items
       <Paper withBorder radius="sm" data-event="tool_group">
         <UnstyledButton w="100%" px="xs" py={6} aria-expanded={opened} onClick={() => setOpened((o) => !o)}>
           <Group gap="xs" wrap="nowrap">
-            <Text size="xs" c="dimmed">
+            <Text size="xs" c="dimmed" aria-hidden>
               {opened ? '▾' : '▸'}
             </Text>
             <Text size="sm" c="dimmed" truncate style={{ flex: 1, minWidth: 0 }}>
@@ -407,7 +407,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return lookup.proposal ? (
         <ProposalCard proposal={lookup.proposal} />
       ) : (
-        <Loader size="xs" type="dots" aria-label="Loading the proposal" data-event="proposal" />
+        <Loader size="xs" type="dots" role="status" aria-label="Loading the proposal" data-event="proposal" />
       )
     default:
       // session, rate_limit, vcs_changed, turn_end, role_handoff and role_hand_back (the handoff or hand-back
@@ -474,7 +474,15 @@ function HandoffDivider({
       </div>
       <Group gap="xs" justify="center">
         <Button variant="subtle" size="compact-xs" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-          {replaced ? `${open ? '▾' : '▸'} ${toggle.show}` : open ? toggle.hide : toggle.show}
+          {replaced ? (
+            <>
+              <span aria-hidden>{open ? '▾' : '▸'}</span> {toggle.show}
+            </>
+          ) : open ? (
+            toggle.hide
+          ) : (
+            toggle.show
+          )}
         </Button>
         {children}
       </Group>

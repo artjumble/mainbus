@@ -27,7 +27,7 @@ export function ToolRow({ name, input, result }: Props): ReactElement {
     <Paper withBorder radius="sm" data-event="tool">
       <UnstyledButton w="100%" px="xs" py={6} aria-expanded={opened} onClick={() => setOpened((o) => !o)}>
         <Group gap="xs" wrap="nowrap">
-          <Text size="xs" c="dimmed">
+          <Text size="xs" c="dimmed" aria-hidden>
             {opened ? '▾' : '▸'}
           </Text>
           <Code>{name}</Code>

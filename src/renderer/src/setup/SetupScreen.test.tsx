@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { SetupScreen } from './SetupScreen'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -49,4 +49,10 @@ test('Check again re-runs the setup check', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Check again' }))
   expect(mockInvoke).toHaveBeenCalledWith('setup.check')
   expect(await screen.findByText('claude auth login')).toBeInTheDocument()
+})
+
+test.each(['not_found', 'not_logged_in', 'restart_required'] as const)('the %s screen has no axe violations', async (reason) => {
+  showSetup(reason)
+  renderWithMantine(<SetupScreen />)
+  await expectNoAxeViolations()
 })

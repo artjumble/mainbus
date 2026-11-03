@@ -3,7 +3,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { makeLineup, makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, makeLineup, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { Board } from './Board'
 
 // Capture the drag handler so a test can call it the way dnd-kit would.
@@ -92,7 +92,7 @@ test.each(['backlog', 'ready'] as const)('dragging a %s card into In progress pr
   expect(mockInvoke).not.toHaveBeenCalledWith('ticket.move', expect.anything(), expect.anything())
   await vi.waitFor(() => expect(useMainbus.getState().revealedProposal).toEqual({ id: 'p1', n: 1 }))
   expect(useMainbus.getState().pendingMoves).toEqual({})
-  expect(within(screen.getByRole('region', { name: column === 'backlog' ? 'Backlog' : 'Ready' })).getByRole('button', { name: /./ })).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: column === 'backlog' ? 'Backlog' : 'Ready' })).getByRole('button', { name: /^Ticket/ })).toBeInTheDocument()
   expect(within(screen.getByRole('region', { name: 'In progress' })).getByTestId('column-count').textContent).toBe('0')
 })
 
@@ -294,6 +294,21 @@ describe('moving a card without dragging', () => {
     await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.move', ticket.id, 'done'))
   })
 
+  test.each([['Escape', '{Escape}'], ['choosing an item', null]])('focus goes back to the card after the menu closes by %s', async (_how, key) => {
+    const ticket = makeTicket({ title: 'Menu me' })
+    showBoard(ticket)
+    mockInvoke.mockImplementation(async (command: string) => (command === 'ticket.move' ? 'moved' : { tickets: [ticket] }))
+    renderWithMantine(<Board />)
+    const title = screen.getByRole('button', { name: /Menu me/ })
+    title.focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    const item = await screen.findByRole('menuitem', { name: 'Move to Ready' })
+    if (key) await userEvent.keyboard(key)
+    else await userEvent.click(item)
+    // The card may have moved column, which makes it a new element.
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: /Menu me/ })).toHaveFocus())
+  })
+
   test('the context-menu key and a right-click open it too', async () => {
     const ticket = makeTicket({ title: 'Menu me' })
     showBoard(ticket)
@@ -471,5 +486,44 @@ describe('empty states', () => {
     renderWithMantine(<Board />)
     expect(within(screen.getByRole('region', { name: 'Done' })).getByText('Nothing here')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Backlog' })).queryByText('Nothing here')).not.toBeInTheDocument()
+  })
+})
+
+describe('accessibility', () => {
+  test('a board with cards in every column has no axe violations', async () => {
+    showBoard(
+      makeTicket({}, { column: 'backlog' }),
+      makeTicket({}, { column: 'ready' }),
+      makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'working' }),
+      makeTicket({}, { column: 'review', phase: 'ready_for_review' }),
+      makeTicket({}, { column: 'done', phase: 'done' })
+    )
+    renderWithMantine(<Board />)
+    await expectNoAxeViolations()
+  })
+
+  test('the empty board, no matches and the New ticket modal have no axe violations', async () => {
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [] }, true)
+    const { unmount } = renderWithMantine(<Board />)
+    await expectNoAxeViolations()
+    await userEvent.click(screen.getAllByRole('button', { name: 'New ticket' })[0]!)
+    await expectNoAxeViolations()
+    unmount()
+
+    showBoard(makeTicket({ title: 'Alpha' }))
+    renderWithMantine(<Board />)
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search tickets' }), 'zzz')
+    expect(screen.getAllByText('No matches').length).toBeGreaterThan(0)
+    await expectNoAxeViolations()
+  })
+
+  test('the card menu has no axe violations', async () => {
+    showBoard(makeTicket({ title: 'Alpha' }))
+    renderWithMantine(<Board />)
+    await userEvent.click(screen.getByRole('button', { name: /Alpha/ }), { pointerEventsCheck: 0 })
+    screen.getByRole('button', { name: /Alpha/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    await screen.findByRole('menuitem', { name: 'Move to Ready' })
+    await expectNoAxeViolations()
   })
 })

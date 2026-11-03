@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import type { RoleStatus, StripRole } from '../../../shared/domain'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { LineupStrip } from './LineupStrip'
 
 const role = (id: string, name: string, status: RoleStatus, active = false): StripRole => ({ id, name, status, active, replacements: 0 })
@@ -48,4 +48,13 @@ test('a role replaced once or more carries a small "replaced ×n" marker, and on
   const items = within(screen.getByRole('list', { name: 'Lineup' })).getAllByRole('listitem')
   expect(items[0]).not.toHaveTextContent('replaced')
   expect(items[1]).toHaveTextContent('Workingreplaced ×2')
+})
+
+test('the strip has no axe violations', async () => {
+  renderWithMantine(
+    <LineupStrip
+      roles={[role('p', 'Planner', 'handed_off'), role('i', 'Implementer', 'waiting_on_you', true), role('r', 'Reviewer', 'queued')]}
+    />
+  )
+  await expectNoAxeViolations()
 })

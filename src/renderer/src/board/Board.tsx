@@ -1,11 +1,15 @@
 import {
   DndContext,
+  KeyboardCode,
+  KeyboardSensor,
   PointerSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
-  type DragEndEvent
+  type Announcements,
+  type DragEndEvent,
+  type KeyboardCoordinateGetter
 } from '@dnd-kit/core'
 import {
   ActionIcon,
@@ -20,11 +24,12 @@ import {
   Stack,
   Text,
   TextInput,
-  Title
+  Title,
+  VisuallyHidden
 } from '@mantine/core'
 import { useHotkeys } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type KeyboardEventHandler, type ReactElement } from 'react'
 import type { Column } from '../../../shared/domain'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
@@ -53,7 +58,34 @@ const isManual = (c: string): c is ManualColumn => MANUAL.some((m) => m.id === c
 /** What "Ask orchestrator to draft tickets" puts in the orchestrator's message box. */
 export const DRAFT_PREFILL = 'Draft tickets for '
 
-const DIRTY_MESSAGE = 'This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
+/**
+ * Arrow Left and Right carry a card being moved by keyboard to the next column that takes drops, skipping the
+ * ones that don't; Up and Down do nothing, since the order inside a column isn't a thing.
+ */
+export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, currentCoordinates }) => {
+  if (event.code !== KeyboardCode.Left && event.code !== KeyboardCode.Right) return undefined
+  const rects = context.droppableContainers
+    .getEnabled()
+    .map((c) => context.droppableRects.get(c.id))
+    .filter((r): r is NonNullable<typeof r> => r !== undefined)
+    .sort((a, b) => a.left - b.left)
+  const next =
+    event.code === KeyboardCode.Right
+      ? rects.find((r) => r.left > currentCoordinates.x)
+      : rects.findLast((r) => r.right <= currentCoordinates.x)
+  if (!next) return undefined
+  // Inside the column, near its top, so the card's rectangle overlaps that column and no other.
+  return { x: next.left + 8, y: next.top + 48 }
+}
+
+const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
+
+const SCREEN_READER_INSTRUCTIONS = {
+  draggable:
+    'To move this ticket, press Space, then the Left or Right arrow key to choose a column, then Space again to drop it. Press Escape to cancel.'
+}
+
+const DIRTY_MESSAGE ='This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
 
 export function Board(): ReactElement {
   const workspace = useMainbus((s) => s.workspace)
@@ -70,7 +102,10 @@ export function Board(): ReactElement {
   const [creating, setCreating] = useState(false)
   const openSettings = useMainbus((s) => s.openSettings)
   // A small drag distance keeps a plain click on a card a click.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: columnCoordinates })
+  )
 
   /**
    * Shows the card in the target column at once and asks the engine to move it; the engine refuses moves it
@@ -111,13 +146,63 @@ export function Board(): ReactElement {
     const shown = tickets.filter((t) => matchesSearch(t, search))
     return new Map(COLUMNS.map((c) => [c.id, shown.filter((t) => (pendingMoves[t.id] ?? t.state.column) === c.id)]))
   }, [tickets, pendingMoves, search])
+  // The empty state's New ticket button is gone once the first ticket exists, so focus can have nowhere to return to
+  // after the dialog closes: once the dialog is gone and focus is on nothing, send it to the header's button.
+  const closeNewTicket = useCallback((): void => {
+    setCreating(false)
+    const settle = (tries: number): void => {
+      if (document.querySelector('[role="dialog"]') && tries > 0) {
+        setTimeout(() => settle(tries - 1), 50)
+        return
+      }
+      setTimeout(() => {
+        const active = document.activeElement
+        if (!active || active === document.body) newTicketRef.current?.focus()
+      }, 50)
+    }
+    setTimeout(() => settle(20), 50)
+  }, [])
   const filtering = search.trim() !== ''
   const searchRef = useRef<HTMLInputElement>(null)
+  const newTicketRef = useRef<HTMLButtonElement>(null)
   const focusSearch = (): void => searchRef.current?.focus()
   useHotkeys([
     ['mod+K', focusSearch],
     ['/', focusSearch]
   ])
+
+  const moved = useRef(false)
+  const announcements = useMemo<Announcements>(() => {
+    const name = (id: unknown): string => {
+      const t = tickets.find((x) => x.id === id)
+      return t ? `ticket #${t.number} ${t.title}` : 'ticket'
+    }
+    const where = (id: unknown): string => {
+      const title = columnTitle(id)
+      return id === 'in_progress' ? `${title}, which proposes starting it` : title
+    }
+    return {
+      onDragStart: ({ active }) => {
+        moved.current = false
+        return `Picked up ${name(active.id)}.`
+      },
+      onDragOver: ({ active, over }) => {
+        if (!over) return `${name(active.id)} is not over a column.`
+        // dnd-kit reports the column the card started in right after the pick-up; that would drown "Picked up".
+        if (tickets.find((t) => t.id === active.id)?.state.column === over.id && !moved.current) return undefined
+        moved.current = true
+        return `${name(active.id)} is over ${where(over.id)}.`
+      },
+      onDragEnd: ({ active, over }) => {
+        if (!over) return `${name(active.id)} was dropped outside a column and stays where it was.`
+        if (over.id === 'in_progress') {
+          return `${name(active.id)} was dropped on In progress: the orchestrator panel proposes starting it.`
+        }
+        return `${name(active.id)} was dropped on ${columnTitle(over.id)}.`
+      },
+      onDragCancel: ({ active }) => `Moving ${name(active.id)} was cancelled; it stays where it was.`
+    }
+  }, [tickets])
 
   function onDragEnd({ active, over }: DragEndEvent): void {
     const target = over ? String(over.id) : null
@@ -168,7 +253,11 @@ export function Board(): ReactElement {
             <span aria-hidden>⚙</span>
           </ActionIcon>
           {/* The empty board offers its own New ticket button. */}
-          {!empty && <Button onClick={() => setCreating(true)}>New ticket</Button>}
+          {!empty && (
+            <Button ref={newTicketRef} onClick={() => setCreating(true)}>
+              New ticket
+            </Button>
+          )}
         </Group>
       </Group>
 
@@ -186,14 +275,20 @@ export function Board(): ReactElement {
           </Stack>
         </Center>
       ) : (
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        onDragEnd={onDragEnd}
+        accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
+      >
         <Box
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(6, minmax(220px, 1fr))',
             gap: 'var(--mantine-spacing-sm)',
             overflowX: 'auto',
-            alignItems: 'start'
+            alignItems: 'start',
+            // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
+            position: 'relative'
           }}
         >
           {COLUMNS.map((c) => (
@@ -214,7 +309,7 @@ export function Board(): ReactElement {
       </DndContext>
       )}
 
-      <NewTicketModal opened={creating} onClose={() => setCreating(false)} />
+      <NewTicketModal opened={creating} onClose={closeNewTicket} />
     </Stack>
   )
 }
@@ -260,9 +355,10 @@ const BoardColumn = memo(function BoardColumn({
         <Title order={3} size="h5" id={headingId}>
           {title}
         </Title>
-        <Badge variant="default" size="sm" circle data-testid="column-count">
+        <Badge variant="default" size="sm" circle data-testid="column-count" aria-hidden>
           {tickets.length}
         </Badge>
+        <VisuallyHidden>{tickets.length === 1 ? '1 ticket' : `${tickets.length} tickets`}</VisuallyHidden>
       </Group>
       <Stack gap="xs">
         {tickets.length === 0 && (
@@ -303,14 +399,26 @@ interface DraggableProps {
  */
 const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, changedAt, onOpen, onMove, onPropose }: DraggableProps): ReactElement {
   const moving = movingTo !== null
-  const { setNodeRef, listeners, transform, isDragging } = useDraggable({ id: ticket.id, disabled: moving })
+  const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
+    id: ticket.id,
+    disabled: moving
+  })
+  // Pointer drags start anywhere on the card; a keyboard drag only from the handle, so Enter on the title still opens.
+  const { onKeyDown: dragKeyDown, ...pointerListeners } = listeners ?? {}
+  const handleKeyDown = dragKeyDown as KeyboardEventHandler<HTMLButtonElement> | undefined
   const [menuOpen, setMenuOpen] = useState(false)
+  // The menu's target is the whole card, which can't take focus, so Mantine can't return it: do that here.
+  const opener = useRef<Element | null>(null)
+  const openMenu = (): void => {
+    opener.current = document.activeElement
+    setMenuOpen(true)
+  }
 
   function onKeyDown(e: KeyboardEvent): void {
     if (moving) return
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault()
-      setMenuOpen(true)
+      openMenu()
     }
   }
 
@@ -319,31 +427,62 @@ const DraggableTicket = memo(function DraggableTicket({ ticket, movingTo, change
       opened={menuOpen}
       // Only our own handlers open it; Menu.Target's built-in click toggle must not.
       onChange={(opened) => {
-        if (!opened) setMenuOpen(false)
+        if (opened) return
+        setMenuOpen(false)
+        const back = opener.current
+        opener.current = null
+        // A card moved to another column is a new element: find its title again.
+        setTimeout(() => {
+          const target = back instanceof HTMLElement && back.isConnected ? back : document.querySelector<HTMLElement>(`[data-card-title="${ticket.id}"]`)
+          target?.focus()
+        }, 0)
       }}
       position="bottom-start"
       withinPortal
     >
-      <Menu.Target>
-        <div
-          ref={setNodeRef}
-          {...listeners}
-          onKeyDown={onKeyDown}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            if (!moving) setMenuOpen(true)
-          }}
-          style={{
-            transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-            opacity: isDragging ? 0.8 : 1,
-            position: 'relative',
-            zIndex: isDragging ? 1 : undefined,
-            touchAction: 'none'
-          }}
-        >
-          <TicketCard ticket={ticket} cleaningUp={movingTo === 'done'} changedAt={changedAt} onOpen={onOpen} />
-        </div>
-      </Menu.Target>
+      <div
+        ref={setNodeRef}
+        {...pointerListeners}
+        onKeyDown={onKeyDown}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          if (!moving) openMenu()
+        }}
+        style={{
+          transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+          opacity: isDragging ? 0.8 : 1,
+          position: 'relative',
+          zIndex: isDragging ? 1 : undefined,
+          touchAction: 'none'
+        }}
+      >
+        <TicketCard
+          ticket={ticket}
+          cleaningUp={movingTo === 'done'}
+          changedAt={changedAt}
+          onOpen={onOpen}
+          handle={
+            // The handle is the menu's target too: a button can carry the menu's ARIA, the card's div can't.
+            <Menu.Target>
+              <ActionIcon
+                ref={setActivatorNodeRef}
+                {...attributes}
+                onKeyDown={handleKeyDown}
+                // The card's own click opens the ticket; the handle is not that.
+                onClick={(e) => e.stopPropagation()}
+                variant="subtle"
+                color="gray"
+                size="xs"
+                aria-label={`Move ticket #${ticket.number}`}
+                aria-disabled={moving}
+                style={{ cursor: 'grab' }}
+              >
+                <span aria-hidden>⠿</span>
+              </ActionIcon>
+            </Menu.Target>
+          }
+        />
+      </div>
       <Menu.Dropdown>
         {MANUAL.map((m) => (
           <Menu.Item key={m.id} disabled={moving || ticket.state.column === m.id} onClick={() => onMove(ticket, m.id)}>

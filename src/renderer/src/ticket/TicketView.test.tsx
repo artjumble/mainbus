@@ -5,7 +5,7 @@ import type { Decision, RoleStatus, StripRole, TicketState } from '../../../shar
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
-import { makeDecision, makeEvent, makeLineup, makeTicket, optionLabels, renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeEvent, makeLineup, makeTicket, optionLabels, renderWithMantine, workspace } from '../test-utils'
 import { TicketView } from './TicketView'
 
 vi.mock('../api', () => ({
@@ -650,5 +650,49 @@ describe('View previous run', () => {
     const activity = screen.getByRole('region', { name: 'Activity' })
     await userEvent.click(within(activity).getByRole('button', { name: 'View previous run' }))
     expect(screen.getByRole('region', { name: 'Previous run of the Implementer' })).toBeInTheDocument()
+  })
+})
+
+describe('accessibility', () => {
+  test('a ticket with no run, with the Adjust modal open, has no axe violations', async () => {
+    show({ column: 'ready' })
+    mockInvoke.mockImplementation(async (command: string) => (command === 'lineup.get' ? makeLineup() : command === 'thread.get' ? thread : undefined))
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
+    await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    await expectNoAxeViolations()
+  })
+
+  test('a running ticket with a thread and the Skip modal open has no axe violations', async () => {
+    const ticket = makeTicket(
+      { title: 'Add dark mode', number: 12, lineup: strip('p'), skipTo: 'Implementer' },
+      { phase: 'planning', agentStatus: 'working', column: 'in_progress' }
+    )
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    thread = {
+      events: [makeEvent({ kind: 'user_message', text: 'Begin' }), makeEvent({ kind: 'message', text: 'On it.' })],
+      decisions: [],
+      runs: [run]
+    }
+    renderWithMantine(<TicketView />)
+    await screen.findByText('On it.')
+    await expectNoAxeViolations()
+    await userEvent.click(screen.getByRole('button', { name: 'Skip to next role' }))
+    await screen.findByRole('dialog', { name: 'Skip to next role' })
+    await expectNoAxeViolations()
+  })
+
+  test('a waiting ticket with a pending question and a permission has no axe violations', async () => {
+    const ticket = show({ column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' })
+    const q = makeDecision({ id: 'dq', ticketId: ticket.id })
+    const p = makeDecision({ id: 'dp', ticketId: ticket.id, kind: 'permission', question: 'Run npm test?', options: [] })
+    thread = {
+      events: [makeEvent({ kind: 'decision', decisionId: 'dq' }), makeEvent({ kind: 'decision', decisionId: 'dp' })],
+      decisions: [q, p],
+      runs: [run]
+    }
+    renderWithMantine(<TicketView />)
+    await screen.findByText('Run npm test?')
+    await expectNoAxeViolations()
   })
 })

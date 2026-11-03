@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ToolRow } from './ToolRow'
 
 test('a ToolRow starts collapsed, showing the tool name and the result summary', () => {
@@ -24,4 +24,17 @@ test('a ToolRow without a result yet says it is running; a failed result is mark
   renderWithMantine(<ToolRow name="Bash" input={{}} result={{ ok: false, summary: 'exit 1' }} />)
   expect(screen.getByText('exit 1')).toBeInTheDocument()
   expect(screen.getByText('Failed')).toBeInTheDocument()
+})
+
+test('a collapsed, expanded, running and failed row have no axe violations', async () => {
+  renderWithMantine(
+    <>
+      <ToolRow name="Edit" input={{ file_path: 'a.ts' }} result={{ ok: true, summary: 'done' }} />
+      <ToolRow name="Bash" input={{}} />
+      <ToolRow name="Bash" input={{}} result={{ ok: false, summary: 'exit 1' }} />
+    </>
+  )
+  await expectNoAxeViolations()
+  await userEvent.click(screen.getByRole('button', { name: /Edit/ }))
+  await expectNoAxeViolations()
 })

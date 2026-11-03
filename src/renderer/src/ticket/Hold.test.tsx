@@ -6,7 +6,7 @@ import { invoke, onEngineEvent } from '../api'
 import { HoldChip } from '../board/HoldChip'
 import { TicketCard } from '../board/TicketCard'
 import { useMainbus } from '../store'
-import { makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { TicketView } from './TicketView'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -142,5 +142,16 @@ describe('Hold… in the ticket view', () => {
     useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
     renderWithMantine(<TicketView />)
     expect(screen.queryByRole('button', { name: 'Hold…' })).not.toBeInTheDocument()
+  })
+})
+
+describe('accessibility', () => {
+  test('the Hold… menu and a held ticket have no axe violations', async () => {
+    const ticket = makeTicket({ title: 'Add dark mode', number: 12, manualColumn: 'ready' }, { column: 'ready' })
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(screen.getByRole('button', { name: 'Hold…' }))
+    await screen.findByRole('menuitem', { name: 'Tomorrow' })
+    await expectNoAxeViolations()
   })
 })

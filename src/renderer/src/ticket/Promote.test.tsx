@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
-import { makeTicket, renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, makeTicket, renderWithMantine, workspace } from '../test-utils'
 import { ContextPane } from './ContextPane'
 import { PromoteModal } from './PromoteModal'
 import { TicketView } from './TicketView'
@@ -156,5 +156,13 @@ describe('the Promote button and the links between the tickets', () => {
     renderWithMantine(<ContextPane ticket={t} events={[]} decisions={[]} />)
     expect(screen.queryByRole('region', { name: 'Promotion' })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Investigation report' })).not.toBeInTheDocument()
+  })
+})
+
+describe('accessibility', () => {
+  test('the Promote modal has no axe violations', async () => {
+    renderWithMantine(<PromoteModal opened ticketId="t1" onClose={() => {}} />)
+    await screen.findByLabelText('Title')
+    await expectNoAxeViolations()
   })
 })

@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
 import { OpenWorkspace } from './OpenWorkspace'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -43,4 +43,9 @@ test('a folder the engine rejects shows its message', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   expect(await screen.findByText('C:\\not-a-repo is not a git repository')).toBeInTheDocument()
   expect(useMainbus.getState().workspace).toBeNull()
+})
+
+test('the screen has no axe violations', async () => {
+  renderWithMantine(<OpenWorkspace />)
+  await expectNoAxeViolations()
 })

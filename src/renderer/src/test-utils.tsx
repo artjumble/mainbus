@@ -1,5 +1,6 @@
 import { MantineProvider } from '@mantine/core'
 import { Notifications, notifications } from '@mantine/notifications'
+import axe from 'axe-core'
 import { render, within, type RenderResult } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
 import type { Decision, LineupRole, TicketState, Workspace } from '../../shared/domain'
@@ -137,4 +138,27 @@ export function makeLineup(): LineupRole[] {
     role('i', 2, 'Implementer', { handBackTo: 'p', toolProfile: 'edit' }),
     role('r', 3, 'Reviewer', { activePhase: 'reviewing', handBackTo: 'i' })
   ]
+}
+
+/**
+ * Fails when axe finds a violation in `container`. jsdom has no layout, so colour contrast is checked in the theme
+ * test and the e2e axe run instead; `region` is off because a single component is not a page.
+ *
+ * One known Mantine finding is let through: an open Menu's dropdown holds a `role="presentation"` focus anchor
+ * with a tabindex, which axe reports as aria-required-children on the menu. It is Mantine's own markup.
+ */
+export async function expectNoAxeViolations(
+  container: Element = document.body,
+  opts: { region?: boolean } = {}
+): Promise<void> {
+  const results = await axe.run(container, {
+    rules: { 'color-contrast': { enabled: false }, region: { enabled: opts.region ?? false } }
+  })
+  const lines = results.violations.flatMap((v) => {
+    const nodes = v.nodes.filter((n) => !(v.id === 'aria-required-children' && n.html.includes('data-menu-dropdown')))
+    if (nodes.length === 0) return []
+    const where = nodes.map((n) => `    ${n.target.join(' ')}: ${[...n.any, ...n.all].map((c) => c.message).join('; ')}`)
+    return [[`${v.id}: ${v.help}`, ...where].join('\n')]
+  })
+  expect(lines, 'axe violations').toEqual([])
 }

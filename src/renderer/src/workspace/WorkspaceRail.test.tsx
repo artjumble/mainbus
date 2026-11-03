@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine, workspace } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
 import { initials, WorkspaceRail } from './WorkspaceRail'
 
 vi.mock('../api', () => ({
@@ -148,4 +148,27 @@ test('Settings focuses the workspace first, then opens the drawer', async () => 
   await vi.waitFor(() => expect(useMainbus.getState().settingsOpen).toBe(true))
   expect(mockInvoke).toHaveBeenCalledWith('workspace.focus', 'b')
   expect(useMainbus.getState().workspace?.id).toBe('b')
+})
+
+describe('accessibility', () => {
+  test('the rail, its options menu and the Add and Remove dialogs have no axe violations', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await expectNoAxeViolations()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Options for bravo' }))
+    await screen.findByRole('menuitem', { name: 'Remove…' })
+    await expectNoAxeViolations()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Remove…' }))
+    await screen.findByRole('dialog')
+    await expectNoAxeViolations()
+  })
+
+  test('the Add workspace dialog has no axe violations', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+    await screen.findByRole('dialog')
+    await expectNoAxeViolations()
+  })
 })

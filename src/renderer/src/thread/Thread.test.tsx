@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
-import { makeDecision, makeEvent, renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, makeDecision, makeEvent, renderWithMantine } from '../test-utils'
 import { mergeEvent } from './merge'
 import { Thread as ThreadView } from './Thread'
 
@@ -412,4 +412,30 @@ test('a report is rendered as markdown in a Report region after the earlier rows
   expect(within(report).getByText('X').tagName).toBe('STRONG')
   const message = screen.getByText('Looking into it.')
   expect(message.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('a thread with every kind of event has no axe violations', async () => {
+  const events = [
+    ev({ kind: 'user_message', text: 'Please add dark mode' }),
+    ev({ kind: 'message', text: 'On it.' }),
+    ev({ kind: 'thinking', text: null, durationMs: 4200 }),
+    ev({ kind: 'thinking', text: 'Considering CSS variables' }),
+    ev({ kind: 'thinking', text: null, partial: true }),
+    ev({ kind: 'tool_call', id: 'c1', name: 'Edit', input: { file_path: 'theme.ts' } }),
+    ev({ kind: 'tool_result', id: 'c1', ok: true, summary: 'Edited theme.ts' }),
+    ev({ kind: 'nudge', text: 'You ended your turn without asking' }),
+    ev({ kind: 'handoff', summary: 'Dark mode is done', outcome: 'done' }),
+    ev({ kind: 'stopped' }),
+    ev({ kind: 'decision', decisionId: 'dq' }),
+    ev({ kind: 'decision', decisionId: 'dp' }),
+    ev({ kind: 'error', message: 'Something broke' })
+  ]
+  const decisions = [
+    makeDecision({ id: 'dq', question: 'Which palette?' }),
+    makeDecision({ id: 'dp', kind: 'permission', question: 'Run pnpm install?', options: [] })
+  ]
+  renderWithMantine(<Thread events={events} decisions={decisions} />)
+  await expectNoAxeViolations()
+  for (const button of screen.getAllByRole('button', { expanded: false })) await userEvent.click(button)
+  await expectNoAxeViolations()
 })

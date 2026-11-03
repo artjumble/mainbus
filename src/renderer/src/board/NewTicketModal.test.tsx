@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { renderWithMantine } from '../test-utils'
+import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { NewTicketModal } from './NewTicketModal'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -90,4 +90,11 @@ test('the Kind choice defaults to Change and sends Investigate when picked', asy
   await userEvent.type(screen.getByLabelText(/In your words/), 'Find out')
   await userEvent.click(create())
   expect(mockInvoke).toHaveBeenCalledWith('ticket.create', expect.objectContaining({ kind: 'investigate' }))
+})
+
+test('the open modal has no axe violations, empty or filled in', async () => {
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  await expectNoAxeViolations()
+  await userEvent.type(screen.getByLabelText(/Title/), 'Add dark mode')
+  await expectNoAxeViolations()
 })

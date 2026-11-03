@@ -1,6 +1,6 @@
 import { Anchor, Badge, Group, Loader, Paper, Text, UnstyledButton } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
-import { memo, useEffect, useState, type ReactElement } from 'react'
+import { memo, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import { waitingLabel } from '../../../shared/hold'
 import { queuedLabel } from '../../../shared/queue'
@@ -91,6 +91,8 @@ interface Props {
   /** When Mainbus last changed the card's column, phase or agent status (ms); it is outlined for a few seconds after. */
   changedAt?: number
   onOpen: (id: string) => void
+  /** The card's drag handle, shown beside its number. */
+  handle?: ReactNode
 }
 
 /** How long the outline fades, and how long it stays for people who prefer reduced motion. */
@@ -115,7 +117,7 @@ function useRecentlyChanged(changedAt: number | undefined, duration: number): bo
  * A board card: number, title and phase chip, a badge when an agent filed the ticket, a link to its pull request
  * once there is one, and in Needs you a one-line summary and an Answer control for a pending decision.
  */
-export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false, changedAt, onOpen }: Props): ReactElement {
+export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false, changedAt, onOpen, handle }: Props): ReactElement {
   const { state } = ticket
   const source = ticket.intent[0]?.source
   const reducedMotion = useReducedMotion()
@@ -138,18 +140,22 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       <Text size="xs" c="dimmed">
         #{ticket.number}
       </Text>
-      <UnstyledButton
-        mb={6}
-        style={{ display: 'block', textAlign: 'left', width: '100%' }}
-        onClick={(e) => {
-          e.stopPropagation()
-          onOpen(ticket.id)
-        }}
-      >
-        <Text fw={500} size="sm">
-          {ticket.title}
-        </Text>
-      </UnstyledButton>
+      {/* The handle sits beside the title, not above it, so their 44 px hit areas don't overlap. */}
+      <Group gap="xs" wrap="nowrap" align="flex-start" mb={6}>
+        <UnstyledButton
+          data-card-title={ticket.id}
+          style={{ display: 'block', textAlign: 'left', flex: 1, minWidth: 0 }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpen(ticket.id)
+          }}
+        >
+          <Text fw={500} size="sm">
+            {ticket.title}
+          </Text>
+        </UnstyledButton>
+        {handle}
+      </Group>
       <Group gap="xs">
         <PhaseChip state={state} />
         <PausedChip state={state} />
