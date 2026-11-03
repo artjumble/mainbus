@@ -7,15 +7,16 @@ import { isAppUrl } from './appUrl'
  * Connects the engine to the renderer: one invoke channel in, one event channel out.
  * A command that throws rejects in the renderer with the error's message (Electron includes its name).
  * Only the app's own page, in the window's top frame, may send commands or open the folder picker.
- * `testRepo` (test runs only) is what the folder picker answers instead of showing the dialog.
+ * `testRepos` (test runs only) are what the folder picker answers instead of showing the dialog, in order.
  * Returns a function that undoes the wiring.
  */
 export function registerIpc(
   engine: Engine,
   getWindow: () => BrowserWindow | null,
   appUrl: string,
-  testRepo: string | null = null
+  testRepos: string[] | null = null
 ): () => void {
+  let testPicks = 0
   const assertAppSender = (event: IpcMainInvokeEvent): void => {
     const frame = event.senderFrame
     if (
@@ -37,7 +38,8 @@ export function registerIpc(
 
   ipcMain.handle(OPEN_FOLDER_CHANNEL, async (event): Promise<string | null> => {
     assertAppSender(event)
-    if (testRepo) return testRepo
+    // The test folders in order, then the last again.
+    if (testRepos) return testRepos[Math.min(testPicks++, testRepos.length - 1)] ?? null
     const win = getWindow()
     const options = { properties: ['openDirectory' as const] }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)

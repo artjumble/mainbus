@@ -328,7 +328,7 @@ describe('moving a card without dragging', () => {
   })
 })
 
-test('the settings button in the header opens the workspace settings', async () => {
+test('the settings button in the header asks for the workspace settings', async () => {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'lineup.get') return makeLineup()
     if (command === 'allowRules.list') return []
@@ -336,7 +336,8 @@ test('the settings button in the header opens the workspace settings', async () 
     return { tickets: [] }
   })
   showBoard()
+  // The drawer itself lives in the app shell, so Settings also works from the ticket view.
   renderWithMantine(<Board />)
   await userEvent.click(screen.getByRole('button', { name: 'Workspace settings' }))
-  expect(await screen.findByRole('button', { name: 'Edit Implementer' })).toBeInTheDocument()
+  expect(useMainbus.getState().settingsOpen).toBe(true)
 })

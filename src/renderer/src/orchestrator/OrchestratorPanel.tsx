@@ -30,7 +30,8 @@ interface Props {
 export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const thread = useOrchestratorThread()
   const reveal = useMainbus((s) => s.revealedProposal)
-  const needsYou = useMainbus((s) => s.tickets.filter((t) => t.state.column === 'needs_you').length)
+  // Across every workspace: the strip is how you notice that one that isn't on screen needs you.
+  const needsYou = useMainbus((s) => s.workspaces.reduce((total, w) => total + w.needsYou, 0))
 
   if (!open) {
     return (

@@ -7,6 +7,7 @@ vi.mock('./api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: v
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 const initial = useMainbus.getState()
+const summary = { ...workspace, active: false, needsYou: 0 }
 
 beforeEach(() => {
   useMainbus.setState(initial, true)
@@ -25,6 +26,7 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'setup.check') return { ok: true, path: 'claude', version: '2.1.0' }
     if (command === 'workspace.get') return workspace
+    if (command === 'workspace.summaries') return [summary]
     if (command === 'board.get') return { tickets: [ticket] }
     if (command === 'unattended.get') return { on: true, status: { kind: 'working', ticketNumber: 3 } }
     if (command === 'usage.get') return { kind: 'ok' }
@@ -36,12 +38,14 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
   expect(s.workspace).toEqual(workspace)
   expect(s.workspaceLoaded).toBe(true)
   expect(s.tickets).toEqual([ticket])
+  expect(s.workspaces).toEqual([summary])
   expect(s.unattended).toEqual({ on: true, status: { kind: 'working', ticketNumber: 3 } })
 })
 
 test('openWorkspace stores the workspace and loads its board', async () => {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'workspace.open') return workspace
+    if (command === 'workspace.summaries') return [summary]
     if (command === 'board.get') return { tickets: [] }
     throw new Error(`unexpected ${command}`)
   })
@@ -83,6 +87,7 @@ test('startSync refreshes the board on board.changed and stops after unsubscribe
   })
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'setup.check') return { ok: false, reason: 'not_logged_in', detail: '' }
+    if (command === 'workspace.summaries') return []
     if (command === 'board.get') return { tickets: [makeTicket({ title: 'fresh' })] }
     throw new Error(`unexpected ${command}`)
   })
@@ -132,6 +137,7 @@ test('20 board.changed events during one refresh cost at most two board.get call
   const releases: ((v: unknown) => void)[] = []
   mockInvoke.mockImplementation((command: string) => {
     if (command === 'setup.check') return Promise.resolve({ ok: false, reason: 'not_found', detail: '' })
+    if (command === 'workspace.summaries') return Promise.resolve([])
     return new Promise((r) => releases.push(r)) // board.get stays pending until released
   })
   startSync(vi.fn())
@@ -156,6 +162,7 @@ test('a refresh failure is reported once until a refresh succeeds again', async 
   let boardFails = true
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'setup.check') return { ok: false, reason: 'not_found', detail: '' }
+    if (command === 'workspace.summaries') return []
     if (boardFails) throw new Error('board down')
     return { tickets: [] }
   })
@@ -223,6 +230,7 @@ test('1,000 board.changed events in a tight loop cost a handful of board.get cal
   const ticket = makeTicket()
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'setup.check') return { ok: false, reason: 'not_found', detail: '' }
+    if (command === 'workspace.summaries') return []
     return { tickets: [structuredClone(ticket)] }
   })
   const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -246,7 +254,11 @@ test('stopping the sync cancels a refresh that was waiting out the throttle wind
     return () => {}
   })
   mockInvoke.mockImplementation(async (command: string) =>
-    command === 'setup.check' ? { ok: false, reason: 'not_found', detail: '' } : { tickets: [] }
+    command === 'setup.check'
+      ? { ok: false, reason: 'not_found', detail: '' }
+      : command === 'workspace.summaries'
+        ? []
+        : { tickets: [] }
   )
   const stop = startSync(vi.fn())
   await vi.waitFor(() => expect(useMainbus.getState().setup).not.toBeNull())
@@ -256,4 +268,52 @@ test('stopping the sync cancels a refresh that was waiting out the throttle wind
   stop()
   await new Promise((r) => setTimeout(r, 300))
   expect(mockInvoke.mock.calls.filter(([c]) => c === 'board.get')).toHaveLength(1)
+})
+
+test('the rail counts load at launch, and follow board.changed and decision.changed of any workspace', async () => {
+  let listener: (e: EngineEvent) => void = () => {}
+  vi.mocked(onEngineEvent).mockImplementation((l) => {
+    listener = l
+    return () => {}
+  })
+  let needsYou = 0
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'setup.check') return { ok: true, path: 'claude', version: '2.1.0' }
+    if (command === 'workspace.get') return workspace
+    if (command === 'workspace.summaries') return [{ ...workspace, active: false, needsYou }]
+    if (command === 'board.get') return { tickets: [] }
+    if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
+    if (command === 'usage.get') return { kind: 'ok' }
+    throw new Error(`unexpected ${command}`)
+  })
+  const stop = startSync(vi.fn())
+  await vi.waitFor(() => expect(useMainbus.getState().workspaces).toHaveLength(1))
+  expect(useMainbus.getState().workspaces[0]?.needsYou).toBe(0)
+
+  needsYou = 2
+  // Not the focused workspace: the board is left alone, the rail still counts it.
+  listener({ type: 'board.changed', workspaceId: 'other' })
+  await vi.waitFor(() => expect(useMainbus.getState().workspaces[0]?.needsYou).toBe(2))
+  expect(mockInvoke.mock.calls.filter(([c]) => c === 'board.get')).toHaveLength(1)
+  stop()
+})
+
+test('focusWorkspace focuses it, closes an open ticket and shows its board', async () => {
+  const other = { ...workspace, id: 'w9', name: 'other' }
+  let focusedNow = workspace
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'workspace.focus') {
+      focusedNow = other
+      return other
+    }
+    if (command === 'workspace.get') return focusedNow
+    if (command === 'board.get') return { tickets: [] }
+    if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
+    throw new Error(`unexpected ${command} ${String(args)}`)
+  })
+  useMainbus.setState({ workspace, currentTicketId: 't1' })
+  await useMainbus.getState().focusWorkspace('w9')
+  expect(mockInvoke).toHaveBeenCalledWith('workspace.focus', 'w9')
+  expect(useMainbus.getState().workspace?.id).toBe('w9')
+  expect(useMainbus.getState().currentTicketId).toBeNull()
 })

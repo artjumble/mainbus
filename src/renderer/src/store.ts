@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { BoardTicket } from '../../shared/api'
+import type { BoardTicket, WorkspaceSummary } from '../../shared/api'
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { invoke, onEngineEvent } from './api'
 import { errorMessage } from './notify'
@@ -15,6 +15,10 @@ interface MainbusState {
   workspace: Workspace | null
   /** False until the first workspace lookup answers, so the screen doesn't flash "open a folder". */
   workspaceLoaded: boolean
+  /** Every open workspace with its rail counts, oldest first; empty until the first read. */
+  workspaces: WorkspaceSummary[]
+  /** The workspace settings drawer (it shows the focused workspace). */
+  settingsOpen: boolean
   tickets: BoardTicket[]
   /** Why the first load failed, shown with a Try again button; null otherwise. */
   loadError: string | null
@@ -39,6 +43,14 @@ interface MainbusState {
   load(): Promise<void>
   checkSetup(): Promise<void>
   openWorkspace(repoPath: string): Promise<void>
+  /** Reads the rail's summaries. Runs one at a time: a call made meanwhile waits and reads once more afterwards. */
+  refreshWorkspaces(): Promise<void>
+  /** Makes the workspace the focused one; the board shows it and an open ticket view closes. */
+  focusWorkspace(id: string): Promise<void>
+  /** Removes the workspace from Mainbus (never its repo); rejects with the engine's refusal. Returns the ticket folders it kept. */
+  removeWorkspace(id: string): Promise<{ keptFolders: string[] }>
+  openSettings(): void
+  closeSettings(): void
   /** Reads the board. Runs one at a time: a call made meanwhile waits and reads once more afterwards. */
   refreshBoard(): Promise<void>
   /** Re-reads the focused workspace, its board and its unattended state, after focus moved or a workspace opened or was removed. */
@@ -88,15 +100,38 @@ function stabilize(previous: BoardTicket[], next: BoardTicket[]): BoardTicket[] 
 /** Board refreshes triggered by engine events are at most this far apart. */
 const BOARD_REFRESH_WINDOW_MS = 150
 
-// At most one board read is in flight. Asking again meanwhile shares a single trailing read (the engine
-// announces board.changed for every thread event, and reads must not pile up).
-let running: Promise<void> | null = null
-let trailing: Promise<void> | null = null
+/**
+ * Wraps a read so at most one is in flight. Asking again meanwhile shares a single trailing read (the engine
+ * announces board.changed for every thread event, and reads must not pile up).
+ */
+function oneAtATime(read: () => Promise<void>): () => Promise<void> {
+  let running: Promise<void> | null = null
+  let trailing: Promise<void> | null = null
+  const next = (): Promise<void> => {
+    if (!running) {
+      const mine = read().finally(() => {
+        running = null
+      })
+      running = mine
+      return mine
+    }
+    trailing ??= running
+      .catch(() => {})
+      .then(() => {
+        trailing = null
+        return next()
+      })
+    return trailing
+  }
+  return next
+}
 
 export const useMainbus = create<MainbusState>()((set, get) => ({
   setup: null,
   workspace: null,
   workspaceLoaded: false,
+  workspaces: [],
+  settingsOpen: false,
   tickets: [],
   loadError: null,
   currentTicketId: null,
@@ -120,6 +155,8 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     if (!setup.ok) return
     const workspace = await invoke('workspace.get')
     set({ workspace, workspaceLoaded: true })
+    // The rail's counts come from stored state, so they show at once.
+    await get().refreshWorkspaces()
     if (workspace) await get().refreshBoard()
     set({ unattended: await invoke('unattended.get'), usage: await invoke('usage.get') })
   },
@@ -127,8 +164,28 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   async openWorkspace(repoPath) {
     const workspace = await invoke('workspace.open', repoPath)
     set({ workspace, workspaceLoaded: true })
-    await get().refreshBoard()
+    await Promise.all([get().refreshBoard(), get().refreshWorkspaces()])
   },
+
+  refreshWorkspaces: oneAtATime(async () => {
+    const workspaces = await invoke('workspace.summaries')
+    if (!isEqual(workspaces, get().workspaces)) set({ workspaces })
+  }),
+
+  async focusWorkspace(id) {
+    await invoke('workspace.focus', id)
+    await get().reloadFocused()
+  },
+
+  async removeWorkspace(id) {
+    const result = await invoke('workspace.remove', id)
+    await get().reloadFocused()
+    await get().refreshWorkspaces()
+    return result
+  },
+
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
 
   async reloadFocused() {
     const workspace = await invoke('workspace.get')
@@ -139,27 +196,11 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     set({ unattended: await invoke('unattended.get') })
   },
 
-  refreshBoard() {
-    const read = async (): Promise<void> => {
-      const { tickets } = await invoke('board.get')
-      const stable = stabilize(get().tickets, tickets)
-      if (stable !== get().tickets) set({ tickets: stable })
-    }
-    if (!running) {
-      const mine = read().finally(() => {
-        running = null
-      })
-      running = mine
-      return mine
-    }
-    trailing ??= running
-      .catch(() => {})
-      .then(() => {
-        trailing = null
-        return get().refreshBoard()
-      })
-    return trailing
-  },
+  refreshBoard: oneAtATime(async () => {
+    const { tickets } = await invoke('board.get')
+    const stable = stabilize(get().tickets, tickets)
+    if (stable !== get().tickets) set({ tickets: stable })
+  }),
 
   openTicket: (id) => set({ currentTicketId: id }),
   closeTicket: () => set({ currentTicketId: null }),
@@ -203,26 +244,8 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
  * works again. Returns the unsubscribe function.
  */
 export function startSync(onError: (err: unknown) => void): () => void {
-  let reported = false
-  let lastRefresh = 0
-  let timer: ReturnType<typeof setTimeout> | null = null
-
-  function refresh(): void {
-    lastRefresh = Date.now()
-    useMainbus
-      .getState()
-      .refreshBoard()
-      .then(
-        () => {
-          reported = false
-        },
-        (err: unknown) => {
-          if (reported) return
-          reported = true
-          onError(err)
-        }
-      )
-  }
+  const board = throttled(() => useMainbus.getState().refreshBoard(), onError)
+  const rail = throttled(() => useMainbus.getState().refreshWorkspaces(), onError)
 
   const off = onEngineEvent((e) => {
     if (e.type === 'unattended.changed') {
@@ -238,26 +261,65 @@ export function startSync(onError: (err: unknown) => void): () => void {
       useMainbus.setState({ usage: e.state })
       return
     }
+    // The rail counts every workspace.
+    if (e.type === 'decision.changed') rail.request()
     if (e.type !== 'board.changed') return
+    rail.request()
     // Only the focused workspace's board is on screen.
     if (e.workspaceId !== useMainbus.getState().workspace?.id) return
-    // A burst (every thread event announces a change) costs one refresh per window: the first runs at once,
-    // the rest wait for one trailing refresh.
-    if (timer) return
-    const wait = lastRefresh + BOARD_REFRESH_WINDOW_MS - Date.now()
-    if (wait <= 0) {
-      refresh()
-      return
-    }
-    timer = setTimeout(() => {
-      timer = null
-      refresh()
-    }, wait)
+    board.request()
   })
   void useMainbus.getState().load()
   return () => {
     off()
-    if (timer) clearTimeout(timer)
-    timer = null
+    board.cancel()
+    rail.cancel()
+  }
+}
+
+/**
+ * Runs `refresh` for requests at most once per window: a burst (every thread event announces a change) costs one
+ * refresh per window: the first runs at once, the rest wait for one trailing refresh. A failing refresh goes to
+ * `onError`, once, until a refresh works again.
+ */
+function throttled(
+  refresh: () => Promise<void>,
+  onError: (err: unknown) => void
+): { request(): void; cancel(): void } {
+  let reported = false
+  let lastRefresh = 0
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  function run(): void {
+    lastRefresh = Date.now()
+    refresh().then(
+      () => {
+        reported = false
+      },
+      (err: unknown) => {
+        if (reported) return
+        reported = true
+        onError(err)
+      }
+    )
+  }
+
+  return {
+    request() {
+      if (timer) return
+      const wait = lastRefresh + BOARD_REFRESH_WINDOW_MS - Date.now()
+      if (wait <= 0) {
+        run()
+        return
+      }
+      timer = setTimeout(() => {
+        timer = null
+        run()
+      }, wait)
+    },
+    cancel() {
+      if (timer) clearTimeout(timer)
+      timer = null
+    }
   }
 }

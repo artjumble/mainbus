@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'vitest'
-import { testClockStartFromEnv, testRepoFromEnv } from './testHooks'
+import path from 'node:path'
+import { testClockStartFromEnv, testReposFromEnv as testRepoFromEnv } from './testHooks'
 
 const test_env = { MAINBUS_HOME: '/tmp/h', MAINBUS_RUNTIME: 'fake:e2e/script.json', MAINBUS_TEST_REPO: '/tmp/repo' }
 
-describe('testRepoFromEnv', () => {
+describe('testReposFromEnv', () => {
   test('is the repo when a test home and a fake runtime are set', () => {
-    expect(testRepoFromEnv(test_env)).toBe('/tmp/repo')
+    expect(testRepoFromEnv(test_env)).toEqual(['/tmp/repo'])
+  })
+
+  test('lists several folders split on the path delimiter, dropping empty parts', () => {
+    const list = ['/tmp/a', '/tmp/b'].join(path.delimiter)
+    expect(testRepoFromEnv({ ...test_env, MAINBUS_TEST_REPO: `${list}${path.delimiter}` })).toEqual(['/tmp/a', '/tmp/b'])
   })
 
   test('is ignored without MAINBUS_HOME, so a stray variable cannot skip the folder dialog', () => {
@@ -20,6 +26,7 @@ describe('testRepoFromEnv', () => {
   test('is null when unset or empty', () => {
     expect(testRepoFromEnv({ ...test_env, MAINBUS_TEST_REPO: undefined })).toBeNull()
     expect(testRepoFromEnv({ ...test_env, MAINBUS_TEST_REPO: '' })).toBeNull()
+    expect(testRepoFromEnv({ ...test_env, MAINBUS_TEST_REPO: path.delimiter })).toBeNull()
   })
 })
 
