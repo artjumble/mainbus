@@ -27,10 +27,10 @@ export function initials(name: string): string {
 }
 
 function describe(w: WorkspaceSummary): string {
-  const parts = [w.name]
-  if (w.active) parts.push('agents working')
-  if (w.needsYou > 0) parts.push(`${w.needsYou} need you`)
-  return parts.join(' · ')
+  // The name and the count come first and unpunctuated, as they read on screen ("repo 1"), so the label contains
+  // the button's visible text.
+  const named = w.needsYou > 0 ? `${w.name} ${w.needsYou} need you` : w.name
+  return w.active ? `${named} · agents working` : named
 }
 
 /** The left rail: every open workspace with its activity and needs-you count, and a way to add one. */
@@ -61,7 +61,8 @@ export function WorkspaceRail(): ReactElement {
   }
 
   return (
-    <Stack component="nav" aria-label="Workspaces" gap="xs" p="xs" h="100%" justify="space-between">
+    // The bottom padding leaves room for the Add workspace button's 44 px hit area.
+    <Stack component="nav" aria-label="Workspaces" gap="xs" p="xs" pb="md" h="100%" justify="space-between">
       <Stack gap={4}>
         {workspaces.map((w) => (
           <Group key={w.id} gap={2} wrap="nowrap" justify="space-between">
@@ -95,13 +96,18 @@ export function WorkspaceRail(): ReactElement {
                   <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate visibleFrom="lg">
                     {w.name}
                   </Text>
-                  <Text size="sm" fw={w.id === focusedId ? 700 : 500} hiddenFrom="lg">
+                  {/* The button's label already says all of this, so the initials stay out of the screen reader's name. */}
+                  <Text size="sm" fw={w.id === focusedId ? 700 : 500} hiddenFrom="lg" aria-hidden>
                     {initials(w.name)}
                   </Text>
                   {w.needsYou > 0 && (
-                    <Badge color="needs" variant="filled" circle data-needs-you role="img" aria-label={`${w.needsYou} need you`}>
+                    <>
+                      {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}
+                      {' '}
+                    <Badge color="needs" variant="filled" circle data-needs-you role="img" aria-hidden aria-label={`${w.needsYou} need you`}>
                       {w.needsYou}
                     </Badge>
+                    </>
                   )}
                 </Group>
               </UnstyledButton>

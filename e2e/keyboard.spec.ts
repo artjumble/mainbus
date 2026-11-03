@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -142,7 +143,9 @@ test('the core flow works by keyboard alone: create, start, answer, move', async
     // Each step is announced for screen readers; waiting for that also gives dnd-kit time to take the next key.
     const announced = page.locator('[id^="DndLiveRegion"]')
     await page.keyboard.press('Space')
-    await expect(announced).toContainText('ticket #2 Second ticket is over Backlog')
+    await expect(announced).toContainText('Picked up ticket #2 Second ticket')
+    // dnd-kit starts listening for the next key a moment after it announces the pick-up.
+    await page.waitForTimeout(200)
     await page.keyboard.press('ArrowRight')
     await expect(announced).toContainText('ticket #2 Second ticket is over Ready')
     await page.keyboard.press('Space')

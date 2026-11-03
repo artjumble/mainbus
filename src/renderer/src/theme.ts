@@ -4,10 +4,15 @@ import {
   Button,
   CloseButton,
   Drawer,
+  Input,
   Loader,
   Menu,
   Modal,
   Popover,
+  Checkbox,
+  Radio,
+  Switch,
+  Tabs,
   UnstyledButton,
   type CSSVariablesResolver,
   type MantineColorsTuple,
@@ -90,6 +95,10 @@ export const palette = {
   border: '#CFCFCA'
 } as const
 
+// Mantine's close buttons have no name of their own, and its dialog title bar is a <header>, which would be a
+// second banner landmark next to the app's.
+const dialog = { closeButtonProps: { 'aria-label': 'Close' }, attributes: { header: { role: 'presentation' } } }
+
 export const theme: MantineThemeOverride = {
   fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
   headings: { fontFamily: 'inherit' },
@@ -107,13 +116,18 @@ export const theme: MantineThemeOverride = {
     CloseButton: CloseButton.extend({ classNames: { root: targets.target } }),
     UnstyledButton: UnstyledButton.extend({ classNames: { root: targets.target } }),
     Anchor: Anchor.extend({ classNames: { root: targets.target } }),
+    Input: Input.extend({ classNames: { input: targets.field } }),
     Menu: Menu.extend({ classNames: { item: targets.menuItem } }),
     Loader: Loader.extend({ classNames: { root: targets.loader } }),
-    // Mantine's close buttons have no name of their own.
-    Modal: Modal.extend({ defaultProps: { closeButtonProps: { 'aria-label': 'Close' } } }),
+    Modal: Modal.extend({ defaultProps: dialog }),
+    Tabs: Tabs.extend({ classNames: { tab: targets.tab } }),
+    // A choice's label is what a click on it toggles, so the label itself is 44 px tall, and its rows 44 px apart.
+    Checkbox: Checkbox.extend({ classNames: { root: targets.choice, label: targets.choiceLabel } }),
+    Radio: Radio.extend({ classNames: { root: targets.choice, label: targets.choiceLabel } }),
+    Switch: Switch.extend({ classNames: { root: targets.choice, label: targets.choiceLabel } }),
     // Esc closes a popover, and focus goes back to what opened it.
     Popover: Popover.extend({ defaultProps: { returnFocus: true } }),
-    Drawer: Drawer.extend({ defaultProps: { closeButtonProps: { 'aria-label': 'Close' } } })
+    Drawer: Drawer.extend({ defaultProps: dialog })
   }
 }
 

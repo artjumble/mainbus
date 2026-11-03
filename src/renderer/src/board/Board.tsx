@@ -171,6 +171,7 @@ export function Board(): ReactElement {
     ['/', focusSearch]
   ])
 
+  const moved = useRef(false)
   const announcements = useMemo<Announcements>(() => {
     const name = (id: unknown): string => {
       const t = tickets.find((x) => x.id === id)
@@ -181,9 +182,17 @@ export function Board(): ReactElement {
       return id === 'in_progress' ? `${title}, which proposes starting it` : title
     }
     return {
-      onDragStart: ({ active }) => `Picked up ${name(active.id)}.`,
-      onDragOver: ({ active, over }) =>
-        over ? `${name(active.id)} is over ${where(over.id)}.` : `${name(active.id)} is not over a column.`,
+      onDragStart: ({ active }) => {
+        moved.current = false
+        return `Picked up ${name(active.id)}.`
+      },
+      onDragOver: ({ active, over }) => {
+        if (!over) return `${name(active.id)} is not over a column.`
+        // dnd-kit reports the column the card started in right after the pick-up; that would drown "Picked up".
+        if (tickets.find((t) => t.id === active.id)?.state.column === over.id && !moved.current) return undefined
+        moved.current = true
+        return `${name(active.id)} is over ${where(over.id)}.`
+      },
       onDragEnd: ({ active, over }) => {
         if (!over) return `${name(active.id)} was dropped outside a column and stays where it was.`
         if (over.id === 'in_progress') {

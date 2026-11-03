@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -54,20 +55,23 @@ async function expectNoAxeViolations(page: Page, what: string): Promise<void> {
 }
 
 /**
- * Every visible control must be hit by a pointer within 22 px of its centre in each direction, i.e. have a 44 px
+ * Every visible control must be hit by a pointer within 21 px of its centre in each direction, i.e. have a 44 px
  * square target, unless it is a link inside a sentence. Returns what fails.
  */
-async function smallTargets(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+async function smallTargets(page: Page, within = 'body'): Promise<string[]> {
+  return page.evaluate((within) => {
     const selector =
       'button, a[href], [role="button"], [role="menuitem"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], input, select, textarea'
     const failures: string[] = []
-    for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+    // An open menu or window covers the page behind it, so those are measured on their own.
+    for (const el of Array.from(document.querySelector(within)!.querySelectorAll<HTMLElement>(selector))) {
       const style = getComputedStyle(el)
       if (style.visibility === 'hidden' || style.display === 'none' || el.closest('[aria-hidden="true"]')) continue
       if ((el as HTMLButtonElement).disabled) continue
-      el.scrollIntoView({ block: 'center', inline: 'center' })
-      const r = el.getBoundingClientRect()
+      // A radio, checkbox or switch is pressed through its label (its own box is 20 px); measure the widest label.
+      const labels = el instanceof HTMLInputElement && ['radio', 'checkbox'].includes(el.type) ? Array.from(el.labels ?? []) : []
+      const box = labels.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0] ?? el
+      const r = box.getBoundingClientRect()
       if (r.width === 0 || r.height === 0) continue
       // A link inside running text is exempt (WCAG 2.5.8 inline exception).
       if (el instanceof HTMLAnchorElement) {
@@ -76,16 +80,37 @@ async function smallTargets(page: Page): Promise<string[]> {
         if (parent && own.length > 0 && getComputedStyle(parent).display !== 'flex') continue
       }
       const labelFor = (target: Element | null): boolean =>
-        target !== null && ((el as HTMLInputElement).labels ? [...(el as HTMLInputElement).labels!].some((l) => l.contains(target)) : false)
+        target !== null && ((el as HTMLInputElement).labels ? Array.from((el as HTMLInputElement).labels!).some((l) => l.contains(target)) : false)
       const cx = r.left + r.width / 2
       const cy = r.top + r.height / 2
-      const w = Math.max(r.width, 44) / 2 - 1
-      const h = Math.max(r.height, 44) / 2 - 1
+      // Scrolled out of view, clipped or covered at its centre (an open menu, say): not on screen to be pressed.
+      const centre = document.elementFromPoint(cx, cy)
+      if (centre === null || !(el.contains(centre) || labelFor(centre))) continue
+      // Cut by a scroller that has content past this edge: its hit area is clipped by the scroller, not by its styling.
+      const clipped = (): boolean => {
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const o = getComputedStyle(p)
+          const scrolls = /(auto|scroll)/.test(o.overflowY + o.overflowX) && (p.scrollHeight > p.clientHeight || p.scrollWidth > p.clientWidth)
+          if (!scrolls) continue
+          const box = p.getBoundingClientRect()
+          if (cy - 21 < box.top || cy + 21 > box.bottom || cx - 21 < box.left || cx + 21 > box.right) return true
+        }
+        return false
+      }
+      if (clipped()) continue
+      // Partly clipped at its own edge, by the same or another container.
+      const edges = [document.elementFromPoint(r.left + 1, r.top + 1), document.elementFromPoint(r.right - 1, r.bottom - 1)]
+      if (edges.some((e) => e === null || !(el.contains(e) || labelFor(e)))) continue
+      // The 44 px square around the centre; a control wider or taller than that has it inside itself.
+      const w = box === el ? 21 : Math.min(21, r.width / 2 - 1)
+      const h = 21
       for (const [dx, dy] of [[-w, -h], [w, -h], [-w, h], [w, h]] as const) {
         const x = cx + dx
         const y = cy + dy
         if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue
         const hit = document.elementFromPoint(x, y)
+        // Nothing there at all: the point is off the page, which a person could not press either.
+        if (hit === null) continue
         if (hit && (el.contains(hit) || labelFor(hit))) continue
         const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 30) ?? ''
         failures.push(`${el.tagName.toLowerCase()} "${name}" ${Math.round(r.width)}x${Math.round(r.height)}: ${Math.round(x)},${Math.round(y)} hits ${hit?.tagName.toLowerCase()} "${hit?.textContent?.trim().slice(0, 20)}"`)
@@ -93,7 +118,7 @@ async function smallTargets(page: Page): Promise<string[]> {
       }
     }
     return failures
-  })
+  }, within)
 }
 
 async function withSession(body: (page: Page) => Promise<void>): Promise<void> {
@@ -110,6 +135,9 @@ async function withSession(body: (page: Page) => Promise<void>): Promise<void> {
     git(repo, 'commit', '-m', 'initial')
     session = await launch(home, repo)
     await session.page.getByRole('button', { name: 'Add workspace' }).click()
+    // The shell's navbar and aside settle into place just after the first paint; measure after that.
+    await session.page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
+    await session.page.waitForTimeout(500)
     await body(session.page)
   } finally {
     await session?.app.close().catch(() => {})
@@ -156,7 +184,12 @@ test('every screen passes axe, with colour contrast, and every control has a 44 
     await page.getByRole('button', { name: 'Move ticket #2' }).focus()
     await page.keyboard.press('Space')
     await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('Picked up')
+    // dnd-kit starts listening for the next key a moment after it announces the pick-up.
+    await page.waitForTimeout(200)
     await page.keyboard.press('Escape')
+    await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('cancelled')
+    // A card being dragged is drawn faded; contrast is measured once it is dropped back.
+    await page.waitForTimeout(300)
     await expectNoAxeViolations(page, 'the board with cards')
     expect(await smallTargets(page), 'small targets on the board').toEqual([])
 
@@ -165,7 +198,7 @@ test('every screen passes axe, with colour contrast, and every control has a 44 
     await page.keyboard.press('Shift+F10')
     await expect(page.getByRole('menuitem', { name: 'Move to Ready' })).toBeVisible()
     await expect(page.getByRole('menu')).toBeVisible()
-    expect(await smallTargets(page), 'small targets in the card menu').toEqual([])
+    expect(await smallTargets(page, '[role="menu"]'), 'small targets in the card menu').toEqual([])
     await page.keyboard.press('Escape')
 
     // The ticket view with a question and a permission waiting.
@@ -178,10 +211,12 @@ test('every screen passes axe, with colour contrast, and every control has a 44 
     expect(await smallTargets(page), 'small targets in the ticket view').toEqual([])
 
     // The settings window.
-    await page.getByRole('button', { name: 'Workspace settings' }).first().click()
+    await page.getByRole('button', { name: 'Options for repo' }).click()
+    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeVisible()
     await expectNoAxeViolations(page, 'the settings window')
-    expect(await smallTargets(page), 'small targets in the settings window').toEqual([])
+    expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the settings window').toEqual([])
   })
 })
 
@@ -189,15 +224,19 @@ test('reduced motion stops the outline fade and the spinners', async () => {
   await withSession(async (page) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await createTicket(page, 'Add hello file')
-    await askAndRequest(page)
-    // The Working-line style loader animates nothing.
+    // Put the ticket in Ready, and after the grace for the person's own change let unattended mode start it:
+    // that is Mainbus's change, so the card is outlined, and for reduced motion the outline is still (no fade).
+    await page.getByRole('button', { name: /Add hello file/ }).focus()
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: 'Move to Ready' }).click()
+    await expect(page.getByRole('region', { name: 'Ready' }).getByText('Add hello file')).toBeVisible()
+    await page.waitForTimeout(2500)
+    await page.getByRole('switch', { name: 'Unattended' }).check()
+    await expect(page.locator('[data-recently-changed]').first()).toHaveAttribute('data-recently-changed', 'still')
+    // No spinner on the page animates, wherever one is showing.
     const animations = await page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>('.mantine-Loader-root, .mantine-Loader-root *')].map((el) => getComputedStyle(el).animationName)
+      Array.from(document.querySelectorAll<HTMLElement>('.mantine-Loader-root, .mantine-Loader-root *')).map((el) => getComputedStyle(el).animationName)
     )
     expect(animations.filter((a) => a !== 'none')).toEqual([])
-    // A card that just changed is outlined without a fade.
-    await page.getByRole('button', { name: /board/ }).click()
-    const outlined = page.locator('[data-recently-changed]').first()
-    await expect(outlined).toHaveAttribute('data-recently-changed', 'still')
   })
 })

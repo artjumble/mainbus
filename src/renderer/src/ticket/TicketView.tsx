@@ -229,7 +229,8 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
       ) : (
         <Flex direction="column" flex={1} miw={0}>
           <LineupStrip roles={ticket.lineup} />
-          <Group px="md" py="xs" gap="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+          {/* When the buttons wrap, rows 18 px apart keep each button's 44 px hit area clear of the next row's. */}
+          <Group px="md" py="xs" gap="sm" style={{ rowGap: 18, borderBottom: '1px solid var(--mantine-color-default-border)' }}>
             {activeRole && (
               <Text size="sm" fw={600}>
                 {activeRole.name}

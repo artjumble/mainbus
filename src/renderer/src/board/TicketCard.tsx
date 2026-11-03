@@ -137,25 +137,25 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       style={{ cursor: 'pointer', ...(recent && !reducedMotion ? { animationDelay: `-${Date.now() - changedAt!}ms` } : {}) }}
       onClick={() => onOpen(ticket.id)}
     >
-      <Group justify="space-between" gap="xs" wrap="nowrap">
-        <Text size="xs" c="dimmed">
-          #{ticket.number}
-        </Text>
+      <Text size="xs" c="dimmed">
+        #{ticket.number}
+      </Text>
+      {/* The handle sits beside the title, not above it, so their 44 px hit areas don't overlap. */}
+      <Group gap="xs" wrap="nowrap" align="flex-start" mb={6}>
+        <UnstyledButton
+          data-card-title={ticket.id}
+          style={{ display: 'block', textAlign: 'left', flex: 1, minWidth: 0 }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpen(ticket.id)
+          }}
+        >
+          <Text fw={500} size="sm">
+            {ticket.title}
+          </Text>
+        </UnstyledButton>
         {handle}
       </Group>
-      <UnstyledButton
-        mb={6}
-        data-card-title={ticket.id}
-        style={{ display: 'block', textAlign: 'left', width: '100%' }}
-        onClick={(e) => {
-          e.stopPropagation()
-          onOpen(ticket.id)
-        }}
-      >
-        <Text fw={500} size="sm">
-          {ticket.title}
-        </Text>
-      </UnstyledButton>
       <Group gap="xs">
         <PhaseChip state={state} />
         <PausedChip state={state} />
