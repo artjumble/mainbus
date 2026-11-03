@@ -54,9 +54,9 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
 
     // The rail: both workspaces, with a status line, and the needs-you count on the one that needs you.
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
-    await expect(rail.getByRole('button', { name: /^web-app/ })).toContainText('working')
+    await expect(rail.locator('[data-rail-status]').first()).toContainText('working')
     await expect(rail.locator('[data-needs-you]').first()).toBeVisible()
-    await expect(rail.getByRole('button', { name: /^api-service/ })).toContainText('Idle')
+    await expect(rail.locator('[data-rail-status]').nth(1)).toContainText('Idle')
     await expect(rail.getByText('Pick a local repo folder to add it.')).toBeVisible()
 
     // A card in every column, with the chips that lead with a symbol.
