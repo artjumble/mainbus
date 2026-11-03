@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, makeDecision, makeEvent, makeTicket, renderWithMantine } from '../test-utils'
-import { ContextPane } from './ContextPane'
+import { ContextPane, entryTime } from './ContextPane'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
@@ -87,17 +87,18 @@ test('the activity timeline lists run start, handoff, stop and answered decision
       answeredVia: 'board'
     })
   ]
-  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={decisions} />)
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={decisions} runs={{ a: { id: 'a', ticketRunId: 't', role: 'Implementer' } }} />)
   const activity = screen.getByRole('region', { name: 'Activity' })
   const items = within(activity)
     .getAllByRole('listitem')
     .map((li) => li.textContent ?? '')
-  expect(items).toHaveLength(5)
-  expect(items[0]).toMatch(/Run started/)
-  expect(items[1]).toMatch(/Decision: Which database\? → SQLite \(you, from the board\)/)
-  expect(items[2]).toMatch(/Handed off.*All done/)
-  expect(items[3]).toMatch(/Run started/)
-  expect(items[4]).toMatch(/Stopped/)
+  expect(items).toHaveLength(6)
+  expect(items[0]).toMatch(/Created by you/)
+  expect(items[1]).toMatch(/Started with the workspace lineup/)
+  expect(items[2]).toMatch(/Decision: Which database\? → SQLite \(you, from the board\)/)
+  expect(items[3]).toMatch(/Implementer handed off.*All done/)
+  expect(items[4]).toMatch(/Started with the workspace lineup/)
+  expect(items[5]).toMatch(/Stopped/)
 })
 
 test("the ticket's branch is shown once it has one, so the person knows what to merge", () => {
@@ -112,9 +113,19 @@ test("the ticket's branch is shown once it has one, so the person knows what to 
   expect(within(branch).getByText('mainbus/7-dark-mode')).toBeInTheDocument()
 })
 
-test('without activity the timeline says so', () => {
-  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
-  expect(screen.getByText('Nothing has happened yet.')).toBeInTheDocument()
+test('the timeline begins with who created the ticket, and a ticket an agent filed says which', () => {
+  const { unmount } = renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
+  expect(within(screen.getByRole('region', { name: 'Activity' })).getByText('Created by you')).toBeInTheDocument()
+  unmount()
+  const filed = makeTicket({ intent: [{ text: 'x', at: '2026-10-30T09:00:00.000Z', source: { kind: 'agent', agent: 'codex', cwd: '' } }] })
+  renderWithMantine(<ContextPane ticket={filed} events={[]} decisions={[]} />)
+  expect(within(screen.getByRole('region', { name: 'Activity' })).getByText('Filed by codex')).toBeInTheDocument()
+})
+
+test('entry times are the time of day, with the date when it is not today', () => {
+  const now = new Date(2026, 10, 3, 15, 0)
+  expect(entryTime(new Date(2026, 10, 3, 9, 5).toISOString(), now)).toBe('09:05')
+  expect(entryTime(new Date(2026, 10, 2, 14, 5).toISOString(), now)).toMatch(/^Nov 2, 14:05$/)
 })
 
 test('words an agent filed sit apart from "Your words", with its reported name and folder', async () => {
@@ -164,7 +175,7 @@ test.each([
     answeredVia
   })
   renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[decision]} />)
-  const item = within(screen.getByRole('region', { name: 'Activity' })).getByRole('listitem')
+  const item = within(screen.getByRole('region', { name: 'Activity' })).getAllByRole('listitem').at(-1)!
   expect(item.textContent).toContain(`Decision: Which database? → Postgres (you, from ${from})`)
   expect(item.textContent).toContain('scale')
 })
@@ -181,7 +192,7 @@ test('the activity entry for an answered permission names the choice and where i
     answeredVia: 'board'
   })
   renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[decision]} />)
-  const item = within(screen.getByRole('region', { name: 'Activity' })).getByRole('listitem')
+  const item = within(screen.getByRole('region', { name: 'Activity' })).getAllByRole('listitem').at(-1)!
   expect(item.textContent).toContain('Decision: Run pnpm install → Denied (you, from the board)')
 })
 
@@ -221,8 +232,8 @@ describe('the Activity of a stuck agent', () => {
       makeEvent({ kind: 'replaced', role: 'Implementer', summary: 'It tried X; Y failed.', source: 'summary', suggestedBy: 'orchestrator', proposalId: 'p9' }, at(5))
     ]
     renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} onViewRun={onViewRun} />)
-    expect(within(activity()).getByText('Replaced Implementer (suggested by the orchestrator, confirmed by you)')).toBeInTheDocument()
-    expect(within(activity()).getByText('It tried X; Y failed.')).toBeInTheDocument()
+    expect(within(activity()).getByText('Implementer replaced')).toBeInTheDocument()
+    expect(within(activity()).getByText('Suggested by orchestrator, confirmed by you')).toBeInTheDocument()
     await userEvent.click(within(activity()).getByRole('button', { name: 'View previous run' }))
     expect(onViewRun).toHaveBeenCalledWith('r1')
     await userEvent.click(within(activity()).getByRole('button', { name: 'View proposal' }))
@@ -235,8 +246,11 @@ describe('the Activity of a stuck agent', () => {
       makeEvent({ kind: 'replaced', role: 'Reviewer', summary: 's', source: 'summary' }, at(3))
     ]
     renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} />)
-    expect(within(activity()).getByText('Replaced Planner (suggested by you with Replace…, confirmed by you)')).toBeInTheDocument()
-    expect(within(activity()).getByText('Replaced Reviewer (confirmed by you)')).toBeInTheDocument()
+    expect(within(activity()).getByText('Planner replaced')).toBeInTheDocument()
+    expect(within(activity()).getByText('Suggested by you with Replace…, confirmed by you')).toBeInTheDocument()
+    expect(within(activity()).getByText('Reviewer replaced')).toBeInTheDocument()
+    expect(within(activity()).getByText('Confirmed by you')).toBeInTheDocument()
+
   })
 
   test('a redirect links to its proposal; the Failed outcome is recorded, with a link to the run', async () => {

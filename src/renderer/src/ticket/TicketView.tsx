@@ -227,7 +227,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   return (
     <Flex flex={1} mih={0}>
       <Box w={CONTEXT_WIDTH} style={{ flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--mantine-color-default-border)' }}>
-        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} onViewRun={viewRun} />
+        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} runs={thread?.runs} onViewRun={viewRun} />
       </Box>
       {viewing !== null && thread ? (
         <PreviousRunView runId={viewing} thread={thread} onBack={() => setViewing(null)} />
