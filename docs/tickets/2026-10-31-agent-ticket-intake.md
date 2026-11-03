@@ -1,5 +1,7 @@
 # Ticket: let local agents create tickets (MCP server + CLI)
 
+> Historical record. For how the CLI and MCP server behave now, see the [README](../../README.md).
+
 Paste each section below into the matching field of the New Ticket form. Leave "Put it in Ready" unticked.
 
 ---
