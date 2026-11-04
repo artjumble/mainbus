@@ -60,3 +60,13 @@ test('has no axe violations', async () => {
   renderWithMantine(<CreatedTicketsReceipt event={EVENT} />)
   await expectNoAxeViolations()
 })
+
+test('says that a summary of the conversation was added, only when it was', () => {
+  const { unmount } = renderWithMantine(<CreatedTicketsReceipt event={{ ...EVENT, context: true }} />)
+  expect(document.querySelector('[data-event="tickets_created"]')!.textContent).toBe(
+    "Created #51 and #52 in mainbus's Backlog, with a summary of the conversation under \"From an agent\""
+  )
+  unmount()
+  renderWithMantine(<CreatedTicketsReceipt event={EVENT} />)
+  expect(document.querySelector('[data-event="tickets_created"]')!.textContent).not.toContain('summary')
+})

@@ -53,12 +53,16 @@ export interface CreateTicketsPayload {
   intentAdded?: IntentAddition[]
   tickets: TicketDraft[]
   column: DraftColumn
+  /** The orchestrator's summary of the conversation: background, not the user's words; absent when none was given. */
+  context?: string
 }
 
 /** What the user's Override sends for create_tickets: the drafts they kept, as edited, and the column. */
 export interface CreateTicketsOverride {
   tickets: TicketDraft[]
   column: DraftColumn
+  /** Absent clears the summary. */
+  context?: string
 }
 
 export interface CreateTicketsResult {

@@ -12,6 +12,8 @@ export class ProposalInvalid extends Error {
 
 /** What carrying out a proposal may use of the engine. Later kinds add to it. */
 export interface ExecContext {
+  /** The folder the orchestrator works in: its summaries are recorded as written from there. */
+  orchestratorFolder: string
   /** The workspace with this id, or null when it was removed. */
   workspace(id: string): Promise<Workspace | null>
   /** The same path as ticket.create: creates them all in order, or none, and emits board.changed once. */

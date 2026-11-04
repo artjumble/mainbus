@@ -24,6 +24,7 @@ const MESSAGE = 'Timeouts are ruled out; check the shared fixtures instead.'
 
 function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; open?: Workspace | null } = {}) {
   const c = {
+    orchestratorFolder: '/home/orchestrator',
     workspace: async () => (over.open === undefined ? ws : over.open),
     createTickets: async () => [],
     lineup: async () => [],

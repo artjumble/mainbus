@@ -34,6 +34,7 @@ beforeEach(async () => {
   runId = (await repos.orchestrator.create()).id
   events = []
   exec = {
+    orchestratorFolder: '/home/orchestrator',
     workspace: () => repos.workspaces.focused(),
     // Like the engine's: the result is recorded in the same batch as the tickets.
     createTickets: (w, inputs, record) =>
@@ -144,6 +145,26 @@ describe('proposal service', () => {
     expect(tickets.map((t) => [t.title, t.spec, t.manualColumn, t.intent[0]!.text])).toEqual([['Sign out', 'Edited', 'ready', MESSAGE]])
     expect(done).toMatchObject({ status: 'overridden', result: { tickets: [{ number: 1, title: 'Sign out' }], column: 'ready' } })
     expect((done.payload as { tickets: unknown[] }).tickets).toHaveLength(2)
+  })
+
+  test("a confirmed proposal's context becomes the orchestrator's entry after the user's words; an override edits or clears it", async () => {
+    const p = await proposeTwo({ ...TWO, context: 'The user asked for two.' })
+    const agent = { kind: 'agent', agent: 'orchestrator', cwd: '/home/orchestrator' }
+    await service.confirm(p.id)
+    let tickets = await repos.tickets.list(ws.id)
+    for (const t of tickets) {
+      expect(t.intent.map((e) => e.text)).toEqual([MESSAGE, 'The user asked for two.'])
+      expect(t.intent[0]!.source).toBeUndefined()
+      expect(t.intent[1]!.source).toEqual(agent)
+    }
+
+    const edited = await proposeTwo({ ...TWO, context: 'Original' })
+    await service.confirm(edited.id, { tickets: [{ title: 'Edited one' }], column: 'backlog', context: 'Edited by the user' })
+    const cleared = await proposeTwo({ ...TWO, context: 'Original' })
+    await service.confirm(cleared.id, { tickets: [{ title: 'Cleared one' }], column: 'backlog' })
+    tickets = await repos.tickets.list(ws.id)
+    expect(tickets.find((t) => t.title === 'Edited one')!.intent.map((e) => e.text)).toEqual([MESSAGE, 'Edited by the user'])
+    expect(tickets.find((t) => t.title === 'Cleared one')!.intent.map((e) => e.text)).toEqual([MESSAGE])
   })
 
   test('an invalid override changes nothing: the proposal stays pending', async () => {

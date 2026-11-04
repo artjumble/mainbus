@@ -2,6 +2,11 @@ import path from 'node:path'
 
 export type HomePaths = { root: string; db: string; worktrees: string; scratch: string; backups: string; attachments: string }
 
+/** The folder the orchestrator works in. */
+export function orchestratorFolder(root: string): string {
+  return path.join(root, 'orchestrator')
+}
+
 /**
  * The directory a command was run from. npm runs a package script in the package root, and records the
  * directory it was called from in INIT_CWD (npm sets both variables itself on every run, so neither leaks

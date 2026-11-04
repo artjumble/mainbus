@@ -27,7 +27,7 @@ describe('buildOrchestratorPrompt', () => {
   })
 
   test('allows creating tickets in a Backlog with create_tickets, and nothing else without a card', () => {
-    expect(prompt).toContain('mcp__mainbus__create_tickets(workspace, tickets, request_messages_back?)')
+    expect(prompt).toContain('mcp__mainbus__create_tickets(workspace, tickets, request_messages_back?, context?)')
     expect(prompt).toContain("you can create them in a workspace's Backlog with create_tickets")
     expect(prompt).toContain("You can't start, move or delete tickets, or create them in any other column")
     expect(prompt).toContain('They always go to Backlog')
@@ -48,6 +48,15 @@ describe('buildOrchestratorPrompt', () => {
     )
     expect(prompt).toContain("Don't guess from the focused workspace alone")
     expect(prompt).toContain('Every time, say which workspace the tickets went into')
+  })
+
+  test('says when to give context and how to write it', () => {
+    expect(prompt).toContain("Give context whenever the request came out of a conversation, or the user's words alone wouldn't tell a role what's wanted")
+    expect(prompt).toContain('what the user asked, what you found, what was agreed')
+    expect(prompt).toContain('Write it as background in the third person')
+    expect(prompt).toContain("Never present it as the user's words")
+    expect(prompt).toContain('The detailed plan goes in the spec, not in the context')
+    expect(prompt).toContain('propose_create_tickets(tickets, column?, request_messages_back?, context?, evidence?)')
   })
 
   test('explains request_messages_back: which message was the request, and that the intent is it and every later one', () => {

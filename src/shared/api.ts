@@ -125,7 +125,7 @@ export interface EngineCommands {
    * checked before the ticket is created: one that can't be attached creates nothing.
    */
   'ticket.create'(
-    i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded'> & { attachments?: NewAttachment[] },
+    i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded' | 'agentContext'> & { attachments?: NewAttachment[] },
     workspaceId?: string
   ): Ticket
   /**

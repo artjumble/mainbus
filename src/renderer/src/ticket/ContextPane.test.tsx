@@ -322,3 +322,21 @@ test("the timeline says the lineup started once per ticket run, and a replacemen
   expect(within(activity).getByText('Planner handed off to the Implementer')).toBeInTheDocument()
   expect(within(activity).getByText('New Implementer started from the plan')).toBeInTheDocument()
 })
+
+test("the orchestrator's summary sits under \"From an agent\" after the user's two messages, which stay in \"Your words\"", () => {
+  const made = makeTicket({
+    intent: [
+      { text: 'Can images be attached?', at: '2026-10-30T09:00:00.000Z', via: 'orchestrator' },
+      { text: 'Yes, create a ticket', at: '2026-10-30T09:01:00.000Z' },
+      { text: 'The user asked whether images can be attached.', at: '2026-10-30T09:02:00.000Z', source: { kind: 'agent', agent: 'orchestrator', cwd: '/h/orchestrator' } }
+    ]
+  })
+  renderWithMantine(<ContextPane ticket={made} events={[]} decisions={[]} />)
+  const words = within(screen.getByRole('region', { name: 'Your words' }))
+  expect(words.getByText('Can images be attached?')).toBeInTheDocument()
+  expect(words.getByText('Yes, create a ticket')).toBeInTheDocument()
+  expect(words.queryByText(/The user asked whether/)).not.toBeInTheDocument()
+  const fromAgent = within(screen.getByRole('region', { name: 'From an agent' }))
+  expect(fromAgent.getByText('The user asked whether images can be attached.')).toBeInTheDocument()
+  expect(fromAgent.getByText('from orchestrator (reported)')).toBeInTheDocument()
+})
