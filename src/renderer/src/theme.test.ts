@@ -35,6 +35,15 @@ test('light looks exactly as it did before the dark scheme', () => {
   expect(now['--mainbus-color-strong-border']).toBe(now['--mantine-color-dark-6'])
 })
 
+test.each(['light', 'dark'] as const)('%s looks exactly as it did before the theme registry', (scheme) => {
+  // The snapshot was taken before named themes were added; the light and dark tuples behind each virtual colour are not in it.
+  const now = resolvedVariables(scheme)
+  const before = Object.keys(now)
+    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-/.test(k))
+    .sort()
+  expect(Object.fromEntries(before.map((k) => [k, now[k]]))).toMatchSnapshot()
+})
+
 test('each scheme paints the ground the window is painted with before the page loads', () => {
   expect(resolvedVariables('light')['--mantine-color-body']).toBe(GROUND.light)
   expect(resolvedVariables('dark')['--mantine-color-body']).toBe(GROUND.dark)
