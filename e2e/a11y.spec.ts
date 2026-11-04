@@ -226,7 +226,7 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     // is in this theme's scheme, and this theme is the pick for it.
     const scheme = themeOf(theme).scheme
     await page.emulateMedia({ colorScheme: scheme })
-    await page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Match Windows' }).check()
+    await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
     const picks = page.getByRole('radiogroup', { name: scheme === 'light' ? 'Light theme' : 'Dark theme' })
     await picks.getByRole('radio', { name: themeOf(theme).name, exact: true }).check()
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', theme)

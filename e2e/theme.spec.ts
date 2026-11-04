@@ -35,7 +35,7 @@ const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((i) => parseInt(hex.sl
 async function openSettings(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Options for web-app' }).click()
   await page.getByRole('menuitem', { name: 'Settings' }).click()
-  await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
 }
 
 test('the Theme setting switches to Dark and back without a restart, and a dark app opens dark', async () => {
@@ -55,7 +55,7 @@ test('the Theme setting switches to Dark and back without a restart, and a dark 
     expect(await windowTheme(app)).toEqual({ source: 'light', background: GROUND.light.toUpperCase() })
 
     await openSettings(page)
-    const theme = page.getByRole('radiogroup', { name: 'Theme' })
+    const theme = page.getByRole('radiogroup', { name: 'Theme', exact: true })
     await expect(theme.getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
 
     // Dark, at once: the page, the frame and the window's background.
@@ -119,7 +119,7 @@ test('Night Owl applies without a restart, stays after a relaunch, and Match Win
     await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
 
     await openSettings(page)
-    const theme = page.getByRole('radiogroup', { name: 'Theme' })
+    const theme = page.getByRole('radiogroup', { name: 'Theme', exact: true })
     // Every theme, by name, and Match Windows.
     for (const name of ['Light', 'Dark', 'Night Owl', 'Light Owl', 'Match Windows']) {
       await expect(theme.getByRole('radio', { name, exact: true })).toBeVisible()
@@ -163,8 +163,8 @@ test('Night Owl applies without a restart, stays after a relaunch, and Match Win
     expect(await pageGround(page)).toBe(rgb(GROUND['night-owl']))
     // And so are the Match Windows picks.
     await openSettings(page)
-    await expect(page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
-    await page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Match Windows' }).check()
+    await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
+    await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
     await expect(page.getByRole('radiogroup', { name: 'Dark theme' }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
   } finally {
     await app?.close().catch(() => {})
