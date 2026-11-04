@@ -37,6 +37,15 @@
   align-items: center;
 }
 
+/* The control sits level with the middle of its 44 px label, not at the label's top. */
+.choiceCheckbox {
+  margin-top: calc((44px - var(--checkbox-size)) / 2);
+}
+
+.choiceRadio {
+  margin-top: calc((44px - var(--radio-size)) / 2);
+}
+
 /* A tab is 44 px tall itself (a hit area drawn past its edge is covered by the panel next to it). */
 .tab {
   min-height: 44px;
