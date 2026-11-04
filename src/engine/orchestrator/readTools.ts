@@ -22,6 +22,8 @@ export interface ReadToolDeps {
   board(ws: Workspace): Promise<BoardTicket[]>
   /** Where the app stands on the usage limit; without it nothing is said about it. */
   usage?: () => Promise<UsageState>
+  /** The images the user attached to the ticket, with where their files are; without it none are listed. */
+  attachments?: (ticketId: string) => Promise<{ filename: string; path: string }[]>
 }
 
 /** Agent messages, handoffs and the like are cut to this many characters. */
@@ -319,6 +321,12 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           `Not started. The lineup's roles, in order: ${t.lineup.map((r) => oneLine(r.name)).join(', ') || 'none'}.`
       const pr = t.pr ? oneLine(t.pr.url) : 'none'
       const folder = await folderText(t.worktreePath)
+      const images = (await deps.attachments?.(t.id)) ?? []
+      const attached = images.length
+        ? `The user attached these images (the user's own material); open them with Read when they matter:\n${images
+            .map((a) => `- ${data('attachment', oneLine(a.filename), true)}: ${oneLine(a.path)}`)
+            .join('\n')}`
+        : 'None.'
       const sections = [
         `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}`,
         ...(promoted.length ? [promoted.join('\n')] : []),
@@ -326,6 +334,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         t.spec ? `## Spec${byAgent}\n${data('spec', t.spec)}` : `## Spec\nNone.`,
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,
         `## Labels\n${labels(t)}`,
+        `## Attachments\n${attached}`,
         `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
         `## Latest run\n${roles}`,

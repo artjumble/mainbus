@@ -83,12 +83,14 @@ describe('orchestrator.send', () => {
 
     const folder = path.join(paths.root, 'orchestrator')
     const ticketFolders = path.join(paths.worktrees, 'repo')
+    const attachments = path.join(paths.attachments, 'repo')
     expect((await fs.stat(ticketFolders)).isDirectory()).toBe(true)
+    expect((await fs.stat(attachments)).isDirectory()).toBe(true)
     expect((await fs.stat(folder)).isDirectory()).toBe(true)
     expect(runtime.specs).toHaveLength(0)
     expect(runtime.orchestratorSpecs).toHaveLength(1)
     const spec = runtime.orchestratorSpecs[0]!
-    expect(spec).toMatchObject({ kind: 'orchestrator', cwd: folder, additionalDirectories: [repoPath, ticketFolders], model: 'opus', effort: 'medium' })
+    expect(spec).toMatchObject({ kind: 'orchestrator', cwd: folder, additionalDirectories: [repoPath, ticketFolders, attachments], model: 'opus', effort: 'medium' })
     expect(spec.resumeSessionId).toBeUndefined()
     expect(spec.prompt).toBe(`[Mainbus] Focused workspace: repo (${repoPath}) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?`)
     expect(spec.appendSystemPrompt).toContain('Mainbus orchestrator')

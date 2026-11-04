@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../shared/api'
 import type { Workspace } from '../shared/domain'
 import { runGit } from './git/git'
-import { resolveHome, ticketFoldersFor, type HomePaths } from './home'
+import { attachmentFoldersFor, resolveHome, ticketFoldersFor, type HomePaths } from './home'
 import { createEngine, type Engine } from './index'
 import { FakeRuntime, type FakeStep } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
@@ -350,7 +350,14 @@ describe('the orchestrator across workspaces', () => {
     const { runtime, a, b, repoA, repoB, say } = await withOrchestrator()
     await say('Hello')
     const spec = runtime.orchestratorSpecs[0]!
-    expect(spec.additionalDirectories).toEqual([repoA, repoB, ticketFoldersFor(paths, a.slug), ticketFoldersFor(paths, b.slug)])
+    expect(spec.additionalDirectories).toEqual([
+      repoA,
+      repoB,
+      ticketFoldersFor(paths, a.slug),
+      ticketFoldersFor(paths, b.slug),
+      attachmentFoldersFor(paths, a.slug),
+      attachmentFoldersFor(paths, b.slug)
+    ])
     expect(spec.prompt).toContain('Focused workspace: bravo')
     expect(spec.appendSystemPrompt).toContain(ticketFoldersFor(paths, a.slug))
     expect(spec.appendSystemPrompt).toContain(ticketFoldersFor(paths, b.slug))

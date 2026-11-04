@@ -1,0 +1,22 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "readFile": { "fromPrompt": "field=\"attachment\">[^<]+</ticket-data>: ([^\\n]+)" } },
+    { "emit": { "kind": "message", "text": "Planner: I looked at the screenshot." } },
+    { "waitForSend": true },
+    { "readFile": { "fromMessage": "The user attached [^:]+: (.+)$" } },
+    { "emit": { "kind": "message", "text": "Planner: I looked at the second image too." } },
+    { "callTool": "handoff", "args": { "summary": "Read both images", "notesForNext": "" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "callTool": "handoff", "args": { "summary": "Nothing to change", "notesForNext": "" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "callTool": "handoff", "args": { "summary": "Looks fine", "notesForNext": "" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ]
+}

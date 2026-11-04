@@ -2,6 +2,7 @@ import { Alert, Anchor, Badge, Box, Button, Center, Flex, Group, Loader, Stack, 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
+import { attachToTicket, useImagePaste } from '../attachments/files'
 import { asOwnChange } from '../board/ownChanges'
 import { HoldChip } from '../board/HoldChip'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
@@ -206,6 +207,14 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     return guarded(() => proposeReplace(ticket.id), 'Could not propose a replacement')
   }
 
+  /** Attaches images to the ticket; a working agent is told by Mainbus. */
+  const attach = useCallback(
+    (files: File[]) => void attachToTicket(ticket.id, files, ticket.attachments.length),
+    [ticket.id, ticket.attachments.length]
+  )
+
+  useImagePaste(attach)
+
   /** Opens a replaced run's thread; any other run is the live one, so the link goes back to it. */
   const viewRun = useCallback(
     (runId: string) => setViewing(thread?.events.some((e) => e.runId === runId && e.event.kind === 'replaced') ? runId : null),
@@ -349,7 +358,13 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                 This ticket is done.
               </Text>
             ) : (
-              <Composer onSend={send} label={composerLabel} placeholder={composerPlaceholder} sendLabel={canStart && !ended ? 'Send and start' : 'Send'} />
+              <Composer
+                onSend={send}
+                onAttach={attach}
+                label={composerLabel}
+                placeholder={composerPlaceholder}
+                sendLabel={canStart && !ended ? 'Send and start' : 'Send'}
+              />
             )}
           </Box>
         </Flex>

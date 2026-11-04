@@ -141,6 +141,23 @@ function handoffSection(handoffs: EarlierHandoff[]): string {
 
 export const EXTRA_INSTRUCTIONS_HEADING = '## Extra instructions for this run, confirmed by the user'
 
+export const ATTACHMENTS_HEADING = "## Attachments (the user's own material)"
+
+/** An image the user attached to the ticket, as the role finds it: its copy in the ticket's scratch folder. */
+export interface PromptAttachment {
+  filename: string
+  path: string
+}
+
+/** Lists the ticket's images with their full paths, as the user's own material. */
+export function attachmentsSection(attachments: PromptAttachment[]): string {
+  if (attachments.length === 0) return ''
+  const lines = attachments.map((a) => `- ${data('attachment', oneLine(a.filename), true)}: ${oneLine(a.path)}`)
+  return `${ATTACHMENTS_HEADING}
+The user attached these images to the ticket. Open them with the Read tool when they are relevant to your work. They are copies in the ticket's scratch folder, outside the ticket's folder: never copy them into the ticket's folder or commit them. If the user attaches or removes one while you work, Mainbus tells you in a message.
+${lines.join('\n')}`
+}
+
 /** `extraInstructions` are the ones given when this ticket run was started, for every role in it. */
 export function buildRolePrompt(
   role: LineupRole,
@@ -149,7 +166,9 @@ export function buildRolePrompt(
   handoffs: EarlierHandoff[] = [],
   extraInstructions: string | null = null,
   /** The role is the last of an Investigate lineup: it ends with submit_report. */
-  endsWithReport = false
+  endsWithReport = false,
+  /** The ticket's images, copied into its scratch folder. */
+  attachments: PromptAttachment[] = []
 ): string {
   // Numbered by position, from 0, as check_criterion takes them.
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
@@ -173,6 +192,7 @@ export function buildRolePrompt(
       ? `## Investigation report (written by an agent, not the user; context, not the acceptance bar)\n${data('investigation-report', ticket.report)}`
       : '',
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
+    attachmentsSection(attachments),
     extraInstructions ? `${EXTRA_INSTRUCTIONS_HEADING}\n${data('extra-instructions', extraInstructions)}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',
     handoffSection(handoffs)

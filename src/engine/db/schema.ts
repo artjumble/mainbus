@@ -91,6 +91,26 @@ export const criteria = sqliteTable(
   (t) => [primaryKey({ columns: [t.ticketId, t.position] })]
 )
 
+/**
+ * Images the user attached to a ticket. The files live in `<MAINBUS_HOME>\attachments\<workspace slug>\<ticket number>\<id>-<filename>`,
+ * never in the repo.
+ */
+export const ticketAttachments = sqliteTable(
+  'ticket_attachments',
+  {
+    id: text('id').primaryKey(),
+    ticketId: text('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    filename: text('filename').notNull(),
+    mime: text('mime').notNull(),
+    size: integer('size').notNull(),
+    sha256: text('sha256').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (t) => [index('ticket_attachments_ticket_idx').on(t.ticketId)]
+)
+
 /** One run of a lineup on a ticket: the roles ticked at start, copied whole, so editing the lineup never changes it. */
 export const ticketRuns = sqliteTable(
   'ticket_runs',

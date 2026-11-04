@@ -1,7 +1,10 @@
 import { Badge, Button, Checkbox, Group, Modal, NativeSelect, Radio, Stack, Textarea, TextInput } from '@mantine/core'
-import { useState, type FormEvent, type ReactElement } from 'react'
+import { useState, type ClipboardEvent, type FormEvent, type ReactElement } from 'react'
+import type { NewAttachment } from '../../../shared/api'
 import type { TicketKind } from '../../../shared/domain'
 import { invoke } from '../api'
+import { PendingImages } from '../attachments/Attachments'
+import { filesOf, readImages } from '../attachments/files'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
 
@@ -37,9 +40,23 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
   const [column, setColumn] = useState<'backlog' | 'ready'>('backlog')
   const [startWhenReady, setStartWhenReady] = useState(false)
   const [kind, setKind] = useState<TicketKind>('change')
+  const [images, setImages] = useState<NewAttachment[]>([])
   const [saving, setSaving] = useState(false)
 
   const canCreate = title.trim() !== '' && intent.trim() !== ''
+
+  async function addImages(files: File[]): Promise<void> {
+    const read = await readImages(files, images.length)
+    if (read.length > 0) setImages((now) => [...now, ...read])
+  }
+
+  // A pasted image is added to the ticket's images; pasted text goes into the field as usual.
+  function onPaste(e: ClipboardEvent): void {
+    const files = filesOf(e.clipboardData)
+    if (files.length === 0) return
+    if (e.clipboardData.getData('text/plain') === '') e.preventDefault()
+    void addImages(files)
+  }
 
   async function submit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -55,7 +72,8 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
         labels: splitLabels(labels),
         column,
         kind,
-        ...(startWhenReady ? { startWhenReady } : {})
+        ...(startWhenReady ? { startWhenReady } : {}),
+        ...(images.length > 0 ? { attachments: images } : {})
       })
       setTitle('')
       setIntent('')
@@ -65,6 +83,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
       setColumn('backlog')
       setStartWhenReady(false)
       setKind('change')
+      setImages([])
       onClose()
       // The board also refreshes on board.changed; a failure here is not a failed create.
       void refreshBoard().catch((err) => showError(err, 'Could not refresh the board'))
@@ -77,7 +96,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
 
   return (
     <Modal opened={opened} onClose={onClose} title="New ticket" size="lg">
-      <form onSubmit={(e) => void submit(e)}>
+      <form onSubmit={(e) => void submit(e)} onPaste={onPaste}>
         <Stack gap="sm">
           {workspaceName && (
             <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" w="fit-content">
@@ -123,6 +142,11 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             description="Comma separated."
             value={labels}
             onChange={(e) => setLabels(e.currentTarget.value)}
+          />
+          <PendingImages
+            images={images}
+            onAdd={(files) => void addImages(files)}
+            onRemove={(i) => setImages((now) => now.filter((_, j) => j !== i))}
           />
           <NativeSelect
             label="Column"

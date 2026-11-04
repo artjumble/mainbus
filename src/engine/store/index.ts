@@ -1,5 +1,6 @@
 import type { Db } from '../db/open'
 import { createAllowRuleRepo, type AllowRuleRepo } from './allowRules'
+import { createAttachmentRepo, type AttachmentRepo } from './attachments'
 import { createCleanupRepo, type PendingCleanupRepo } from './cleanups'
 import { createDecisionRepo, type DecisionRepo } from './decisions'
 import { createHoldRepo, type HoldRepo } from './holds'
@@ -17,6 +18,7 @@ export interface Repos {
   workspaces: WorkspaceRepo
   lineups: LineupRepo
   tickets: TicketRepo
+  attachments: AttachmentRepo
   allowRules: AllowRuleRepo
   runs: RunRepo
   decisions: DecisionRepo
@@ -34,6 +36,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     workspaces: createWorkspaceRepo(db, now),
     lineups: createLineupRepo(db),
     tickets: createTicketRepo(db, now),
+    attachments: createAttachmentRepo(db, now),
     allowRules: createAllowRuleRepo(db),
     runs: createRunRepo(db, now),
     decisions: createDecisionRepo(db, now),

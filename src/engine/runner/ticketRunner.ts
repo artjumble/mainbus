@@ -27,7 +27,7 @@ import { guardReason } from '../permissions/guard'
 import { BACKGROUND_DENIED, commandOf, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
-import { buildRolePrompt, data, firstMessage, oneLine, type EarlierHandoff } from '../roles/prompt'
+import { buildRolePrompt, data, firstMessage, oneLine, type EarlierHandoff, type PromptAttachment } from '../roles/prompt'
 import {
   ResumeFailedError,
   type AgentRuntime,
@@ -93,6 +93,11 @@ export interface RunnerDeps {
   processes?: ProcessSweeper
   /** Called after a run ended as failed (and its error was recorded); the orchestrator hears of it in a turn of its own. */
   onFailed?: (failed: { workspaceId: string; ticketId: string; runId: string }) => void | Promise<void>
+  /**
+   * Copies the ticket's attachments into `<scratch>\attachments` and returns the copies, for the role's prompt.
+   * Without it a role is told of none.
+   */
+  attachments?: { sync(ticketId: string, scratch: string): Promise<PromptAttachment[]> }
 }
 
 export const NUDGE_TEXT =
@@ -451,6 +456,23 @@ export class TicketRunner {
 
   send(ticketId: string, text: string): Promise<void> {
     return this.serial(ticketId, () => this.sendNow(ticketId, text))
+  }
+
+  /**
+   * Tells the ticket's live agent of something the user did outside the thread, such as attaching an image: a short
+   * Mainbus message, also shown in its thread. It takes the ticket's queue and the agent's input like the user's own
+   * messages, so it never interrupts a turn. Without a live agent nothing is sent: the next launch's prompt has it.
+   */
+  announce(ticketId: string, text: string): Promise<void> {
+    return this.serial(ticketId, async () => {
+      if (this.shuttingDown || this.stopRequested.has(ticketId)) return
+      const run = await this.repos.runs.latest(ticketId)
+      const live = run && run.endReason === null ? this.live.get(run.id) : undefined
+      if (!live || live.ended || live.stopping) return
+      live.silentTurns = 0
+      await this.record(live, { kind: 'notice', text })
+      await this.deliver(live, text)
+    })
   }
 
   /** The one path every answer takes, whichever place (`via`) the user answered from. */
@@ -1536,6 +1558,8 @@ export class TicketRunner {
     // Ticket runs started before models were resolved at start hold nulls: those get the default table.
     const fallback = defaultFor(role.name)
     const endsWithReport = await this.endsWithReport(ticket, role.id, launch.ticketRunId)
+    // The user's images, copied fresh into the scratch folder at every launch. A failed copy is no reason not to start.
+    const attachments = (await this.deps.attachments?.sync(ticket.id, worktree.scratch).catch(() => [])) ?? []
     // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
     let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {
@@ -1544,7 +1568,7 @@ export class TicketRunner {
       tempDir: worktree.scratch,
       ownBranch: worktree.branch,
       prompt,
-      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs, launch.extraInstructions, endsWithReport),
+      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs, launch.extraInstructions, endsWithReport, attachments),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,
       toolProfile: role.toolProfile,
