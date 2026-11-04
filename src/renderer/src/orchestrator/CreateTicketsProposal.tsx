@@ -28,6 +28,8 @@ interface DraftEdit {
 export interface CreateTicketsEdit {
   drafts: DraftEdit[]
   column: DraftColumn
+  /** The orchestrator's summary, as it will be stored; empty means left out. */
+  context: string
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -51,12 +53,81 @@ function detail(draft: DraftEdit): string {
  * Each draft is a row: a tick to include it, its title, and Edit, which opens that draft's fields in place. The
  * drafts are ticked as proposed; the card's buttons create the ticked ones.
  */
-function Editor({ value, onChange }: { value: CreateTicketsEdit; onChange: (v: CreateTicketsEdit) => void }): ReactElement {
+function Editor({
+  value,
+  onChange,
+  payload
+}: {
+  value: CreateTicketsEdit
+  onChange: (v: CreateTicketsEdit) => void
+  payload: CreateTicketsPayload
+}): ReactElement {
   const [open, setOpen] = useState<number | null>(null)
+  const [editingContext, setEditingContext] = useState(false)
+  // Emptied while the box is open is still editing; only closed and empty is removed.
+  const contextRemoved = value.context === '' && !editingContext
   const setDraft = (i: number, patch: Partial<DraftEdit>): void =>
     onChange({ ...value, drafts: value.drafts.map((d, j) => (j === i ? { ...d, ...patch } : d)) })
   return (
     <Stack gap="xs">
+      {payload.context !== undefined && (
+        <Paper withBorder p="xs" radius="sm" role="region" aria-label="Summary from the orchestrator" data-context>
+          <Stack gap={6}>
+            <Group gap="xs" wrap="nowrap" justify="space-between" align="flex-start">
+              <Stack gap={0}>
+                <Text size="sm" fw={600}>
+                  Summary from the orchestrator
+                </Text>
+                <Text size="xs" c="dimmed">
+                  Added to each ticket under From an agent, not Your words
+                </Text>
+              </Stack>
+              <Group gap={6} wrap="nowrap">
+                {contextRemoved ? (
+                  <Button size="compact-xs" variant="default" onClick={() => onChange({ ...value, context: payload.context ?? '' })}>
+                    Restore
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="compact-xs" variant="default" aria-expanded={editingContext} onClick={() => setEditingContext(!editingContext)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="compact-xs"
+                      variant="default"
+                      onClick={() => {
+                        setEditingContext(false)
+                        onChange({ ...value, context: '' })
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </>
+                )}
+              </Group>
+            </Group>
+            {contextRemoved ? (
+              <Text size="xs" c="dimmed">
+                The summary will be left out.
+              </Text>
+            ) : editingContext ? (
+              <Textarea
+                label="Summary"
+                size="xs"
+                autosize
+                minRows={2}
+                maxRows={10}
+                value={value.context}
+                onChange={(e) => onChange({ ...value, context: e.currentTarget.value })}
+              />
+            ) : (
+              <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>
+                {value.context}
+              </Text>
+            )}
+          </Stack>
+        </Paper>
+      )}
       {value.drafts.map((draft, i) => (
         <Paper key={i} withBorder p="xs" radius="sm" role="group" aria-label={`Draft ${i + 1}`} data-draft>
           <Stack gap={6}>
@@ -170,7 +241,8 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
       labels: d.labels.join(', '),
       ...(d.kind ? { kind: d.kind } : {})
     })),
-    column: p.column
+    column: p.column,
+    context: p.context ?? ''
   }),
   Editor,
   toOverride: (edit): CreateTicketsOverride | null => {
@@ -183,7 +255,7 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
         labels: splitLabels(d.labels),
         ...(d.kind ? { kind: d.kind } : {})
       }))
-    return tickets.length === 0 ? null : { tickets, column: edit.column }
+    return tickets.length === 0 ? null : { tickets, column: edit.column, ...(edit.context.trim() ? { context: edit.context } : {}) }
   },
   Receipt
 }

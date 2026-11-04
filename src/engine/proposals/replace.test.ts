@@ -26,6 +26,7 @@ const INPUT = { ticket: 12, reason: 'A fresh agent will not repeat the same dead
 
 function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; open?: Workspace | null } = {}) {
   const c = {
+    orchestratorFolder: '/home/orchestrator',
     workspace: async () => (over.open === undefined ? ws : over.open),
     createTickets: async () => [],
     lineup: async () => [],

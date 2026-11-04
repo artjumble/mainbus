@@ -177,6 +177,19 @@ describe('get_ticket', () => {
     expect(out).toContain('## Latest run\n- Planner: handed off\n- Implementer: working (active)')
   })
 
+  test("shows the orchestrator's summary under the agent heading, apart from the user's words", async () => {
+    const t = await ticket({
+      intent: 'Add login',
+      agentContext: { text: 'The user asked about SSO.', source: { kind: 'agent', agent: 'orchestrator', cwd: 'C:/home/orchestrator' } }
+    })
+    const out = await tools.getTicket({ number: t.number })
+    const [user, agent] = out.split('## Written by an agent, not the user')
+    expect(user).toContain('Add login')
+    expect(user).not.toContain('SSO')
+    expect(agent).toContain('<ticket-data field="intent">\nThe user asked about SSO.\n</ticket-data>')
+    expect(out).not.toContain('Spec (written by the agent')
+  })
+
   test("shows a ticket's kind, and an Investigate ticket's report", async () => {
     const change = await ticket()
     const out = await tools.getTicket({ number: change.number })

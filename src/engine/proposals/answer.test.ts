@@ -36,6 +36,7 @@ const JUDGEMENT = {
 
 function ctx(decision: Decision | null = QUESTION, over: { ticket?: Ticket } = {}) {
   return {
+    orchestratorFolder: '/home/orchestrator',
     workspace: async () => null,
     createTickets: async () => [],
     lineup: async () => [],

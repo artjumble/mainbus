@@ -27,23 +27,29 @@
 .choice {
   min-height: 44px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
-/* The label of such an option is a real box 44 px tall, so a press anywhere in it toggles the option. */
+/*
+ * The label of such an option is a real box 44 px tall, so a press anywhere in it toggles the option.
+ * Padding (not centring) puts the first line of text 22 px down, so the box below can sit on the same line.
+ */
 .choiceLabel {
   min-height: 44px;
-  display: flex;
-  align-items: center;
+  padding-block: calc((44px - var(--label-lh)) / 2);
 }
 
-/* The control sits level with the middle of its 44 px label, not at the label's top. */
-.choiceCheckbox {
+/* Each box is moved down so its middle is 22 px down too, level with the middle of the label's first line. */
+.checkboxBox {
   margin-top: calc((44px - var(--checkbox-size)) / 2);
 }
 
-.choiceRadio {
+.radioBox {
   margin-top: calc((44px - var(--radio-size)) / 2);
+}
+
+.switchTrack {
+  margin-top: calc((44px - var(--switch-height)) / 2);
 }
 
 /* A tab is 44 px tall itself (a hit area drawn past its edge is covered by the panel next to it). */

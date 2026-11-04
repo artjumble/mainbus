@@ -6,6 +6,8 @@ import { parsePayload, ProposalInvalid, type ExecContext, type ProposalKind, typ
 
 export const MAX_DRAFTS = 20
 
+export const CONTEXT_MAX = 4_000
+
 export const COLUMN_NAMES: Record<DraftColumn, string> = { backlog: 'Backlog', ready: 'Ready' }
 
 // Strict: there is no intent field, so an `intent` from the orchestrator is refused rather than ignored.
@@ -23,14 +25,23 @@ const draftsSchema = z
   .min(1, 'must have at least 1 ticket')
   .max(MAX_DRAFTS, `must have at most ${MAX_DRAFTS} tickets`)
 
+const contextField = z.string().max(CONTEXT_MAX, `must be at most ${CONTEXT_MAX} characters`).optional()
+
+/** A blank summary means none: the key is left out. */
+function contextOf(context: string | undefined): { context?: string } {
+  const text = context?.trim()
+  return text ? { context: text } : {}
+}
+
 /** What the orchestrator proposes and what the user's override sends: the same rules for both. */
 const editableSchema = z.strictObject({
   tickets: draftsSchema,
-  column: z.enum(['backlog', 'ready']).default('backlog')
+  column: z.enum(['backlog', 'ready']).default('backlog'),
+  context: contextField
 })
 
 /** What create_tickets sends: the same drafts, and no column, since they always go to Backlog. */
-const directSchema = z.strictObject({ tickets: draftsSchema })
+const directSchema = z.strictObject({ tickets: draftsSchema, context: contextField })
 
 /** "#21", "#21 and #22", "#21, #22 and #23". */
 export function listJoin(items: string[]): string {
@@ -39,14 +50,16 @@ export function listJoin(items: string[]): string {
 }
 
 /**
- * The tickets to create from the drafts. No source: the intent is the user's own words, not an agent's. `via` marks
- * a ticket the orchestrator created without a card.
+ * The tickets to create from the drafts. The intent is the user's own words, with no source. `context`, the
+ * orchestrator's summary, is added after them as an entry of its own, written by the orchestrator. `via` marks a
+ * ticket the orchestrator created without a card.
  */
 function ticketInputs(
   intent: string,
   intentAdded: IntentAddition[] | undefined,
   drafts: TicketDraft[],
   column: DraftColumn,
+  context: { text: string; cwd: string } | undefined,
   via?: 'orchestrator'
 ): Omit<NewTicketInput, 'workspaceId'>[] {
   return drafts.map((d) => ({
@@ -58,6 +71,7 @@ function ticketInputs(
     labels: d.labels,
     column,
     kind: d.kind ?? 'change',
+    ...(context ? { agentContext: { text: context.text, source: { kind: 'agent' as const, agent: 'orchestrator', cwd: context.cwd } } } : {}),
     ...(via ? { via } : {})
   }))
 }
@@ -73,17 +87,20 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
 
   propose(input, turn) {
     if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
-    return { intent: turn.userMessage, ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}), ...parsePayload(editableSchema, input) }
+    const { context, ...rest } = parsePayload(editableSchema, input)
+    return { intent: turn.userMessage, ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}), ...rest, ...contextOf(context) }
   },
 
   override(stored, input) {
-    return { intent: stored.intent, ...(stored.intentAdded ? { intentAdded: stored.intentAdded } : {}), ...parsePayload(editableSchema, input) }
+    // The summary comes only from the override: leaving it out clears it.
+    const { context, ...rest } = parsePayload(editableSchema, input)
+    return { intent: stored.intent, ...(stored.intentAdded ? { intentAdded: stored.intentAdded } : {}), ...rest, ...contextOf(context) }
   },
 
   async execute(p, target, ctx) {
     const ws = await ctx.workspace(target.workspaceId)
     if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for was removed')
-    const created = await ctx.createTickets(ws, ticketInputs(p.intent, p.intentAdded, p.tickets, p.column), {
+    const created = await ctx.createTickets(ws, ticketInputs(p.intent, p.intentAdded, p.tickets, p.column, p.context ? { text: p.context, cwd: ctx.orchestratorFolder } : undefined), {
       proposalId: target.proposalId,
       column: p.column
     })
@@ -104,9 +121,15 @@ export async function createInBacklog(
   input: unknown,
   turn: Pick<Turn, 'userMessage' | 'followUps'>,
   ws: Workspace,
-  create: ExecContext['createTickets']
-): Promise<Ticket[]> {
+  create: ExecContext['createTickets'],
+  orchestratorFolder: string
+): Promise<{ created: Ticket[]; withContext: boolean }> {
   if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be created in answer to a message of the user')
-  const { tickets } = parsePayload(directSchema, input)
-  return create(ws, ticketInputs(turn.userMessage, turn.followUps, tickets, 'backlog', 'orchestrator'))
+  const { tickets, context } = parsePayload(directSchema, input)
+  const summary = contextOf(context).context
+  const created = await create(
+    ws,
+    ticketInputs(turn.userMessage, turn.followUps, tickets, 'backlog', summary ? { text: summary, cwd: orchestratorFolder } : undefined, 'orchestrator')
+  )
+  return { created, withContext: summary !== undefined }
 }

@@ -121,10 +121,10 @@ export const theme: MantineThemeOverride = {
     Loader: Loader.extend({ classNames: { root: targets.loader } }),
     Modal: Modal.extend({ defaultProps: dialog }),
     Tabs: Tabs.extend({ classNames: { tab: targets.tab } }),
-    // A choice's label is what a click on it toggles, so the label itself is 44 px tall, and its rows 44 px apart.
-    Checkbox: Checkbox.extend({ classNames: { root: targets.choice, inner: targets.choiceCheckbox, label: targets.choiceLabel } }),
-    Radio: Radio.extend({ classNames: { root: targets.choice, inner: targets.choiceRadio, label: targets.choiceLabel } }),
-    Switch: Switch.extend({ classNames: { root: targets.choice, label: targets.choiceLabel } }),
+    // A choice's label is what a click on it toggles, so the label itself is 44 px tall, and its rows 44 px apart, and the box is lined up with the label's first line.
+    Checkbox: Checkbox.extend({ classNames: { root: targets.choice, label: targets.choiceLabel, inner: targets.checkboxBox } }),
+    Radio: Radio.extend({ classNames: { root: targets.choice, label: targets.choiceLabel, inner: targets.radioBox } }),
+    Switch: Switch.extend({ classNames: { root: targets.choice, label: targets.choiceLabel, track: targets.switchTrack } }),
     // Esc closes a popover, and focus goes back to what opened it.
     Popover: Popover.extend({ defaultProps: { returnFocus: true } }),
     Drawer: Drawer.extend({ defaultProps: dialog })

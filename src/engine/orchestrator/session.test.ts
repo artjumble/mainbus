@@ -315,6 +315,16 @@ describe('proposals', () => {
     expect((await engine.invoke('board.get')).tickets).toEqual([])
   })
 
+  test('a proposal keeps the context in its payload, and other kinds refuse it', async () => {
+    const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
+    const { engine } = await makeEngine(runtime)
+    await engine.invoke('orchestrator.send', ASK)
+    const tools = await liveTools(runtime)
+    await tools.proposeCreateTickets({ ...DRAFTS, context: 'The user asked for login.' })
+    expect((await engine.invoke('orchestrator.get')).proposals[0]!.payload).toMatchObject({ context: 'The user asked for login.' })
+    expect(await tools.proposeHold({ ticket: 1, reason: 'x', context: 'y' })).toMatch(/Unknown field: context/)
+  })
+
   test('an invalid proposal stores nothing, and the orchestrator hears why', async () => {
     const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }] })
     const { engine } = await makeEngine(runtime)
@@ -589,6 +599,31 @@ describe('create_tickets', () => {
     })
     // The board updates live.
     expect(events).toContainEqual({ type: 'board.changed', workspaceId: website.id })
+  })
+
+  test("a context becomes the orchestrator's entry after both of the user's messages, and the receipt says so", async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, turnEnd(), { waitForSend: true }]
+    })
+    const { engine } = await makeEngine(runtime)
+    const { website } = await openWebsite(engine)
+    await engine.invoke('orchestrator.send', 'Can images be attached?')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await engine.invoke('orchestrator.send', 'Yes, create a ticket')
+    const tools = await liveTools(runtime)
+    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+
+    await tools.createTickets({ workspace: 'website', tickets: [{ title: 'Images' }], request_messages_back: 1, context: 'The user asked about images.' })
+    const [t] = await boardOf(engine, website.id)
+    expect(t!.intent.map((e) => e.text)).toEqual(['Can images be attached?', 'Yes, create a ticket', 'The user asked about images.'])
+    expect(t!.intent[0]!.source).toBeUndefined()
+    expect(t!.intent[1]!.source).toBeUndefined()
+    expect(t!.intent[2]!.source).toMatchObject({ kind: 'agent', agent: 'orchestrator' })
+    expect(path.basename(t!.intent[2]!.source!.cwd)).toBe('orchestrator')
+    expect((await engine.invoke('orchestrator.get')).events.at(-1)?.event).toMatchObject({ kind: 'tickets_created', context: true })
+
+    await tools.createTickets({ workspace: 'website', tickets: [{ title: 'Plain' }] })
+    expect((await engine.invoke('orchestrator.get')).events.at(-1)?.event).not.toHaveProperty('context')
   })
 
   test('with more than one workspace open, a missing workspace creates nothing and the error lists them', async () => {

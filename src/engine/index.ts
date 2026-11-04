@@ -19,7 +19,7 @@ import type { GitRunner } from './git/git'
 import { PullRequestPublisher } from './git/pullRequests'
 import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
-import { scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
+import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
 import { Attachments, type AttachmentWithPath } from './attachments/attachments'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
@@ -516,6 +516,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit,
       exec: {
         workspace: (id) => repos.workspaces.get(id),
+        orchestratorFolder: orchestratorFolder(cfg.paths.root),
         createTickets,
         lineup: (workspaceId, kind) => repos.lineups.get(workspaceId, kind),
         ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
@@ -855,7 +856,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
           source: undefined,
           via: undefined,
-          intentAdded: undefined
+          intentAdded: undefined,
+          agentContext: undefined
         })
         for (const image of images) {
           try {

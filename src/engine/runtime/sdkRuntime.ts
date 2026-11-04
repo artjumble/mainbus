@@ -553,6 +553,12 @@ export class SdkRuntime implements AgentRuntime {
       .describe(
         "Which of the user's messages was the request: 0 (the default) is this turn's, 1 the one before, up to 5. The intent is that message and every later one, verbatim"
       )
+    const context = z
+      .string()
+      .optional()
+      .describe(
+        'A plain summary of the conversation that led to the request (what the user asked, what you found, what was agreed), up to 4,000 characters. Mainbus adds it to each ticket as written by you, not the user'
+      )
     const server = sdk.createSdkMcpServer({
       name: 'mainbus',
       alwaysLoad: true,
@@ -606,7 +612,8 @@ export class SdkRuntime implements AgentRuntime {
               .optional()
               .describe('The workspace to create them in, by name or id. Required when more than one workspace is open; there is no default to the focused one'),
             tickets: drafts,
-            request_messages_back: requestMessagesBack
+            request_messages_back: requestMessagesBack,
+            context
           },
           // The engine validates it again, strictly: the SDK passes what the agent sent.
           async (a) => toolText(await t.createTickets(a))
@@ -618,6 +625,7 @@ export class SdkRuntime implements AgentRuntime {
             workspace: z.string().optional().describe('The workspace to create them in, by name or id; the focused one when left out'),
             tickets: drafts,
             request_messages_back: requestMessagesBack,
+            context,
             column: z.enum(['backlog', 'ready']).optional().describe('Where they land: backlog (the default) or ready'),
             evidence: z.string().optional().describe('What you read that led to this proposal, shown to the user')
           },

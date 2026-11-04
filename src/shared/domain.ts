@@ -251,6 +251,8 @@ export type NewTicketInput = {
   source?: IntentSource
   /** The user's later messages of the same request, appended after `intent` as entries of their own. */
   intentAdded?: IntentAddition[]
+  /** An agent's summary of what led to the ticket: stored as an intent entry of its own, with its source, after the user's words. */
+  agentContext?: { text: string; source: IntentSource }
   /** Set only when the orchestrator created it directly: marks the first intent entry. */
   via?: 'orchestrator'
   /** The user asked the orchestrator to propose starting the ticket once it is in Ready (now, if it was created there). */

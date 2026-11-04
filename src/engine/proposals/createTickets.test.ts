@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { Hold, Ticket, Workspace } from '../../shared/domain'
 import type { CreateTicketsPayload } from '../../shared/proposals'
-import { createInBacklog, createTickets, listJoin, MAX_DRAFTS } from './createTickets'
+import { CONTEXT_MAX, createInBacklog, createTickets, listJoin, MAX_DRAFTS } from './createTickets'
 import { ProposalInvalid, type ExecContext } from './kind'
 
 const MESSAGE = '  Please add two tickets:\n login and logout.  '
@@ -87,6 +87,7 @@ describe('create_tickets: execute and outcome', () => {
   function ctx(open: Workspace | null = ws): ExecContext & { createTickets: ReturnType<typeof vi.fn> } {
     let n = 20
     return {
+      orchestratorFolder: '/home/orchestrator',
       workspace: async () => open,
       createTickets: vi.fn(async (_ws: Workspace, inputs: { title: string }[]) =>
         inputs.map((i) => ({ id: `t${++n}`, number: n, title: i.title }) as Ticket)
@@ -159,6 +160,25 @@ describe('create_tickets: execute and outcome', () => {
     expect(propose({ tickets: [{ title: 'A' }] })).not.toHaveProperty('intentAdded')
   })
 
+  test('a context is stored trimmed, limited, edited or cleared by an override, and passed on as an entry of the orchestrator', async () => {
+    expect(propose({ tickets: [{ title: 'A' }] })).not.toHaveProperty('context')
+    expect(propose({ tickets: [{ title: 'A' }], context: '   ' })).not.toHaveProperty('context')
+    const stored = propose({ tickets: [{ title: 'A' }], context: '  The user asked.  ' })
+    expect(stored.context).toBe('The user asked.')
+    expect(() => propose({ tickets: [{ title: 'A' }], context: 'x'.repeat(CONTEXT_MAX + 1) })).toThrow(new ProposalInvalid('context: must be at most 4000 characters'))
+    expect(propose({ tickets: [{ title: 'A' }], context: 'x'.repeat(CONTEXT_MAX) }).context).toHaveLength(CONTEXT_MAX)
+    expect(() => propose({ tickets: [{ title: 'A' }], context: 5 })).toThrow(ProposalInvalid)
+    expect(createTickets.override!(stored, { tickets: [{ title: 'A' }], column: 'backlog', context: 'Edited' }).context).toBe('Edited')
+    // Never falls back to the stored one: leaving it out clears it.
+    expect(createTickets.override!(stored, { tickets: [{ title: 'A' }], column: 'backlog' })).not.toHaveProperty('context')
+    const c = ctx()
+    await createTickets.execute(stored, { workspaceId: 'ws1', proposalId: 'p1' }, c)
+    expect(c.createTickets.mock.calls[0]![1][0]).toMatchObject({
+      intent: MESSAGE,
+      agentContext: { text: 'The user asked.', source: { kind: 'agent', agent: 'orchestrator', cwd: '/home/orchestrator' } }
+    })
+  })
+
   test('listJoin', () => {
     expect(listJoin([])).toBe('')
     expect(listJoin(['#1'])).toBe('#1')
@@ -174,13 +194,40 @@ describe('createInBacklog', () => {
   test('creates every draft in Backlog, marked as the orchestrator creating it at the user request, with no source', async () => {
     const c = create()
     const followUps = [{ text: 'website', at: '2026-11-03T10:00:00.000Z' }]
-    const made = await createInBacklog({ tickets: [{ title: 'Login', spec: 'S' }, { title: 'Why', kind: 'investigate' }] }, { userMessage: MESSAGE, followUps }, ws, c)
-    expect(made.map((t) => t.number)).toEqual([1, 2])
+    const made = await createInBacklog({ tickets: [{ title: 'Login', spec: 'S' }, { title: 'Why', kind: 'investigate' }] }, { userMessage: MESSAGE, followUps }, ws, c, '/home/orchestrator')
+    expect(made.withContext).toBe(false)
+    expect(made.created.map((t) => t.number)).toEqual([1, 2])
     expect(c).toHaveBeenCalledTimes(1)
     expect(c).toHaveBeenCalledWith(ws, [
       { title: 'Login', intent: MESSAGE, intentAdded: followUps, spec: 'S', criteria: [], labels: [], column: 'backlog', kind: 'change', via: 'orchestrator' },
       { title: 'Why', intent: MESSAGE, intentAdded: followUps, spec: '', criteria: [], labels: [], column: 'backlog', kind: 'investigate', via: 'orchestrator' }
     ])
+  })
+
+  test('adds a context as an entry written by the orchestrator, from the folder it is given', async () => {
+    const c = create()
+    const made = await createInBacklog({ tickets: [{ title: 'A' }], context: '  The user asked.  ' }, { userMessage: MESSAGE }, ws, c, '/h/orchestrator')
+    expect(made.withContext).toBe(true)
+    expect(c.mock.calls[0]![1][0]).toMatchObject({
+      intent: MESSAGE,
+      agentContext: { text: 'The user asked.', source: { kind: 'agent', agent: 'orchestrator', cwd: '/h/orchestrator' } }
+    })
+  })
+
+  test('a blank context is none', async () => {
+    const c = create()
+    const made = await createInBacklog({ tickets: [{ title: 'A' }], context: '  ' }, { userMessage: MESSAGE }, ws, c, '/h/orchestrator')
+    expect(made.withContext).toBe(false)
+    expect(c.mock.calls[0]![1][0]).not.toHaveProperty('agentContext')
+  })
+
+  test('refuses a context over the limit, and takes exactly the limit', async () => {
+    const c = create()
+    await expect(createInBacklog({ tickets: [{ title: 'A' }], context: 'x'.repeat(CONTEXT_MAX + 1) }, { userMessage: MESSAGE }, ws, c, '/o')).rejects.toThrow(
+      new ProposalInvalid('context: must be at most 4000 characters')
+    )
+    await expect(createInBacklog({ tickets: [{ title: 'A' }], context: 'x'.repeat(CONTEXT_MAX) }, { userMessage: MESSAGE }, ws, c, '/o')).resolves.toBeDefined()
+    await expect(createInBacklog({ tickets: [{ title: 'A' }], context: 5 }, { userMessage: MESSAGE }, ws, c, '/o')).rejects.toThrow(ProposalInvalid)
   })
 
   test.each([
@@ -191,13 +238,13 @@ describe('createInBacklog', () => {
     [{ tickets: [{ title: 'A', intent: 'Mine' }] }, 'Unknown field: tickets.0.intent']
   ])('refuses %j, creating nothing', async (input, error) => {
     const c = create()
-    await expect(createInBacklog(input, { userMessage: MESSAGE }, ws, c)).rejects.toThrow(new ProposalInvalid(error))
+    await expect(createInBacklog(input, { userMessage: MESSAGE }, ws, c, '/home/orchestrator')).rejects.toThrow(new ProposalInvalid(error))
     expect(c).not.toHaveBeenCalled()
   })
 
   test('refuses with no message of the user', async () => {
     const c = create()
-    await expect(createInBacklog({ tickets: [{ title: 'A' }] }, { userMessage: null }, ws, c)).rejects.toThrow(ProposalInvalid)
+    await expect(createInBacklog({ tickets: [{ title: 'A' }] }, { userMessage: null }, ws, c, '/home/orchestrator')).rejects.toThrow(ProposalInvalid)
     expect(c).not.toHaveBeenCalled()
   })
 })

@@ -10,7 +10,7 @@ import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
 import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
-import { attachmentFoldersFor, ticketFoldersFor, type HomePaths } from '../home'
+import { attachmentFoldersFor, orchestratorFolder, ticketFoldersFor, type HomePaths } from '../home'
 import { createInBacklog, listJoin } from '../proposals/createTickets'
 import { ProposalInvalid } from '../proposals/kind'
 import type { ProposalService } from '../proposals/service'
@@ -168,7 +168,7 @@ export class OrchestratorSession {
   constructor(private readonly deps: OrchestratorDeps) {}
 
   get folder(): string {
-    return path.join(this.deps.homeRoot, 'orchestrator')
+    return orchestratorFolder(this.deps.homeRoot)
   }
 
   async get(): Promise<OrchestratorThread> {
@@ -458,14 +458,15 @@ export class OrchestratorSession {
     const req = await this.request(turn.message, back)
     if (!req.ok) return `Invalid: ${req.error}. Nothing was created; fix it and try again.`
     let created: Ticket[]
+    let withContext: boolean
     try {
-      created = await createInBacklog(drafts, req, target.ws, this.deps.createTickets)
+      ;({ created, withContext } = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder))
     } catch (err) {
       if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was created; fix it and try again.`
       throw err
     }
     const tickets = created.map((t) => ({ id: t.id, number: t.number, title: t.title }))
-    await this.record(live.runId, { kind: 'tickets_created', workspaceId: target.ws.id, workspace: target.ws.name, tickets })
+    await this.record(live.runId, { kind: 'tickets_created', workspaceId: target.ws.id, workspace: target.ws.name, tickets, ...(withContext ? { context: true as const } : {}) })
     return createdText(target.ws.name, tickets)
   }
 
