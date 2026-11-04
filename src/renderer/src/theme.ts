@@ -312,12 +312,12 @@ const nightOwl: ThemeDef = {
 /*
  * Light Owl's colours that were changed (`adjusted` below). Light Owl has no orange, so its Needs you takes Night
  * Owl's #F78C6C, darkened for a light ground.
- *   dimmed text   #90A7B2 → #516974 (2.2:1 on the ground)
+ *   dimmed text   #90A7B2 → #495F6A (2.2:1 on the ground; 5.3:1 on a hovered row, with room for Mantine's fades)
  *   Working       #4876D6 → #2D5EC7 (4.3:1 under white text, 3.8:1 on the ground)
  *   Needs you     #F78C6C → #B9320A (2.4:1 under white text)
  *   red           #DE3D3B → #C12321 (4.3:1 under white text, 3.5:1 on a hovered row)
  *   yellow text   #E0AF02 → #866901 (1.8:1 on its tint)
- *   gray fill     #90A7B2 → #516974 (2.5:1 under white text)
+ *   gray fill     #90A7B2 → #495F6A (2.5:1 under white text)
  */
 const lightOwl: ThemeDef = {
   palette: {
@@ -325,7 +325,7 @@ const lightOwl: ThemeDef = {
     surface: '#FBFBFB', // editor.background
     raised: '#D3E8F8', // list.hoverBackground
     text: '#403F53', // editor.foreground
-    dimmed: '#516974',
+    dimmed: '#495F6A',
     border: '#D9D9D9', // input.border
     strongBorder: '#435761',
     anchor: '#2D5EC7',
@@ -334,18 +334,18 @@ const lightOwl: ThemeDef = {
   colors: {
     working: ['#EAF0FC', '#DCE5F8', '#C6D5F3', '#A3BBEC', '#7E9EE2', '#4876D6', '#2D5EC7', '#244FAB', '#1D418D', '#183670'],
     needs: ['#FEF3EE', '#FCE3D9', '#F9CDBB', '#F5AE93', '#F18E6B', '#E06A44', '#B9320A', '#9C2A08', '#7F2307', '#651B05'],
-    gray: ['#F6F8F9', '#EDF1F3', '#E2E8EB', '#D3DCE0', '#BCCAD1', '#90A7B2', '#516974', '#435761', '#36464E', '#29363C'],
+    gray: ['#F6F8F9', '#EDF1F3', '#E2E8EB', '#D3DCE0', '#BCCAD1', '#90A7B2', '#495F6A', '#435761', '#36464E', '#29363C'],
     red: ['#FCEFEF', '#FAE0E0', '#F6CDCC', '#F2B1B1', '#EB8B89', '#E56462', '#C12321', '#A51E1C', '#8A1918', '#701413'],
     yellow: ['#FDF9EB', '#FAF2D7', '#F7EABD', '#F3DF9A', '#ECCF67', '#E6BF35', '#E0AF02', '#DAAA01', '#866901', '#5A4601'],
     green: ['#EBF6F3', '#D7EDE7', '#BFE2D8', '#9CD3C3', '#6BBDA6', '#39A788', '#08916A', '#077A59', '#066349', '#044C38']
   },
   adjusted: [
-    { use: 'dimmed text', original: '#90A7B2', adjusted: '#516974' },
+    { use: 'dimmed text', original: '#90A7B2', adjusted: '#495F6A' },
     { use: 'Working', original: '#4876D6', adjusted: '#2D5EC7' },
     { use: 'Needs you (from Night Owl)', original: '#F78C6C', adjusted: '#B9320A' },
     { use: 'red', original: '#DE3D3B', adjusted: '#C12321' },
     { use: 'yellow text', original: '#E0AF02', adjusted: '#866901' },
-    { use: 'gray fill under white text', original: '#90A7B2', adjusted: '#516974' }
+    { use: 'gray fill under white text', original: '#90A7B2', adjusted: '#495F6A' }
   ]
 }
 
