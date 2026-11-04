@@ -11,20 +11,23 @@ beforeEach(async () => {
 })
 afterEach(() => cleanup())
 
+/** The Theme setting of a new user: Light, and Match Windows between Light and Dark. */
+const LIGHT = { choice: 'light', light: 'light', dark: 'dark' } as const
+
 describe('settings repo', () => {
   it('allows three agents at once until the user says otherwise', async () => {
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: 'light' })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: LIGHT })
   })
 
   it('stores the number of agents, and a second repo over the same database reads it', async () => {
-    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', theme: 'light' })
+    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', theme: LIGHT })
     await createSettingsRepo(db).setMaxAgents(1)
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', theme: 'light' })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', theme: LIGHT })
   })
 
   it.each([0, 11, 2.5, -1, Number.NaN, '3' as unknown as number])('refuses %s', async (n) => {
     await expect(createSettingsRepo(db).setMaxAgents(n)).rejects.toThrow('from 1 to 10')
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: 'light' })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: LIGHT })
   })
 
   it('keeps the usage limit across a second repo, and clears it', async () => {
@@ -36,12 +39,12 @@ describe('settings repo', () => {
     await createSettingsRepo(db).setUsageLimit(null)
     expect(await createSettingsRepo(db).usageLimit()).toBeNull()
     // The agent cap is untouched.
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: 'light' })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: LIGHT })
   })
 
   it('keeps running in the tray when the window closes until the user says otherwise, and remembers the choice', async () => {
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
-    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', theme: 'light' })
+    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', theme: LIGHT })
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('quit')
     await createSettingsRepo(db).setWhenClosed('tray')
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
@@ -53,20 +56,54 @@ describe('settings repo', () => {
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
   })
 
-  it('draws the app in Light until the user picks, and remembers Dark and Match Windows', async () => {
-    expect((await createSettingsRepo(db).get()).theme).toBe('light')
-    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: 'dark' })
-    expect((await createSettingsRepo(db).get()).theme).toBe('dark')
-    await createSettingsRepo(db).setTheme('system')
-    expect((await createSettingsRepo(db).get()).theme).toBe('system')
-    await createSettingsRepo(db).setTheme('light')
-    expect((await createSettingsRepo(db).get()).theme).toBe('light')
+  it('draws the app in Light until the user picks, and remembers each theme and Match Windows', async () => {
+    expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
+    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: { ...LIGHT, choice: 'dark' } })
+    for (const choice of ['night-owl', 'light-owl', 'system', 'dark', 'light'] as const) {
+      await createSettingsRepo(db).setTheme(choice)
+      expect((await createSettingsRepo(db).get()).theme).toEqual({ ...LIGHT, choice })
+    }
   })
 
-  it.each(['auto', 'Dark', '', null, 1])('refuses %s as the theme, and an unknown stored value reads as Light', async (v) => {
-    await expect(createSettingsRepo(db).setTheme(v as unknown as 'dark')).rejects.toThrow("'light', 'dark' or 'system'")
+  it.each(['auto', 'Dark', 'Night Owl', '', null, 1])('refuses %s as the theme, and an unknown stored value reads as Light', async (v) => {
+    await expect(createSettingsRepo(db).setTheme(v as unknown as 'dark')).rejects.toThrow("'light', 'dark', 'night-owl', 'light-owl' or 'system'")
     await db.insert(appSettings).values({ key: 'theme', value: 'bogus' })
-    expect((await createSettingsRepo(db).get()).theme).toBe('light')
+    expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
+  })
+
+  it.each(['light', 'dark', 'system'] as const)('a %s stored before named themes reads as it did, with Light and Dark for Match Windows', async (v) => {
+    // The rows as the app wrote them before: just the choice.
+    await db.insert(appSettings).values({ key: 'theme', value: v })
+    expect((await createSettingsRepo(db).get()).theme).toEqual({ choice: v, light: 'light', dark: 'dark' })
+  })
+
+  it('remembers the light and the dark theme Match Windows uses, and keeps the choice', async () => {
+    await createSettingsRepo(db).setTheme('system')
+    expect((await createSettingsRepo(db).setMatchWindowsTheme('dark', 'night-owl')).theme).toEqual({ choice: 'system', light: 'light', dark: 'night-owl' })
+    await createSettingsRepo(db).setMatchWindowsTheme('light', 'light-owl')
+    expect((await createSettingsRepo(db).get()).theme).toEqual({ choice: 'system', light: 'light-owl', dark: 'night-owl' })
+    // Picking a theme outright leaves the Match Windows picks for next time.
+    await createSettingsRepo(db).setTheme('dark')
+    expect((await createSettingsRepo(db).get()).theme).toEqual({ choice: 'dark', light: 'light-owl', dark: 'night-owl' })
+  })
+
+  it.each([
+    ['dark', 'light-owl'],
+    ['light', 'night-owl'],
+    ['dark', 'system'],
+    ['dark', 'bogus'],
+    ['dim', 'dark']
+  ])('refuses %s %s for Match Windows', async (scheme, id) => {
+    await expect(createSettingsRepo(db).setMatchWindowsTheme(scheme as 'dark', id as 'dark')).rejects.toThrow()
+    expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
+  })
+
+  it('a stored Match Windows theme of the wrong scheme, or unknown, reads as Light or Dark', async () => {
+    await db.insert(appSettings).values([
+      { key: 'theme_light', value: 'night-owl' },
+      { key: 'theme_dark', value: 'bogus' }
+    ])
+    expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
   })
 
   it('accepts both ends of the range', async () => {

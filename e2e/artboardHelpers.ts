@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { THEME_IDS, themeOf, type ThemeId } from '../src/shared/domain'
 
 const root = path.resolve(import.meta.dirname, '..')
 const SHOTS = path.join(root, 'test-results', 'artboards')
@@ -47,26 +48,26 @@ interface Options {
   openWorkspace?: boolean
 }
 
-export type Scheme = 'light' | 'dark'
-export const SCHEMES: readonly Scheme[] = ['light', 'dark']
+export { THEME_IDS, type ThemeId }
 
 /** Picks the Theme the way the settings do (through the bridge), and waits for the page to be drawn in it. */
-export async function useScheme(page: Page, scheme: Scheme): Promise<void> {
-  await page.evaluate((s) => (globalThis as unknown as { mainbus: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).mainbus.invoke('settings.setTheme', s), scheme)
-  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme)
+export async function useTheme(page: Page, id: ThemeId): Promise<void> {
+  await page.evaluate((t) => (globalThis as unknown as { mainbus: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).mainbus.invoke('settings.setTheme', t), id)
+  await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', id)
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', themeOf(id).scheme)
 }
 
 /**
  * Runs `body` against the app with FakeRuntime, a temporary MAINBUS_HOME and a throwaway repository, sized like the
- * artboard, once in each scheme, each time in a fresh data home. Never touches the user's data home or board.
+ * artboard, once in each theme, each time in a fresh data home. Never touches the user's data home or board.
  */
 export async function withArtboard(options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
-  // Twice the work: twice the time.
-  test.setTimeout(test.info().timeout * SCHEMES.length)
-  for (const scheme of SCHEMES) await withArtboardIn(scheme, options, body)
+  // The work once per theme: the time too.
+  test.setTimeout(test.info().timeout * THEME_IDS.length)
+  for (const id of THEME_IDS) await withArtboardIn(id, options, body)
 }
 
-async function withArtboardIn(scheme: Scheme, options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
+async function withArtboardIn(theme: ThemeId, options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-artboard-'))
   let app: ElectronApplication | undefined
   try {
@@ -84,8 +85,8 @@ async function withArtboardIn(scheme: Scheme, options: Options, body: (board: Ar
     await app.evaluate(({ BrowserWindow }, [width, height]) => {
       BrowserWindow.getAllWindows()[0]!.setContentSize(width!, height!)
     }, [options.size.width, options.size.height])
-    // Light is the default: the light run leaves the setting alone, as a new user would.
-    if (scheme === 'dark') await useScheme(page, scheme)
+    // Light is the default: the Light run leaves the setting alone, as a new user would.
+    if (theme !== 'light') await useTheme(page, theme)
     if (options.openWorkspace !== false) {
       await page.getByRole('button', { name: 'Add workspace' }).click()
       await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
@@ -103,14 +104,14 @@ async function withArtboardIn(scheme: Scheme, options: Options, body: (board: Ar
 
 /**
  * Saves a screenshot of the window to test-results/artboards/<slug>.png (ignored by git), for the wireframe pass; in
- * the dark scheme to <slug>-dark.png beside it.
+ * another theme to <slug>-<theme>.png beside it (<slug>-dark.png, <slug>-night-owl.png, ...).
  */
 export async function shot(page: Page, slug: string): Promise<void> {
   fs.mkdirSync(SHOTS, { recursive: true })
   // Let the recently-changed outline and other short animations settle, so the pictures can be compared.
   await page.waitForTimeout(300)
-  const dark = (await page.locator('html').getAttribute('data-mantine-color-scheme')) === 'dark'
-  await page.screenshot({ path: path.join(SHOTS, `${slug}${dark ? '-dark' : ''}.png`) })
+  const theme = (await page.locator('html').getAttribute('data-mainbus-theme')) ?? 'light'
+  await page.screenshot({ path: path.join(SHOTS, `${slug}${theme === 'light' ? '' : `-${theme}`}.png`) })
 }
 
 export interface NewTicket {
