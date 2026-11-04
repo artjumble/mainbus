@@ -104,7 +104,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             </Badge>
           )}
           <Radio.Group label="Kind" value={kind} onChange={(v) => setKind(v as TicketKind)}>
-            <Group mt={4}>
+            <Group mt={4} align="flex-start">
               <Radio value="change" label="Change" />
               <Radio value="investigate" label="Investigate" description="Finds out and writes a report; changes no code" />
             </Group>

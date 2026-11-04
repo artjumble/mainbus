@@ -251,6 +251,22 @@ test('Creating a ticket: the New ticket dialog, then drafted tickets with ticks,
     await expect(dialog.getByLabel("Ask the orchestrator to start an agent once it's in Ready")).toBeVisible()
     await expect(dialog.getByPlaceholder('What needs doing')).toBeVisible()
     await expect(dialog.getByRole('button', { name: 'Create ticket' })).toBeDisabled()
+    // Both rects are read in one go, since the dialog may still be easing in between two separate reads.
+    const rects = (name: string): Promise<{ input: DOMRect; label: DOMRect }> =>
+      dialog.getByLabel(name).first().evaluate((el) => {
+        const input = el as HTMLInputElement
+        return { input: input.getBoundingClientRect(), label: input.labels![0].getBoundingClientRect() }
+      })
+    const centre = (r: DOMRect): number => r.y + r.height / 2
+    for (const name of ['Change', 'Investigate', "Ask the orchestrator to start an agent once it's in Ready"]) {
+      const { input, label } = await rects(name)
+      expect(Math.abs(centre(input) - centre(label))).toBeLessThan(2)
+    }
+    const both = await dialog.evaluate((el) => {
+      const radios = Array.from(el.querySelectorAll<HTMLInputElement>('input[type=radio]'))
+      return radios.map((r) => r.getBoundingClientRect().y)
+    })
+    expect(Math.abs(both[0] - both[1])).toBeLessThan(1)
     await shot(page, 'creating-a-ticket-dialog')
     await dialog.getByRole('button', { name: 'Cancel' }).click()
 
