@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  alpha,
   Anchor,
   Button,
   CloseButton,
@@ -14,14 +15,19 @@ import {
   Switch,
   Tabs,
   UnstyledButton,
+  virtualColor,
   type CSSVariablesResolver,
   type MantineColorsTuple,
   type MantineThemeOverride
 } from '@mantine/core'
+import { GROUND } from '../../shared/domain'
 import targets from './targets.module.css'
 
+// Every colour of the app is here. Each named colour has a light tuple and a dark one, and Mantine's virtualColor gives
+// `needs`, `working`, `gray`, `red` and `yellow` the one of the scheme in use, so components name a colour once.
+
 // Wireframe palette. Index 6 is the shade Mantine uses for filled variants.
-const needs: MantineColorsTuple = [
+const needsLight: MantineColorsTuple = [
   '#FFF3EA',
   '#FCE3CF',
   '#F7C9A3',
@@ -34,7 +40,7 @@ const needs: MantineColorsTuple = [
   '#652B04'
 ]
 
-const working: MantineColorsTuple = [
+const workingLight: MantineColorsTuple = [
   '#EAF0FF',
   '#D3DEFA',
   '#A9BEF2',
@@ -48,7 +54,7 @@ const working: MantineColorsTuple = [
 ]
 
 // Mantine's gray-6 (#868e96) is its dimmed text and outline colour, and is only 3:1 on the ground. Darker from 6 up.
-const gray: MantineColorsTuple = [
+const grayLight: MantineColorsTuple = [
   '#f8f9fa',
   '#f1f3f5',
   '#e9ecef',
@@ -62,7 +68,7 @@ const gray: MantineColorsTuple = [
 ]
 
 // Mantine's red-6 (#fa5252) gives white text only 3.3:1; this one is its red-9, so a red button and error text pass.
-const red: MantineColorsTuple = [
+const redLight: MantineColorsTuple = [
   '#fff5f5',
   '#ffe3e3',
   '#ffc9c9',
@@ -76,7 +82,7 @@ const red: MantineColorsTuple = [
 ]
 
 // Mantine's yellow-9 (#e67700) is the text of a light yellow alert, and is only 2.7:1 on its tint.
-const yellow: MantineColorsTuple = [
+const yellowLight: MantineColorsTuple = [
   '#fff9db',
   '#fff3bf',
   '#ffec99',
@@ -89,11 +95,131 @@ const yellow: MantineColorsTuple = [
   '#5c3d00'
 ]
 
-export const palette = {
-  ground: '#F4F4F1',
-  text: '#1F1F1F',
-  border: '#CFCFCA'
+/*
+ * The dark tuples keep the jobs the app gives each index in light, so `needs.0`, `needs.7` or `working-5` work in
+ * both schemes: 0 a tinted ground (the Needs you column, a permission card), 1 and 2 a chip and a hovered chip, 5 the
+ * focus ring and other marks, 6 a fill under white text and a meaningful border, 7 text on the ground, 8 a hovered
+ * fill, 9 a chip's text. Index 6 is the light hue, or close to it, so the orange and blue read as the same colours.
+ */
+const needsDark: MantineColorsTuple = [
+  '#2B1F16',
+  '#3D2717',
+  '#4C2F1A',
+  '#5E3815',
+  '#7F4718',
+  '#E07B33',
+  '#B5530F', // Needs you orange
+  '#F0A061',
+  '#9A4409',
+  '#FBD3B0'
+]
+
+const workingDark: MantineColorsTuple = [
+  '#1A2238',
+  '#1F2B4D',
+  '#26365E',
+  '#2C3F70',
+  '#3A55A0',
+  '#7898F0',
+  '#4370DB', // Working blue, lighter so it shows on the dark ground and still holds white text
+  '#9FB7F7',
+  '#2F52B0',
+  '#D3DEFA'
+]
+
+const grayDark: MantineColorsTuple = [
+  '#252523',
+  '#2F2F2C',
+  '#3A3A36',
+  '#4A4A45',
+  '#5C5C56',
+  '#8E8E87',
+  '#5E5E58',
+  '#B9B9B2',
+  '#4E4E49',
+  '#E0E0DA'
+]
+
+const redDark: MantineColorsTuple = [
+  '#2E1A1A',
+  '#3F1F1F',
+  '#4F2525',
+  '#6A2A2A',
+  '#8F3030',
+  '#F07070',
+  '#C92A2A',
+  '#FF9C9C',
+  '#A82424',
+  '#FFD6D6'
+]
+
+const yellowDark: MantineColorsTuple = [
+  '#29240F',
+  '#372F10',
+  '#463B14',
+  '#5A4A14',
+  '#7A6418',
+  '#E8B923',
+  '#8A5A00',
+  '#F2CC5A',
+  '#6E4800',
+  '#FBE6A6'
+]
+
+/*
+ * Mantine's own neutral ramp, which its components use in the dark scheme (dark-0 text, dark-2 dimmed, dark-4 borders,
+ * dark-5 hover, dark-6 inputs and cards, dark-7 the body). Warm, like the light ground. Set only in the dark scheme:
+ * light keeps Mantine's, which a few light things use (the dashed border of a failed card, a dark button).
+ */
+const neutralDark: MantineColorsTuple = [
+  '#E8E8E3',
+  '#CFCFC9',
+  '#ABABA4',
+  '#8E8E87',
+  '#4A4A45',
+  '#3A3A36',
+  '#2B2B28',
+  GROUND.dark,
+  '#191917',
+  '#121211'
+]
+
+/** The wireframe palette of each scheme: the page ground, surfaces (inputs, cards, menus), text, dimmed text and borders. */
+export const palettes = {
+  light: {
+    ground: GROUND.light,
+    surface: '#ffffff',
+    text: '#1F1F1F',
+    dimmed: grayLight[6],
+    border: '#CFCFCA'
+  },
+  dark: {
+    ground: neutralDark[7],
+    surface: neutralDark[6],
+    text: neutralDark[0],
+    dimmed: neutralDark[2],
+    border: neutralDark[4]
+  }
 } as const
+
+/** The light and dark tuple of each named colour. */
+export const schemeColors = {
+  needs: { light: needsLight, dark: needsDark },
+  working: { light: workingLight, dark: workingDark },
+  gray: { light: grayLight, dark: grayDark },
+  red: { light: redLight, dark: redDark },
+  yellow: { light: yellowLight, dark: yellowDark }
+} as const
+
+type SchemeColor = keyof typeof schemeColors
+
+const colors = Object.fromEntries(
+  Object.entries(schemeColors).flatMap(([name, { light, dark }]) => [
+    [name, virtualColor({ name, light: `${name}Light`, dark: `${name}Dark` })],
+    [`${name}Light`, light],
+    [`${name}Dark`, dark]
+  ])
+) as Record<SchemeColor, MantineColorsTuple>
 
 // Mantine's close buttons have no name of their own, and its dialog title bar is a <header>, which would be a
 // second banner landmark next to the app's.
@@ -104,9 +230,9 @@ export const theme: MantineThemeOverride = {
   headings: { fontFamily: 'inherit' },
   primaryColor: 'working',
   primaryShade: 6,
-  black: palette.text,
-  colors: { needs, working, gray, red, yellow },
-  other: palette,
+  black: palettes.light.text,
+  colors,
+  other: { palettes },
   // Transitions (menus, modals, collapses) and Mantine's own animations stop for people who ask for less motion.
   respectReducedMotion: true,
   components: {
@@ -131,15 +257,54 @@ export const theme: MantineThemeOverride = {
   }
 }
 
-// Mantine has no theme field for the page background or default border, so set them here.
+/**
+ * Mantine's dark variants assume shade 0 is the lightest; the dark tuples here keep light's jobs per index instead
+ * (see above), so each named colour's variants point at the same indices as in light, except where text on the
+ * dark ground needs the lighter shade 7 and a hovered fill the darker shade 8.
+ */
+function darkVariants(name: SchemeColor): Record<string, string> {
+  const v = (i: number): string => `var(--mantine-color-${name}-${i})`
+  return {
+    [`--mantine-color-${name}-filled`]: v(6),
+    [`--mantine-color-${name}-filled-hover`]: v(8),
+    [`--mantine-color-${name}-light`]: v(1),
+    [`--mantine-color-${name}-light-hover`]: v(2),
+    [`--mantine-color-${name}-light-color`]: v(9),
+    [`--mantine-color-${name}-outline`]: v(7),
+    [`--mantine-color-${name}-outline-hover`]: alpha(schemeColors[name].dark[7], 0.08),
+    [`--mantine-color-${name}-text`]: v(7)
+  }
+}
+
+// Mantine has no theme field for the page background or default border, so set them here, with what the dark scheme needs.
 export const cssVariablesResolver: CSSVariablesResolver = () => ({
   variables: {},
   light: {
-    '--mantine-color-body': palette.ground,
-    '--mantine-color-text': palette.text,
-    '--mantine-color-default-border': palette.border,
+    '--mantine-color-body': palettes.light.ground,
+    '--mantine-color-text': palettes.light.text,
+    '--mantine-color-default-border': palettes.light.border,
     // Placeholder text (the search box) is meaningful, so it gets the same darker grey as dimmed text.
-    '--mantine-color-placeholder': 'var(--mantine-color-gray-6)'
+    '--mantine-color-placeholder': 'var(--mantine-color-gray-6)',
+    // The dashed border of a failed card.
+    '--mainbus-color-strong-border': 'var(--mantine-color-dark-6)'
   },
-  dark: {}
+  dark: {
+    ...Object.fromEntries(neutralDark.map((shade, i) => [`--mantine-color-dark-${i}`, shade])),
+    '--mantine-color-body': palettes.dark.ground,
+    '--mantine-color-text': palettes.dark.text,
+    '--mantine-color-bright': palettes.dark.text,
+    '--mantine-color-dimmed': palettes.dark.dimmed,
+    '--mantine-color-placeholder': palettes.dark.dimmed,
+    '--mantine-color-default': palettes.dark.surface,
+    '--mantine-color-default-hover': 'var(--mantine-color-dark-5)',
+    '--mantine-color-default-color': palettes.dark.text,
+    '--mantine-color-default-border': palettes.dark.border,
+    '--mantine-color-anchor': 'var(--mantine-color-working-7)',
+    '--mantine-color-error': 'var(--mantine-color-red-7)',
+    '--mainbus-color-strong-border': palettes.dark.dimmed,
+    ...Object.assign({}, ...(Object.keys(schemeColors) as SchemeColor[]).map(darkVariants)),
+    // A dark (black in light) button: in the dark scheme a raised grey, still under white text.
+    '--mantine-color-dark-filled': 'var(--mantine-color-dark-4)',
+    '--mantine-color-dark-filled-hover': 'var(--mantine-color-dark-5)'
+  }
 })

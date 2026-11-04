@@ -165,7 +165,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       // Orange border when the person is needed; a dashed one when the agent failed.
       bd={
         state.agentStatus === 'failed'
-          ? '1px dashed var(--mantine-color-dark-6)'
+          ? '1px dashed var(--mainbus-color-strong-border)'
           : state.column === 'needs_you'
             ? '1px solid var(--mantine-color-needs-6)'
             : undefined

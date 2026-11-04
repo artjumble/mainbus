@@ -981,6 +981,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       'settings.setWhenClosed': (v) => repos.settings.setWhenClosed(v),
+      'settings.setTheme': async (v) => {
+        const settings = await repos.settings.setTheme(v)
+        emit({ type: 'theme.changed', theme: settings.theme })
+        return settings
+      },
 
       'unattended.get': async (workspaceId) => {
         // Before any workspace is open there is nothing to run.

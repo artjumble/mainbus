@@ -21,6 +21,7 @@ import type {
   StuckEpisode,
   Ticket,
   TicketPatch,
+  ThemeChoice,
   TicketState,
   UnattendedState,
   UsageState,
@@ -86,6 +87,8 @@ export type EngineEvent =
   | { type: 'orchestrator.status'; status: OrchestratorStatus }
   /** A proposal was made, decided, carried out or failed. */
   | { type: 'proposal.changed'; proposal: Proposal }
+  /** The Theme setting changed: the window and the page switch scheme without a restart. */
+  | { type: 'theme.changed'; theme: ThemeChoice }
 
 /** Every command the renderer can send to the engine. A thrown error reaches the renderer as a rejected promise. */
 export interface EngineCommands {
@@ -210,6 +213,8 @@ export interface EngineCommands {
   'settings.setMaxAgents'(n: number): AppSettings
   /** "When I close the window": 'tray' keeps Mainbus running while agents are open, 'quit' always quits. Only the renderer can reach it. */
   'settings.setWhenClosed'(v: WhenClosed): AppSettings
+  /** "Theme": 'light', 'dark' or 'system' (Match Windows). Applied live, through a theme.changed event. Only the renderer can reach it. */
+  'settings.setTheme'(v: ThemeChoice): AppSettings
   /**
    * Unattended mode: works through Ready one ticket at a time. Only the renderer can reach these: the agent
    * intake (pipe, CLI, MCP) has no way to switch it on. Each workspace has its own, remembered across a restart; the focused workspace unless given.

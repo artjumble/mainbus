@@ -32,10 +32,23 @@ export interface AppSettings {
   maxAgents: number
   /** What closing the window does: keep running in the tray while agents are open, or always quit. */
   whenClosed: WhenClosed
+  /** "Theme": the colour scheme the app is drawn in. */
+  theme: ThemeChoice
 }
 
 export type WhenClosed = 'tray' | 'quit'
 export const WHEN_CLOSED_DEFAULT: WhenClosed = 'tray'
+
+/** Light (today's look), Dark, or 'system' (Match Windows, following it while the app runs). Light until the user picks. */
+export type ThemeChoice = 'light' | 'dark' | 'system'
+export const THEME_CHOICES: readonly ThemeChoice[] = ['light', 'dark', 'system']
+export const THEME_DEFAULT: ThemeChoice = 'light'
+
+/**
+ * The page ground of each scheme. The renderer's theme (theme.ts) builds its palettes on these, and the main process
+ * paints the window with them before the page loads, so there is no flash of another colour on launch.
+ */
+export const GROUND = { light: '#F4F4F1', dark: '#1E1E1C' } as const
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 

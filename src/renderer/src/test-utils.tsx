@@ -8,10 +8,13 @@ import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { BoardTicket } from './store'
 import { cssVariablesResolver, theme } from './theme'
 
+/** The scheme components are rendered in: light, or dark in the jsdom-dark test project. */
+export const testScheme: 'light' | 'dark' = import.meta.env['MAINBUS_TEST_SCHEME'] === 'dark' ? 'dark' : 'light'
+
 function Providers({ children }: { children: ReactNode }): ReactElement {
   // env="test" turns off transitions and portals, which jsdom cannot run.
   return (
-    <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} env="test">
+    <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} env="test" forceColorScheme={testScheme}>
       <Notifications />
       {children}
     </MantineProvider>
@@ -168,6 +171,8 @@ export async function expectNoAxeViolations(
   container: Element = document.body,
   opts: { region?: boolean } = {}
 ): Promise<void> {
+  // Run in both schemes: make sure the scheme being checked is the one in use.
+  expect(document.documentElement).toHaveAttribute('data-mantine-color-scheme', testScheme)
   const results = await axe.run(container, {
     rules: { 'color-contrast': { enabled: false }, region: { enabled: opts.region ?? false } }
   })
