@@ -257,4 +257,6 @@ Mainbus grew out of using [firstmate](https://github.com/kunchenguid/firstmate),
 
 Mainbus is released under the [MIT License](LICENSE). Copyright © 2026 artjumble.
 
+Night Owl and Light Owl theme colours by Sarah Drasner (MIT), from [Night Owl for VS Code](https://github.com/sdras/night-owl-vscode-theme).
+
 Its dependencies keep their own licenses. The Claude Agent SDK, in particular, is covered by Anthropic's terms rather than MIT, and Mainbus doesn't include Claude Code itself: each user installs it and signs in to it.

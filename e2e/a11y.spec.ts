@@ -5,7 +5,8 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { SCHEMES, useScheme, type Scheme } from './artboardHelpers'
+import { themeOf } from '../src/shared/domain'
+import { THEME_IDS, useTheme, type ThemeId } from './artboardHelpers'
 
 const root = path.resolve(import.meta.dirname, '..')
 const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
@@ -122,7 +123,7 @@ async function smallTargets(page: Page, within = 'body'): Promise<string[]> {
   }, within)
 }
 
-async function withSession(body: (page: Page) => Promise<void>, scheme: Scheme = 'light'): Promise<void> {
+async function withSession(body: (page: Page) => Promise<void>, theme: ThemeId = 'light'): Promise<void> {
   let tmp: string | null = null
   let session: { app: ElectronApplication; page: Page } | null = null
   try {
@@ -135,7 +136,7 @@ async function withSession(body: (page: Page) => Promise<void>, scheme: Scheme =
     git(repo, 'add', '.')
     git(repo, 'commit', '-m', 'initial')
     session = await launch(home, repo)
-    if (scheme === 'dark') await useScheme(session.page, scheme)
+    if (theme !== 'light') await useTheme(session.page, theme)
     await session.page.getByRole('button', { name: 'Add workspace' }).click()
     // The shell's navbar and aside settle into place just after the first paint; measure after that.
     await session.page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
@@ -174,8 +175,8 @@ async function askAndRequest(page: Page): Promise<void> {
   await expect(page.locator('[data-event="decision"]')).toBeVisible()
 }
 
-for (const scheme of SCHEMES)
-test(`every screen passes axe, with colour contrast, and every control has a 44 px target (${scheme})`, async () => {
+for (const theme of THEME_IDS)
+test(`every screen passes axe, with colour contrast, and every control has a 44 px target (${theme})`, async () => {
   await withSession(async (page) => {
     // The empty board.
     await expectNoAxeViolations(page, 'the empty board')
@@ -220,7 +221,18 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await expect(page.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeVisible()
     await expectNoAxeViolations(page, 'the settings window')
     expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the settings window').toEqual([])
-  }, scheme)
+
+    // Match Windows and its Light theme and Dark theme choices, still in this theme: Windows, as the page sees it,
+    // is in this theme's scheme, and this theme is the pick for it.
+    const scheme = themeOf(theme).scheme
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Match Windows' }).check()
+    const picks = page.getByRole('radiogroup', { name: scheme === 'light' ? 'Light theme' : 'Dark theme' })
+    await picks.getByRole('radio', { name: themeOf(theme).name, exact: true }).check()
+    await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', theme)
+    await expectNoAxeViolations(page, 'the settings window with Match Windows')
+    expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the settings window with Match Windows').toEqual([])
+  }, theme)
 })
 
 test('reduced motion stops the outline fade and the spinners', async () => {
