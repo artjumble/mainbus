@@ -1,11 +1,26 @@
-import { eq } from 'drizzle-orm'
-import { AGENT_CAP_DEFAULT, AGENT_CAP_MAX, AGENT_CAP_MIN, WHEN_CLOSED_DEFAULT, type AppSettings, type WhenClosed } from '../../shared/domain'
+import { eq, inArray } from 'drizzle-orm'
+import {
+  AGENT_CAP_DEFAULT,
+  AGENT_CAP_MAX,
+  AGENT_CAP_MIN,
+  THEME_CHOICES,
+  THEME_DEFAULT,
+  WHEN_CLOSED_DEFAULT,
+  type AppSettings,
+  type ThemeChoice,
+  type WhenClosed
+} from '../../shared/domain'
 import type { Db } from '../db/open'
 import { appSettings } from '../db/schema'
 
 const MAX_AGENTS = 'max_agents'
 const USAGE_LIMIT = 'usage_limit'
 const WHEN_CLOSED = 'when_closed'
+const THEME = 'theme'
+
+function isThemeChoice(v: unknown): v is ThemeChoice {
+  return THEME_CHOICES.includes(v as ThemeChoice)
+}
 
 /** The usage-limited state that is kept across a restart: when it began and when it resets (ISO; null when unknown). */
 export interface StoredUsageLimit {
@@ -24,6 +39,8 @@ export interface SettingsRepo {
   setMaxAgents(n: number): Promise<AppSettings>
   /** Stores what closing the window does; rejects anything but 'tray' or 'quit'. */
   setWhenClosed(v: WhenClosed): Promise<AppSettings>
+  /** Stores the colour scheme; rejects anything but 'light', 'dark' or 'system'. */
+  setTheme(v: ThemeChoice): Promise<AppSettings>
   /** The usage limit Mainbus is in, or null when it is not limited. */
   usageLimit(): Promise<StoredUsageLimit | null>
   /** Stores the usage limit; null clears it. */
@@ -32,12 +49,15 @@ export interface SettingsRepo {
 
 export function createSettingsRepo(db: Db): SettingsRepo {
   async function get(): Promise<AppSettings> {
-    const [row] = await db.select().from(appSettings).where(eq(appSettings.key, MAX_AGENTS))
-    const stored = row ? Number(row.value) : NaN
-    const [closed] = await db.select().from(appSettings).where(eq(appSettings.key, WHEN_CLOSED))
+    // One read: the runner asks for the agent cap on every start.
+    const rows = await db.select().from(appSettings).where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, THEME]))
+    const value = (key: string): string | undefined => rows.find((r) => r.key === key)?.value
+    const stored = Number(value(MAX_AGENTS) ?? NaN)
+    const theme = value(THEME)
     return {
       maxAgents: validAgentCap(stored) ? stored : AGENT_CAP_DEFAULT,
-      whenClosed: closed?.value === 'quit' ? 'quit' : WHEN_CLOSED_DEFAULT
+      whenClosed: value(WHEN_CLOSED) === 'quit' ? 'quit' : WHEN_CLOSED_DEFAULT,
+      theme: isThemeChoice(theme) ? theme : THEME_DEFAULT
     }
   }
 
@@ -76,6 +96,11 @@ export function createSettingsRepo(db: Db): SettingsRepo {
         .insert(appSettings)
         .values({ key: WHEN_CLOSED, value: v })
         .onConflictDoUpdate({ target: appSettings.key, set: { value: v } })
+      return get()
+    },
+    async setTheme(v) {
+      if (!isThemeChoice(v)) throw new Error("Theme must be 'light', 'dark' or 'system'")
+      await db.insert(appSettings).values({ key: THEME, value: v }).onConflictDoUpdate({ target: appSettings.key, set: { value: v } })
       return get()
     }
   }

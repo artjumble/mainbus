@@ -22,7 +22,7 @@
 }
 
 .handoff {
-  color: var(--mantine-color-working-6);
+  color: var(--mantine-color-working-text);
   font-weight: 600;
 }
 

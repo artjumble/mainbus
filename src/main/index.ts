@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as sdk from '@anthropic-ai/claude-agent-sdk'
-import { app, BrowserWindow, dialog, powerSaveBlocker, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, powerSaveBlocker, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runCommand, type CommandRunner } from '../engine/git/command'
 import { FakeGh } from '../engine/git/fakeGh'
@@ -24,6 +24,7 @@ import { TrayController } from './tray/controller'
 import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenuShortcut, filePrefs, realTimer } from './tray/electron'
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
 import { testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
+import { WindowTheme } from './windowTheme'
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
@@ -33,6 +34,8 @@ let tray: TrayController | null = null
 let quitting = false
 /** Why the intake pipe couldn't be opened; shown in the Connect agents settings. */
 let intakeError: string | null = null
+/** The window frame and background in the scheme of the Theme setting; set once the engine has read the setting. */
+let windowTheme: WindowTheme | null = null
 
 /**
  * The tray icon, the taskbar badge and the toasts. Not essential: when they can't start, the app runs without them
@@ -109,6 +112,8 @@ function createWindow(): BrowserWindow {
     height: 800,
     title: 'Mainbus',
     autoHideMenuBar: true,
+    // The ground of the chosen scheme, so a dark window shows no white before the page has painted.
+    ...(windowTheme ? { backgroundColor: windowTheme.background() } : {}),
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -232,6 +237,12 @@ if (!app.requestSingleInstanceLock()) {
       })
       try {
         registerIpc(engine, () => mainWindow, appUrl(), testReposFromEnv(process.env))
+        const themed = new WindowTheme(nativeTheme, () => mainWindow)
+        themed.apply((await engine.invoke('settings.get')).theme)
+        engine.on((e) => {
+          if (e.type === 'theme.changed') themed.apply(e.theme)
+        })
+        windowTheme = themed
         openMainWindow()
       } catch (err) {
         // The window never opened: close the database cleanly before giving up.

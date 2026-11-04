@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
@@ -11,20 +11,27 @@ const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 
 let stored: number
 let storedClose: 'tray' | 'quit'
+let storedTheme: 'light' | 'dark' | 'system'
 
 beforeEach(() => {
   mockInvoke.mockReset()
   stored = 3
   storedClose = 'tray'
+  storedTheme = 'light'
+  const settings = () => ({ maxAgents: stored, whenClosed: storedClose, theme: storedTheme })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
-    if (command === 'settings.get') return { maxAgents: stored, whenClosed: storedClose }
+    if (command === 'settings.get') return settings()
     if (command === 'settings.setMaxAgents') {
       stored = args[0] as number
-      return { maxAgents: stored, whenClosed: storedClose }
+      return settings()
     }
     if (command === 'settings.setWhenClosed') {
       storedClose = args[0] as 'tray' | 'quit'
-      return { maxAgents: stored, whenClosed: storedClose }
+      return settings()
+    }
+    if (command === 'settings.setTheme') {
+      storedTheme = args[0] as 'light' | 'dark' | 'system'
+      return settings()
     }
     return undefined
   })
@@ -73,6 +80,41 @@ test('closing the window keeps running in the tray by default, and Always quit s
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setWhenClosed', 'quit'))
   expect(storedClose).toBe('quit')
   expect(screen.getByRole('radio', { name: 'Always quit' })).toBeChecked()
+})
+
+test('the theme is Light by default, and offers Dark and Match Windows', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  const group = await screen.findByRole('radiogroup', { name: 'Theme' })
+  const light = within(group).getByRole('radio', { name: 'Light' })
+  await vi.waitFor(() => expect(light).toBeChecked())
+  expect(within(group).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['light', 'dark', 'system'])
+
+  await userEvent.click(within(group).getByRole('radio', { name: 'Dark' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'dark'))
+  expect(storedTheme).toBe('dark')
+  expect(within(group).getByRole('radio', { name: 'Dark' })).toBeChecked()
+
+  await userEvent.click(within(group).getByRole('radio', { name: 'Match Windows' }))
+  await vi.waitFor(() => expect(storedTheme).toBe('system'))
+  expect(within(group).getByRole('radio', { name: 'Match Windows' })).toBeChecked()
+})
+
+test('shows the stored theme', async () => {
+  storedTheme = 'system'
+  renderWithMantine(<GeneralSettings opened />)
+  await vi.waitFor(() => expect(screen.getByRole('radio', { name: 'Match Windows' })).toBeChecked())
+})
+
+test('a theme that cannot be saved goes back to the one before', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  const light = await screen.findByRole('radio', { name: 'Light' })
+  await vi.waitFor(() => expect(light).toBeChecked())
+  mockInvoke.mockImplementationOnce(async () => {
+    throw new Error('disk full')
+  })
+  await userEvent.click(screen.getByRole('radio', { name: 'Dark' }))
+  await vi.waitFor(() => expect(light).toBeChecked())
+  expect(storedTheme).toBe('light')
 })
 
 test('the general settings have no axe violations', async () => {

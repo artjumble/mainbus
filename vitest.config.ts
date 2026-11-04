@@ -24,6 +24,18 @@ export default defineConfig({
           include: ['src/renderer/**/*.test.{ts,tsx}'],
           setupFiles: ['src/renderer/src/test-setup.ts']
         }
+      },
+      {
+        // The component tests again in the dark scheme, axe checks included (see renderWithMantine).
+        plugins: [react()],
+        test: {
+          name: 'jsdom-dark',
+          environment: 'jsdom',
+          globals: true,
+          include: ['src/renderer/**/*.test.tsx'],
+          setupFiles: ['src/renderer/src/test-setup.ts'],
+          env: { MAINBUS_TEST_SCHEME: 'dark' }
+        }
       }
     ]
   }

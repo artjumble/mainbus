@@ -1,14 +1,20 @@
 import { NumberInput, Radio, Stack, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import { AGENT_CAP_MAX, AGENT_CAP_MIN, type WhenClosed } from '../../../shared/domain'
+import { AGENT_CAP_MAX, AGENT_CAP_MIN, THEME_CHOICES, type ThemeChoice, type WhenClosed } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 
-/** Settings section for what applies to the whole app: how many role agents may run at once, and what closing the window does. */
+const THEME_LABELS: Record<ThemeChoice, string> = { light: 'Light', dark: 'Dark', system: 'Match Windows' }
+
+/**
+ * Settings section for what applies to the whole app: how many role agents may run at once, what closing the window
+ * does, and the theme.
+ */
 export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
   const [maxAgents, setMaxAgents] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [whenClosed, setWhenClosed] = useState<WhenClosed | null>(null)
+  const [theme, setTheme] = useState<ThemeChoice | null>(null)
 
   useEffect(() => {
     if (!opened) return
@@ -18,6 +24,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         if (cancelled || !settings) return
         setMaxAgents(settings.maxAgents)
         setWhenClosed(settings.whenClosed)
+        setTheme(settings.theme)
       })
       .catch((err) => {
         if (!cancelled) showError(err, 'Could not load the settings')
@@ -57,6 +64,20 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
     }
   }
 
+  // The app switches scheme when the engine says the setting changed, so the window and the page change together.
+  async function saveTheme(value: string): Promise<void> {
+    if (!THEME_CHOICES.includes(value as ThemeChoice)) return
+    const previous = theme
+    setTheme(value as ThemeChoice)
+    try {
+      const settings = await invoke('settings.setTheme', value as ThemeChoice)
+      setTheme(settings.theme)
+    } catch (err) {
+      setTheme(previous)
+      showError(err, 'Could not save the settings')
+    }
+  }
+
   return (
     <Stack gap="sm" component="section" aria-label="General">
       <Title order={3} size="h4">
@@ -83,6 +104,13 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         <Stack gap="xs" mt="xs">
           <Radio value="tray" label="Keep running in the tray while agents work" disabled={whenClosed === null} />
           <Radio value="quit" label="Always quit" disabled={whenClosed === null} />
+        </Stack>
+      </Radio.Group>
+      <Radio.Group label="Theme" value={theme ?? ''} onChange={(v) => void saveTheme(v)}>
+        <Stack gap="xs" mt="xs">
+          {THEME_CHOICES.map((c) => (
+            <Radio key={c} value={c} label={THEME_LABELS[c]} disabled={theme === null} />
+          ))}
         </Stack>
       </Radio.Group>
     </Stack>

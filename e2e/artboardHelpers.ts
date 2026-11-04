@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 
 const root = path.resolve(import.meta.dirname, '..')
 const SHOTS = path.join(root, 'test-results', 'artboards')
@@ -47,11 +47,26 @@ interface Options {
   openWorkspace?: boolean
 }
 
+export type Scheme = 'light' | 'dark'
+export const SCHEMES: readonly Scheme[] = ['light', 'dark']
+
+/** Picks the Theme the way the settings do (through the bridge), and waits for the page to be drawn in it. */
+export async function useScheme(page: Page, scheme: Scheme): Promise<void> {
+  await page.evaluate((s) => (globalThis as unknown as { mainbus: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).mainbus.invoke('settings.setTheme', s), scheme)
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme)
+}
+
 /**
  * Runs `body` against the app with FakeRuntime, a temporary MAINBUS_HOME and a throwaway repository, sized like the
- * artboard. Never touches the user's data home or board.
+ * artboard, once in each scheme, each time in a fresh data home. Never touches the user's data home or board.
  */
 export async function withArtboard(options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
+  // Twice the work: twice the time.
+  test.setTimeout(test.info().timeout * SCHEMES.length)
+  for (const scheme of SCHEMES) await withArtboardIn(scheme, options, body)
+}
+
+async function withArtboardIn(scheme: Scheme, options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-artboard-'))
   let app: ElectronApplication | undefined
   try {
@@ -69,6 +84,8 @@ export async function withArtboard(options: Options, body: (board: Artboard) => 
     await app.evaluate(({ BrowserWindow }, [width, height]) => {
       BrowserWindow.getAllWindows()[0]!.setContentSize(width!, height!)
     }, [options.size.width, options.size.height])
+    // Light is the default: the light run leaves the setting alone, as a new user would.
+    if (scheme === 'dark') await useScheme(page, scheme)
     if (options.openWorkspace !== false) {
       await page.getByRole('button', { name: 'Add workspace' }).click()
       await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
@@ -84,12 +101,16 @@ export async function withArtboard(options: Options, body: (board: Artboard) => 
   }
 }
 
-/** Saves a screenshot of the window to test-results/artboards/<slug>.png (ignored by git), for the wireframe pass. */
+/**
+ * Saves a screenshot of the window to test-results/artboards/<slug>.png (ignored by git), for the wireframe pass; in
+ * the dark scheme to <slug>-dark.png beside it.
+ */
 export async function shot(page: Page, slug: string): Promise<void> {
   fs.mkdirSync(SHOTS, { recursive: true })
   // Let the recently-changed outline and other short animations settle, so the pictures can be compared.
   await page.waitForTimeout(300)
-  await page.screenshot({ path: path.join(SHOTS, `${slug}.png`) })
+  const dark = (await page.locator('html').getAttribute('data-mantine-color-scheme')) === 'dark'
+  await page.screenshot({ path: path.join(SHOTS, `${slug}${dark ? '-dark' : ''}.png`) })
 }
 
 export interface NewTicket {
