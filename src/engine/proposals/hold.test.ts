@@ -12,6 +12,7 @@ const turn = { userMessage: 'Hold #12', workspaceId: 'ws1' }
 
 function ctx(over: { open?: Workspace | null; ticket?: Ticket | null } = {}) {
   const c = {
+    orchestratorFolder: '/home/orchestrator',
     workspace: async () => (over.open === undefined ? ws : over.open),
     createTickets: async () => [],
     lineup: async () => [],

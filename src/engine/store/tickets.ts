@@ -101,7 +101,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       : input.via
         ? { text: input.intent, at, via: input.via }
         : { text: input.intent, at }
-    const intent: IntentEntry[] = [first, ...(input.intentAdded ?? []).map((a) => ({ text: a.text, at: a.at }))]
+    const intent: IntentEntry[] = [
+      first,
+      ...(input.intentAdded ?? []).map((a) => ({ text: a.text, at: a.at })),
+      ...(input.agentContext ? [{ text: input.agentContext.text, at, source: input.agentContext.source }] : [])
+    ]
     const ticket = db.insert(tickets).values({
       id,
       workspaceId: input.workspaceId,

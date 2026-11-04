@@ -188,6 +188,30 @@ describe('agent-written intent', () => {
     )
   })
 
+  test("the orchestrator's summary after the user's words is background under the agent heading, not the user's", () => {
+    const orchestrator = { kind: 'agent' as const, agent: 'orchestrator', cwd: '/h/orchestrator' }
+    const prompt = buildRolePrompt(
+      role,
+      {
+        ...ticket,
+        intent: [
+          { text: 'Add login', at: '2026-10-30T10:00:00.000Z' },
+          { text: 'website', at: '2026-10-30T10:01:00.000Z' },
+          { text: 'The user asked about SSO; the orchestrator found none.', at: '2026-10-30T10:02:00.000Z', source: orchestrator }
+        ]
+      },
+      [],
+    )
+    expect(userSection(prompt)).toContain('Add login')
+    expect(userSection(prompt)).toContain('website')
+    expect(userSection(prompt)).not.toContain('SSO')
+    const agent = agentSection(prompt)
+    expect(agent).toContain('read them as background')
+    expect(agent).toContain('<ticket-data field="agent">orchestrator</ticket-data>')
+    expect(agent).toContain('The user asked about SSO; the orchestrator found none.')
+    expect(prompt).not.toContain(AGENT_FILED_SUFFIX)
+  })
+
   test("a user entry added later goes under the user's heading", () => {
     const prompt = buildRolePrompt(
       role,

@@ -54,6 +54,19 @@ describe('ticket repo', () => {
     expect((await repo.create(input())).intent).toEqual([{ text: 'Let people log in', at: FIXED_NOW.toISOString() }])
   })
 
+  it("puts an agent's context last, with its source, after the user's words; the first entry keeps no source", async () => {
+    const repo = createTicketRepo(db, now)
+    const later = [{ text: 'website', at: '2026-01-01T00:00:00.000Z' }]
+    const source = { kind: 'agent' as const, agent: 'orchestrator', cwd: '/h/orchestrator' }
+    const t = await repo.create(input({ intentAdded: later, via: 'orchestrator', agentContext: { text: 'The user asked.', source } }))
+    expect(t.intent).toEqual([
+      { text: 'Let people log in', at: FIXED_NOW.toISOString(), via: 'orchestrator' },
+      ...later,
+      { text: 'The user asked.', at: FIXED_NOW.toISOString(), source }
+    ])
+    expect((await repo.get(t.id))!.intent).toEqual(t.intent)
+  })
+
   it('keeps the kind (change unless asked) and saves a report', async () => {
     const repo = createTicketRepo(db, now)
     expect((await repo.create(input())).kind).toBe('change')

@@ -19,6 +19,7 @@ const TICKET = { id: 't12', number: 12, title: 'Rate-limit login', kind: 'change
 function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: LineupRole[] } = {}) {
   let why = over.why ?? null
   const c = {
+    orchestratorFolder: '/home/orchestrator',
     workspace: async () => (over.open === undefined ? ws : over.open),
     createTickets: async () => [],
     lineup: vi.fn(async (_w: string, _kind: Lineup) => over.lineup ?? LINEUP),
