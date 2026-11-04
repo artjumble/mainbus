@@ -273,6 +273,17 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
     await page.getByRole('button', { name: 'Adjust before starting' }).click()
     const dialog = page.getByRole('dialog', { name: 'Adjust before starting' })
     for (const name of ['Planner', 'Implementer', 'Reviewer']) await expect(dialog.getByRole('checkbox', { name })).toBeChecked()
+    // Each box is level with its label's text.
+    for (const [i, name] of ['Planner', 'Implementer', 'Reviewer'].entries()) {
+      // Measured together, so the dialog's opening animation moves both alike.
+      await expect
+        .poll(async () => {
+          const box = await dialog.getByRole('checkbox', { name }).boundingBox()
+          const label = await dialog.getByText(`${i + 1}. ${name}`).boundingBox()
+          return Math.abs(box!.y + box!.height / 2 - (label!.y + label!.height / 2))
+        })
+        .toBeLessThan(1)
+    }
     await dialog.getByRole('checkbox', { name: 'Planner' }).uncheck()
     await dialog.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(dialog).toHaveCount(0)
