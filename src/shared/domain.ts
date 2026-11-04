@@ -32,23 +32,61 @@ export interface AppSettings {
   maxAgents: number
   /** What closing the window does: keep running in the tray while agents are open, or always quit. */
   whenClosed: WhenClosed
-  /** "Theme": the colour scheme the app is drawn in. */
-  theme: ThemeChoice
+  /** "Theme": the theme the app is drawn in, and with Match Windows the light and dark theme it switches between. */
+  theme: ThemeSetting
 }
 
 export type WhenClosed = 'tray' | 'quit'
 export const WHEN_CLOSED_DEFAULT: WhenClosed = 'tray'
 
-/** Light (today's look), Dark, or 'system' (Match Windows, following it while the app runs). Light until the user picks. */
-export type ThemeChoice = 'light' | 'dark' | 'system'
-export const THEME_CHOICES: readonly ThemeChoice[] = ['light', 'dark', 'system']
-export const THEME_DEFAULT: ThemeChoice = 'light'
+export type ThemeScheme = 'light' | 'dark'
 
 /**
- * The page ground of each scheme. The renderer's theme (theme.ts) builds its palettes on these, and the main process
- * paints the window with them before the page loads, so there is no flash of another colour on launch.
+ * The built-in themes, in the order the setting lists them. Each one's colours are in the renderer's theme.ts, which
+ * must have an entry for every id here; the scheme drives Mantine's colour scheme, nativeTheme and the window frame.
+ * The ground is here, not there, because the main process paints the window with it before the page loads, so there is
+ * no flash of another colour on launch. Adding a theme is one row here, its entry in theme.ts, and their tests.
  */
-export const GROUND = { light: '#F4F4F1', dark: '#1E1E1C' } as const
+export const THEMES = [
+  { id: 'light', name: 'Light', scheme: 'light', ground: '#F4F4F1' },
+  { id: 'dark', name: 'Dark', scheme: 'dark', ground: '#1E1E1C' },
+  { id: 'night-owl', name: 'Night Owl', scheme: 'dark', ground: '#011627' },
+  { id: 'light-owl', name: 'Light Owl', scheme: 'light', ground: '#F0F0F0' }
+] as const satisfies readonly { id: string; name: string; scheme: ThemeScheme; ground: string }[]
+
+export type ThemeId = (typeof THEMES)[number]['id']
+export type ThemeInfo = (typeof THEMES)[number]
+export const THEME_IDS: readonly ThemeId[] = THEMES.map((t) => t.id)
+
+/** The page ground of each theme. */
+export const GROUND = Object.fromEntries(THEMES.map((t) => [t.id, t.ground])) as { [T in ThemeInfo as T['id']]: T['ground'] }
+
+export function isThemeId(v: unknown): v is ThemeId {
+  return THEME_IDS.includes(v as ThemeId)
+}
+
+export function themeOf(id: ThemeId): ThemeInfo {
+  return THEMES.find((t) => t.id === id) ?? THEMES[0]
+}
+
+/** A theme by id, or 'system' (Match Windows, following it while the app runs). Light until the user picks. */
+export type ThemeChoice = ThemeId | 'system'
+export const THEME_CHOICES: readonly ThemeChoice[] = [...THEME_IDS, 'system']
+export const THEME_DEFAULT: ThemeChoice = 'light'
+
+/** The Theme setting: the choice, and the light and the dark theme Match Windows uses. */
+export interface ThemeSetting {
+  choice: ThemeChoice
+  light: ThemeId
+  dark: ThemeId
+}
+export const THEME_SETTING_DEFAULT: ThemeSetting = { choice: THEME_DEFAULT, light: 'light', dark: 'dark' }
+
+/** The theme a Theme setting draws the app in now: Match Windows takes its light or dark pick, as Windows is. */
+export function resolveTheme(setting: ThemeSetting, systemDark: boolean): ThemeId {
+  if (setting.choice !== 'system') return setting.choice
+  return systemDark ? setting.dark : setting.light
+}
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 

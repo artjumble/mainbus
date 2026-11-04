@@ -3,11 +3,16 @@ import {
   AGENT_CAP_DEFAULT,
   AGENT_CAP_MAX,
   AGENT_CAP_MIN,
+  isThemeId,
   THEME_CHOICES,
-  THEME_DEFAULT,
+  THEME_IDS,
+  THEME_SETTING_DEFAULT,
+  themeOf,
   WHEN_CLOSED_DEFAULT,
   type AppSettings,
   type ThemeChoice,
+  type ThemeId,
+  type ThemeScheme,
   type WhenClosed
 } from '../../shared/domain'
 import type { Db } from '../db/open'
@@ -16,10 +21,17 @@ import { appSettings } from '../db/schema'
 const MAX_AGENTS = 'max_agents'
 const USAGE_LIMIT = 'usage_limit'
 const WHEN_CLOSED = 'when_closed'
+// The choice: a theme id or 'system'. Before named themes it held 'light', 'dark' or 'system', which are still choices.
 const THEME = 'theme'
+// The light and the dark theme Match Windows uses; with no row, Light and Dark, as before named themes.
+const MATCH_WINDOWS: Record<ThemeScheme, string> = { light: 'theme_light', dark: 'theme_dark' }
 
 function isThemeChoice(v: unknown): v is ThemeChoice {
   return THEME_CHOICES.includes(v as ThemeChoice)
+}
+
+function isThemeOf(scheme: ThemeScheme, v: unknown): v is ThemeId {
+  return isThemeId(v) && themeOf(v).scheme === scheme
 }
 
 /** The usage-limited state that is kept across a restart: when it began and when it resets (ISO; null when unknown). */
@@ -39,8 +51,10 @@ export interface SettingsRepo {
   setMaxAgents(n: number): Promise<AppSettings>
   /** Stores what closing the window does; rejects anything but 'tray' or 'quit'. */
   setWhenClosed(v: WhenClosed): Promise<AppSettings>
-  /** Stores the colour scheme; rejects anything but 'light', 'dark' or 'system'. */
+  /** Stores the theme choice; rejects anything but a theme id or 'system'. */
   setTheme(v: ThemeChoice): Promise<AppSettings>
+  /** Stores the light or the dark theme Match Windows uses; rejects an unknown id or a theme of the other scheme. */
+  setMatchWindowsTheme(scheme: ThemeScheme, id: ThemeId): Promise<AppSettings>
   /** The usage limit Mainbus is in, or null when it is not limited. */
   usageLimit(): Promise<StoredUsageLimit | null>
   /** Stores the usage limit; null clears it. */
@@ -50,15 +64,28 @@ export interface SettingsRepo {
 export function createSettingsRepo(db: Db): SettingsRepo {
   async function get(): Promise<AppSettings> {
     // One read: the runner asks for the agent cap on every start.
-    const rows = await db.select().from(appSettings).where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, THEME]))
+    const rows = await db
+      .select()
+      .from(appSettings)
+      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
     const value = (key: string): string | undefined => rows.find((r) => r.key === key)?.value
     const stored = Number(value(MAX_AGENTS) ?? NaN)
-    const theme = value(THEME)
+    const choice = value(THEME)
+    const light = value(MATCH_WINDOWS.light)
+    const dark = value(MATCH_WINDOWS.dark)
     return {
       maxAgents: validAgentCap(stored) ? stored : AGENT_CAP_DEFAULT,
       whenClosed: value(WHEN_CLOSED) === 'quit' ? 'quit' : WHEN_CLOSED_DEFAULT,
-      theme: isThemeChoice(theme) ? theme : THEME_DEFAULT
+      theme: {
+        choice: isThemeChoice(choice) ? choice : THEME_SETTING_DEFAULT.choice,
+        light: isThemeOf('light', light) ? light : THEME_SETTING_DEFAULT.light,
+        dark: isThemeOf('dark', dark) ? dark : THEME_SETTING_DEFAULT.dark
+      }
     }
+  }
+
+  async function put(key: string, value: string): Promise<void> {
+    await db.insert(appSettings).values({ key, value }).onConflictDoUpdate({ target: appSettings.key, set: { value } })
   }
 
   return {
@@ -99,8 +126,14 @@ export function createSettingsRepo(db: Db): SettingsRepo {
       return get()
     },
     async setTheme(v) {
-      if (!isThemeChoice(v)) throw new Error("Theme must be 'light', 'dark' or 'system'")
-      await db.insert(appSettings).values({ key: THEME, value: v }).onConflictDoUpdate({ target: appSettings.key, set: { value: v } })
+      if (!isThemeChoice(v)) throw new Error(`Theme must be ${THEME_IDS.map((id) => `'${id}'`).join(', ')} or 'system'`)
+      await put(THEME, v)
+      return get()
+    },
+    async setMatchWindowsTheme(scheme, id) {
+      if (scheme !== 'light' && scheme !== 'dark') throw new Error("Match Windows takes a 'light' or a 'dark' theme")
+      if (!isThemeOf(scheme, id)) throw new Error(`The ${scheme} theme Match Windows uses must be a ${scheme} theme`)
+      await put(MATCH_WINDOWS[scheme], id)
       return get()
     }
   }

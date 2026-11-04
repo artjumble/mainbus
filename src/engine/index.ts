@@ -986,6 +986,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'theme.changed', theme: settings.theme })
         return settings
       },
+      'settings.setMatchWindowsTheme': async (scheme, id) => {
+        const settings = await repos.settings.setMatchWindowsTheme(scheme, id)
+        emit({ type: 'theme.changed', theme: settings.theme })
+        return settings
+      },
 
       'unattended.get': async (workspaceId) => {
         // Before any workspace is open there is nothing to run.

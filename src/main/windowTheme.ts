@@ -1,4 +1,4 @@
-import { GROUND, type ThemeChoice } from '../shared/domain'
+import { GROUND, resolveTheme, THEME_SETTING_DEFAULT, themeOf, type ThemeSetting } from '../shared/domain'
 
 /** What WindowTheme needs of Electron's nativeTheme. */
 export interface NativeThemePort {
@@ -14,19 +14,23 @@ export interface ThemedWindow {
   isDestroyed(): boolean
 }
 
-/** The window's ground for a Theme choice: Match Windows ('system') takes Windows' own light or dark. */
-export function windowBackground(choice: ThemeChoice, systemDark: boolean): string {
-  const dark = choice === 'dark' || (choice === 'system' && systemDark)
-  return dark ? GROUND.dark : GROUND.light
+/** The window's ground for a Theme setting: Match Windows takes its light or dark theme, as Windows is. */
+export function windowBackground(setting: ThemeSetting, systemDark: boolean): string {
+  return GROUND[resolveTheme(setting, systemDark)]
+}
+
+/** The native theme source for a Theme setting: Windows' own with Match Windows, else the scheme of the theme. */
+export function themeSourceOf(setting: ThemeSetting): NativeThemePort['themeSource'] {
+  return setting.choice === 'system' ? 'system' : themeOf(setting.choice).scheme
 }
 
 /**
- * Keeps the window frame, native menus and the window's own background in the scheme the Theme setting picks.
- * nativeTheme.themeSource takes the choice as it is, so the frame follows it and the page's prefers-color-scheme agrees;
+ * Keeps the window frame, native menus and the window's own background in the theme the Theme setting picks.
+ * nativeTheme.themeSource takes the theme's scheme, so the frame follows it and the page's prefers-color-scheme agrees;
  * with Match Windows, a change to the Windows setting while the app runs repaints the background too.
  */
 export class WindowTheme {
-  private choice: ThemeChoice = 'light'
+  private setting: ThemeSetting = THEME_SETTING_DEFAULT
   private readonly onUpdated = (): void => this.paint()
 
   constructor(
@@ -36,15 +40,15 @@ export class WindowTheme {
     native.on('updated', this.onUpdated)
   }
 
-  apply(choice: ThemeChoice): void {
-    this.choice = choice
-    this.native.themeSource = choice
+  apply(setting: ThemeSetting): void {
+    this.setting = setting
+    this.native.themeSource = themeSourceOf(setting)
     this.paint()
   }
 
   /** The ground the window should show now; a new window is created with it, so there is no flash on launch. */
   background(): string {
-    return windowBackground(this.choice, this.native.shouldUseDarkColors)
+    return windowBackground(this.setting, this.native.shouldUseDarkColors)
   }
 
   dispose(): void {

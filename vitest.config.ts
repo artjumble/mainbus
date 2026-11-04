@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
+import { THEME_IDS } from './src/shared/domain'
 
 export default defineConfig({
   test: {
@@ -25,18 +26,18 @@ export default defineConfig({
           setupFiles: ['src/renderer/src/test-setup.ts']
         }
       },
-      {
-        // The component tests again in the dark scheme, axe checks included (see renderWithMantine).
+      // The component tests again in each other theme, axe checks included (see renderWithMantine).
+      ...THEME_IDS.filter((id) => id !== 'light').map((id) => ({
         plugins: [react()],
         test: {
-          name: 'jsdom-dark',
+          name: `jsdom-${id}`,
           environment: 'jsdom',
           globals: true,
           include: ['src/renderer/**/*.test.tsx'],
           setupFiles: ['src/renderer/src/test-setup.ts'],
-          env: { MAINBUS_TEST_SCHEME: 'dark' }
+          env: { MAINBUS_TEST_THEME: id }
         }
-      }
+      }))
     ]
   }
 })

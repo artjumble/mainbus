@@ -1,7 +1,8 @@
 import { act, render, screen } from '@testing-library/react'
 import type { EngineEvent } from '../../shared/api'
+import { GROUND, THEME_SETTING_DEFAULT, type ThemeChoice, type ThemeSetting } from '../../shared/domain'
 import { onEngineEvent } from './api'
-import { colorSchemeOf, ThemedProvider } from './ThemedProvider'
+import { ThemedProvider } from './ThemedProvider'
 
 vi.mock('./api', () => ({ onEngineEvent: vi.fn() }))
 
@@ -45,47 +46,71 @@ function setWindowsDark(dark: boolean): void {
 }
 
 const scheme = (): string | null => document.documentElement.getAttribute('data-mantine-color-scheme')
+const themeId = (): string | undefined => document.documentElement.dataset['mainbusTheme']
+/** The CSS Mantine injected for the theme in use. */
+const injectedCss = (): string => [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n')
 
-test.each([
-  ['light', false, 'light'],
-  ['light', true, 'light'],
-  ['dark', false, 'dark'],
-  ['dark', true, 'dark'],
-  ['system', false, 'light'],
-  ['system', true, 'dark']
-] as const)('%s with Windows dark %s draws %s', (choice, systemDark, expected) => {
-  expect(colorSchemeOf(choice, systemDark)).toBe(expected)
-})
+const choose = (choice: ThemeChoice, picks: Partial<ThemeSetting> = {}): ThemeSetting => ({ ...THEME_SETTING_DEFAULT, ...picks, choice })
 
-test('starts in the stored scheme', () => {
-  render(<ThemedProvider initial="dark" env="test"><p>board</p></ThemedProvider>)
+test('starts in the stored theme', () => {
+  render(<ThemedProvider initial={choose('dark')} env="test"><p>board</p></ThemedProvider>)
   expect(screen.getByText('board')).toBeInTheDocument()
   expect(scheme()).toBe('dark')
+  expect(themeId()).toBe('dark')
 })
 
 test('a change to the setting applies at once, and back again', () => {
-  render(<ThemedProvider initial="light" env="test"><p>board</p></ThemedProvider>)
+  render(<ThemedProvider initial={choose('light')} env="test"><p>board</p></ThemedProvider>)
   expect(scheme()).toBe('light')
-  act(() => emit({ type: 'theme.changed', theme: 'dark' }))
+  act(() => emit({ type: 'theme.changed', theme: choose('dark') }))
   expect(scheme()).toBe('dark')
-  act(() => emit({ type: 'theme.changed', theme: 'light' }))
+  act(() => emit({ type: 'theme.changed', theme: choose('light') }))
   expect(scheme()).toBe('light')
+  expect(themeId()).toBe('light')
+})
+
+test('Night Owl applies at once: a dark scheme, painted in its own ground', () => {
+  render(<ThemedProvider initial={choose('light')} env="test"><p>board</p></ThemedProvider>)
+  act(() => emit({ type: 'theme.changed', theme: choose('night-owl') }))
+  expect(themeId()).toBe('night-owl')
+  expect(scheme()).toBe('dark')
+  expect(injectedCss()).toContain(`--mantine-color-body: ${GROUND['night-owl']}`)
+  act(() => emit({ type: 'theme.changed', theme: choose('light-owl') }))
+  expect(themeId()).toBe('light-owl')
+  expect(scheme()).toBe('light')
+  expect(injectedCss()).toContain(`--mantine-color-body: ${GROUND['light-owl']}`)
 })
 
 test('Match Windows follows a change to the Windows setting while the app runs', () => {
-  render(<ThemedProvider initial="system" env="test"><p>board</p></ThemedProvider>)
+  render(<ThemedProvider initial={choose('system')} env="test"><p>board</p></ThemedProvider>)
   expect(scheme()).toBe('light')
   setWindowsDark(true)
   expect(scheme()).toBe('dark')
+  expect(themeId()).toBe('dark')
   setWindowsDark(false)
   expect(scheme()).toBe('light')
 })
 
-test('Light and Dark ignore the Windows setting', () => {
-  render(<ThemedProvider initial="light" env="test"><p>board</p></ThemedProvider>)
+test('Match Windows uses the light and dark themes picked for it', () => {
+  render(<ThemedProvider initial={choose('system', { dark: 'night-owl' })} env="test"><p>board</p></ThemedProvider>)
+  expect(themeId()).toBe('light')
+  setWindowsDark(true)
+  expect(themeId()).toBe('night-owl')
+  act(() => emit({ type: 'theme.changed', theme: choose('system', { light: 'light-owl', dark: 'night-owl' }) }))
+  setWindowsDark(false)
+  expect(themeId()).toBe('light-owl')
+  expect(scheme()).toBe('light')
+})
+
+test('a theme chosen outright ignores the Windows setting', () => {
+  render(<ThemedProvider initial={choose('light')} env="test"><p>board</p></ThemedProvider>)
   setWindowsDark(true)
   expect(scheme()).toBe('light')
-  act(() => emit({ type: 'theme.changed', theme: 'dark' }))
+  act(() => emit({ type: 'theme.changed', theme: choose('dark') }))
   setWindowsDark(false)
   expect(scheme()).toBe('dark')
+  act(() => emit({ type: 'theme.changed', theme: choose('night-owl') }))
+  setWindowsDark(true)
+  setWindowsDark(false)
+  expect(themeId()).toBe('night-owl')
 })
