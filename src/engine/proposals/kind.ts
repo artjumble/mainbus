@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import type { ImageRef } from '../../shared/attachments'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
 import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
@@ -10,6 +11,9 @@ export class ProposalInvalid extends Error {
   }
 }
 
+/** A ticket to create, with the ids of images the user sent the orchestrator to attach to it. */
+export type TicketToCreate = Omit<NewTicketInput, 'workspaceId'> & { images?: string[] }
+
 /** What carrying out a proposal may use of the engine. Later kinds add to it. */
 export interface ExecContext {
   /** The folder the orchestrator works in: its summaries are recorded as written from there. */
@@ -19,7 +23,7 @@ export interface ExecContext {
   /** The same path as ticket.create: creates them all in order, or none, and emits board.changed once. */
   createTickets(
     ws: Workspace,
-    inputs: Omit<NewTicketInput, 'workspaceId'>[],
+    inputs: TicketToCreate[],
     /** The proposal being carried out: its result is recorded in the same transaction as the tickets. */
     record?: { proposalId: string; column: DraftColumn }
   ): Promise<Ticket[]>
@@ -90,6 +94,8 @@ export interface Turn {
   userMessage: string | null
   /** The user's later messages, up to and including this turn's, when the request is an earlier one; oldest first. */
   followUps?: IntentAddition[]
+  /** The images the user sent with the request's messages (the request and its follow-ups): the only ones a draft can attach. */
+  images?: ImageRef[]
   /** The workspace the proposal is made for. */
   workspaceId: string
   /** Who makes it; the orchestrator when absent. */

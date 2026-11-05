@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import type { BatchItem } from 'drizzle-orm/batch'
 import { sanitizeFilename, sniffImage, uniqueFilename, whyNotAttachable, type Attachment } from '../../shared/attachments'
 import type { Ticket, Workspace } from '../../shared/domain'
 import { attachmentFoldersFor, type HomePaths } from '../home'
@@ -21,6 +22,18 @@ export interface AttachmentDeps {
   ticket(id: string): Promise<Ticket>
   /** The open workspace; null when it is unknown or was removed. */
   workspace(id: string): Promise<Workspace | null>
+}
+
+/** Images checked and written for tickets about to be created: see `Attachments.prepareForNew`. */
+export interface PreparedAttachments {
+  /** How many images, in all. */
+  count: number
+  /** The attachments' inserts, for the batch that creates the tickets: `ticketIds` in the order the tickets were given. */
+  statements(ticketIds: string[]): BatchItem<'sqlite'>[]
+  /** The tickets exist: moves each file into its ticket's folder. */
+  place(tickets: Ticket[]): Promise<void>
+  /** The tickets were not created: removes the files. */
+  discard(): Promise<void>
 }
 
 /** The folder in a ticket's scratch folder that holds the copies of its attachments. */
@@ -148,6 +161,60 @@ export class Attachments {
     // Checked again: what is shown is an image of the type recorded, whatever happened to the file.
     if (sniffImage(data) !== found.mime) throw new Error(`${found.filename} is no longer the image that was attached`)
     return `data:${found.mime};base64,${data.toString('base64')}`
+  }
+
+  /**
+   * Readies images for tickets that don't exist yet: `perTicket[i]` for the ith ticket to be created in `ws`. Every
+   * image is checked and written to the workspace's `.incoming` folder first, so a refused or unwritable one stops
+   * everything before a ticket exists (the files written are removed). The tickets' inserts then carry the
+   * attachments' rows in the same batch; once it has run, `place` moves the files to the tickets' folders, and if it
+   * failed, `discard` removes them.
+   */
+  async prepareForNew(ws: Workspace, perTicket: { name: string; bytes: Uint8Array }[][]): Promise<PreparedAttachments> {
+    for (const files of perTicket) {
+      const why = this.check(files, 0)
+      if (why !== null) throw new Error(why)
+    }
+    const incoming = path.join(attachmentFoldersFor(this.deps.paths, ws.slug), '.incoming')
+    const staged: { index: number; row: Omit<Attachment, 'ticketId' | 'createdAt'>; file: string }[] = []
+    const discard = async (): Promise<void> => {
+      await Promise.all(staged.map((s) => fs.rm(s.file, { force: true }).catch(() => {})))
+    }
+    try {
+      for (const [index, files] of perTicket.entries()) {
+        const taken: string[] = []
+        for (const f of files) {
+          const mime = sniffImage(f.bytes)!
+          const filename = uniqueFilename(sanitizeFilename(f.name, mime), taken)
+          taken.push(filename)
+          const row = { id: randomUUID(), filename, mime, size: f.bytes.length, sha256: createHash('sha256').update(f.bytes).digest('hex') }
+          const file = path.join(incoming, `${row.id}-${filename}`)
+          await fs.mkdir(incoming, { recursive: true })
+          staged.push({ index, row, file })
+          await fs.writeFile(file, f.bytes, { flag: 'wx' })
+        }
+      }
+    } catch (err) {
+      await discard()
+      throw err
+    }
+    return {
+      count: staged.length,
+      statements: (ticketIds) => staged.map((s) => this.deps.repo.addStatement({ ...s.row, ticketId: ticketIds[s.index]! })),
+      place: async (tickets) => {
+        for (const s of staged) {
+          const ticket = tickets[s.index]!
+          const file = path.join(this.folderOf(ws, ticket), `${s.row.id}-${s.row.filename}`)
+          await fs.mkdir(path.dirname(file), { recursive: true })
+          // A rename within the data folder; a copy when that fails (a scanner holding the file, say).
+          await fs.rename(s.file, file).catch(async () => {
+            await fs.copyFile(s.file, file)
+            await fs.rm(s.file, { force: true }).catch(() => {})
+          })
+        }
+      },
+      discard
+    }
   }
 
   /** Copies every attachment of `from` to `to` (a ticket promoted from it), with the same names. */

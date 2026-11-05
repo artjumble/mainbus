@@ -6,6 +6,7 @@ import { createDecisionRepo, type DecisionRepo } from './decisions'
 import { createHoldRepo, type HoldRepo } from './holds'
 import { createLineupRepo, type LineupRepo } from './lineups'
 import { createOrchestratorRepo, type OrchestratorRepo } from './orchestrator'
+import { createOrchestratorImageRepo, type OrchestratorImageRepo } from './orchestratorImages'
 import { createProposalRepo, type ProposalRepo } from './proposals'
 import { createRunRepo, type RunRepo } from './runs'
 import { createSettingsRepo, type SettingsRepo } from './settings'
@@ -24,6 +25,7 @@ export interface Repos {
   decisions: DecisionRepo
   cleanups: PendingCleanupRepo
   orchestrator: OrchestratorRepo
+  orchestratorImages: OrchestratorImageRepo
   proposals: ProposalRepo
   holds: HoldRepo
   stuck: StuckRepo
@@ -42,6 +44,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     decisions: createDecisionRepo(db, now),
     cleanups: createCleanupRepo(db, now),
     orchestrator: createOrchestratorRepo(db, now),
+    orchestratorImages: createOrchestratorImageRepo(db, now),
     proposals: createProposalRepo(db, now),
     holds: createHoldRepo(db, now),
     stuck: createStuckRepo(db, now),

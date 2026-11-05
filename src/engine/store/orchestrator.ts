@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { OrchestratorRun, StoredEvent, ThreadEvent } from '../../shared/events'
+import type { ImageRef } from '../../shared/attachments'
 import type { IntentAddition } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { orchestratorEvents, orchestratorRuns } from '../db/schema'
@@ -21,8 +22,8 @@ export interface OrchestratorRepo {
   events(runId: string): Promise<StoredEvent[]>
   /** When the user's latest message was recorded, in any run; null before the first. */
   lastUserMessageAt(): Promise<string | null>
-  /** The user's last `n` messages in any run, oldest first, verbatim with when they were recorded. */
-  recentUserMessages(n: number): Promise<IntentAddition[]>
+  /** The user's last `n` messages in any run, oldest first, verbatim with when they were recorded and the images sent with them. */
+  recentUserMessages(n: number): Promise<(IntentAddition & { images: ImageRef[] })[]>
 }
 
 const columns = {
@@ -110,7 +111,10 @@ export function createOrchestratorRepo(db: Db, now: () => Date): OrchestratorRep
         // rowid breaks ties between messages recorded in the same millisecond.
         .orderBy(desc(orchestratorEvents.at), desc(sql`rowid`))
         .limit(n)
-      return rows.reverse().map((r) => ({ text: (JSON.parse(r.json) as { text: string }).text, at: r.at }))
+      return rows.reverse().map((r) => {
+        const { text, images } = JSON.parse(r.json) as { text: string; images?: ImageRef[] }
+        return { text, at: r.at, images: images ?? [] }
+      })
     }
   }
 }

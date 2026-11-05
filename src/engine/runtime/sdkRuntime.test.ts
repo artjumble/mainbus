@@ -695,6 +695,35 @@ describe('SdkRuntime: the orchestrator spec', () => {
     }
   }
 
+  test('images go into the user message as image blocks before the text, at launch and with send()', async () => {
+    const f = fakeSdk()
+    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk)
+    const png = { mime: 'image/png' as const, base64: 'iVBORw0K' }
+    const run = await runtime.start(makeOrchestratorSpec({ promptImages: [png] }))
+    await runtime.send(run, 'And this one', [{ mime: 'image/jpeg', base64: '/9j/' }])
+    await runtime.send(run, 'Just words')
+    const it = f.calls[0].prompt[Symbol.asyncIterator]()
+    const first = (await it.next()).value
+    expect(first).toEqual({
+      type: 'user',
+      parent_tool_use_id: null,
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } },
+          { type: 'text', text: 'What needs me?' }
+        ]
+      }
+    })
+    expect((await it.next()).value.message.content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/' } },
+      { type: 'text', text: 'And this one' }
+    ])
+    // Without images, the message is the text alone, as before.
+    expect((await it.next()).value.message.content).toBe('Just words')
+    await runtime.stop(run)
+  })
+
   test('limits built-in tools to Read, Grep and Glob, loads no settings, and pre-approves only the Mainbus tools', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test')
     const f = fakeSdk()
@@ -779,6 +808,9 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const tickets = propose.shape.tickets as z.ZodType
     expect(tickets.safeParse([{ title: 'Add login', intent: 'The user said so' }]).success).toBe(false)
     expect(tickets.safeParse([{ title: 'Add login', spec: 'Details' }]).success).toBe(true)
+    // Images by name; the engine checks they came with the request.
+    expect(tickets.safeParse([{ title: 'Add login', images: ['bug.png'] }]).success).toBe(true)
+    expect(tickets.safeParse([{ title: 'Add login', images: 'bug.png' }]).success).toBe(false)
 
     // create_tickets: the same drafts, and no column, since they always go to Backlog.
     const create = byName.get('create_tickets')!

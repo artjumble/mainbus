@@ -235,8 +235,13 @@ export interface EngineCommands {
    * renderer can reach it. `get` gives every run's events and its status.
    */
   'orchestrator.get'(): OrchestratorThread
-  /** Starts the conversation on the first message, or resumes it after a restart. Rejects empty text. */
-  'orchestrator.send'(text: string): void
+  /**
+   * Starts the conversation on the first message, or resumes it after a restart. `images` go with it (at most 5,
+   * checked like attachments); a message with neither text nor images is rejected.
+   */
+  'orchestrator.send'(text: string, images?: NewAttachment[]): void
+  /** An image sent to the orchestrator, as a data URL: the renderer's only way to its file. */
+  'orchestrator.image'(id: string): string
   /** Interrupts the turn under way; the conversation goes on with the next message. */
   'orchestrator.stop'(): void
   /**

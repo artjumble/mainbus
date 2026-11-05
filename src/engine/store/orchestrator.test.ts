@@ -35,10 +35,10 @@ describe('orchestrator repo', () => {
     await repo.append(a.id, { kind: 'message', text: 'reply' })
     await repo.append(a.id, { kind: 'user_message', text: 'two' })
     // A resume that failed leaves the earlier messages in the old run.
-    await repo.append(b.id, { kind: 'user_message', text: 'three' })
+    await repo.append(b.id, { kind: 'user_message', text: 'three', images: [{ id: 'i1', filename: 'bug.png' }] })
     expect(await repo.recentUserMessages(2)).toEqual([
-      { text: 'two', at },
-      { text: 'three', at }
+      { text: 'two', at, images: [] },
+      { text: 'three', at, images: [{ id: 'i1', filename: 'bug.png' }] }
     ])
     expect((await repo.recentUserMessages(5)).map((m) => m.text)).toEqual(['one', 'two', 'three'])
   })

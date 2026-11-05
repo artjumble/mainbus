@@ -8,6 +8,7 @@ import {
   type OrchestratorRunSpec,
   type OrchestratorToolHandlers,
   type PermissionRequest,
+  type PromptImage,
   type RoleToolHandlers,
   type RunHandle,
   type RunSpec,
@@ -41,6 +42,11 @@ export type FakeStep =
    * tool call and its result; fails the script when nothing matches or the file can't be read.
    */
   | { readFile: { fromPrompt?: string; fromMessage?: string } }
+  /**
+   * Fails the script unless the user message it has reached (its launch prompt, or the one the last waitForSend waited
+   * for) carried this many images, and its text contains each of `named`. Emits a message saying what it saw.
+   */
+  | { expectImages: { count: number; named?: string[] } }
   | { exit: number | null }
 
 /**
@@ -138,6 +144,10 @@ interface Run {
   pendingSends: number
   /** The last text sent to the run. */
   lastSent: string | null
+  /** Every user message the run got, with its images: its launch prompt, then each one sent. */
+  received: { text: string; images: PromptImage[] }[]
+  /** The one the script has reached: each waitForSend moves on to the next. */
+  reached: number
   sendWaiter: (() => void) | null
   stopped: boolean
   /** The fake `claude` process, until it has exited. */
@@ -158,6 +168,8 @@ export class FakeRuntime implements AgentRuntime {
   readonly orchestratorSpecs: OrchestratorRunSpec[] = []
   /** Every text passed to send(). */
   readonly sent: string[] = []
+  /** The images passed with each send(), in the same order as `sent`. */
+  readonly sentImages: PromptImage[][] = []
   /** Every handle passed to interrupt(). */
   readonly interrupted: string[] = []
   /** Every request passed to summarize(). */
@@ -207,6 +219,8 @@ export class FakeRuntime implements AgentRuntime {
       abort: new AbortController(),
       pendingSends: 0,
       lastSent: null,
+      received: [{ text: spec.prompt, images: spec.kind === 'orchestrator' ? (spec.promptImages ?? []) : [] }],
+      reached: 0,
       sendWaiter: null,
       stopped: false,
       proc: null
@@ -221,10 +235,12 @@ export class FakeRuntime implements AgentRuntime {
     return handle
   }
 
-  async send(handle: RunHandle, text: string): Promise<void> {
+  async send(handle: RunHandle, text: string, images: PromptImage[] = []): Promise<void> {
     const run = this.get(handle)
     this.sent.push(text)
+    this.sentImages.push(images)
     run.lastSent = text
+    run.received.push({ text, images })
     run.pendingSends++
     const w = run.sendWaiter
     run.sendWaiter = null
@@ -336,6 +352,13 @@ export class FakeRuntime implements AgentRuntime {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })
         } else if ('readFile' in step) {
           await this.readFile(spec, run, step.readFile, ++reads)
+        } else if ('expectImages' in step) {
+          const { text, images } = run.received[run.reached]!
+          const { count, named = [] } = step.expectImages
+          if (images.length !== count) throw new Error(`Expected ${count} images with the message, got ${images.length}`)
+          const missing = named.find((n) => !text.includes(n))
+          if (missing !== undefined) throw new Error(`The message doesn't name the image ${missing}`)
+          run.queue.push({ kind: 'message', text: `I see ${count} ${count === 1 ? 'image' : 'images'} (${images.map((i) => i.mime).join(', ')}).`, partial: false })
         } else if ('expectPrompt' in step) {
           if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
         } else if ('waitForSend' in step) {
@@ -344,6 +367,7 @@ export class FakeRuntime implements AgentRuntime {
           }
           if (run.stopped) return
           run.pendingSends--
+          run.reached++
         } else {
           this.close(run)
           return

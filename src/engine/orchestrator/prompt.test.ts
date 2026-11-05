@@ -124,6 +124,23 @@ describe('buildOrchestratorPrompt', () => {
   })
 })
 
+describe('images the user sends', () => {
+  test('says to look at them, how to find them again, and to attach relevant screenshots to tickets', () => {
+    expect(prompt).toContain('## Images the user sends')
+    expect(prompt).toContain('Look at the images the user sends')
+    expect(prompt).toContain('Mainbus lists each one\'s name and full path after the user\'s words')
+    expect(prompt).toContain('To look at one again in a later turn, open its path with Read')
+    expect(prompt).toContain(
+      'When a ticket comes from a request that included screenshots, attach the relevant ones to it with images, rather than only describing them in the spec'
+    )
+  })
+
+  test('says both ticket tools take images from the request, and others are refused', () => {
+    expect(prompt).toContain("each ticket can take images: the names of images the user sent with the request's messages (the same messages request_messages_back covers)")
+    expect(prompt).toContain('an image from any other message is refused')
+  })
+})
+
 describe('turns Mainbus starts', () => {
   test('explains the wake block, that the user did not write it, and how to treat repeats', () => {
     expect(prompt).toContain('Sometimes Mainbus starts a turn itself, without a message from the user')

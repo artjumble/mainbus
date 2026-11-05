@@ -1,4 +1,5 @@
 import type { EngineEvent } from '../../shared/api'
+import type { ImageRef } from '../../shared/attachments'
 import type { Decision, IntentAddition } from '../../shared/domain'
 import type { AnswerPayload, Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
 import { oneLine } from '../roles/prompt'
@@ -35,7 +36,15 @@ export interface ProposalService {
   propose(
     kind: ProposalKindName,
     input: unknown,
-    at: { workspaceId: string; orchestratorRunId: string; userMessage: string | null; followUps?: IntentAddition[]; origin?: ProposalOrigin }
+    at: {
+      workspaceId: string
+      orchestratorRunId: string
+      userMessage: string | null
+      followUps?: IntentAddition[]
+      /** The images the user sent with the request's messages. */
+      images?: ImageRef[]
+      origin?: ProposalOrigin
+    }
   ): Promise<ProposeResult>
   /**
    * Confirms a pending proposal (overridden when `override` is given) and carries it out. An invalid override
@@ -144,6 +153,7 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
           userMessage: at.userMessage,
           workspaceId: at.workspaceId,
           ...(at.followUps?.length ? { followUps: at.followUps } : {}),
+          ...(at.images?.length ? { images: at.images } : {}),
           ...(at.origin ? { origin: at.origin } : {})
         }
         payload = await kind.propose(split.payload, turn, deps.exec)

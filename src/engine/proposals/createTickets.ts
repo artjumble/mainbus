@@ -1,8 +1,9 @@
 import { z } from 'zod'
-import type { IntentAddition, NewTicketInput, Ticket, Workspace } from '../../shared/domain'
+import { ATTACHMENTS_PER_TICKET, type ImageRef } from '../../shared/attachments'
+import type { IntentAddition, Ticket, Workspace } from '../../shared/domain'
 import type { CreateTicketsPayload, CreateTicketsResult, DraftColumn, TicketDraft } from '../../shared/proposals'
 import { ticketFields } from '../tickets/validate'
-import { parsePayload, ProposalInvalid, type ExecContext, type ProposalKind, type Turn } from './kind'
+import { parsePayload, ProposalInvalid, type ExecContext, type ProposalKind, type TicketToCreate, type Turn } from './kind'
 
 export const MAX_DRAFTS = 20
 
@@ -17,8 +18,37 @@ const draftSchema = z.strictObject({
   criteria: ticketFields.criteria.default([]),
   labels: ticketFields.labels.default([]),
   // No default: an override keeps the kind as it was sent.
-  kind: z.enum(['change', 'investigate']).optional()
+  kind: z.enum(['change', 'investigate']).optional(),
+  // By name from the orchestrator, by id from the user's override; resolved against the request's images.
+  images: z.array(z.string()).max(ATTACHMENTS_PER_TICKET, `must have at most ${ATTACHMENTS_PER_TICKET} images`).optional()
 })
+
+type ParsedDraft = z.infer<typeof draftSchema>
+
+/**
+ * The drafts with their images resolved: each name (or id, from an override) must be one of `allowed`, the images the
+ * user sent with the request. Named twice, an image is attached once.
+ */
+function withImages(drafts: ParsedDraft[], allowed: ImageRef[], by: 'filename' | 'id'): TicketDraft[] {
+  return drafts.map(({ images, ...d }, i) => {
+    if (images === undefined || images.length === 0) return d
+    const refs: ImageRef[] = []
+    for (const given of images) {
+      const found =
+        by === 'id' ? allowed.find((a) => a.id === given) : allowed.find((a) => a.filename.toLowerCase() === given.trim().toLowerCase())
+      if (!found) {
+        throw new ProposalInvalid(
+          by === 'id'
+            ? `tickets.${i}.images: ${given} is not one of the proposal's images`
+            : `tickets.${i}.images: ${given} is not an image the user sent in the request's messages` +
+                (allowed.length > 0 ? ` (those are ${allowed.map((a) => a.filename).join(', ')})` : ' (they sent none)')
+        )
+      }
+      if (!refs.some((r) => r.id === found.id)) refs.push({ id: found.id, filename: found.filename })
+    }
+    return { ...d, images: refs }
+  })
+}
 
 const draftsSchema = z
   .array(draftSchema)
@@ -61,7 +91,7 @@ function ticketInputs(
   column: DraftColumn,
   context: { text: string; cwd: string } | undefined,
   via?: 'orchestrator'
-): Omit<NewTicketInput, 'workspaceId'>[] {
+): TicketToCreate[] {
   return drafts.map((d) => ({
     title: d.title,
     intent,
@@ -72,8 +102,15 @@ function ticketInputs(
     column,
     kind: d.kind ?? 'change',
     ...(context ? { agentContext: { text: context.text, source: { kind: 'agent' as const, agent: 'orchestrator', cwd: context.cwd } } } : {}),
-    ...(via ? { via } : {})
+    ...(via ? { via } : {}),
+    ...(d.images?.length ? { images: d.images.map((i) => i.id) } : {})
   }))
+}
+
+/** How many images the drafts attach, in all; absent when none. */
+function imageCount(drafts: TicketDraft[]): { images?: number } {
+  const n = drafts.reduce((total, d) => total + (d.images?.length ?? 0), 0)
+  return n > 0 ? { images: n } : {}
 }
 
 /**
@@ -87,14 +124,28 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
 
   propose(input, turn) {
     if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
-    const { context, ...rest } = parsePayload(editableSchema, input)
-    return { intent: turn.userMessage, ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}), ...rest, ...contextOf(context) }
+    const { context, tickets, ...rest } = parsePayload(editableSchema, input)
+    return {
+      intent: turn.userMessage,
+      ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}),
+      tickets: withImages(tickets, turn.images ?? [], 'filename'),
+      ...rest,
+      ...contextOf(context)
+    }
   },
 
   override(stored, input) {
     // The summary comes only from the override: leaving it out clears it.
-    const { context, ...rest } = parsePayload(editableSchema, input)
-    return { intent: stored.intent, ...(stored.intentAdded ? { intentAdded: stored.intentAdded } : {}), ...rest, ...contextOf(context) }
+    const { context, tickets, ...rest } = parsePayload(editableSchema, input)
+    // Only the images the proposal had: the user can untick them, never add others.
+    const proposed = stored.tickets.flatMap((d) => d.images ?? [])
+    return {
+      intent: stored.intent,
+      ...(stored.intentAdded ? { intentAdded: stored.intentAdded } : {}),
+      tickets: withImages(tickets, proposed, 'id'),
+      ...rest,
+      ...contextOf(context)
+    }
   },
 
   async execute(p, target, ctx) {
@@ -104,13 +155,18 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
       proposalId: target.proposalId,
       column: p.column
     })
-    return { tickets: created.map((t) => ({ id: t.id, number: t.number, title: t.title })), column: p.column }
+    return { tickets: created.map((t) => ({ id: t.id, number: t.number, title: t.title })), column: p.column, ...imageCount(p.tickets) }
   },
 
   outcome(r) {
     const list = listJoin(r.tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}`))
-    return `Created ${list} in ${COLUMN_NAMES[r.column]}.`
+    return `Created ${list} in ${COLUMN_NAMES[r.column]}${imagesAttached(r.images)}.`
   }
+}
+
+/** ", with 2 images attached", or nothing. */
+export function imagesAttached(n: number | undefined): string {
+  return n ? `, with ${n} ${n === 1 ? 'image' : 'images'} attached` : ''
 }
 
 /**
@@ -119,17 +175,18 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
  */
 export async function createInBacklog(
   input: unknown,
-  turn: Pick<Turn, 'userMessage' | 'followUps'>,
+  turn: Pick<Turn, 'userMessage' | 'followUps' | 'images'>,
   ws: Workspace,
   create: ExecContext['createTickets'],
   orchestratorFolder: string
-): Promise<{ created: Ticket[]; withContext: boolean }> {
+): Promise<{ created: Ticket[]; withContext: boolean; images?: number }> {
   if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be created in answer to a message of the user')
-  const { tickets, context } = parsePayload(directSchema, input)
-  const summary = contextOf(context).context
+  const parsed = parsePayload(directSchema, input)
+  const tickets = withImages(parsed.tickets, turn.images ?? [], 'filename')
+  const summary = contextOf(parsed.context).context
   const created = await create(
     ws,
     ticketInputs(turn.userMessage, turn.followUps, tickets, 'backlog', summary ? { text: summary, cwd: orchestratorFolder } : undefined, 'orchestrator')
   )
-  return { created, withContext: summary !== undefined }
+  return { created, withContext: summary !== undefined, ...imageCount(tickets) }
 }

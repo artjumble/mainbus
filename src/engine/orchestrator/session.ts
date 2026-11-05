@@ -2,7 +2,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import type { Proposal } from '../../shared/proposals'
-import type { IntentAddition, NewTicketInput, Ticket, Workspace } from '../../shared/domain'
+import type { ImageRef } from '../../shared/attachments'
+import type { IntentAddition, Ticket, Workspace } from '../../shared/domain'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
@@ -11,8 +12,8 @@ import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
 import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
 import { attachmentFoldersFor, orchestratorFolder, ticketFoldersFor, type HomePaths } from '../home'
-import { createInBacklog, listJoin } from '../proposals/createTickets'
-import { ProposalInvalid } from '../proposals/kind'
+import { createInBacklog, imagesAttached, listJoin } from '../proposals/createTickets'
+import { ProposalInvalid, type TicketToCreate } from '../proposals/kind'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
 import {
@@ -20,6 +21,7 @@ import {
   type AgentRuntime,
   type OrchestratorReadToolHandlers,
   type OrchestratorRunSpec,
+  type PromptImage,
   type RunHandle
 } from '../runtime/types'
 import { isUsageLimitText, type UsageLimit } from '../runner/usageLimit'
@@ -27,6 +29,7 @@ import type { OrchestratorRepo } from '../store/orchestrator'
 import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
 import { withHeader } from './header'
+import { imageListText, type OrchestratorImages } from './images'
 import { orchestratorVerdict } from './permissions'
 import { resolveTargetWorkspace, resolveWorkspaceRef } from './workspaceRef'
 import { buildOrchestratorPrompt } from './prompt'
@@ -54,9 +57,14 @@ export const WAKE_CREATE_MESSAGE = 'Tickets can only be created in answer to a m
 export const MAX_MESSAGES_BACK = 5
 
 /** What create_tickets answers once the tickets exist. */
-export function createdText(workspace: string, tickets: { number: number; title: string }[]): string {
+export function createdText(workspace: string, tickets: { number: number; title: string }[], images?: number): string {
   const list = listJoin(tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}`))
-  return `Created ${list} in ${workspace}'s Backlog. Tell the user which workspace they went into.`
+  return `Created ${list} in ${workspace}'s Backlog${imagesAttached(images)}. Tell the user which workspace they went into.`
+}
+
+/** What a user message's images are in the digest a fresh session starts from: their names and paths, not the images. */
+export function digestImagesNote(images: { filename: string; path: string }[]): string {
+  return `[Sent with ${images.length === 1 ? 'an image' : `${images.length} images`}: ${images.map((i) => `${i.filename} at ${i.path}`).join('; ')}]`
 }
 
 /** How long shutdown waits for a queued message to finish starting, and for the last events to land. */
@@ -80,8 +88,13 @@ export interface OrchestratorDeps {
   workspaceRequired: string
   readTools: OrchestratorReadToolHandlers
   proposals: ProposalService
-  /** The one way tickets are created (as a confirmed proposal's are): all of them or none, emitting board.changed. */
-  createTickets: (ws: Workspace, inputs: Omit<NewTicketInput, 'workspaceId'>[]) => Promise<Ticket[]>
+  /** The images the user sends with messages. */
+  images: OrchestratorImages
+  /**
+   * The one way tickets are created (as a confirmed proposal's are): all of them or none, with their images, emitting
+   * board.changed.
+   */
+  createTickets: (ws: Workspace, inputs: TicketToCreate[]) => Promise<Ticket[]>
   /** The decisions the user answered since `since` in any workspace, for the start of a message. */
   answeredSince: (since: string | null) => Promise<AnsweredDecision[]>
   /** The tickets whose hold was released since `since` in any workspace, by hand, by a start or by their date. */
@@ -108,8 +121,8 @@ export interface OrchestratorDeps {
   onTurnEnded?: (finished: boolean) => void
 }
 
-/** What the current turn answers: a message of the user, or the wake rows Mainbus presented. */
-type Turn = { kind: 'user'; message: string } | { kind: 'wake'; rowIds: string[] }
+/** What the current turn answers: a message of the user (with the images sent with it), or the wake rows Mainbus presented. */
+type Turn = { kind: 'user'; message: string; images: ImageRef[] } | { kind: 'wake'; rowIds: string[] }
 
 interface Live {
   runId: string
@@ -182,9 +195,12 @@ export class OrchestratorSession {
     }
   }
 
-  async send(text: string): Promise<void> {
-    if (typeof text !== 'string' || text.trim() === '') throw new Error(EMPTY_MESSAGE)
-    return this.serial(() => this.sendNow(text))
+  /** A message of the user: text, images (at most 5, checked like attachments) or both. */
+  async send(text: string, images?: unknown): Promise<void> {
+    const checked = this.deps.images.check(images)
+    if (!checked.ok) throw new Error(checked.error)
+    if (typeof text !== 'string' || (text.trim() === '' && checked.files.length === 0)) throw new Error(EMPTY_MESSAGE)
+    return this.serial(() => this.sendNow(text, checked.files))
   }
 
   /** True while a turn is running or a wake turn is being started. */
@@ -225,7 +241,7 @@ export class OrchestratorSession {
     return result
   }
 
-  private async sendNow(text: string): Promise<void> {
+  private async sendNow(text: string, files: { name: string; bytes: Uint8Array }[]): Promise<void> {
     if (this.shuttingDown) throw new Error('Mainbus is shutting down')
     // A message sent mid-turn would join the turn under way (at its next tool boundary), so the turn's one
     // message would no longer be the user's only one; a proposal's intent must be the words of its own turn.
@@ -243,8 +259,21 @@ export class OrchestratorSession {
     ].filter((b) => b !== null)
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
-    const prompt = withHeader(ws, this.deps.now(), text)
-    await this.beginTurn(ws, { kind: 'user_message', text }, { kind: 'user', message: text }, prompt, opened)
+    // Stored before the turn starts, so the message's record and the orchestrator's paths name files that exist.
+    const stored = await this.deps.images.store(files)
+    const refs = stored.map((i) => ({ id: i.id, filename: i.filename }))
+    // The images go in as image blocks, seen in this turn; their names and paths follow the user's words.
+    const words = stored.length === 0 ? text : `${text === '' ? '' : `${text}\n\n`}${imageListText(stored)}`
+    const prompt = withHeader(ws, this.deps.now(), words)
+    const promptImages = stored.map((i, n) => ({ mime: i.mime, base64: Buffer.from(files[n]!.bytes).toString('base64') }))
+    await this.beginTurn(
+      ws,
+      { kind: 'user_message', text, ...(refs.length > 0 ? { images: refs } : {}) },
+      { kind: 'user', message: text, images: refs },
+      prompt,
+      opened,
+      promptImages
+    )
   }
 
   private async wakeNow(rows: Wake[]): Promise<void> {
@@ -265,9 +294,16 @@ export class OrchestratorSession {
   /**
    * Starts a turn: records `shown` in the thread, then sends `prompt` to the live session, or starts one (resuming the
    * run's session when it has one, or from a digest of the conversation when that fails). `wrap` puts whatever opens
-   * the turn before the prompt.
+   * the turn before the prompt. `images` go with the prompt as image blocks.
    */
-  private async beginTurn(ws: Workspace, shown: ThreadEvent, turn: Turn, prompt: string, wrap: (body: string) => string): Promise<void> {
+  private async beginTurn(
+    ws: Workspace,
+    shown: ThreadEvent,
+    turn: Turn,
+    prompt: string,
+    wrap: (body: string) => string,
+    images: PromptImage[] = []
+  ): Promise<void> {
     // The SDK fixes the folders a session can read at launch: a workspace opened or removed since means starting it
     // again (resuming the same conversation), so every repo stays readable.
     if (this.live && this.live.readableKey !== (await this.readable()).key) await this.retire(this.live)
@@ -278,7 +314,7 @@ export class OrchestratorSession {
       this.setStatus('working')
       this.turn = turn
       try {
-        await this.deps.runtime.send(live.handle, wrap(prompt))
+        await this.deps.runtime.send(live.handle, wrap(prompt), ...(images.length > 0 ? [images] : []))
       } catch (err) {
         this.turn = null
         this.setStatus('idle')
@@ -297,7 +333,7 @@ export class OrchestratorSession {
     try {
       if (open?.sessionId) {
         try {
-          await this.launch(runId, ws, wrap(prompt), open.sessionId)
+          await this.launch(runId, ws, wrap(prompt), images, open.sessionId)
           return
         } catch (err) {
           if (!(err instanceof ResumeFailedError)) throw err
@@ -306,10 +342,11 @@ export class OrchestratorSession {
         await this.deps.repo.end(runId, 'resume_failed')
         runId = (await this.deps.repo.create()).id
         await this.record(runId, { kind: 'notice', text: RESUME_FAILED_NOTICE })
-        await this.launch(runId, ws, wrap(`${conversationDigest(earlier)}\n\n${prompt}`))
+        // The earlier messages' images are named with their paths, not sent again; this message's go with it.
+        await this.launch(runId, ws, wrap(`${conversationDigest(this.withImagePaths(earlier))}\n\n${prompt}`), images)
         return
       }
-      await this.launch(runId, ws, wrap(prompt))
+      await this.launch(runId, ws, wrap(prompt), images)
     } catch (err) {
       this.turn = null
       await this.record(runId, { kind: 'error', message: errorText(err) }).catch(() => {})
@@ -380,17 +417,19 @@ export class OrchestratorSession {
     // A wake turn answers no message of the user: the kinds that need one refuse it themselves.
     let userMessage = turn.kind === 'user' ? turn.message : null
     let followUps: IntentAddition[] | undefined
+    let images: ImageRef[] | undefined
     // `workspace` names the ticket's workspace (or where new tickets go); the kinds' own schemas do not know it.
     let { workspace: ref, rest } = splitWorkspace(input)
     if (kind === 'create_tickets') {
       // Only drafts carry the user's words; the other kinds' strict schemas refuse request_messages_back.
       const split = splitMessagesBack(rest)
       rest = split.rest
-      if (userMessage !== null) {
-        const req = await this.request(userMessage, split.back)
+      if (turn.kind === 'user') {
+        const req = await this.request(turn, split.back)
         if (!req.ok) return `Invalid proposal: ${req.error}. Nothing was stored; fix it and propose again.`
         userMessage = req.userMessage
         followUps = req.followUps
+        images = req.images
       }
     }
     let workspaceId: string
@@ -412,7 +451,8 @@ export class OrchestratorSession {
       workspaceId,
       orchestratorRunId: live.runId,
       userMessage,
-      ...(followUps ? { followUps } : {})
+      ...(followUps ? { followUps } : {}),
+      ...(images?.length ? { images } : {})
     })
     if (!made.ok) return `Invalid proposal: ${made.error}. Nothing was stored; fix it and propose again.`
     if (made.existing) return pendingText(made.proposal.id)
@@ -422,13 +462,14 @@ export class OrchestratorSession {
 
   /**
    * The user's request that drafts are made from: this turn's message (`back` 0 or left out), or the one `back` messages
-   * before it, followed by every later message up to this turn's, verbatim.
+   * before it, followed by every later message up to this turn's, verbatim. `images` are the ones sent with those
+   * messages: the only ones a ticket made from the request can attach.
    */
   private async request(
-    message: string,
+    turn: Extract<Turn, { kind: 'user' }>,
     back: unknown
-  ): Promise<{ ok: true; userMessage: string; followUps?: IntentAddition[] } | { ok: false; error: string }> {
-    if (back === undefined || back === null || back === 0) return { ok: true, userMessage: message }
+  ): Promise<{ ok: true; userMessage: string; followUps?: IntentAddition[]; images: ImageRef[] } | { ok: false; error: string }> {
+    if (back === undefined || back === null || back === 0) return { ok: true, userMessage: turn.message, images: turn.images }
     if (typeof back !== 'number' || !Number.isInteger(back) || back < 0 || back > MAX_MESSAGES_BACK) {
       return { ok: false, error: `request_messages_back: must be a whole number from 0 to ${MAX_MESSAGES_BACK}` }
     }
@@ -439,7 +480,12 @@ export class OrchestratorSession {
       return { ok: false, error: `request_messages_back: there ${have} of the user` }
     }
     const [first, ...followUps] = messages
-    return { ok: true, userMessage: first!.text, followUps }
+    return {
+      ok: true,
+      userMessage: first!.text,
+      followUps: followUps.map(({ text, at }) => ({ text, at })),
+      images: messages.flatMap((m) => m.images)
+    }
   }
 
   /**
@@ -455,19 +501,26 @@ export class OrchestratorSession {
     const target = resolveTargetWorkspace(await this.deps.workspaces(), ref)
     if (!target.ok) return `${target.text} Nothing was created.`
     const { back, rest: drafts } = splitMessagesBack(rest)
-    const req = await this.request(turn.message, back)
+    const req = await this.request(turn, back)
     if (!req.ok) return `Invalid: ${req.error}. Nothing was created; fix it and try again.`
-    let created: Ticket[]
-    let withContext: boolean
+    let made: Awaited<ReturnType<typeof createInBacklog>>
     try {
-      ;({ created, withContext } = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder))
+      made = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder)
     } catch (err) {
       if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was created; fix it and try again.`
-      throw err
+      // An image that can't be attached any more (its file gone or changed): still nothing was created.
+      return `Couldn't create the tickets: ${errorText(err)}. Nothing was created.`
     }
-    const tickets = created.map((t) => ({ id: t.id, number: t.number, title: t.title }))
-    await this.record(live.runId, { kind: 'tickets_created', workspaceId: target.ws.id, workspace: target.ws.name, tickets, ...(withContext ? { context: true as const } : {}) })
-    return createdText(target.ws.name, tickets)
+    const tickets = made.created.map((t) => ({ id: t.id, number: t.number, title: t.title }))
+    await this.record(live.runId, {
+      kind: 'tickets_created',
+      workspaceId: target.ws.id,
+      workspace: target.ws.name,
+      tickets,
+      ...(made.withContext ? { context: true as const } : {}),
+      ...(made.images ? { images: made.images } : {})
+    })
+    return createdText(target.ws.name, tickets, made.images)
   }
 
   /**
@@ -492,13 +545,23 @@ export class OrchestratorSession {
     if (this.live === live) this.live = null
   }
 
-  private async launch(runId: string, ws: Workspace, prompt: string, resumeSessionId?: string): Promise<void> {
+  /** The user messages among `events` with their images' names and paths before their words, for a digest. */
+  private withImagePaths(events: StoredEvent[]): StoredEvent[] {
+    return events.map((e) => {
+      if (e.event.kind !== 'user_message' || !e.event.images?.length) return e
+      const note = digestImagesNote(e.event.images.map((i) => ({ filename: i.filename, path: this.deps.images.pathOf(i) })))
+      return { ...e, event: { ...e.event, text: e.event.text === '' ? note : `${note} ${e.event.text}` } }
+    })
+  }
+
+  private async launch(runId: string, ws: Workspace, prompt: string, images: PromptImage[], resumeSessionId?: string): Promise<void> {
     const cwd = this.folder
     const { folders: readable, ticketFolders, attachmentFolders, key } = await this.readable()
     const spec: OrchestratorRunSpec = {
       kind: 'orchestrator',
       cwd,
       prompt,
+      ...(images.length > 0 ? { promptImages: images } : {}),
       appendSystemPrompt: buildOrchestratorPrompt(ticketFolders, attachmentFolders),
       model: ORCHESTRATOR_MODEL,
       effort: ORCHESTRATOR_EFFORT,

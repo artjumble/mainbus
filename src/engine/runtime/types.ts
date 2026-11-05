@@ -1,3 +1,4 @@
+import type { ImageMime } from '../../shared/attachments'
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
 
@@ -95,6 +96,8 @@ export interface OrchestratorRunSpec {
   /** `<MAINBUS_HOME>\orchestrator`. */
   cwd: string
   prompt: string
+  /** Images the user sent with the first message, which go with the prompt. */
+  promptImages?: PromptImage[]
   appendSystemPrompt: string
   model: string
   effort: Effort
@@ -108,6 +111,12 @@ export interface OrchestratorRunSpec {
 }
 
 export type AnyRunSpec = RunSpec | OrchestratorRunSpec
+
+/** An image that goes into a user message as an image block: its type and its bytes, base64. */
+export interface PromptImage {
+  mime: ImageMime
+  base64: string
+}
 
 export interface RunHandle {
   id: string
@@ -125,7 +134,8 @@ export interface SummaryRequest {
 
 export interface AgentRuntime {
   start(spec: AnyRunSpec): Promise<RunHandle>
-  send(run: RunHandle, text: string): Promise<void>
+  /** A user message; `images` go into it as image blocks, before the text. */
+  send(run: RunHandle, text: string, images?: PromptImage[]): Promise<void>
   interrupt(run: RunHandle): Promise<void>
   stop(run: RunHandle): Promise<void>
   /** Ends when the process ends. */
