@@ -21,6 +21,8 @@ interface Props {
   onPrefilled?: () => void
   /** Images pasted or dropped into the box; without it they are left to the browser. */
   onAttach?: (files: File[]) => void
+  /** Send works with the box empty: the message has images of its own. */
+  canSendEmpty?: boolean
 }
 
 /** A message box with Send inside it (not beside it). Ctrl+Enter sends, or Enter with `enterSends`. */
@@ -34,7 +36,8 @@ export function Composer({
   onStop,
   prefill = null,
   onPrefilled,
-  onAttach
+  onAttach,
+  canSendEmpty = false
 }: Props): ReactElement {
   const [text, setText] = useState('')
   const input = useRef<HTMLTextAreaElement>(null)
@@ -53,7 +56,7 @@ export function Composer({
   }, [prefill?.n])
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const canSend = text.trim() !== '' && !sending && !working
+  const canSend = (text.trim() !== '' || canSendEmpty) && !sending && !working
 
   async function send(): Promise<void> {
     if (!canSend) return

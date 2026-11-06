@@ -6,7 +6,9 @@ import type {
   CreateTicketsResult,
   DraftColumn
 } from '../../../shared/proposals'
+import type { ImageRef } from '../../../shared/attachments'
 import type { TicketKind } from '../../../shared/domain'
+import { SentImage } from '../attachments/Attachments'
 import { splitCriteria, splitLabels } from '../board/NewTicketModal'
 import { useMainbus } from '../store'
 import type { ProposalView } from './proposalView'
@@ -23,6 +25,8 @@ interface DraftEdit {
   labels: string
   /** Not editable here: the edit keeps what was proposed. */
   kind?: TicketKind
+  /** The images proposed for it, each ticked to attach it. */
+  images: (ImageRef & { include: boolean })[]
 }
 
 export interface CreateTicketsEdit {
@@ -165,6 +169,29 @@ function Editor({
             <Text size="xs" c="dimmed" pl={28}>
               {detail(draft)}
             </Text>
+            {draft.images.length > 0 && (
+              <Stack gap={4} pl={28} role="group" aria-label={`Images for ${draft.title || `draft ${i + 1}`}`} data-draft-images>
+                {/* One row per image: its thumbnail, and a tick to attach it, each a full-size target. */}
+                {draft.images.map((image, k) => (
+                  <Group key={image.id} gap="xs" wrap="nowrap" align="flex-start">
+                    <SentImage image={image} size={44} />
+                    <Checkbox
+                      size="xs"
+                      label={
+                        <Text size="xs" td={image.include ? undefined : 'line-through'} truncate="end">
+                          {`Attach ${image.filename}`}
+                        </Text>
+                      }
+                      checked={image.include}
+                      onChange={(e) => {
+                        const include = e.currentTarget.checked
+                        setDraft(i, { images: draft.images.map((im, n) => (n === k ? { ...im, include } : im)) })
+                      }}
+                    />
+                  </Group>
+                ))}
+              </Stack>
+            )}
             {open === i && (
               <Stack gap={6}>
                 <TextInput label="Title" size="xs" value={draft.title} onChange={(e) => setDraft(i, { title: e.currentTarget.value })} />
@@ -217,6 +244,7 @@ function Receipt({ result }: { result: CreateTicketsResult }): ReactElement {
         </Fragment>
       ))}
       {` in ${COLUMN_NAMES[result.column]}`}
+      {result.images ? `, with ${result.images} ${result.images === 1 ? 'image' : 'images'} attached` : ''}
     </Text>
   )
 }
@@ -239,7 +267,8 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
       spec: d.spec,
       criteria: d.criteria.join('\n'),
       labels: d.labels.join(', '),
-      ...(d.kind ? { kind: d.kind } : {})
+      ...(d.kind ? { kind: d.kind } : {}),
+      images: (d.images ?? []).map((image) => ({ ...image, include: true }))
     })),
     column: p.column,
     context: p.context ?? ''
@@ -253,7 +282,8 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
         spec: d.spec,
         criteria: splitCriteria(d.criteria),
         labels: splitLabels(d.labels),
-        ...(d.kind ? { kind: d.kind } : {})
+        ...(d.kind ? { kind: d.kind } : {}),
+        ...(d.images.some((image) => image.include) ? { images: d.images.filter((image) => image.include).map((image) => image.id) } : {})
       }))
     return tickets.length === 0 ? null : { tickets, column: edit.column, ...(edit.context.trim() ? { context: edit.context } : {}) }
   },

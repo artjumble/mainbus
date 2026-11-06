@@ -1,8 +1,11 @@
-import { ActionIcon, Badge, Box, Center, Flex, Group, Loader, Stack, Text, Title, UnstyledButton } from '@mantine/core'
-import type { ReactElement } from 'react'
-import type { WorkspaceSummary } from '../../../shared/api'
+import { ActionIcon, Badge, Button, Center, FileButton, Flex, Group, Loader, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { useState, type ReactElement } from 'react'
+import type { NewAttachment, WorkspaceSummary } from '../../../shared/api'
+import { IMAGES_PER_MESSAGE, whyNotSendable } from '../../../shared/attachments'
 import type { Decision } from '../../../shared/domain'
 import { invoke } from '../api'
+import { IMAGE_ACCEPT, MessageImages } from '../attachments/Attachments'
+import { readImages } from '../attachments/files'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
 import { Composer } from '../thread/Composer'
@@ -47,6 +50,8 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const workspaceName = useMainbus((s) => s.workspace?.name ?? 'no workspace')
   const workspaces = useMainbus((s) => s.workspaces)
   const fleet = fleetCounts(workspaces)
+  // The images of the message being written; kept while the panel is collapsed.
+  const [images, setImages] = useState<NewAttachment[]>([])
 
   if (!open) {
     return (
@@ -71,11 +76,18 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
 
   async function send(text: string): Promise<void> {
     try {
-      await invoke('orchestrator.send', text)
+      await (images.length > 0 ? invoke('orchestrator.send', text, images) : invoke('orchestrator.send', text))
+      setImages([])
     } catch (err) {
       showError(err, 'Could not send')
       throw err
     }
+  }
+
+  // Pasted, dropped or picked: checked as the engine will, each refused one shown with its reason.
+  async function attach(files: File[]): Promise<void> {
+    const read = await readImages(files, images.length, whyNotSendable)
+    if (read.length > 0) setImages((now) => [...now, ...read].slice(0, IMAGES_PER_MESSAGE))
   }
 
   async function stop(): Promise<void> {
@@ -87,6 +99,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   }
 
   const working = thread?.status === 'working'
+  const full = images.length >= IMAGES_PER_MESSAGE
 
   return (
     <Flex direction="column" h="100%" mih={0}>
@@ -137,7 +150,8 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           </Group>
         )}
       </div>
-      <Box p="sm" pt={4}>
+      <Stack p="sm" pt={4} gap={6}>
+        {images.length > 0 && <MessageImages images={images} onRemove={(i) => setImages((now) => now.filter((_, j) => j !== i))} />}
         <Composer
           label="Message the orchestrator"
           placeholder="Ask for status, create tickets, start or stop agents"
@@ -147,8 +161,23 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           onSend={send}
           prefill={prefill}
           onPrefilled={clearPrefill}
+          onAttach={(files) => void attach(files)}
+          canSendEmpty={images.length > 0}
         />
-      </Box>
+        {/* On the left, clear of Send: their hit areas would overlap. */}
+        <Group gap="xs" wrap="nowrap">
+          <FileButton onChange={(files) => void attach(files)} accept={IMAGE_ACCEPT} multiple disabled={full}>
+            {(props) => (
+              <Button {...props} disabled={full} size="compact-xs" variant="default" style={{ flexShrink: 0 }}>
+                Add images
+              </Button>
+            )}
+          </FileButton>
+          <Text size="xs" c="dimmed">
+            {`or paste or drop them into the box, up to ${IMAGES_PER_MESSAGE}`}
+          </Text>
+        </Group>
+      </Stack>
     </Flex>
   )
 }

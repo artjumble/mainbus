@@ -1,7 +1,7 @@
 import { Box, Button, CloseButton, FileButton, Group, Image, Loader, Modal, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
 import { useState, type DragEvent, type ReactElement } from 'react'
 import type { NewAttachment } from '../../../shared/api'
-import { ATTACHMENTS_PER_TICKET, sniffImage, type Attachment } from '../../../shared/attachments'
+import { ATTACHMENTS_PER_TICKET, sniffImage, type Attachment, type ImageRef } from '../../../shared/attachments'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import type { BoardTicket } from '../store'
@@ -65,30 +65,94 @@ function Preview({ name, src, onClose }: { name: string; src: string | null; onC
   )
 }
 
-/** A thumbnail that opens the preview, with its own remove button. */
-function Thumb({ name, src, onOpen, onRemove }: { name: string; src: string | null; onOpen: () => void; onRemove: () => void }): ReactElement {
+/** A thumbnail that opens the preview, with its own remove button when it can be removed, and its name below. */
+function Thumb({
+  name,
+  src,
+  onOpen,
+  onRemove,
+  size = THUMB,
+  caption = true
+}: {
+  name: string
+  src: string | null
+  onOpen: () => void
+  onRemove?: () => void
+  size?: number
+  caption?: boolean
+}): ReactElement {
   return (
-    <Box pos="relative" w={THUMB}>
-      <UnstyledButton aria-label={`Preview ${name}`} onClick={onOpen} title={name} w={THUMB} h={THUMB} style={{ display: 'block' }}>
+    <Box pos="relative" w={size}>
+      <UnstyledButton aria-label={`Preview ${name}`} onClick={onOpen} title={name} w={size} h={size} style={{ display: 'block' }}>
         {src === null ? (
-          <Box w={THUMB} h={THUMB} bg="var(--mantine-color-default-hover)" style={{ borderRadius: 'var(--mantine-radius-sm)' }} />
+          <Box w={size} h={size} bg="var(--mantine-color-default-hover)" style={{ borderRadius: 'var(--mantine-radius-sm)' }} />
         ) : (
-          <Image src={src} alt={name} w={THUMB} h={THUMB} fit="cover" radius="sm" />
+          <Image src={src} alt={name} w={size} h={size} fit="cover" radius="sm" />
         )}
       </UnstyledButton>
-      <CloseButton
-        aria-label={`Remove ${name}`}
-        size="sm"
-        variant="filled"
-        pos="absolute"
-        top={2}
-        right={2}
-        onClick={onRemove}
-      />
-      <Text size="xs" c="dimmed" truncate="end">
-        {name}
-      </Text>
+      {onRemove && (
+        <CloseButton
+          aria-label={`Remove ${name}`}
+          size={size < THUMB ? 'xs' : 'sm'}
+          variant="filled"
+          pos="absolute"
+          top={2}
+          right={2}
+          onClick={onRemove}
+        />
+      )}
+      {caption && (
+        <Text size="xs" c="dimmed" truncate="end">
+          {name}
+        </Text>
+      )}
     </Box>
+  )
+}
+
+/** The size of the images in the orchestrator panel's input and thread. */
+const SMALL_THUMB = 56
+
+/** An image the user sent the orchestrator, by id: a thumbnail, without its name, that opens a larger view. */
+export function SentImage({ image, size = SMALL_THUMB }: { image: ImageRef; size?: number }): ReactElement {
+  const src = useAttachmentImage(image.id, 'orchestrator.image')
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Thumb name={image.filename} src={src} onOpen={() => setOpen(true)} size={size} caption={false} />
+      {open && <Preview name={image.filename} src={src} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+/** The images sent with a message in the orchestrator's thread. */
+export function SentImages({ images }: { images: ImageRef[] }): ReactElement {
+  return (
+    <Group gap={6} justify="flex-end" role="group" aria-label="Images sent">
+      {images.map((image) => (
+        <SentImage key={image.id} image={image} />
+      ))}
+    </Group>
+  )
+}
+
+/** The images of a message being written to the orchestrator: small thumbnails above its box, each removable before sending. */
+export function MessageImages({ images, onRemove }: { images: NewAttachment[]; onRemove: (i: number) => void }): ReactElement {
+  const [previewing, setPreviewing] = useState<{ name: string; src: string } | null>(null)
+  return (
+    // Spaced so that a remove button's 44 px hit area stays clear of the next thumbnail.
+    <Group gap="md" role="group" aria-label="Images to send">
+      {images.map((image, i) => (
+        <PendingThumb
+          key={i}
+          image={image}
+          size={SMALL_THUMB}
+          onOpen={(src) => setPreviewing({ name: image.name, src })}
+          onRemove={() => onRemove(i)}
+        />
+      ))}
+      {previewing && <Preview name={previewing.name} src={previewing.src} onClose={() => setPreviewing(null)} />}
+    </Group>
   )
 }
 
@@ -142,9 +206,21 @@ function AttachmentPreview({ id, name, onClose }: { id: string; name: string; on
   return <Preview name={name} src={useAttachmentImage(id)} onClose={onClose} />
 }
 
-function PendingThumb({ image, onOpen, onRemove }: { image: NewAttachment; onOpen: (src: string) => void; onRemove: () => void }): ReactElement {
+function PendingThumb({
+  image,
+  onOpen,
+  onRemove,
+  size
+}: {
+  image: NewAttachment
+  onOpen: (src: string) => void
+  onRemove: () => void
+  size?: number
+}): ReactElement {
   const src = useLocalPreview(image.bytes, sniffImage(image.bytes) ?? 'image/png')
-  return <Thumb name={image.name} src={src === '' ? null : src} onOpen={() => onOpen(src)} onRemove={onRemove} />
+  return (
+    <Thumb name={image.name} src={src === '' ? null : src} onOpen={() => onOpen(src)} onRemove={onRemove} {...(size !== undefined ? { size, caption: false } : {})} />
+  )
 }
 
 /** The New ticket dialog's images, attached when the ticket is created. */

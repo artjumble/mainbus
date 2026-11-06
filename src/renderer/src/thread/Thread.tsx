@@ -5,6 +5,7 @@ import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { waitingText } from '../../../shared/waiting'
+import { SentImages } from '../attachments/Attachments'
 import { CreatedTicketsReceipt } from '../orchestrator/CreatedTicketsReceipt'
 import { ProposalCard } from '../orchestrator/ProposalCard'
 import { annotate, type Annotation } from './annotate'
@@ -281,7 +282,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           data-event="user_message"
           style={{ alignSelf: 'flex-end', whiteSpace: 'pre-wrap' }}
         >
-          <Text size="sm">{event.text}</Text>
+          {event.images && event.images.length > 0 && (
+            <Box mb={event.text === '' ? 0 : 6}>
+              <SentImages images={event.images} />
+            </Box>
+          )}
+          {event.text !== '' && <Text size="sm">{event.text}</Text>}
         </Paper>
       )
     case 'redirected':

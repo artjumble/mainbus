@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactElement } from 'react'
 import type { EngineEvent } from '../../../shared/api'
@@ -7,7 +7,17 @@ import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shar
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus, type BoardTicket } from '../store'
-import { expectNoAxeViolations, makeDecision, makeTicket, renderWithMantine, workspace } from '../test-utils'
+import {
+  expectNoAxeViolations,
+  makeDecision,
+  makeTicket,
+  PNG_BYTES,
+  pngFile,
+  renderWithMantine,
+  svgFile,
+  transfer,
+  workspace
+} from '../test-utils'
 import { EMPTY_TEXT, OrchestratorPanel } from './OrchestratorPanel'
 import { readPanelOpen, writePanelOpen } from './panelState'
 
@@ -437,6 +447,120 @@ describe('accessibility', () => {
     renderWithMantine(<Panel />)
     await userEvent.click(await screen.findByRole('button', { name: /Deferred \(1\)/ }))
     await screen.findByRole('region', { name: 'Waiting on you' })
+    await expectNoAxeViolations()
+  })
+})
+
+describe('images in a message', () => {
+  const box = () => screen.getByRole('textbox', { name: 'Message the orchestrator' })
+  const toSend = () => screen.queryByRole('group', { name: 'Images to send' })
+
+  test('pasted, dropped or picked, they show above the box and go with the message; text pasted with one still goes in', async () => {
+    history()
+    const { baseElement } = renderWithMantine(<Panel />)
+    await screen.findByText(EMPTY_TEXT)
+
+    fireEvent.paste(box(), { clipboardData: transfer([pngFile('')]) })
+    await screen.findByRole('img', { name: 'pasted-image.png' })
+    fireEvent.drop(box(), { dataTransfer: transfer([pngFile('dropped.png')]) })
+    await screen.findByRole('img', { name: 'dropped.png' })
+    await userEvent.upload(baseElement.querySelector('input[type="file"]') as HTMLInputElement, pngFile('picked.png'))
+    await screen.findByRole('img', { name: 'picked.png' })
+    // A paste with a caption: the image is added, and the browser puts the text in the box.
+    expect(fireEvent.paste(box(), { clipboardData: transfer([pngFile('captioned.png')], 'see this') })).toBe(true)
+    await screen.findByRole('img', { name: 'captioned.png' })
+    expect(within(toSend()!).getAllByRole('img')).toHaveLength(4)
+
+    await userEvent.type(box(), 'make a ticket for this bug{Enter}')
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.send', 'make a ticket for this bug', [
+      { name: 'pasted-image.png', bytes: PNG_BYTES },
+      { name: 'dropped.png', bytes: PNG_BYTES },
+      { name: 'picked.png', bytes: PNG_BYTES },
+      { name: 'captioned.png', bytes: PNG_BYTES }
+    ])
+    // Sent: the box and the images are cleared.
+    await vi.waitFor(() => expect(toSend()).toBeNull())
+    expect(box()).toHaveValue('')
+  })
+
+  test('one can be removed before sending, and a message can be images only', async () => {
+    history()
+    renderWithMantine(<Panel />)
+    await screen.findByText(EMPTY_TEXT)
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+
+    fireEvent.drop(box(), { dataTransfer: transfer([pngFile('a.png'), pngFile('b.png')]) })
+    await screen.findByRole('img', { name: 'b.png' })
+    await userEvent.click(screen.getByRole('button', { name: 'Remove a.png' }))
+    expect(screen.queryByRole('img', { name: 'a.png' })).toBeNull()
+
+    // No text needed with an image.
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.send', '', [{ name: 'b.png', bytes: PNG_BYTES }])
+  })
+
+  test('a refused file shows the same plain reason as a ticket attachment, and at most 5 go with a message', async () => {
+    history()
+    renderWithMantine(<Panel />)
+    await screen.findByText(EMPTY_TEXT)
+    fireEvent.drop(box(), { dataTransfer: transfer([svgFile()]) })
+    expect(await screen.findByText("logo.svg is an SVG or other markup file: it can carry script, so it can't be attached.")).toBeInTheDocument()
+    expect(toSend()).toBeNull()
+
+    fireEvent.drop(box(), { dataTransfer: transfer(['1', '2', '3', '4', '5', '6'].map((n) => pngFile(`${n}.png`))) })
+    expect(await screen.findByText('A message can have at most 5 images; remove one first.')).toBeInTheDocument()
+    await screen.findByRole('img', { name: '5.png' })
+    expect(within(toSend()!).getAllByRole('img')).toHaveLength(5)
+    expect(screen.queryByRole('img', { name: '6.png' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add images' })).toBeDisabled()
+  })
+
+  test('a failed send keeps the images', async () => {
+    history()
+    renderWithMantine(<Panel />)
+    await screen.findByText(EMPTY_TEXT)
+    fireEvent.drop(box(), { dataTransfer: transfer([pngFile('keep.png')]) })
+    await screen.findByRole('img', { name: 'keep.png' })
+    mockInvoke.mockRejectedValueOnce(new Error('The orchestrator is still working'))
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText('Could not send')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'keep.png' })).toBeInTheDocument()
+  })
+
+  test("sent images show as thumbnails in the user's message, fetched by id, and a click enlarges one", async () => {
+    const events = [
+      ev({ kind: 'user_message', text: 'make a ticket for this bug', images: [{ id: 'img-1', filename: 'bug.png' }] }),
+      // Images only: no text below them.
+      ev({ kind: 'user_message', text: '', images: [{ id: 'img-2', filename: 'only.png' }] })
+    ]
+    mockInvoke.mockImplementation(async (command: string, id?: string) => {
+      if (command === 'orchestrator.get') {
+        return { status: 'idle', runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }], events, proposals: [] } satisfies OrchestratorThread
+      }
+      if (command === 'orchestrator.image') return `data:image/png;base64,${id}`
+      return undefined
+    })
+    renderWithMantine(<Panel />)
+    const sent = await screen.findAllByRole('group', { name: 'Images sent' })
+    expect(sent).toHaveLength(2)
+    const bug = await within(sent[0]!).findByRole('img', { name: 'bug.png' })
+    expect(bug).toHaveAttribute('src', 'data:image/png;base64,img-1')
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.image', 'img-1')
+    expect(screen.getByText('make a ticket for this bug')).toBeInTheDocument()
+    // Sent ones can't be removed.
+    expect(screen.queryByRole('button', { name: 'Remove bug.png' })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Preview bug.png' }))
+    const dialog = await screen.findByRole('dialog', { name: 'bug.png' })
+    expect(within(dialog).getByRole('img', { name: 'bug.png' })).toHaveAttribute('src', 'data:image/png;base64,img-1')
+  })
+
+  test('the input with images has no axe violations', async () => {
+    history()
+    renderWithMantine(<Panel />)
+    await screen.findByText(EMPTY_TEXT)
+    fireEvent.drop(box(), { dataTransfer: transfer([pngFile('a.png')]) })
+    await screen.findByRole('img', { name: 'a.png' })
     await expectNoAxeViolations()
   })
 })

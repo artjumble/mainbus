@@ -49,13 +49,18 @@ function nameOf(file: File): string {
 
 /**
  * Reads the files and checks them as the engine will: a PNG, JPEG, GIF or WebP of at most 10 MB, at most 20 per
- * ticket counting the `count` it has. Each refused one is shown with its reason; the rest are returned.
+ * ticket counting the `count` it has (or, with `whyNotSendable`, 5 per message). Each refused one is shown with its
+ * reason; the rest are returned.
  */
-export async function readImages(files: File[], count: number): Promise<NewAttachment[]> {
+export async function readImages(
+  files: File[],
+  count: number,
+  whyNot: (name: string, bytes: Uint8Array, count: number) => string | null = whyNotAttachable
+): Promise<NewAttachment[]> {
   const read: NewAttachment[] = []
   for (const file of files) {
     const image = { name: nameOf(file), bytes: new Uint8Array(await file.arrayBuffer()) }
-    const why = whyNotAttachable(image.name, image.bytes, count + read.length)
+    const why = whyNot(image.name, image.bytes, count + read.length)
     if (why !== null) showError(new Error(why), "Couldn't attach the image")
     else read.push(image)
   }
@@ -73,20 +78,24 @@ export async function attachToTicket(ticketId: string, files: File[], count: num
   }
 }
 
-// An attachment never changes, so its image is fetched once per id.
+// An attachment or a sent image never changes, so its image is fetched once per id.
 const images = new Map<string, Promise<string>>()
 
-/** The attachment's image as a data URL, from the engine by id; null while it loads or when it couldn't be read. */
-export function useAttachmentImage(id: string): string | null {
+/**
+ * The image as a data URL, from the engine by id: a ticket's attachment, or (`orchestrator.image`) one the user sent
+ * the orchestrator. Null while it loads or when it couldn't be read.
+ */
+export function useAttachmentImage(id: string, from: 'attachment.data' | 'orchestrator.image' = 'attachment.data'): string | null {
   const [src, setSrc] = useState<string | null>(null)
   useEffect(() => {
     let live = true
-    let image = images.get(id)
+    const key = `${from}:${id}`
+    let image = images.get(key)
     if (!image) {
-      image = invoke('attachment.data', id)
-      images.set(id, image)
+      image = invoke(from, id)
+      images.set(key, image)
       // A failure is not cached: the next look tries again.
-      image.catch(() => images.delete(id))
+      image.catch(() => images.delete(key))
     }
     image.then(
       (url) => live && setSrc(url),
@@ -95,7 +104,7 @@ export function useAttachmentImage(id: string): string | null {
     return () => {
       live = false
     }
-  }, [id])
+  }, [id, from])
   return src
 }
 

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { themeOf } from '../src/shared/domain'
 import { THEME_IDS, useTheme, type ThemeId } from './artboardHelpers'
 
@@ -37,6 +37,22 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
 }
 
 /** Runs axe over the page with every rule on, colour contrast included, and fails with what it found. */
+// A 1×1 PNG.
+const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+/** Pastes an image file onto `target`, as Ctrl+V with a screenshot on the clipboard does. */
+async function pasteImage(target: Locator, name: string): Promise<void> {
+  await target.evaluate(
+    (el, { name, base64 }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+      const data = new DataTransfer()
+      data.items.add(new File([bytes], name, { type: 'image/png' }))
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    },
+    { name, base64: PNG_BASE64 }
+  )
+}
+
 async function expectNoAxeViolations(page: Page, what: string): Promise<void> {
   // Evaluated, not injected as a script tag, so the page's content security policy does not apply.
   await page.evaluate(axeSource)
@@ -181,6 +197,17 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     // The empty board.
     await expectNoAxeViolations(page, 'the empty board')
     expect(await smallTargets(page), 'small targets on the empty board').toEqual([])
+
+    // Two images pasted into the orchestrator's input, side by side above it, then removed.
+    const box = page.getByRole('textbox', { name: 'Message the orchestrator' })
+    await pasteImage(box, 'one.png')
+    await pasteImage(box, 'two.png')
+    await expect(page.getByRole('group', { name: 'Images to send' }).getByRole('img', { name: /\.png$/ })).toHaveCount(2)
+    await expectNoAxeViolations(page, 'the orchestrator input with images')
+    expect(await smallTargets(page, '[aria-label="Orchestrator"]'), 'small targets in the orchestrator input with images').toEqual([])
+    await page.getByRole('button', { name: 'Remove one.png' }).click()
+    await page.getByRole('button', { name: 'Remove two.png' }).click()
+    await expect(page.getByRole('group', { name: 'Images to send' })).toHaveCount(0)
 
     // A board with cards in two columns.
     await createTicket(page, 'Add hello file')
