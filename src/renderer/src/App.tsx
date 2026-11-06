@@ -1,11 +1,19 @@
 import { AppShell, Button, Center, Group, Loader, Stack, Text, Title } from '@mantine/core'
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactElement } from 'react'
 import { Announcer } from './Announcer'
 import { Board } from './board/Board'
 import { startNavigation } from './navigation'
 import { showError } from './notify'
-import { OrchestratorPanel, PANEL_WIDTH, STRIP_WIDTH } from './orchestrator/OrchestratorPanel'
-import { readPanelOpen, writePanelOpen } from './orchestrator/panelState'
+import { OrchestratorPanel, STRIP_WIDTH } from './orchestrator/OrchestratorPanel'
+import { PanelResizeHandle } from './orchestrator/PanelResizeHandle'
+import {
+  clampPanelWidth,
+  maxPanelWidth,
+  readPanelOpen,
+  readPanelWidth,
+  writePanelOpen,
+  writePanelWidth
+} from './orchestrator/panelState'
 import { SetupScreen } from './setup/SetupScreen'
 import { startSync, useMainbus } from './store'
 import { TicketView } from './ticket/TicketView'
@@ -13,6 +21,15 @@ import { OpenWorkspace } from './workspace/OpenWorkspace'
 import { RAIL_WIDTH, WorkspaceRail } from './workspace/WorkspaceRail'
 import { WorkspaceSettings } from './workspace/WorkspaceSettings'
 import { UsageBanner } from './UsageBanner'
+
+function subscribeToResize(notify: () => void): () => void {
+  window.addEventListener('resize', notify)
+  return () => window.removeEventListener('resize', notify)
+}
+
+function useWindowWidth(): number {
+  return useSyncExternalStore(subscribeToResize, () => window.innerWidth)
+}
 
 export function App(): ReactElement {
   const setup = useMainbus((s) => s.setup)
@@ -22,6 +39,12 @@ export function App(): ReactElement {
   const load = useMainbus((s) => s.load)
   const currentTicketId = useMainbus((s) => s.currentTicketId)
   const [panelOpen, setPanelOpen] = useState(readPanelOpen)
+  // The width the user chose; a small window shows it clamped, without losing it.
+  const [panelWidth, setPanelWidth] = useState(readPanelWidth)
+  const [resizing, setResizing] = useState(false)
+  const windowWidth = useWindowWidth()
+  const maxWidth = maxPanelWidth(windowWidth)
+  const shownWidth = clampPanelWidth(panelWidth, windowWidth)
 
   const revealedProposal = useMainbus((s) => s.revealedProposal)
   const settingsOpen = useMainbus((s) => s.settingsOpen)
@@ -36,6 +59,11 @@ export function App(): ReactElement {
   function onPanelOpenChange(open: boolean): void {
     setPanelOpen(open)
     writePanelOpen(open)
+  }
+
+  function onPanelWidthChange(width: number, done: boolean): void {
+    setPanelWidth(width)
+    if (done) writePanelWidth(width)
   }
 
   // "Ask orchestrator to draft tickets" expands a collapsed panel; the panel's message box takes the text.
@@ -53,11 +81,13 @@ export function App(): ReactElement {
 
   return (
     <AppShell
+      // No slide while dragging, or the panel lags the pointer.
+      transitionDuration={resizing ? 0 : undefined}
       header={{ height: 48 }}
       // The rail's layout width is always the collapsed one; expanded, it lies over the board.
       navbar={withPanel ? { width: RAIL_WIDTH, breakpoint: 0 } : undefined}
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
-      aside={withPanel ? { width: panelOpen ? PANEL_WIDTH : STRIP_WIDTH, breakpoint: 0 } : undefined}
+      aside={withPanel ? { width: panelOpen ? shownWidth : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >
       <Announcer />
       <AppShell.Header>
@@ -80,6 +110,14 @@ export function App(): ReactElement {
       </AppShell.Main>
       {withPanel && (
         <AppShell.Aside aria-label="Orchestrator">
+          {panelOpen && (
+            <PanelResizeHandle
+              width={shownWidth}
+              max={maxWidth}
+              onChange={onPanelWidthChange}
+              onDraggingChange={setResizing}
+            />
+          )}
           <OrchestratorPanel open={panelOpen} onOpenChange={onPanelOpenChange} />
         </AppShell.Aside>
       )}

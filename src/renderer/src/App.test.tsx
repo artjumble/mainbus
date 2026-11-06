@@ -144,6 +144,71 @@ test('revealing a proposal expands a collapsed orchestrator panel', async () => 
   expect(await within(panel).findByRole('textbox', { name: 'Message the orchestrator' })).toBeInTheDocument()
 })
 
+describe('panel width', () => {
+  const originalWidth = window.innerWidth
+  const setWindowWidth = (w: number): void => {
+    act(() => {
+      window.innerWidth = w
+      window.dispatchEvent(new Event('resize'))
+    })
+  }
+  beforeEach(() => {
+    window.innerWidth = 1600
+    localStorage.clear()
+  })
+  afterEach(() => {
+    window.innerWidth = originalWidth
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+  const handle = (): Promise<HTMLElement> => screen.findByRole('separator', { name: 'Resize orchestrator panel' })
+
+  test('is restored on mount', async () => {
+    localStorage.setItem('mainbus.orchestratorPanelWidth', '500')
+    answer({ ok: true, path: 'claude', version: '2' }, workspace)
+    renderWithMantine(<App />)
+    expect(await handle()).toHaveAttribute('aria-valuenow', '500')
+  })
+
+  test('is clamped in a small window, not lost, and comes back', async () => {
+    localStorage.setItem('mainbus.orchestratorPanelWidth', '600')
+    answer({ ok: true, path: 'claude', version: '2' }, workspace)
+    renderWithMantine(<App />)
+    const sep = await handle()
+    setWindowWidth(800)
+    expect(sep).toHaveAttribute('aria-valuenow', '400')
+    expect(sep).toHaveAttribute('aria-valuemax', '400')
+    expect(localStorage.getItem('mainbus.orchestratorPanelWidth')).toBe('600')
+    setWindowWidth(1600)
+    expect(sep).toHaveAttribute('aria-valuenow', '600')
+  })
+
+  test('a keyboard change is saved, and collapsing keeps it', async () => {
+    answer({ ok: true, path: 'claude', version: '2' }, workspace)
+    renderWithMantine(<App />)
+    const sep = await handle()
+    sep.focus()
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(sep).toHaveAttribute('aria-valuenow', '356')
+    expect(localStorage.getItem('mainbus.orchestratorPanelWidth')).toBe('356')
+
+    const panel = screen.getByRole('complementary', { name: 'Orchestrator' })
+    await userEvent.click(within(panel).getByRole('button', { name: 'Collapse orchestrator panel' }))
+    expect(screen.queryByRole('separator', { name: 'Resize orchestrator panel' })).not.toBeInTheDocument()
+    await userEvent.click(within(panel).getByRole('button', { name: /Open orchestrator/ }))
+    expect(await handle()).toHaveAttribute('aria-valuenow', '356')
+  })
+
+  test('storage that throws falls back to 340', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied')
+    })
+    answer({ ok: true, path: 'claude', version: '2' }, workspace)
+    renderWithMantine(<App />)
+    expect(await handle()).toHaveAttribute('aria-valuenow', '340')
+  })
+})
+
 test('the whole app, on the board and in a ticket, has no axe violations, with landmarks', async () => {
   answer({ ok: true, path: 'claude', version: '2' }, workspace, [makeTicket({ title: 'First ticket' })])
   renderWithMantine(<App />)

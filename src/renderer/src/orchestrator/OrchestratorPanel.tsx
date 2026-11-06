@@ -10,11 +10,12 @@ import { showError } from '../notify'
 import { useMainbus } from '../store'
 import { Composer } from '../thread/Composer'
 import { Thread } from '../thread/Thread'
+import { DEFAULT_PANEL_WIDTH } from './panelState'
 import { useOrchestratorThread } from './useOrchestratorThread'
 import { WaitingOnYou } from './WaitingOnYou'
 
 /** The aside's width open, and collapsed to its strip. */
-export const PANEL_WIDTH = 340
+export const PANEL_WIDTH = DEFAULT_PANEL_WIDTH
 export const STRIP_WIDTH = 44
 
 export const EMPTY_TEXT = "Ask me to draft tickets, or about what's happening on the board."

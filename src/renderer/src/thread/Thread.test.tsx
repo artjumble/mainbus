@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
@@ -436,4 +436,49 @@ test('a thread with every kind of event has no axe violations', async () => {
   await expectNoAxeViolations()
   for (const button of screen.getAllByRole('button', { expanded: false })) await userEvent.click(button)
   await expectNoAxeViolations()
+})
+
+describe('reflow', () => {
+  const original = globalThis.ResizeObserver
+  let callbacks: Array<() => void> = []
+  const fire = (): void => callbacks.forEach((cb) => cb())
+  beforeEach(() => {
+    callbacks = []
+    globalThis.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) {
+        callbacks.push(() => cb([], this as unknown as ResizeObserver))
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+  })
+  afterEach(() => {
+    globalThis.ResizeObserver = original
+  })
+
+  function scrollerOf(container: HTMLElement): HTMLElement {
+    const el = container.querySelector('[data-event]')!.closest('[style*="overflow-y"]') as HTMLElement
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 1000 })
+    Object.defineProperty(el, 'clientHeight', { configurable: true, value: 300 })
+    Object.defineProperty(el, 'scrollTop', { configurable: true, writable: true, value: 0 })
+    return el
+  }
+
+  test('a resize keeps a thread at the bottom pinned there', () => {
+    const { container } = renderWithMantine(<Thread events={[ev({ kind: 'message', text: 'Hi' })]} decisions={[]} />)
+    const el = scrollerOf(container)
+    el.scrollTop = 0
+    fire()
+    expect(el.scrollTop).toBe(1000)
+  })
+
+  test('a resize leaves a thread scrolled up where it is', () => {
+    const { container } = renderWithMantine(<Thread events={[ev({ kind: 'message', text: 'Hi' })]} decisions={[]} />)
+    const el = scrollerOf(container)
+    el.scrollTop = 100
+    fireEvent.scroll(el)
+    fire()
+    expect(el.scrollTop).toBe(100)
+  })
 })
