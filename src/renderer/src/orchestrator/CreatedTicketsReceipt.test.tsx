@@ -46,6 +46,11 @@ test('one ticket reads plainly', () => {
   expect(document.querySelector('[data-event="tickets_created"]')!.textContent).toBe("Created #51 in mainbus's Backlog")
 })
 
+test('says how many images were attached', () => {
+  renderWithMantine(<CreatedTicketsReceipt event={{ ...EVENT, tickets: [EVENT.tickets[0]!], images: 1 }} />)
+  expect(document.querySelector('[data-event="tickets_created"]')!.textContent).toBe("Created #51 in mainbus's Backlog, with 1 image attached")
+})
+
 test('the orchestrator thread shows the receipt where the tickets were created', () => {
   const events: StoredEvent[] = [
     { runId: 'o1', seq: 1, at: '2026-11-03T10:00:00.000Z', event: { kind: 'user_message', text: 'Add login and logout' } },

@@ -26,6 +26,7 @@ import {
   type OrchestratorRunSpec,
   type PermissionRequest,
   type PermissionVerdict,
+  type PromptImage,
   type RunHandle,
   type RunSpec,
   type SummaryRequest
@@ -100,8 +101,14 @@ const SUMMARY_SYSTEM_PROMPT =
 /** Every built-in tool is already off (`tools: []`); these are named as well, in case a setting turns one on. */
 const SUMMARY_DISALLOWED = ['Bash', 'Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Glob', 'Grep', 'Task']
 
-function userMessage(text: string): SDKUserMessage {
-  return { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null }
+/** A user message: the text alone, or each image as an image block followed by the text, seen in that turn. */
+export function userMessage(text: string, images: PromptImage[] = []): SDKUserMessage {
+  if (images.length === 0) return { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null }
+  const content = [
+    ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mime, data: i.base64 } })),
+    { type: 'text' as const, text }
+  ]
+  return { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null }
 }
 
 // Anything that would send the binary to a different credential or endpoint than its own login.
@@ -214,7 +221,7 @@ export class SdkRuntime implements AgentRuntime {
       stopped: false,
       pumped: Promise.resolve(null) // replaced just below, once pump() has started
     }
-    input.push(userMessage(spec.prompt))
+    input.push(userMessage(spec.prompt, spec.kind === 'orchestrator' ? spec.promptImages : undefined))
 
     if (spec.resumeSessionId === undefined) {
       run.pumped = this.pump(run)
@@ -244,8 +251,8 @@ export class SdkRuntime implements AgentRuntime {
     return this.register(run)
   }
 
-  async send(handle: RunHandle, message: string): Promise<void> {
-    this.get(handle).input.push(userMessage(message))
+  async send(handle: RunHandle, message: string, images?: PromptImage[]): Promise<void> {
+    this.get(handle).input.push(userMessage(message, images))
   }
 
   async interrupt(handle: RunHandle): Promise<void> {
@@ -542,7 +549,11 @@ export class SdkRuntime implements AgentRuntime {
           kind: z
             .enum(['change', 'investigate'])
             .optional()
-            .describe('change (the default) to change code, or investigate to look into something and write up a report without changing code')
+            .describe('change (the default) to change code, or investigate to look into something and write up a report without changing code'),
+          images: z
+            .array(z.string())
+            .optional()
+            .describe("Images to attach to the ticket, by name: only ones the user sent with the request's messages, as Mainbus listed them")
         })
       )
       .describe('The tickets, in the order to create them')

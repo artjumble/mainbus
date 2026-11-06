@@ -2,8 +2,11 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { CreateTicketsOverride, CreateTicketsPayload } from '../../../shared/proposals'
 import { useState } from 'react'
+import { invoke } from '../api'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { createTicketsView, type CreateTicketsEdit } from './CreateTicketsProposal'
+
+vi.mock('../api', () => ({ invoke: vi.fn(async (_command: string, id: string) => `data:image/png;base64,${id}`), onEngineEvent: vi.fn() }))
 
 const payload: CreateTicketsPayload = {
   intent: 'Look into the slow login and fix the typo',
@@ -95,4 +98,58 @@ test('"Put in Ready instead" keeps the summary', () => {
 test('the summary has no axe violations', async () => {
   renderWithMantine(<Harness p={withContext} last={{ override: null }} />)
   await expectNoAxeViolations()
+})
+
+describe('images', () => {
+  const withImages: CreateTicketsPayload = {
+    ...payload,
+    tickets: [
+      { title: 'Fix the menu', spec: '', criteria: [], labels: [], images: [{ id: 'img-1', filename: 'menu.png' }, { id: 'img-2', filename: 'footer.png' }] },
+      { title: 'Fix the typo', spec: '', criteria: [], labels: [] }
+    ]
+  }
+
+  test("each draft shows its images as thumbnails, ticked, and a plain Create keeps them all", async () => {
+    const last = { override: null as CreateTicketsOverride | null }
+    renderWithMantine(<Harness p={withImages} last={last} />)
+    const group = screen.getByRole('group', { name: 'Images for Fix the menu' })
+    expect(await within(group).findByRole('img', { name: 'menu.png' })).toHaveAttribute('src', 'data:image/png;base64,img-1')
+    expect(invoke).toHaveBeenCalledWith('orchestrator.image', 'img-1')
+    expect(within(group).getByRole('checkbox', { name: 'Attach menu.png' })).toBeChecked()
+    expect(within(group).getByRole('checkbox', { name: 'Attach footer.png' })).toBeChecked()
+    // A draft with none shows none.
+    expect(screen.queryByRole('group', { name: 'Images for Fix the typo' })).toBeNull()
+    expect(last.override!.tickets.map((t) => t.images)).toEqual([['img-1', 'img-2'], undefined])
+    expect(last.override!.tickets[1]).not.toHaveProperty('images')
+  })
+
+  test('Override can untick any of them, and tick it again', async () => {
+    const last = { override: null as CreateTicketsOverride | null }
+    renderWithMantine(<Harness p={withImages} last={last} />)
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Attach menu.png' }))
+    expect(last.override!.tickets[0]!.images).toEqual(['img-2'])
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Attach footer.png' }))
+    expect(last.override!.tickets[0]).not.toHaveProperty('images')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Attach menu.png' }))
+    expect(last.override!.tickets[0]!.images).toEqual(['img-1'])
+  })
+
+  test('a click enlarges one', async () => {
+    renderWithMantine(<Harness p={withImages} last={{ override: null }} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Preview footer.png' }))
+    const dialog = await screen.findByRole('dialog', { name: 'footer.png' })
+    expect(await within(dialog).findByRole('img', { name: 'footer.png' })).toHaveAttribute('src', 'data:image/png;base64,img-2')
+  })
+
+  test("the receipt says how many were attached", () => {
+    const Receipt = createTicketsView.Receipt!
+    renderWithMantine(<Receipt result={{ tickets: [{ id: 't1', number: 4, title: 'Fix the menu' }], column: 'backlog', images: 2 }} />)
+    expect(screen.getByText(/in Backlog, with 2 images attached/)).toBeInTheDocument()
+  })
+
+  test('the images have no axe violations', async () => {
+    renderWithMantine(<Harness p={withImages} last={{ override: null }} />)
+    await screen.findByRole('img', { name: 'menu.png' })
+    await expectNoAxeViolations()
+  })
 })

@@ -1,4 +1,5 @@
 import { asc, eq, inArray } from 'drizzle-orm'
+import type { BatchItem } from 'drizzle-orm/batch'
 import type { Attachment, ImageMime } from '../../shared/attachments'
 import type { Db } from '../db/open'
 import { ticketAttachments, tickets } from '../db/schema'
@@ -6,6 +7,8 @@ import { ticketAttachments, tickets } from '../db/schema'
 export interface AttachmentRepo {
   /** Records an attachment whose file is already written; `id` is the one in the file's name. */
   add(a: Omit<Attachment, 'createdAt'>): Promise<Attachment>
+  /** The insert of `add`, to run in a batch with the ticket's own inserts. */
+  addStatement(a: Omit<Attachment, 'createdAt'>): BatchItem<'sqlite'>
   get(id: string): Promise<Attachment | null>
   /** The ticket's attachments, oldest first. */
   list(ticketId: string): Promise<Attachment[]>
@@ -31,6 +34,10 @@ export function createAttachmentRepo(db: Db, now: () => Date): AttachmentRepo {
       const row = { ...a, createdAt: now().toISOString() }
       await db.insert(ticketAttachments).values(row)
       return row
+    },
+
+    addStatement(a) {
+      return db.insert(ticketAttachments).values({ ...a, createdAt: now().toISOString() })
     },
 
     async get(id) {

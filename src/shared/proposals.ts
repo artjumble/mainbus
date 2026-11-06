@@ -1,4 +1,5 @@
 // Shared by the engine and the renderer: types only, no Node imports.
+import type { ImageRef } from './attachments'
 import type { Effort, IntentAddition, TicketKind } from './domain'
 import type { ModelSource } from './models'
 
@@ -42,7 +43,12 @@ export interface TicketDraft {
   labels: string[]
   /** Absent means change. */
   kind?: TicketKind
+  /** Images the user sent with the request, to attach to the ticket; absent means none. */
+  images?: ImageRef[]
 }
+
+/** A draft as the user's Override sends it: the images it keeps, by id. */
+export type TicketDraftOverride = Omit<TicketDraft, 'images'> & { images?: string[] }
 
 export type DraftColumn = 'backlog' | 'ready'
 
@@ -59,7 +65,7 @@ export interface CreateTicketsPayload {
 
 /** What the user's Override sends for create_tickets: the drafts they kept, as edited, and the column. */
 export interface CreateTicketsOverride {
-  tickets: TicketDraft[]
+  tickets: TicketDraftOverride[]
   column: DraftColumn
   /** Absent clears the summary. */
   context?: string
@@ -68,6 +74,8 @@ export interface CreateTicketsOverride {
 export interface CreateTicketsResult {
   tickets: { id: string; number: number; title: string }[]
   column: DraftColumn
+  /** How many images were attached, in all; absent when none were. */
+  images?: number
 }
 
 /** One role of a start_lineup proposal, with the model and effort it will run with. */

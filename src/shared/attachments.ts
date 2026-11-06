@@ -18,6 +18,27 @@ export type ImageMime = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
 export const ATTACHMENTS_PER_TICKET = 20
+export const IMAGES_PER_MESSAGE = 5
+
+/**
+ * An image the user sent the orchestrator with a message. Its file lives in Mainbus's data folder, kept as long as
+ * the orchestrator's thread.
+ */
+export interface OrchestratorImage {
+  id: string
+  /** The name as given, sanitised: unique (ignoring case) among every image sent to the orchestrator. */
+  filename: string
+  mime: ImageMime
+  size: number
+  sha256: string
+  createdAt: string
+}
+
+/** How a message or a draft names one of those images. */
+export interface ImageRef {
+  id: string
+  filename: string
+}
 
 const EXTENSIONS: Record<ImageMime, string[]> = {
   'image/png': ['.png'],
@@ -58,6 +79,19 @@ function megabytes(n: number): string {
  */
 export function whyNotAttachable(name: string, bytes: Uint8Array, count: number): string | null {
   if (count >= ATTACHMENTS_PER_TICKET) return `A ticket can have at most ${ATTACHMENTS_PER_TICKET} attachments; remove one first.`
+  return whyNotImage(name, bytes)
+}
+
+/**
+ * Why the file can't go with a message to the orchestrator, or null when it can: the same rules as an attachment,
+ * and at most 5 per message. `count` is how many the message has already.
+ */
+export function whyNotSendable(name: string, bytes: Uint8Array, count: number): string | null {
+  if (count >= IMAGES_PER_MESSAGE) return `A message can have at most ${IMAGES_PER_MESSAGE} images; remove one first.`
+  return whyNotImage(name, bytes)
+}
+
+function whyNotImage(name: string, bytes: Uint8Array): string | null {
   if (/\.svgz?$/i.test(name.trim()) || looksLikeMarkup(bytes)) return `${name} is an SVG or other markup file: it can carry script, so it can't be attached.`
   if (sniffImage(bytes) === null) return `${name} is not a PNG, JPEG, GIF or WebP image.`
   if (bytes.length > ATTACHMENT_MAX_BYTES) return `${name} is ${megabytes(bytes.length)}; an attachment can be at most ${megabytes(ATTACHMENT_MAX_BYTES)}.`

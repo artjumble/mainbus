@@ -187,6 +187,67 @@ describe('create_tickets: execute and outcome', () => {
   })
 })
 
+describe('create_tickets: images', () => {
+  const images = [
+    { id: 'img-1', filename: 'menu.png' },
+    { id: 'img-2', filename: 'footer.png' }
+  ]
+  const proposeWith = (input: unknown) =>
+    createTickets.propose(input, { userMessage: MESSAGE, workspaceId: ws.id, images }, {} as ExecContext) as CreateTicketsPayload
+
+  test("names the request's images by name, ignoring case, each once", () => {
+    const p = proposeWith({ tickets: [{ title: 'A', images: ['MENU.png', ' footer.png', 'menu.png'] }, { title: 'B' }] })
+    expect(p.tickets[0]!.images).toEqual(images)
+    expect(p.tickets[1]).not.toHaveProperty('images')
+  })
+
+  test('refuses an image the user did not send with the request, naming the ones they did', () => {
+    expect(() => proposeWith({ tickets: [{ title: 'A', images: ['other.png'] }] })).toThrow(
+      new ProposalInvalid("tickets.0.images: other.png is not an image the user sent in the request's messages (those are menu.png, footer.png)")
+    )
+    expect(() => propose({ tickets: [{ title: 'A', images: ['menu.png'] }] })).toThrow(/\(they sent none\)$/)
+    expect(() => proposeWith({ tickets: [{ title: 'A', images: [3] }] })).toThrow(ProposalInvalid)
+  })
+
+  test('an override keeps the images it names by id, and can add none of its own', () => {
+    const stored = proposeWith({ tickets: [{ title: 'A', images: ['menu.png', 'footer.png'] }] })
+    const kept = createTickets.override!(stored, { tickets: [{ title: 'A', spec: '', criteria: [], labels: [], images: ['img-2'] }], column: 'backlog' }, new Date())
+    expect(kept.tickets[0]!.images).toEqual([{ id: 'img-2', filename: 'footer.png' }])
+    const none = createTickets.override!(stored, { tickets: [{ title: 'A', spec: '', criteria: [], labels: [] }], column: 'backlog' }, new Date())
+    expect(none.tickets[0]).not.toHaveProperty('images')
+    expect(() =>
+      createTickets.override!(stored, { tickets: [{ title: 'A', spec: '', criteria: [], labels: [], images: ['menu.png'] }], column: 'backlog' }, new Date())
+    ).toThrow("tickets.0.images: menu.png is not one of the proposal's images")
+  })
+
+  test('passes the ids on to be attached, and the result and outcome count them', async () => {
+    const created: unknown[] = []
+    const ctx = {
+      orchestratorFolder: '/home/orchestrator',
+      workspace: async () => ws,
+      createTickets: async (_ws: Workspace, inputs: { title: string }[]) => {
+        created.push(...inputs)
+        return inputs.map((i, n) => ({ id: `t${n}`, number: n + 1, title: i.title }) as Ticket)
+      }
+    } as unknown as ExecContext
+    const p = proposeWith({ tickets: [{ title: 'A', images: ['menu.png', 'footer.png'] }, { title: 'B', images: ['footer.png'] }] })
+    const result = await createTickets.execute(p, { workspaceId: ws.id, proposalId: 'p1' }, ctx)
+    expect(created).toMatchObject([{ title: 'A', images: ['img-1', 'img-2'] }, { title: 'B', images: ['img-2'] }])
+    expect(result.images).toBe(3)
+    expect(createTickets.outcome(result)).toBe('Created #1 "A" and #2 "B" in Backlog, with 3 images attached.')
+    expect(createTickets.outcome({ ...result, images: undefined })).toBe('Created #1 "A" and #2 "B" in Backlog.')
+  })
+
+  test('createInBacklog attaches them too, and counts them', async () => {
+    const create = vi.fn(async (_ws: Workspace, inputs: { title: string }[]) => inputs.map((i, n) => ({ id: `t${n}`, number: n + 1, title: i.title }) as Ticket))
+    const made = await createInBacklog({ tickets: [{ title: 'A', images: ['menu.png'] }] }, { userMessage: MESSAGE, images }, ws, create, '/o')
+    expect(made.images).toBe(1)
+    expect(create.mock.calls[0]![1]).toMatchObject([{ images: ['img-1'] }])
+    await expect(createInBacklog({ tickets: [{ title: 'A', images: ['nope.png'] }] }, { userMessage: MESSAGE, images }, ws, create, '/o')).rejects.toThrow(ProposalInvalid)
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('createInBacklog', () => {
   const create = () =>
     vi.fn(async (_ws: Workspace, inputs: { title: string }[]) => inputs.map((i, n) => ({ id: `t${n + 1}`, number: n + 1, title: i.title }) as Ticket))

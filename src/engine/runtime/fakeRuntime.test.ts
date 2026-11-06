@@ -230,6 +230,33 @@ describe('FakeRuntime: the orchestrator', () => {
     }
   }
 
+  test('expectImages checks the images and names of the launch prompt, then of each message sent; send() records them', async () => {
+    const png = { mime: 'image/png' as const, base64: 'AA==' }
+    const rt = new FakeRuntime([], {
+      orchestrator: [
+        { expectImages: { count: 1, named: ['bug.png'] } },
+        { waitForSend: true },
+        { expectImages: { count: 0 } },
+        { waitForSend: true },
+        { expectImages: { count: 2 } },
+        { exit: 0 }
+      ]
+    })
+    const run = await rt.start(orchestratorSpec({ prompt: 'see bug.png', promptImages: [png] }))
+    await rt.send(run, 'words only')
+    await rt.send(run, 'two', [png, png])
+    expect(await collect(rt.events(run))).toEqual([
+      { kind: 'message', text: 'I see 1 image (image/png).', partial: false },
+      { kind: 'message', text: 'I see 0 images ().', partial: false },
+      { kind: 'message', text: 'I see 2 images (image/png, image/png).', partial: false }
+    ])
+    expect(rt.sentImages).toEqual([[], [png, png]])
+
+    const wrong = new FakeRuntime([], { orchestrator: [{ expectImages: { count: 1, named: ['other.png'] } }] })
+    const run2 = await wrong.start(orchestratorSpec({ prompt: 'see bug.png', promptImages: [png] }))
+    expect(await collect(wrong.events(run2))).toEqual([{ kind: 'error', message: "The message doesn't name the image other.png" }])
+  })
+
   test('plays its own script, keeps its specs apart from role specs, and calls its read tools', async () => {
     const rt = new FakeRuntime([{ emit: { kind: 'message', text: 'role' } }, { exit: 0 }], {
       orchestrator: [{ callTool: 'getTicket', args: { number: 2 } }, { emit: { kind: 'message', text: 'orchestrator' } }, { exit: 0 }]

@@ -1,4 +1,13 @@
-import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_TICKET, sanitizeFilename, sniffImage, uniqueFilename, whyNotAttachable } from './attachments'
+import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENTS_PER_TICKET,
+  IMAGES_PER_MESSAGE,
+  sanitizeFilename,
+  sniffImage,
+  uniqueFilename,
+  whyNotAttachable,
+  whyNotSendable
+} from './attachments'
 
 const bytes = (...parts: (number[] | string)[]): Uint8Array =>
   new Uint8Array(parts.flatMap((p) => (typeof p === 'string' ? [...p].map((c) => c.charCodeAt(0)) : p)))
@@ -59,6 +68,24 @@ describe('whyNotAttachable', () => {
   test('takes up to 20 per ticket', () => {
     expect(whyNotAttachable('a.png', PNG, ATTACHMENTS_PER_TICKET - 1)).toBeNull()
     expect(whyNotAttachable('a.png', PNG, ATTACHMENTS_PER_TICKET)).toBe('A ticket can have at most 20 attachments; remove one first.')
+  })
+})
+
+describe('whyNotSendable', () => {
+  test('has the same rules as an attachment, with the same reasons', () => {
+    expect(whyNotSendable('a.png', PNG, 0)).toBeNull()
+    expect(whyNotSendable('logo.svg', PNG, 0)).toBe(whyNotAttachable('logo.svg', PNG, 0))
+    expect(whyNotSendable('logo.png', SVG, 0)).toBe("logo.png is an SVG or other markup file: it can carry script, so it can't be attached.")
+    const big = new Uint8Array(ATTACHMENT_MAX_BYTES + 1)
+    big.set(PNG)
+    expect(whyNotSendable('big.png', big, 0)).toBe('big.png is 10 MB; an attachment can be at most 10 MB.')
+    const notImage = new TextEncoder().encode('hello')
+    expect(whyNotSendable('a.png', notImage, 0)).toBe('a.png is not a PNG, JPEG, GIF or WebP image.')
+  })
+
+  test('takes up to 5 per message', () => {
+    expect(whyNotSendable('a.png', PNG, IMAGES_PER_MESSAGE - 1)).toBeNull()
+    expect(whyNotSendable('a.png', PNG, IMAGES_PER_MESSAGE)).toBe('A message can have at most 5 images; remove one first.')
   })
 })
 

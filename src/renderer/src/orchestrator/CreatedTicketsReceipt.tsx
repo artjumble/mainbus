@@ -28,6 +28,7 @@ export function CreatedTicketsReceipt({ event }: { event: Created }): ReactEleme
           </Fragment>
         ))}
         {` in ${event.workspace}'s Backlog`}
+        {event.images ? `, with ${event.images} ${event.images === 1 ? 'image' : 'images'} attached` : ''}
         {event.context && ', with a summary of the conversation under "From an agent"'}
       </Text>
     </Paper>

@@ -27,7 +27,9 @@ import type { AnsweredDecision } from './orchestrator/answeredBlock'
 import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import type { StuckReport } from './orchestrator/stuckBlock'
+import { OrchestratorImages } from './orchestrator/images'
 import { OrchestratorSession } from './orchestrator/session'
+import type { TicketToCreate } from './proposals/kind'
 import { WakeScheduler } from './orchestrator/wakes'
 import type { OpenDecision, WakeItem } from './orchestrator/wakeDigest'
 import type { Wake, WakeKind } from './store/wakes'
@@ -191,6 +193,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       ticket: (id) => repos.tickets.get(id),
       workspace: (id) => repos.workspaces.get(id)
     })
+    const orchestratorImages = new OrchestratorImages({ repo: repos.orchestratorImages, homeRoot: cfg.paths.root })
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
     // Created beside the runner it drives; it reads its stored state before anything can start (see below).
     const gate: UsageGate = (usageGate = new UsageGate({
@@ -429,18 +432,45 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      */
     async function createTickets(
       ws: Workspace,
-      inputs: Omit<NewTicketInput, 'workspaceId'>[],
+      inputs: TicketToCreate[],
       record?: { proposalId: string; column: DraftColumn }
     ): Promise<Ticket[]> {
-      const tickets = await repos.tickets.createMany(
-        inputs.map((input) => ({ ...input, workspaceId: ws.id })),
-        record && ((ids) => [repos.proposals.ticketsResultStatement(record.proposalId, ids, record.column)])
-      )
+      // The images the orchestrator attaches are checked and written first, and recorded with the tickets: all or none.
+      const prepared = inputs.some((i) => i.images?.length) ? await attachments.prepareForNew(ws, await imagesToAttach(inputs)) : null
+      let tickets: Ticket[]
+      try {
+        tickets = await repos.tickets.createMany(
+          inputs.map(({ images: _images, ...input }) => ({ ...input, workspaceId: ws.id })),
+          (ids) => [
+            ...(record ? [repos.proposals.ticketsResultStatement(record.proposalId, ids, record.column)] : []),
+            ...(prepared?.statements(ids) ?? [])
+          ]
+        )
+      } catch (err) {
+        await prepared?.discard()
+        throw err
+      }
+      await prepared
+        ?.place(tickets)
+        .catch((err: unknown) => console.warn(`Mainbus could not move the new tickets' images into place: ${errorText(err)}`))
       emit({ type: 'board.changed', workspaceId: ws.id })
       return tickets
     }
+    // The user's and the agents' own tickets: only the orchestrator's carry its images.
     const createTicket = async (ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> =>
-      (await createTickets(ws, [input]))[0]!
+      (await createTickets(ws, [{ ...input, images: undefined }]))[0]!
+
+    /** Each ticket's images to attach: the files of the images the user sent the orchestrator, read and checked again. */
+    async function imagesToAttach(inputs: TicketToCreate[]): Promise<{ name: string; bytes: Uint8Array }[][]> {
+      const read = new Map<string, { name: string; bytes: Uint8Array }>()
+      for (const id of new Set(inputs.flatMap((i) => i.images ?? []))) {
+        const { image, bytes } = await orchestratorImages.read(id).catch((err: unknown) => {
+          throw new Error(`An image the user sent can't be attached: ${errorText(err)}`)
+        })
+        read.set(id, { name: image.filename, bytes })
+      }
+      return inputs.map((i) => (i.images ?? []).map((id) => read.get(id)!))
+    }
 
     /**
      * "Ask the orchestrator to start an agent once it's in Ready": when a ticket with the flag is in Ready, its start is
@@ -718,6 +748,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         attachments: (ticketId) => attachments.list(ticketId)
       }),
       proposals,
+      images: orchestratorImages,
       createTickets: (ws, inputs) => createTickets(ws, inputs),
       answeredSince: async (since) => {
         const answered: AnsweredDecision[] = []
@@ -1005,10 +1036,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       // Reached only through `invoke` (the renderer's IPC). Like Stop, stopping and reading need no runtime.
       'orchestrator.get': () => orchestrator.get(),
-      'orchestrator.send': (text) => {
+      'orchestrator.send': (text, images) => {
         requireRuntime()
-        return orchestrator.send(text)
+        return orchestrator.send(text, images)
       },
+      'orchestrator.image': (id) => orchestratorImages.dataUrl(id),
       'orchestrator.stop': () => orchestrator.stop(),
       // They act on the ticket's own workspace, whichever one is focused.
       'ticket.proposeStart': async (ticketId) => orchestrator.proposeStartFromDrag(await repos.tickets.get(ticketId)),

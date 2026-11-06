@@ -1,4 +1,5 @@
 // Shared by the engine and the renderer: types only, no Node imports.
+import type { ImageRef } from './attachments'
 import type { AgentStatus, StuckRule } from './domain'
 import type { Proposal } from './proposals'
 
@@ -47,7 +48,8 @@ export type AgentEvent =
 /** Everything that can appear in a run's stored thread. */
 export type ThreadEvent =
   | AgentEvent
-  | { kind: 'user_message'; text: string }
+  /** `images`: the ones the user sent the orchestrator with it, by id and name; only the orchestrator's thread has them. */
+  | { kind: 'user_message'; text: string; images?: ImageRef[] }
   | { kind: 'decision'; decisionId: string }
   | { kind: 'nudge'; text: string }
   | { kind: 'process_exit'; code: number | null }
@@ -107,8 +109,8 @@ export type ThreadEvent =
   | { kind: 'waiting'; reason: string; until: string }
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */
   | { kind: 'proposal'; proposalId: string; from?: 'drag' | 'button' }
-  /** The orchestrator created these tickets directly in the workspace's Backlog, at the user's request; the panel shows a receipt. `context`: it added its summary of the conversation to each ticket. */
-  | { kind: 'tickets_created'; workspaceId: string; workspace: string; tickets: { id: string; number: number; title: string }[]; context?: true }
+  /** The orchestrator created these tickets directly in the workspace's Backlog, at the user's request; the panel shows a receipt. `context`: it added its summary of the conversation to each ticket. `images`: how many of the user's images it attached, in all. */
+  | { kind: 'tickets_created'; workspaceId: string; workspace: string; tickets: { id: string; number: number; title: string }[]; context?: true; images?: number }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 

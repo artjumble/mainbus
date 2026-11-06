@@ -290,6 +290,20 @@ export const orchestratorEvents = sqliteTable(
 )
 
 /**
+ * Images the user sent the orchestrator with a message. The files live in `<MAINBUS_HOME>\orchestrator\images\<id>-<filename>`
+ * and stay as long as the orchestrator's thread does. The filename is unique (ignoring case) among them all, so the
+ * orchestrator can name one.
+ */
+export const orchestratorImages = sqliteTable('orchestrator_images', {
+  id: text('id').primaryKey(),
+  filename: text('filename').notNull(),
+  mime: text('mime').notNull(),
+  size: integer('size').notNull(),
+  sha256: text('sha256').notNull(),
+  createdAt: text('created_at').notNull()
+})
+
+/**
  * What the orchestrator proposed: the user confirms (as it is, or overridden with changes) or rejects it, and
  * engine code carries it out. Only a pending proposal can be decided.
  */

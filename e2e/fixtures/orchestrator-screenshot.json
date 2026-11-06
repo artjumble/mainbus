@@ -1,0 +1,39 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-screenshot" } },
+    { "expectImages": { "count": 1, "named": ["bug.png"] } },
+    { "emit": { "kind": "tool_call", "id": "c1", "name": "mcp__mainbus__create_tickets", "input": {} } },
+    {
+      "callTool": "createTickets",
+      "args": {
+        "tickets": [
+          {
+            "title": "Fix the overlapping header",
+            "spec": "Drafted by the orchestrator: the header overlaps the board, as the screenshot shows.",
+            "images": ["bug.png"]
+          }
+        ]
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "c1", "ok": true, "summary": "Created" } },
+    { "emit": { "kind": "message", "text": "Created #1 in repo's Backlog, with your screenshot attached." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "expectImages": { "count": 2, "named": ["menu.png", "footer.png"] } },
+    {
+      "callTool": "proposeCreateTickets",
+      "args": {
+        "tickets": [
+          {
+            "title": "Tidy the menu and footer",
+            "spec": "Drafted by the orchestrator from both screenshots.",
+            "images": ["menu.png", "footer.png"]
+          }
+        ]
+      }
+    },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}
