@@ -17,7 +17,10 @@ export interface TicketRepo {
   byNumber(workspaceId: string, number: number): Promise<Ticket | null>
   list(workspaceId: string): Promise<Ticket[]>
   update(id: string, patch: TicketPatch): Promise<Ticket>
-  /** Intent is append-only: this is the only way to add to it, and nothing edits or removes an entry. */
+  /**
+   * Intent is append-only: this is the only way to add to it, and nothing edits or removes an entry. The one exception is
+   * the Undo of an orchestrator edit (TicketEditRepo.undo), which removes the entries that edit appended moments before.
+   */
   appendIntent(id: string, text: string): Promise<Ticket>
   setManualColumn(id: string, column: 'backlog' | 'ready' | 'done'): Promise<Ticket>
   /** Whether the ticket was to be proposed for starting once in Ready; clears the flag, so it answers true once. */
@@ -69,6 +72,36 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
+}
+
+/**
+ * The statements of `ticket.update`, to run in a batch: the changed columns, then the criteria replaced as given (ticks
+ * included), stamped `at`. Also what the orchestrator's edit and its Undo run, so there is one path.
+ */
+export function patchStatements(db: Db, id: string, patch: TicketPatch, at: string): [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]] {
+  const set: Partial<typeof tickets.$inferInsert> = {}
+  if (patch.title !== undefined) set.title = patch.title
+  if (patch.spec !== undefined) set.spec = patch.spec
+  if (patch.labels !== undefined) set.labels = JSON.stringify(patch.labels)
+  const items: BatchItem<'sqlite'>[] = []
+  if (patch.criteria !== undefined) {
+    items.push(db.delete(criteria).where(eq(criteria.ticketId, id)))
+    if (patch.criteria.length > 0) {
+      items.push(db.insert(criteria).values(patch.criteria.map((c, position) => ({ ticketId: id, position, text: c.text, checked: c.checked }))))
+    }
+  }
+  return [db.update(tickets).set({ ...set, updatedAt: at }).where(eq(tickets.id, id)), ...items]
+}
+
+/**
+ * The statement that appends `entry` to the ticket's intent, stamped `entry.at`. Appended inside SQLite so two
+ * concurrent appends cannot overwrite each other.
+ */
+export function appendIntentStatement(db: Db, id: string, entry: IntentEntry): BatchItem<'sqlite'> {
+  return db
+    .update(tickets)
+    .set({ intent: sql`json_insert(${tickets.intent}, '$[#]', json(${JSON.stringify(entry)}))`, updatedAt: entry.at })
+    .where(eq(tickets.id, id))
 }
 
 export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
@@ -211,26 +244,15 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     },
 
     async update(id, patch) {
-      const set: Partial<typeof tickets.$inferInsert> = {}
-      if (patch.title !== undefined) set.title = patch.title
-      if (patch.spec !== undefined) set.spec = patch.spec
-      if (patch.labels !== undefined) set.labels = JSON.stringify(patch.labels)
-      await patchRow(id, set)
-      if (patch.criteria !== undefined) {
-        await db.delete(criteria).where(eq(criteria.ticketId, id))
-        if (patch.criteria.length > 0) {
-          await db.insert(criteria).values(
-            patch.criteria.map((c, position) => ({ ticketId: id, position, text: c.text, checked: c.checked }))
-          )
-        }
-      }
+      await get(id)
+      await db.batch(patchStatements(db, id, patch, now().toISOString()))
       return get(id)
     },
 
     async appendIntent(id, text) {
+      await get(id)
       const entry: IntentEntry = { text, at: now().toISOString() }
-      // Appended inside SQLite so two concurrent appends cannot overwrite each other.
-      await patchRow(id, { intent: sql`json_insert(${tickets.intent}, '$[#]', json(${JSON.stringify(entry)}))` })
+      await db.batch([appendIntentStatement(db, id, entry)])
       return get(id)
     },
 

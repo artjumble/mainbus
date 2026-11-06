@@ -19,6 +19,7 @@ import {
   type RunSettingsInput,
   type StuckEpisode,
   type Ticket,
+  type TicketEdit,
   type Workspace
 } from '../shared/domain'
 import { applyRunSettings, checkRunSettings } from '../shared/runSettings'
@@ -52,6 +53,8 @@ import { newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
 import { TicketRunner, SKIP_SUMMARY_MS, type RunExpectation } from './runner/ticketRunner'
 import { draftPromotionSpec, whyNotPromotable } from './tickets/promote'
+import { planEdit, whyNotEditable, type EditInput } from './tickets/edit'
+import { EditChangedError } from './store/ticketEdits'
 import { ticketFields } from './tickets/validate'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
 import { UsageGate, usageHooks } from './runner/usageGate'
@@ -640,6 +643,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
       const stuckOf = await repos.stuck.openByTicket()
       const attached = await repos.attachments.listForWorkspace(ws.id)
+      const edited = await repos.ticketEdits.listForWorkspace(ws.id)
       return Promise.all(
         tickets.map(async (t) => ({
           ...t,
@@ -647,6 +651,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           hold: holdOf.get(t.id) ?? null,
           stuck: stuckOf.get(t.id) ?? null,
           attachments: attached.filter((a) => a.ticketId === t.id),
+          edits: edited
+            .filter((e) => e.ticketId === t.id)
+            .map(({ id, at, fields, intentAdded, undoneAt }) => ({ id, at, fields, userWords: intentAdded.length, undoneAt })),
           // Worked out on each read and never written back: they show until the user saves or resets.
           runSettingsNotices: t.runSettings === null ? [] : applyRunSettings(t.runSettings, await workspaceLineup(t.kind)).notices
         }))
@@ -664,6 +671,77 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const saved = await repos.tickets.setRunSettings(id, settings)
       emit({ type: 'board.changed', workspaceId: saved.workspaceId })
       return saved
+    }
+
+    /** Tickets being edited or having an edit undone, so two of them never overlap. */
+    const editing = new Set<string>()
+    const withEditGuard = async <T>(ticketId: string, step: () => Promise<T>): Promise<T> => {
+      if (editing.has(ticketId)) throw new Error('This ticket is being edited right now')
+      editing.add(ticketId)
+      try {
+        return await step()
+      } finally {
+        editing.delete(ticketId)
+      }
+    }
+    const whyNotEditableNow = async (ticket: Ticket): Promise<string | null> => {
+      const latest = await repos.runs.latest(ticket.id)
+      const runOpen = (latest !== null && latest.endReason === null) || runner.isLaunching(ticket.id)
+      return whyNotEditable(ticket, (await runner.stateOf(ticket.id)).column, runOpen)
+    }
+
+    /**
+     * The orchestrator's update_ticket, at the user's request: the ticket's title, spec, criteria and labels, and the user's
+     * own messages appended to its intent. The record of it is what the panel's receipt and Undo use.
+     */
+    const editByOrchestrator = async (
+      ws: Workspace,
+      input: EditInput,
+      ctx: { userWords: string[]; orchestratorRunId: string }
+    ): Promise<{ edit: TicketEdit; title: string }> => {
+      const ticket = await repos.tickets.byNumber(ws.id, input.ticket)
+      if (!ticket) throw new Error(`There is no ticket #${input.ticket} in ${ws.name}`)
+      return withEditGuard(ticket.id, async () => {
+        const why = await whyNotEditableNow(ticket)
+        if (why !== null) throw new Error(why)
+        const plan = planEdit(ticket, input)
+        const edit = await repos.ticketEdits.apply({
+          ticketId: ticket.id,
+          workspaceId: ws.id,
+          orchestratorRunId: ctx.orchestratorRunId,
+          patch: plan.patch,
+          fields: plan.fields,
+          before: plan.before,
+          after: plan.after,
+          userWords: ctx.userWords
+        })
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        emit({ type: 'ticketEdit.changed', edit })
+        return { edit, title: plan.after.title ?? ticket.title }
+      })
+    }
+
+    /** Undo of an orchestrator edit, refused with the reason when the ticket changed or started since. */
+    const undoEdit = async (editId: string): Promise<TicketEdit> => {
+      const edit = await repos.ticketEdits.get(editId)
+      return withEditGuard(edit.ticketId, async () => {
+        if (edit.undoneAt !== null) throw new Error(`The edit of #${edit.number} is already undone`)
+        const ticket = await repos.tickets.get(edit.ticketId)
+        const why = await whyNotEditableNow(ticket)
+        if (why !== null) throw new Error(`Can't undo: ${why}`)
+        const latest = await repos.runs.latest(ticket.id)
+        if (latest !== null && latest.startedAt > edit.at) throw new Error(`Can't undo: #${edit.number} was started since this edit`)
+        let undone: TicketEdit
+        try {
+          undone = await repos.ticketEdits.undo(edit)
+        } catch (err) {
+          if (err instanceof EditChangedError) throw new Error(`Can't undo: ${err.message}`)
+          throw err
+        }
+        emit({ type: 'board.changed', workspaceId: edit.workspaceId })
+        emit({ type: 'ticketEdit.changed', edit: undone })
+        return undone
+      })
     }
 
     /** What the renderer is told of an attachment: never where its file is. */
@@ -776,6 +854,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       proposals,
       images: orchestratorImages,
       createTickets: (ws, inputs) => createTickets(ws, inputs),
+      editTicket: editByOrchestrator,
+      edits: () => repos.ticketEdits.listAll(),
       answeredSince: async (since) => {
         const answered: AnsweredDecision[] = []
         for (const ws of await repos.workspaces.list()) {
@@ -949,6 +1029,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
         return ticket
       },
+      // Reached only through `invoke` (the renderer's IPC): only the user undoes the orchestrator's edit.
+      'ticket.undoEdit': (editId) => undoEdit(editId),
       'ticket.move': async (id, column) => {
         if (column === 'done') return moveTicketToDone(id)
         ;(await modeOfTicket(id))?.userMoved(id, column)

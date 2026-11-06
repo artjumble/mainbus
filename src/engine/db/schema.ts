@@ -331,6 +331,31 @@ export const proposals = sqliteTable(
   (t) => [index('proposals_decided_idx').on(t.status, t.decidedAt)]
 )
 
+// What the orchestrator changed in a ticket at the user's request: what Undo puts back.
+export const ticketEdits = sqliteTable(
+  'ticket_edits',
+  {
+    id: text('id').primaryKey(),
+    ticketId: text('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    orchestratorRunId: text('orchestrator_run_id')
+      .notNull()
+      .references(() => orchestratorRuns.id, { onDelete: 'cascade' }),
+    at: text('at').notNull(),
+    fields: text('fields').notNull(), // JSON: the edited fields
+    before: text('before').notNull(), // JSON: their values before
+    after: text('after').notNull(), // JSON: their values after
+    intentAdded: text('intent_added').notNull(), // JSON: the intent entries it appended, as stored
+    ticketUpdatedAt: text('ticket_updated_at').notNull(),
+    undoneAt: text('undone_at')
+  },
+  (t) => [index('ticket_edits_ticket_idx').on(t.ticketId)]
+)
+
 // Worktrees that still need removing; deliberately no foreign key, so a row can outlive its ticket.
 export const pendingCleanups = sqliteTable('pending_cleanups', {
   ticketId: text('ticket_id').primaryKey(),

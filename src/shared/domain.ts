@@ -338,6 +338,41 @@ export type TicketPatch = Partial<{
   labels: string[]
 }>
 
+/** The fields the orchestrator can edit, in the order they are listed. */
+export type EditedField = 'title' | 'spec' | 'criteria' | 'labels'
+
+/** The values of the edited fields, before or after an edit; only the changed ones are present. */
+export type EditedValues = Partial<{ title: string; spec: string; criteria: Criterion[]; labels: string[] }>
+
+/**
+ * One edit the orchestrator made to a ticket at the user's request, kept so the panel can show it and Undo it.
+ * `intentAdded` are the user's own messages it appended, exactly as stored.
+ */
+export interface TicketEdit {
+  id: string
+  ticketId: string
+  workspaceId: string
+  number: number
+  at: string
+  fields: EditedField[]
+  before: EditedValues
+  after: EditedValues
+  intentAdded: IntentEntry[]
+  /** The ticket's updatedAt right after the edit: Undo is refused once the ticket changed. */
+  ticketUpdatedAt: string
+  undoneAt: string | null
+}
+
+/** An edit as the board ticket carries it, for the ticket's Activity. */
+export interface TicketEditNote {
+  id: string
+  at: string
+  fields: EditedField[]
+  /** How many of the user's messages it appended. */
+  userWords: number
+  undoneAt: string | null
+}
+
 /** How other agents on this machine run this app's `mainbus` CLI and MCP server. */
 export interface AgentLauncher {
   /** stable: the mainbus.cmd that build-stable.ps1 writes. dev: Node on the bundle in out/cli. */

@@ -3,7 +3,9 @@ import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import type { Proposal } from '../../shared/proposals'
 import type { ImageRef } from '../../shared/attachments'
-import type { IntentAddition, Ticket, Workspace } from '../../shared/domain'
+import type { EditedField, IntentAddition, Ticket, TicketEdit, Workspace } from '../../shared/domain'
+import { describeEdit } from '../../shared/ticketEdit'
+import { parseEditInput, type EditInput } from '../tickets/edit'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
@@ -53,6 +55,13 @@ export const NO_TURN_MESSAGE = 'Mainbus could not tell which message of the user
 
 export const WAKE_CREATE_MESSAGE = 'Tickets can only be created in answer to a message of the user. Nothing was created.'
 
+export const WAKE_EDIT_MESSAGE = 'Tickets can only be edited in answer to a message of the user. Nothing was changed.'
+
+/** What update_ticket answers once the ticket is edited. */
+export function editedText(workspace: string, number: number, title: string, fields: EditedField[], userWords: number): string {
+  return `Updated #${number} ${JSON.stringify(title)} in ${workspace}: ${describeEdit(fields, userWords, "the user's words")}. The user can Undo it. Tell the user what changed.`
+}
+
 /** How far back request_messages_back may reach. */
 export const MAX_MESSAGES_BACK = 5
 
@@ -95,6 +104,18 @@ export interface OrchestratorDeps {
    * board.changed.
    */
   createTickets: (ws: Workspace, inputs: TicketToCreate[]) => Promise<Ticket[]>
+  /**
+   * Edits a ticket of the workspace that hasn't started, with the user's `userWords` appended to its intent verbatim:
+   * all of it or none, emitting board.changed. Throws ProposalInvalid for input that is wrong and an Error with the reason
+   * for a ticket that can't be edited (unknown, running, Done). Returns the edit and the ticket's title.
+   */
+  editTicket: (
+    ws: Workspace,
+    input: EditInput,
+    ctx: { userWords: string[]; orchestratorRunId: string }
+  ) => Promise<{ edit: TicketEdit; title: string }>
+  /** Every edit the orchestrator made, oldest first, for the thread's receipts. */
+  edits: () => Promise<TicketEdit[]>
   /** The decisions the user answered since `since` in any workspace, for the start of a message. */
   answeredSince: (since: string | null) => Promise<AnsweredDecision[]>
   /** The tickets whose hold was released since `since` in any workspace, by hand, by a start or by their date. */
@@ -166,7 +187,7 @@ function errorText(err: unknown): string {
  * The one orchestrator session of this data home. It starts on the first message, stays live between messages,
  * and after a restart the next message resumes it by session id (or, when that fails, starts a fresh one from a
  * digest of the conversation). It never touches the board or unattended mode, and touches tickets only to create
- * them in a Backlog when the user asks (create_tickets).
+ * them in a Backlog when the user asks (create_tickets) and to edit ones that haven't started (update_ticket).
  */
 export class OrchestratorSession {
   private status: OrchestratorStatus = 'idle'
@@ -191,7 +212,8 @@ export class OrchestratorSession {
       status: this.status,
       runs: runs.map(({ id, startedAt, endedAt, endReason }) => ({ id, startedAt, endedAt, endReason })),
       events,
-      proposals: await this.deps.proposals.list()
+      proposals: await this.deps.proposals.list(),
+      edits: await this.deps.edits()
     }
   }
 
@@ -524,6 +546,55 @@ export class OrchestratorSession {
   }
 
   /**
+   * update_ticket: edits a ticket that hasn't started, at once with no card, and puts a receipt (with Undo) in the thread.
+   * The user's words are never written by the orchestrator: with add_user_words, the user's own messages of this request are
+   * appended verbatim. Everything is checked first: a refused call changes nothing, and the orchestrator is told why.
+   */
+  private async updateNow(input: unknown): Promise<string> {
+    const live = this.live
+    const turn = this.turn
+    if (!live || turn === null) return NO_TURN_MESSAGE
+    if (turn.kind !== 'user') return WAKE_EDIT_MESSAGE
+    const { workspace: ref, rest } = splitWorkspace(input)
+    const target = resolveTargetWorkspace(await this.deps.workspaces(), ref)
+    if (!target.ok) return `${target.text} Nothing was changed.`
+    const { back, rest: fields } = splitMessagesBack(rest)
+    let edit: EditInput
+    try {
+      edit = parseEditInput(fields)
+    } catch (err) {
+      if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was changed; fix it and try again.`
+      throw err
+    }
+    let userWords: string[] = []
+    if (edit.add_user_words === true) {
+      const req = await this.request(turn, back)
+      if (!req.ok) return `Invalid: ${req.error}. Nothing was changed; fix it and try again.`
+      // A message of only images has no words to append.
+      userWords = [req.userMessage, ...(req.followUps ?? []).map((f) => f.text)].filter((t) => t.trim() !== '')
+      if (userWords.length === 0) return 'Invalid: add_user_words: the user\'s message has no words, only images. Nothing was changed; fix it and try again.'
+    } else if (back !== undefined) {
+      return 'Invalid: request_messages_back: only with add_user_words. Nothing was changed; fix it and try again.'
+    }
+    let made: Awaited<ReturnType<OrchestratorDeps['editTicket']>>
+    try {
+      made = await this.deps.editTicket(target.ws, edit, { userWords, orchestratorRunId: live.runId })
+    } catch (err) {
+      if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was changed; fix it and try again.`
+      return `${errorText(err)}. Nothing was changed.`
+    }
+    const { edit: done, title } = made
+    await this.record(live.runId, {
+      kind: 'ticket_edited',
+      editId: done.id,
+      workspaceId: target.ws.id,
+      workspace: target.ws.name,
+      ticket: { id: done.ticketId, number: done.number, title }
+    })
+    return editedText(target.ws.name, done.number, title, done.fields, done.intentAdded.length)
+  }
+
+  /**
    * Every open workspace's repo, ticket folders and attachments folder: the whole folder, not each ticket's, because
    * tickets start, finish and gain images while the session runs. The folders exist up front because the CLI may skip a
    * folder it cannot find. Nothing else of Mainbus's data is readable.
@@ -571,6 +642,7 @@ export class OrchestratorSession {
       tools: {
         ...this.deps.readTools,
         createTickets: (a) => this.createNow(a),
+        updateTicket: (a) => this.updateNow(a),
         proposeCreateTickets: (a) => this.propose('create_tickets', a),
         proposeStart: (a) => this.propose('start_lineup', a),
         proposePause: (a) => this.propose('pause', a),

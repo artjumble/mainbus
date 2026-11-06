@@ -25,6 +25,11 @@ test('the propose tools count the proposals made', () => {
   )
 })
 
+test('update_ticket reads as editing a ticket', () => {
+  expect(summariseTools(calls('mcp__mainbus__update_ticket'))).toBe('Edited a ticket')
+  expect(summariseTools(calls('mcp__mainbus__update_ticket', 'mcp__mainbus__update_ticket'))).toBe('Edited tickets')
+})
+
 test('create_tickets reads as creating tickets', () => {
   expect(summariseTools(calls('mcp__mainbus__create_tickets'))).toBe('Created tickets')
   expect(summariseTools(calls('mcp__mainbus__list_workspaces', 'mcp__mainbus__create_tickets', 'mcp__mainbus__create_tickets'))).toBe(
