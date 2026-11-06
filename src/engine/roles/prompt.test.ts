@@ -465,10 +465,10 @@ describe('ROLE_PROTOCOL', () => {
     expect(ROLE_PROTOCOL).toMatch(/never ask[^.]*plain text/i)
   })
 
-  test('says when to use report_waiting, and that until is required, in the future and at most 2 hours ahead', () => {
+  test('says when to use report_waiting, and that until is required, in the future and at most 2 hours ahead, a later one shortened', () => {
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__report_waiting(reason, until)')
     expect(ROLE_PROTOCOL).toMatch(/long build, a slow test suite, or when waiting on a process you started/)
-    expect(ROLE_PROTOCOL).toMatch(/until is required: an ISO date-time in the future, at most 2 hours from now/)
+    expect(ROLE_PROTOCOL).toMatch(/until is required: an ISO date-time in the future, at most 2 hours from now; a later one is shortened to 2 hours/)
   })
 
   test('says check_criterion takes a zero-based index and cannot untick', () => {

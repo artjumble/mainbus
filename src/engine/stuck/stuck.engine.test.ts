@@ -11,6 +11,7 @@ import { STUCK_HEADING } from '../orchestrator/stuckBlock'
 import { WAKE_HEADING } from '../orchestrator/wakeDigest'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { clockTime } from '../../shared/waiting'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -90,8 +91,8 @@ describe('report_waiting', () => {
     const { reportWaiting } = runtime.specs[0]!.roleTools
 
     expect(await reportWaiting({ reason: 'the full test suite', until: at(-1) })).toContain('not in the future')
-    expect(await reportWaiting({ reason: 'the full test suite', until: at(121) })).toContain('at most 2 hours')
     expect(await reportWaiting({ reason: 'the full test suite', until: 'soon' })).toContain('ISO date-time')
+    expect(await reportWaiting({ reason: 'the full test suite', until: '2026-13-45T99:99:00Z' })).toContain('ISO date-time')
     expect(await reportWaiting({ reason: '  ', until: at(10) })).toContain('say what you are waiting for')
     let thread = await engine.invoke('thread.get', ticket.id)
     expect(thread.events.filter((e) => e.event.kind === 'waiting')).toEqual([])
@@ -99,6 +100,20 @@ describe('report_waiting', () => {
     expect(await reportWaiting({ reason: 'the full test suite', until: at(120) })).toContain('Recorded')
     thread = await engine.invoke('thread.get', ticket.id)
     expect(thread.events.map((e) => e.event)).toContainEqual({ kind: 'waiting', reason: 'the full test suite', until: at(120) })
+  })
+
+  test('an until more than 2 hours ahead is recorded at 2 hours from now, and the reply says so', async () => {
+    const runtime = new FakeRuntime(QUIET)
+    const { engine, ticket } = await started(runtime)
+    const { reportWaiting } = runtime.specs[0]!.roleTools
+
+    expect(await reportWaiting({ reason: 'the full test suite', until: at(180) })).toBe(
+      `Recorded until ${clockTime(at(120))} (2 hours from now, the most allowed); call report_waiting again if you need longer. Handing off ends the wait. Go on with the wait now.`
+    )
+    const thread = await engine.invoke('thread.get', ticket.id)
+    expect(thread.events.map((e) => e.event).filter((e) => e.kind === 'waiting')).toEqual([
+      { kind: 'waiting', reason: 'the full test suite', until: at(120) }
+    ])
   })
 
   test('a wait protects the agent until it ends; its silence then counts from there', async () => {
