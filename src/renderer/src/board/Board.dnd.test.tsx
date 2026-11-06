@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useMainbus } from '../store'
 import { makeTicket, renderWithMantine, workspace } from '../test-utils'
@@ -11,6 +11,8 @@ const initial = useMainbus.getState()
 
 /** Presses on the card, moves the pointer past the drag threshold, and reports the card wrapper's transform. */
 async function dragBy(title: RegExp): Promise<string> {
+  // Done's cards show only while it is open.
+  act(() => screen.getByRole('region', { name: 'Done' }).focus())
   const card = screen.getByRole('button', { name: title })
   const wrapper = card.closest<HTMLElement>('[style*="touch-action"]')!
   await userEvent.pointer([
@@ -46,11 +48,17 @@ test('a card whose move the engine has not answered cannot be picked up', async 
 describe('moving a card by keyboard', () => {
   const COLUMN_IDS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done']
 
-  /** jsdom has no layout: give each column a rectangle, side by side, and every other element none. */
+  /**
+   * jsdom has no layout: give each column a rectangle, side by side, and every other element none. Done is a
+   * 44 px strip at the right, and open, a full column that grows to the left over Review.
+   */
   function layOutColumns(): void {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const labelled = this.getAttribute('aria-labelledby')
       const at = labelled ? COLUMN_IDS.indexOf(labelled.replace('column-', '')) : -1
+      if (labelled === 'column-done') {
+        return this.dataset.expanded === 'true' ? new DOMRect(at * 240 + 44 - 220, 0, 220, 600) : new DOMRect(at * 240, 0, 44, 600)
+      }
       if (at >= 0) return new DOMRect(at * 240, 0, 220, 600)
       // A card sits in its column, 10 px from the left.
       const column = this.closest('section')?.getAttribute('aria-labelledby')
@@ -125,4 +133,34 @@ describe('moving a card by keyboard', () => {
     await userEvent.keyboard('{ArrowRight}')
     await vi.waitFor(() => expect(announced()).toMatch(/is over Done/))
   })
+
+  test('Arrow Right from Review onto the closed Done strip opens it, and Space drops the card in Done', async () => {
+    const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket] }, true)
+    const move = vi.fn().mockResolvedValue('moved')
+    useMainbus.setState({ moveTicket: move })
+    layOutColumns()
+    renderWithMantine(<Board />)
+    const done = screen.getByRole('region', { name: 'Done' })
+    expect(done.dataset.expanded).toBe('false')
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}')
+    await vi.waitFor(() => expect(announced()).toMatch(/is over Done/))
+    expect(done.dataset.expanded).toBe('true')
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(move).toHaveBeenCalledWith(ticket.id, 'done'))
+    expect(announced()).toMatch(/was dropped on Done/)
+  })
+
+})
+
+test('a card dragged out of Done keeps Done open while the drag lasts, even with focus elsewhere', async () => {
+  const ticket = makeTicket({ title: 'Old work' }, { column: 'done', phase: 'done' })
+  useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket] }, true)
+  renderWithMantine(<Board />)
+  expect(await dragBy(/Old work/)).toMatch(/translate3d\(/)
+  act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  expect(screen.getByRole('region', { name: 'Done' }).dataset.expanded).toBe('true')
 })

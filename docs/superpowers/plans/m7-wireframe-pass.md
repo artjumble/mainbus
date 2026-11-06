@@ -38,6 +38,7 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | B11 | missing | No Answer button on the card (options in the panel) | Answer button on Needs you cards | Kept: decided in M4 |
 | B12 | missing | — | Unattended switch and the settings gear in the header | Kept: later tickets |
 | B13 | styling | Near-black primary buttons | Working-blue primary buttons | Kept: inside the §16 palette; changing it risks the contrast checks |
+| B14 | layout | Done is a full column like the others | Done a full column | Changed by ticket #61: Done is a 44 px strip with a vertical title and its count, and the other five columns share the width. It opens to a full column over Review, with a shadow, on hover, on focus and while a card is dragged over it, and closes a moment after. Closed, its cards are hidden and inert. The artboard e2e shoots it closed (`board.png`) and open (`board-done-expanded.png`) |
 
 ## Ticket detail — `ticket-detail.png` · `Ticket detail (split view)@1x.png`
 

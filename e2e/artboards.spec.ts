@@ -69,8 +69,16 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await expect(column('Needs you').getByText('Waiting on you')).toBeVisible()
     await expect(column('Needs you').getByText(/Failed in /)).toBeVisible()
     await expect(column('Review').getByText('Health check endpoint')).toBeVisible({ timeout: 30_000 })
-    await expect(column('Done').getByText('Fix README links')).toBeVisible()
+    // Done is a narrow strip with its count; its cards show while it is hovered, open over Review.
+    await expect(column('Done')).toHaveAttribute('data-expanded', 'false')
+    await expect(column('Done').getByTestId('column-count')).toHaveText('1')
+    await expect(column('Done').getByText('Fix README links')).toBeHidden()
     await shot(page, 'board')
+    await column('Done').hover()
+    await expect(column('Done').getByText('Fix README links')).toBeVisible()
+    await shot(page, 'board-done-expanded')
+    await page.mouse.move(0, 0)
+    await expect(column('Done')).toHaveAttribute('data-expanded', 'false')
     // All six columns fit beside the rail and the panel, with no sideways scrolling, and no chip is cut off.
     await expect(column('Done')).toBeInViewport({ ratio: 1 })
     expect(await page.evaluate(() => Array.from(document.querySelectorAll('section[aria-labelledby^="column-"]')).every((c) => c.parentElement!.scrollWidth <= c.parentElement!.clientWidth))).toBe(true)

@@ -3,6 +3,7 @@ import {
   KeyboardCode,
   KeyboardSensor,
   PointerSensor,
+  useDndContext,
   useDraggable,
   useDroppable,
   useSensor,
@@ -18,6 +19,7 @@ import {
   Center,
   CloseButton,
   Group,
+  Loader,
   Menu,
   Paper,
   Stack,
@@ -26,14 +28,17 @@ import {
   Title,
   VisuallyHidden
 } from '@mantine/core'
-import { useHotkeys } from '@mantine/hooks'
+import { useHotkeys, useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type FocusEvent,
   type KeyboardEvent,
   type KeyboardEventHandler,
   type ReactElement
@@ -86,15 +91,44 @@ export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, cu
   return { x: next.left + 8, y: next.top + 48 }
 }
 
+/** Done is a narrow strip at the right; the other five columns share the rest. */
+const DONE_STRIP = '44px'
+
 const GRID_STYLE = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(6, minmax(120px, 1fr))',
+  gridTemplateColumns: `repeat(5, minmax(120px, 1fr)) ${DONE_STRIP}`,
   gap: 'var(--mantine-spacing-sm)',
   overflowX: 'auto',
   alignItems: 'start',
   // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
-  position: 'relative'
-} as const
+  position: 'relative',
+  // So 100cqw is the board's width, and Done open is exactly as wide as one of the other columns' tracks.
+  containerType: 'inline-size',
+  '--done-strip': DONE_STRIP,
+  '--column-width': 'max(120px, calc((100cqw - var(--done-strip) - 5 * var(--mantine-spacing-sm)) / 5))'
+} as CSSProperties
+
+/** Hovering opens Done after this long, so passing over it on the way elsewhere doesn't. */
+const DONE_OPEN_MS = 150
+/** Done closes this long after nothing holds it open any more, so it doesn't flicker. */
+const DONE_CLOSE_MS = 300
+
+/**
+ * Whether Done is open: at once while `now` holds (focus inside, a card dragged over or out of it), since the
+ * cards must be reachable before the next key press; after a delay for a hover; and a little after both end.
+ */
+function useDoneOpen(now: boolean, hovered: boolean): boolean {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (now) {
+      setOpen(true)
+      return
+    }
+    const timer = setTimeout(() => setOpen(hovered), hovered ? DONE_OPEN_MS : DONE_CLOSE_MS)
+    return () => clearTimeout(timer)
+  }, [now, hovered])
+  return open || now
+}
 
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
@@ -225,6 +259,19 @@ export function Board(): ReactElement {
     }
   }, [tickets])
 
+  // A card dragged towards Done, at the right edge, makes the board wider than it is, and dnd-kit would scroll it
+  // sideways under the pointer, moving every column. Only let it when the columns themselves don't fit.
+  const boardRef = useRef<HTMLDivElement>(null)
+  const boardOverflows = useRef(false)
+  const autoScroll = useMemo(
+    () => ({ canScroll: (el: Element) => el !== boardRef.current || boardOverflows.current }),
+    []
+  )
+  function onDragStart(): void {
+    const board = boardRef.current
+    boardOverflows.current = board !== null && board.scrollWidth > board.clientWidth + 1
+  }
+
   function onDragEnd({ active, over }: DragEndEvent): void {
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
@@ -288,10 +335,17 @@ export function Board(): ReactElement {
       {empty ? (
         <Stack flex={1} gap="lg" mih={0}>
           {/* The columns the board will have, faint, with their names: no scrolling, they share the width. */}
-          <Box aria-hidden style={{ ...GRID_STYLE, gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', overflowX: 'hidden' }}>
+          <Box aria-hidden style={{ ...GRID_STYLE, gridTemplateColumns: `repeat(5, minmax(0, 1fr)) ${DONE_STRIP}`, overflowX: 'hidden' }}>
             {COLUMNS.map((c) => (
               <Paper key={c.id} radius="md" withBorder bd="1px dashed var(--mantine-color-default-border)" bg="transparent" p="xs" mih={180}>
-                <Text size="xs" fw={700} tt="uppercase" lts="0.04em" c="dimmed">
+                <Text
+                  size="xs"
+                  fw={700}
+                  tt="uppercase"
+                  lts="0.04em"
+                  c="dimmed"
+                  style={c.id === 'done' ? { writingMode: 'vertical-rl' } : undefined}
+                >
                   {c.title}
                 </Text>
               </Paper>
@@ -315,24 +369,29 @@ export function Board(): ReactElement {
       ) : (
         <DndContext
           sensors={sensors}
+          onDragStart={onDragStart}
           onDragEnd={onDragEnd}
+          autoScroll={autoScroll}
           accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
-          <Box style={GRID_STYLE}>
-            {COLUMNS.map((c) => (
-              <BoardColumn
-                key={c.id}
-                id={c.id}
-                title={c.title}
-                tickets={byColumn.get(c.id) ?? []}
-                pendingMoves={pendingMoves}
-                recentlyChanged={recentlyChanged}
-                filtering={filtering}
-                onOpen={openTicket}
-                onMove={onMove}
-                onPropose={onPropose}
-              />
-            ))}
+          <Box ref={boardRef} style={GRID_STYLE}>
+            {COLUMNS.map((c) => {
+              const Column = c.id === 'done' ? DoneColumn : BoardColumn
+              return (
+                <Column
+                  key={c.id}
+                  id={c.id}
+                  title={c.title}
+                  tickets={byColumn.get(c.id) ?? []}
+                  pendingMoves={pendingMoves}
+                  recentlyChanged={recentlyChanged}
+                  filtering={filtering}
+                  onOpen={openTicket}
+                  onMove={onMove}
+                  onPropose={onPropose}
+                />
+              )
+            })}
           </Box>
         </DndContext>
       )}
@@ -386,26 +445,148 @@ const BoardColumn = memo(function BoardColumn({
         <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
           {tickets.length}
         </Text>
-        <VisuallyHidden>{tickets.length === 1 ? '1 ticket' : `${tickets.length} tickets`}</VisuallyHidden>
+        <VisuallyHidden>{ticketCount(tickets.length)}</VisuallyHidden>
       </Group>
-      <Stack gap="xs">
-        {tickets.length === 0 && (
-          <Text size="xs" c="dimmed" ta="center" py="md">
-            {filtering ? 'No matches' : 'Nothing here'}
+      <ColumnCards
+        tickets={tickets}
+        pendingMoves={pendingMoves}
+        recentlyChanged={recentlyChanged}
+        filtering={filtering}
+        onOpen={onOpen}
+        onMove={onMove}
+        onPropose={onPropose}
+      />
+    </Paper>
+  )
+})
+
+const ticketCount = (n: number): string => (n === 1 ? '1 ticket' : `${n} tickets`)
+
+function ColumnCards({
+  tickets,
+  pendingMoves,
+  recentlyChanged,
+  filtering,
+  onOpen,
+  onMove,
+  onPropose,
+  hidden = false
+}: Omit<ColumnProps, 'id' | 'title'> & { hidden?: boolean }): ReactElement {
+  return (
+    // Hidden: out of sight, out of the tab order and away from screen readers, but still there for dnd-kit to
+    // give focus back to a card dropped in a closed Done.
+    <Stack gap="xs" inert={hidden} display={hidden ? 'none' : undefined}>
+      {tickets.length === 0 && (
+        <Text size="xs" c="dimmed" ta="center" py="md">
+          {filtering ? 'No matches' : 'Nothing here'}
+        </Text>
+      )}
+      {tickets.map((t) => (
+        <DraggableTicket
+          key={t.id}
+          ticket={t}
+          movingTo={pendingMoves[t.id] ?? null}
+          changedAt={recentlyChanged[t.id]}
+          onOpen={onOpen}
+          onMove={onMove}
+          onPropose={onPropose}
+        />
+      ))}
+    </Stack>
+  )
+}
+
+/**
+ * Done, whose cards are rarely needed, is a narrow strip with its title and count. It opens to a full column
+ * over Review, without moving the other columns: on hover, while focus is inside it, and while a card is
+ * dragged over it or out of it. Closed, its cards are hidden from sight, the tab order and screen readers.
+ */
+const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, ...rest }: ColumnProps): ReactElement {
+  const { setNodeRef, isOver, active } = useDroppable({ id })
+  const { measureDroppableContainers } = useDndContext()
+  const reducedMotion = useReducedMotion()
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  // A Done card being dragged out must not vanish under the pointer.
+  const draggingFromHere = active != null && tickets.some((t) => t.id === active.id)
+  const open = useDoneOpen(isOver || focused || draggingFromHere, hovered)
+  const cleaningUp = tickets.some((t) => pendingMoves[t.id] === 'done')
+  const headingId = `column-${id}`
+  const countId = `column-${id}-count`
+
+  // With no animation there is no transitionend: measure the new width straight away.
+  useEffect(() => {
+    if (reducedMotion) measureDroppableContainers([id])
+  }, [open, reducedMotion, measureDroppableContainers, id])
+
+  function onBlur(e: FocusEvent<HTMLElement>): void {
+    if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false)
+  }
+
+  const style: CSSProperties = {
+    // The track stays as wide as the strip; open, the negative margin makes it grow to the left, over Review.
+    width: open ? 'var(--column-width)' : 'var(--done-strip)',
+    marginLeft: open ? 'calc(var(--done-strip) - var(--column-width))' : 0,
+    alignSelf: 'stretch',
+    position: 'relative',
+    zIndex: 2,
+    overflow: 'hidden',
+    boxShadow: open ? 'var(--mantine-shadow-md)' : undefined,
+    transition: reducedMotion ? 'none' : 'width 150ms ease, margin-left 150ms ease'
+  }
+
+  return (
+    <Paper
+      ref={setNodeRef}
+      component="section"
+      aria-labelledby={headingId}
+      aria-describedby={countId}
+      tabIndex={0}
+      className="mantine-focus-auto"
+      data-expanded={open}
+      p="xs"
+      radius="md"
+      withBorder
+      bg={isOver ? 'working.0' : 'var(--mantine-color-body)'}
+      mih={160}
+      style={style}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={onBlur}
+      // dnd-kit measures droppables when a drag starts; Done widens during one, and once it has its final width a
+      // drop anywhere in it must land in it, so measure it again then.
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget && e.propertyName === 'width') measureDroppableContainers([id])
+      }}
+    >
+      {open ? (
+        <Group justify="space-between" mb="xs" px={4} wrap="nowrap">
+          <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
+            {title}
+          </Title>
+          <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
+            {tickets.length}
           </Text>
-        )}
-        {tickets.map((t) => (
-          <DraggableTicket
-            key={t.id}
-            ticket={t}
-            movingTo={pendingMoves[t.id] ?? null}
-            changedAt={recentlyChanged[t.id]}
-            onOpen={onOpen}
-            onMove={onMove}
-            onPropose={onPropose}
-          />
-        ))}
-      </Stack>
+        </Group>
+      ) : (
+        <Stack align="center" gap="xs">
+          <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
+            {tickets.length}
+          </Text>
+          <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId} style={{ writingMode: 'vertical-rl' }}>
+            {title}
+          </Title>
+          {cleaningUp && (
+            <span data-testid="done-working">
+              <Loader size={12} aria-hidden />
+              <VisuallyHidden>Cleaning up</VisuallyHidden>
+            </span>
+          )}
+        </Stack>
+      )}
+      <VisuallyHidden id={countId}>{ticketCount(tickets.length)}</VisuallyHidden>
+      <ColumnCards tickets={tickets} pendingMoves={pendingMoves} {...rest} hidden={!open} />
     </Paper>
   )
 })
@@ -472,7 +653,12 @@ const DraggableTicket = memo(function DraggableTicket({
             back instanceof HTMLElement && back.isConnected
               ? back
               : document.querySelector<HTMLElement>(`[data-card-title="${ticket.id}"]`)
-          target?.focus()
+          // In a closed Done the card can't take focus: focusing the column opens it, then the card can.
+          const closed = target?.closest('[inert]')?.closest<HTMLElement>('section')
+          if (closed) {
+            closed.focus()
+            setTimeout(() => target?.focus(), 0)
+          } else target?.focus()
         }, 0)
       }}
       position="bottom-start"
@@ -490,7 +676,8 @@ const DraggableTicket = memo(function DraggableTicket({
           transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
           opacity: isDragging ? 0.8 : 1,
           position: 'relative',
-          zIndex: isDragging ? 1 : undefined,
+          // Above Done, open over Review.
+          zIndex: isDragging ? 3 : undefined,
           touchAction: 'none'
         }}
       >
