@@ -193,7 +193,7 @@ test('with no run, Start and a first-message composer show; the first send start
   const ticket = show({ column: 'ready' })
   renderWithMantine(<TicketView />)
   expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Adjust before starting' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Run settings…' })).toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: 'First message (starts the lineup)' })).toBeInTheDocument()
   await userEvent.type(screen.getByLabelText('First message (starts the lineup)'), 'Begin with the header')
   await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
@@ -442,7 +442,7 @@ test('with no active role the controls row names none', async () => {
   expect(screen.getAllByText('Implementer')).toHaveLength(1)
 })
 
-describe('Adjust before starting', () => {
+describe('Run settings', () => {
   beforeEach(() => {
     mockInvoke.mockImplementation(async (command: string) => {
       if (command === 'thread.get') return thread
@@ -451,29 +451,49 @@ describe('Adjust before starting', () => {
     })
   })
 
-  test('lists the lineup roles all ticked, and starts only the ticked ones', async () => {
-    const ticket = show({ column: 'ready' })
+  const setCalls = (): unknown[][] => mockInvoke.mock.calls.filter(([cmd]) => cmd === 'ticket.setRunSettings').map((c) => c.slice(0, 3))
+  const openDialog = async (): Promise<HTMLElement> => {
+    await userEvent.click(await screen.findByRole('button', { name: 'Run settings…' }))
+    return screen.findByRole('dialog', { name: 'Run settings' })
+  }
+
+  const SAVED = {
+    excludedRoleIds: ['p'],
+    roles: { i: { model: 'opus', effort: 'high' as const } },
+    extraInstructions: 'Use the limiter.',
+    roleNames: { p: 'Planner', i: 'Implementer' }
+  }
+
+  test('fills from the lineup defaults, and has Save, Reset to defaults and Cancel but no Start or save checkbox', async () => {
+    show({ column: 'ready' })
     renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    const dialog = await openDialog()
     const roles = await within(dialog).findByRole('group', { name: 'Lineup for this ticket' })
     expect(within(roles).getAllByRole('checkbox')).toHaveLength(3)
     for (const name of ['1. Planner', '2. Implementer', '3. Reviewer']) expect(within(dialog).getByRole('checkbox', { name })).toBeChecked()
-    expect(within(dialog).getByRole('checkbox', { name: "Save as this ticket's run settings" })).not.toBeChecked()
-
-    await userEvent.click(within(dialog).getByRole('checkbox', { name: '1. Planner' }))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    expect(agentCalls()).toEqual([
-      [
-        'agent.start',
-        ticket.id,
-        { roleIds: ['i', 'r'], roles: { i: { model: 'sonnet', effort: 'medium' }, r: { model: 'opus', effort: 'medium' } } }
-      ]
-    ])
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeEnabled()
+    // Nothing is saved, so there is nothing to reset.
+    expect(within(dialog).getByRole('button', { name: 'Reset to defaults' })).toBeDisabled()
+    expect(within(dialog).queryByRole('button', { name: /^Start/ })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('checkbox', { name: /Save as/ })).not.toBeInTheDocument()
   })
 
-  test("prefills each role's model and effort from its own setting, else the defaults, and sends what the user chose", async () => {
+  test('fills from the saved settings', async () => {
+    const ticket = makeTicket({ number: 12, runSettings: SAVED }, { column: 'ready' })
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    const dialog = await openDialog()
+    expect(await within(dialog).findByRole('checkbox', { name: '1. Planner' })).not.toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: '2. Implementer' })).toBeChecked()
+    await userEvent.click(within(dialog).getByRole('button', { name: /Models and effort per role/ }))
+    expect(await within(dialog).findByRole('combobox', { name: 'Model for Implementer' })).toHaveValue('opus')
+    expect(within(dialog).getByRole('combobox', { name: 'Effort for Implementer' })).toHaveValue('high')
+    expect(within(dialog).getByRole('textbox', { name: 'Extra instructions for this agent' })).toHaveValue('Use the limiter.')
+    expect(within(dialog).getByRole('button', { name: 'Reset to defaults' })).toBeEnabled()
+  })
+
+  test("Save keeps only what differs from the defaults, starts nothing and closes", async () => {
     const [planner, implementer, reviewer] = makeLineup()
     const lineup = [planner!, { ...implementer!, model: 'claude-custom', effort: 'max' as const }, reviewer!]
     mockInvoke.mockImplementation(async (command: string) => {
@@ -483,9 +503,7 @@ describe('Adjust before starting', () => {
     })
     const ticket = show({ column: 'backlog' })
     renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    // The models and effort are in a section that starts collapsed.
+    const dialog = await openDialog()
     await userEvent.click(await within(dialog).findByRole('button', { name: /Models and effort per role/ }))
     const model = async (name: string) => within(dialog).findByRole('combobox', { name: `Model for ${name}` })
     const effort = (name: string) => within(dialog).getByRole('combobox', { name: `Effort for ${name}` })
@@ -494,37 +512,42 @@ describe('Adjust before starting', () => {
     // A role's own model shows even when it isn't one of the offered ones.
     expect(await model('Implementer')).toHaveValue('claude-custom')
     expect(effort('Implementer')).toHaveValue('max')
-    expect(await model('Reviewer')).toHaveValue('opus')
-    expect(effort('Reviewer')).toHaveValue('medium')
     expect(optionLabels(await model('Reviewer'))).toEqual(['Opus', 'Sonnet', 'Haiku'])
-    expect(optionLabels(effort('Reviewer'))).toEqual(['Low', 'Medium', 'High'])
 
     await userEvent.selectOptions(await model('Planner'), 'Haiku')
     await userEvent.selectOptions(effort('Reviewer'), 'Low')
     await userEvent.click(within(dialog).getByRole('checkbox', { name: '2. Implementer' }))
     expect(await model('Implementer')).toBeDisabled()
     await userEvent.type(within(dialog).getByRole('textbox', { name: 'Extra instructions for this agent' }), 'Keep it small.')
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    expect(agentCalls()).toEqual([
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(setCalls()).toEqual([
       [
-        'agent.start',
+        'ticket.setRunSettings',
         ticket.id,
-        {
-          roleIds: ['p', 'r'],
-          roles: { p: { model: 'haiku', effort: 'high' }, r: { model: 'opus', effort: 'low' } },
-          extraInstructions: 'Keep it small.'
-        }
+        { excludedRoleIds: ['i'], roles: { p: { model: 'haiku' }, r: { effort: 'low' } }, extraInstructions: 'Keep it small.' }
       ]
     ])
+    expect(agentCalls()).toEqual([])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
-  test('the last ticked role stays ticked, and Cancel starts nothing', async () => {
+  test('Reset to defaults clears the saved settings and closes', async () => {
+    const ticket = makeTicket({ number: 12, runSettings: SAVED }, { column: 'ready' })
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    const dialog = await openDialog()
+    await within(dialog).findByRole('checkbox', { name: '1. Planner' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Reset to defaults' }))
+    expect(setCalls()).toEqual([['ticket.setRunSettings', ticket.id, null]])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  test('the last ticked role stays ticked; Cancel and Esc change nothing', async () => {
     show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
     renderWithMantine(<TicketView />)
-    // It sits next to Start again too.
+    // It sits next to Start again.
     expect(await screen.findByRole('button', { name: 'Start again' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    const dialog = await openDialog()
     for (const name of ['1. Planner', '2. Implementer', '3. Reviewer']) {
       await userEvent.click(await within(dialog).findByRole('checkbox', { name }))
     }
@@ -532,85 +555,15 @@ describe('Adjust before starting', () => {
     expect(within(dialog).getByRole('checkbox', { name: '3. Reviewer' })).toBeDisabled()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await openDialog()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(setCalls()).toEqual([])
     expect(agentCalls()).toEqual([])
   })
 
-  test('a failed start is reported and keeps the dialog open', async () => {
-    show({ column: 'ready' })
-    mockInvoke.mockImplementation(async (command: string) => {
-      if (command === 'thread.get') return thread
-      if (command === 'lineup.get') return makeLineup()
-      if (command === 'agent.start') throw new Error('Tick at least one role to start')
-      return undefined
-    })
-    renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    await within(dialog).findByRole('checkbox', { name: '1. Planner' })
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    expect(await screen.findByText('Tick at least one role to start')).toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: 'Adjust before starting' })).toBeInTheDocument()
-  })
-
-  test('is not offered while an agent works the ticket', async () => {
-    show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))
-    renderWithMantine(<TicketView />)
-    await screen.findByRole('button', { name: 'Stop' })
-    expect(screen.queryByRole('button', { name: 'Adjust before starting' })).not.toBeInTheDocument()
-  })
-
-  const SAVED = {
-    excludedRoleIds: ['p'],
-    roles: { i: { model: 'opus', effort: 'high' as const } },
-    extraInstructions: 'Use the limiter.',
-    roleNames: { p: 'Planner', i: 'Implementer' }
-  }
-
-  test("opens with the ticket's run settings filled in; the changes are for this start only", async () => {
-    const ticket = makeTicket({ number: 12, runSettings: SAVED }, { column: 'ready' })
-    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
-    renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    expect(await within(dialog).findByRole('checkbox', { name: '1. Planner' })).not.toBeChecked()
-    expect(within(dialog).getByRole('checkbox', { name: '2. Implementer' })).toBeChecked()
-    await userEvent.click(within(dialog).getByRole('button', { name: /Models and effort per role/ }))
-    expect(await within(dialog).findByRole('combobox', { name: 'Model for Implementer' })).toHaveValue('opus')
-    expect(within(dialog).getByRole('combobox', { name: 'Effort for Implementer' })).toHaveValue('high')
-    expect(within(dialog).getByRole('textbox', { name: 'Extra instructions for this agent' })).toHaveValue('Use the limiter.')
-
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    expect(mockInvoke).not.toHaveBeenCalledWith('ticket.setRunSettings', expect.anything(), expect.anything())
-    expect(agentCalls()).toEqual([
-      [
-        'agent.start',
-        ticket.id,
-        {
-          roleIds: ['i', 'r'],
-          roles: { i: { model: 'opus', effort: 'high' }, r: { model: 'opus', effort: 'medium' } },
-          extraInstructions: 'Use the limiter.'
-        }
-      ]
-    ])
-  })
-
-  test('"Save as this ticket\'s run settings" saves the choices before starting', async () => {
-    const ticket = show({ column: 'backlog' })
-    renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    await userEvent.click(await within(dialog).findByRole('checkbox', { name: '3. Reviewer' }))
-    await userEvent.click(within(dialog).getByRole('checkbox', { name: "Save as this ticket's run settings" }))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'ticket.setRunSettings' || cmd === 'agent.start').map((c) => c.slice(0, 3))
-    expect(calls).toEqual([
-      // Only what differs from the defaults is saved.
-      ['ticket.setRunSettings', ticket.id, { excludedRoleIds: ['r'], roles: {}, extraInstructions: '' }],
-      ['agent.start', ticket.id, { roleIds: ['p', 'i'], roles: { p: { model: 'opus', effort: 'high' }, i: { model: 'sonnet', effort: 'medium' } } }]
-    ])
-  })
-
-  test("a failed save starts nothing; outside Backlog and Ready there's no save checkbox", async () => {
+  test('a refused save is shown and keeps the dialog open', async () => {
     show({ column: 'ready' })
     mockInvoke.mockImplementation(async (command: string) => {
       if (command === 'thread.get') return thread
@@ -618,21 +571,50 @@ describe('Adjust before starting', () => {
       if (command === 'ticket.setRunSettings') throw new Error("Run settings can't be changed while a run is open")
       return undefined
     })
-    const { unmount } = renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    await userEvent.click(await within(dialog).findByRole('checkbox', { name: "Save as this ticket's run settings" }))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Start' }))
-    expect(await screen.findByText("Run settings can't be changed while a run is open")).toBeInTheDocument()
-    expect(agentCalls()).toEqual([])
-    unmount()
-
-    show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
     renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    const again = await screen.findByRole('dialog', { name: 'Adjust before starting' })
-    await within(again).findByRole('checkbox', { name: '1. Planner' })
-    expect(within(again).queryByRole('checkbox', { name: "Save as this ticket's run settings" })).not.toBeInTheDocument()
+    const dialog = await openDialog()
+    await within(dialog).findByRole('checkbox', { name: '1. Planner' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText("Run settings can't be changed while a run is open")).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Run settings' })).toBeInTheDocument()
+  })
+
+  test.each([
+    ['a run is working', { phase: 'implementing', agentStatus: 'working', column: 'in_progress' } as Partial<TicketState>],
+    ['a Ready ticket is queued', { column: 'ready', phase: 'not_started', agentStatus: 'queued' } as Partial<TicketState>]
+  ])('is read-only while %s: the saved settings, disabled, with only Close', async (_name, state) => {
+    const ticket = makeTicket({ number: 12, runSettings: SAVED, lineup: strip('i') }, state)
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    const dialog = await openDialog()
+    expect(await within(dialog).findByRole('checkbox', { name: '1. Planner' })).not.toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: '1. Planner' })).toBeDisabled()
+    expect(within(dialog).getByRole('checkbox', { name: '2. Implementer' })).toBeDisabled()
+    expect(within(dialog).getByRole('textbox', { name: 'Extra instructions for this agent' })).toBeDisabled()
+    expect(within(dialog).getByText("Can't be changed while a run is open.")).toBeInTheDocument()
+    for (const name of ['Save', 'Cancel', 'Reset to defaults']) expect(within(dialog).queryByRole('button', { name })).not.toBeInTheDocument()
+    await userEvent.click(within(dialog).getAllByRole('button', { name: 'Close' }).at(-1)!)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(setCalls()).toEqual([])
+  })
+
+  test('the lineup changes that dropped saved settings show in the dialog', async () => {
+    const ticket = makeTicket(
+      { number: 12, runSettings: SAVED, runSettingsNotices: ['Tester is no longer in the lineup, so its saved setting was dropped.'] },
+      { column: 'backlog' }
+    )
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    const dialog = await openDialog()
+    expect(within(dialog).getByText('The lineup changed since these were saved')).toBeInTheDocument()
+    expect(within(dialog).getByText('Tester is no longer in the lineup, so its saved setting was dropped.')).toBeInTheDocument()
+  })
+
+  test("the ticket's left column has no Run settings section", async () => {
+    show({ column: 'ready' })
+    renderWithMantine(<TicketView />)
+    await screen.findByRole('button', { name: 'Run settings…' })
+    expect(screen.queryByRole('region', { name: 'Run settings' })).not.toBeInTheDocument()
   })
 })
 
@@ -735,12 +717,12 @@ describe('View previous run', () => {
 })
 
 describe('accessibility', () => {
-  test('a ticket with no run, with the Adjust modal open, has no axe violations', async () => {
+  test('a ticket with no run, with the Run settings dialog open, has no axe violations', async () => {
     show({ column: 'ready' })
     mockInvoke.mockImplementation(async (command: string) => (command === 'lineup.get' ? makeLineup() : command === 'thread.get' ? thread : undefined))
     renderWithMantine(<TicketView />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Adjust before starting' }))
-    await screen.findByRole('dialog', { name: 'Adjust before starting' })
+    await userEvent.click(await screen.findByRole('button', { name: 'Run settings…' }))
+    await screen.findByRole('dialog', { name: 'Run settings' })
     await expectNoAxeViolations()
   })
 
@@ -805,14 +787,14 @@ describe('wireframe pass', () => {
     expect(ticket.id).toBeTruthy()
   })
 
-  test('a ticket nobody has worked says so, with Start and Adjust, and its composer says Send and start', async () => {
+  test('a ticket nobody has worked says so, with Start and Run settings…, and its composer says Send and start', async () => {
     show({ column: 'ready', phase: 'not_started', agentStatus: null })
     renderWithMantine(<TicketView />)
     expect(await screen.findByText('Nobody is working on this yet')).toBeInTheDocument()
     expect(screen.getByText(/^Starting runs the mainbus lineup: Planner → Implementer → Reviewer\./)).toBeInTheDocument()
     expect(screen.getByText('Past runs on this ticket appear in the activity timeline.')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Start' })).toHaveLength(1)
-    expect(screen.getAllByRole('button', { name: 'Adjust before starting' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Run settings…' })).toHaveLength(1)
     expect(screen.getByLabelText('First message (starts the lineup)')).toHaveAttribute('placeholder', 'Optional instructions for the lineup')
     expect(screen.getByRole('button', { name: 'Send and start' })).toBeInTheDocument()
   })

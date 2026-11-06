@@ -122,6 +122,24 @@ describe('ticket.setRunSettings', () => {
     expect((await engine.invoke('ticket.setRunSettings', t.id, null)).runSettings).toBeNull()
   })
 
+  test("are editable once a run has ended in Review, and Start again uses the new settings", async () => {
+    const runtime = new FakeRuntime([
+      { emit: { kind: 'session', sessionId: 'role-sess' } },
+      { callTool: 'handoff', args: { summary: 'done', notesForNext: '' } },
+      { emit: { kind: 'turn_end', ok: true } }
+    ])
+    const engine = await makeEngine(runtime)
+    const t = await newTicket(engine, 'ready')
+    const id = await ids(engine)
+    await engine.invoke('ticket.setRunSettings', t.id, { excludedRoleIds: [id['Planner']!, id['Reviewer']!], roles: {}, extraInstructions: '' })
+    await engine.invoke('agent.start', t.id)
+    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).state.column).toBe('review'))
+
+    await engine.invoke('ticket.setRunSettings', t.id, { excludedRoleIds: [id['Planner']!], roles: {}, extraInstructions: '' })
+    await engine.invoke('agent.start', t.id)
+    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Reviewer']))
+  })
+
   test("an Investigate ticket's settings are checked against the Investigate lineup", async () => {
     const engine = await makeEngine(new FakeRuntime([]))
     const t = await newTicket(engine, 'backlog', 'investigate')
@@ -152,7 +170,7 @@ describe('every way of starting uses them', () => {
     expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Reviewer'])
   })
 
-  test('a start with its own options (Adjust before starting) uses those instead', async () => {
+  test("a start with its own options (a start proposal's Override) uses those instead", async () => {
     const runtime = new FakeRuntime(WORKING)
     const engine = await makeEngine(runtime)
     const t = await newTicket(engine, 'ready')

@@ -1,6 +1,5 @@
 import { Alert, Anchor, Badge, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { StartOptions } from '../../../shared/domain'
 import { invoke } from '../api'
 import { attachToTicket, useImagePaste } from '../attachments/files'
 import { asOwnChange } from '../board/ownChanges'
@@ -15,13 +14,12 @@ import { Composer } from '../thread/Composer'
 import { liveLine } from '../thread/liveLine'
 import { Thread } from '../thread/Thread'
 import { useThread } from '../thread/useThread'
-import { AdjustStartModal } from './AdjustStartModal'
 import { ContextPane } from './ContextPane'
 import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
 import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
-import { runSettingsEditable } from './RunSettingsSection'
+import { RunSettingsModal, runSettingsEditable } from './RunSettingsModal'
 import { SkipModal } from './SkipModal'
 
 const HEADER_HEIGHT = 48
@@ -116,7 +114,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // A move the engine has not finished (a move to Done may remove the worktree): nothing may start meanwhile.
   const moving = useMainbus((s) => ticket.id in s.pendingMoves)
   const [busy, setBusy] = useState(false)
-  const [adjusting, setAdjusting] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Held in a ref as well: two clicks in the same tick must not both pass the guard.
   const working = useRef(false)
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
@@ -183,14 +181,6 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
       started.current = false
     }, 'Could not send your message')
     if (!delivered) throw new Error('not sent')
-  }
-
-  /** Adjust before starting: runs only the ticked roles. Resolves true once started. */
-  function startRoles(opts: StartOptions): Promise<boolean> {
-    return guarded(async () => {
-      await invoke('agent.start', ticket.id, opts)
-      started.current = false
-    }, 'Could not start')
   }
 
   /** Holds the ticket until a date (ISO) or with no date. Resolves true once it is held. */
@@ -297,9 +287,9 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                   {ended ? 'Start again' : 'Start'}
                 </Button>
               )}
-              {canStart && thread !== null && !emptyPanel && (
-                <Button size="compact-sm" variant="default" disabled={busy || moving} onClick={() => setAdjusting(true)}>
-                  Adjust before starting
+              {thread !== null && !emptyPanel && (
+                <Button size="compact-sm" variant="default" disabled={moving} onClick={() => setSettingsOpen(true)}>
+                  Run settings…
                 </Button>
               )}
               {canPromote && (
@@ -320,12 +310,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               )}
             </Group>
           </Group>
-          <AdjustStartModal
-            opened={adjusting && canStart}
-            onClose={() => setAdjusting(false)}
-            onStart={startRoles}
+          <RunSettingsModal
+            opened={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
             ticket={ticket}
-            canSave={runSettingsEditable(ticket)}
+            editable={runSettingsEditable(ticket.state) && !busy}
           />
           <PromoteModal opened={promoting && canPromote} ticketId={ticket.id} onClose={() => setPromoting(false)} />
           <SkipModal
@@ -341,7 +330,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               roles={ticket.lineup.map((r) => r.name)}
               busy={busy || moving}
               onStart={() => void control('agent.start', 'Could not start')}
-              onAdjust={() => setAdjusting(true)}
+              onRunSettings={() => setSettingsOpen(true)}
             />
           ) : thread ? (
             <Thread events={thread.events} decisions={thread.decisions} runs={thread.runs} onViewRun={viewRun} />
@@ -388,13 +377,13 @@ function NobodyWorking({
   roles,
   busy,
   onStart,
-  onAdjust
+  onRunSettings
 }: {
   workspaceName: string
   roles: string[]
   busy: boolean
   onStart: () => void
-  onAdjust: () => void
+  onRunSettings: () => void
 }): ReactElement {
   return (
     // mih 0 and its own scrolling, so a short window scrolls this panel and the composer stays on screen.
@@ -404,14 +393,14 @@ function NobodyWorking({
           Nobody is working on this yet
         </Title>
         <Text c="dimmed">
-          {`Starting runs the ${workspaceName} lineup: ${roles.join(' → ')}. You can adjust it before it begins.`}
+          {`Starting runs the ${workspaceName} lineup: ${roles.join(' → ')}. Change which roles run, and their models, in Run settings.`}
         </Text>
         <Group gap="sm" justify="center">
           <Button disabled={busy} onClick={onStart}>
             Start
           </Button>
-          <Button variant="default" disabled={busy} onClick={onAdjust}>
-            Adjust before starting
+          <Button variant="default" disabled={busy} onClick={onRunSettings}>
+            Run settings…
           </Button>
         </Group>
         <Text size="xs" c="dimmed">

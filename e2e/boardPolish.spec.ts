@@ -81,10 +81,10 @@ test('welcome, empty workspace, search, and the first message on a new ticket', 
     await expect(page.getByRole('button', { name: /Add hello file/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /Fix login bug/ })).toBeVisible()
 
-    // A ticket with no agent: Start, Adjust before starting, and a first message that starts the lineup.
+    // A ticket with no agent: Start, Run settings…, and a first message that starts the lineup.
     await page.getByRole('button', { name: /Add hello file/ }).click()
     await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Adjust before starting' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Run settings…' })).toBeVisible()
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByText('Implementing', { exact: true })).toBeVisible()

@@ -29,7 +29,7 @@ function Body({ payload }: { payload: StartLineupPayload }): ReactElement {
   )
 }
 
-/** Override: the same form as "Adjust before starting". */
+/** Override: the same form as a ticket's Run settings. */
 function Editor({ value, onChange }: { value: StartLineupEdit; onChange: (v: StartLineupEdit) => void }): ReactElement {
   return (
     <StartOverrideForm

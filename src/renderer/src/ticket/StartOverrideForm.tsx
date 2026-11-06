@@ -12,10 +12,12 @@ interface Props {
   /** Says how long the choices last; this start's by default. */
   rolesHint?: string
   extraHint?: string
+  /** Shows the choices without letting them change. */
+  disabled?: boolean
 }
 
 /**
- * The Override form for starting a ticket, shared by the orchestrator's start proposal and "Adjust before starting":
+ * The Override form for starting a ticket, shared by the orchestrator's start proposal and a ticket's Run settings:
  * the lineup's roles as numbered ticks (one always stays ticked), a collapsed section for each role's model and
  * effort, and extra instructions for this run.
  */
@@ -25,7 +27,8 @@ export function StartOverrideForm({
   onRolesChange,
   onExtraInstructionsChange,
   rolesHint = 'Untick a role to skip it for this ticket only.',
-  extraHint = "Added to every role's instructions in this run."
+  extraHint = "Added to every role's instructions in this run.",
+  disabled = false
 }: Props): ReactElement {
   const workspaceName = useMainbus((s) => s.workspace?.name)
   const [modelsOpen, setModelsOpen] = useState(false)
@@ -43,7 +46,7 @@ export function StartOverrideForm({
             key={role.roleId}
             label={`${i + 1}. ${role.name}`}
             checked={role.ticked}
-            disabled={tickedCount === 1 && role.ticked}
+            disabled={disabled || (tickedCount === 1 && role.ticked)}
             onChange={(e) => setRole(i, { ticked: e.currentTarget.checked })}
           />
         ))}
@@ -62,7 +65,7 @@ export function StartOverrideForm({
         <Collapse expanded={modelsOpen}>
           <Stack gap={6} role="group" aria-label="Models and effort per role">
             {roles.map((role, i) => (
-              <ModelEffortRow key={role.roleId} choice={role} onChange={(patch) => setRole(i, patch)} />
+              <ModelEffortRow key={role.roleId} choice={role} disabled={disabled} onChange={(patch) => setRole(i, patch)} />
             ))}
           </Stack>
         </Collapse>
@@ -76,6 +79,7 @@ export function StartOverrideForm({
         maxRows={8}
         maxLength={EXTRA_INSTRUCTIONS_MAX}
         value={extraInstructions}
+        disabled={disabled}
         onChange={(e) => onExtraInstructionsChange(e.currentTarget.value)}
       />
     </Stack>

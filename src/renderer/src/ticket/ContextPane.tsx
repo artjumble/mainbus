@@ -10,7 +10,6 @@ import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { PERMISSION_ANSWERS } from '../thread/PermissionCard'
 import { AgentText } from '../thread/Thread'
-import { RunSettingsSection } from './RunSettingsSection'
 
 interface Props {
   ticket: BoardTicket
@@ -35,9 +34,6 @@ export function ContextPane({ ticket, events, decisions, runs, onViewRun }: Prop
         <AttachmentsSection ticket={ticket} />
       </Section>
       <Labels labels={ticket.labels} />
-      <Section title="Run settings">
-        <RunSettingsSection ticket={ticket} />
-      </Section>
       <Branch branch={ticket.branch} />
       <Activity ticket={ticket} events={events} decisions={decisions} runs={runs} onViewRun={onViewRun} />
     </Stack>

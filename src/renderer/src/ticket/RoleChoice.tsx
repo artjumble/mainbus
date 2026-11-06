@@ -14,10 +14,11 @@ export function withCurrent(options: { value: string; label: string }[], current
 interface Props {
   choice: RoleChoice
   onChange: (patch: Partial<RoleChoice>) => void
+  disabled?: boolean
 }
 
 /** A role's name, then its model and effort selects, on one line; both are off while the role is unticked. */
-export function ModelEffortRow({ choice, onChange }: Props): ReactElement {
+export function ModelEffortRow({ choice, onChange, disabled = false }: Props): ReactElement {
   const effortOptions = withCurrent(EFFORT_OPTIONS, choice.effort).map((o) => ({ ...o, label: effortLabel(o.value) }))
   return (
     <Group gap="xs" wrap="nowrap" role="group" aria-label={choice.name}>
@@ -30,7 +31,7 @@ export function ModelEffortRow({ choice, onChange }: Props): ReactElement {
         aria-label={`Model for ${choice.name}`}
         data={withCurrent(MODEL_OPTIONS, choice.model)}
         value={choice.model}
-        disabled={!choice.ticked}
+        disabled={disabled || !choice.ticked}
         onChange={(e) => onChange({ model: e.currentTarget.value })}
       />
       <NativeSelect
@@ -39,7 +40,7 @@ export function ModelEffortRow({ choice, onChange }: Props): ReactElement {
         aria-label={`Effort for ${choice.name}`}
         data={effortOptions}
         value={choice.effort}
-        disabled={!choice.ticked}
+        disabled={disabled || !choice.ticked}
         onChange={(e) => onChange({ effort: e.currentTarget.value as Effort })}
       />
     </Group>
