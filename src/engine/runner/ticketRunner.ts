@@ -1965,11 +1965,15 @@ export class TicketRunner {
 
       reportWaiting: async ({ reason, until }) => {
         if (!(await this.isOpen(target))) return RUN_ENDED
-        const wait = checkWait({ reason, until }, this.deps.now())
-        if (typeof wait === 'string') return wait
+        const checked = checkWait({ reason, until }, this.deps.now())
+        if (typeof checked === 'string') return checked
+        const { wait, shortened } = checked
         // Replaces the run's earlier wait: the one in force is always the latest.
         await this.repos.runs.setDeclaredWait(target.runId, wait)
         await this.record(target, { kind: 'waiting', ...wait })
+        if (shortened) {
+          return `Recorded until ${clockTime(wait.until)} (${STUCK.maxWaitMs / 3_600_000} hours from now, the most allowed); call report_waiting again if you need longer. Handing off ends the wait. Go on with the wait now.`
+        }
         return `Recorded: Mainbus expects you to be quiet until ${clockTime(wait.until)}. Calling report_waiting again replaces it, and handing off ends it. Go on with the wait now.`
       },
 
@@ -2359,18 +2363,17 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 
 /**
  * Checks the arguments of report_waiting: the declared wait, with `until` as a full ISO date-time, or the text
- * that tells the agent why it was not recorded. `until` must be in the future and at most two hours from `now`.
+ * that tells the agent why it was not recorded. `until` must be in the future; one more than two hours from `now`
+ * is shortened to two hours, and `shortened` says so.
  */
-export function checkWait(a: { reason: unknown; until: unknown }, now: Date): DeclaredWait | string {
+export function checkWait(a: { reason: unknown; until: unknown }, now: Date): { wait: DeclaredWait; shortened: boolean } | string {
   const reason = typeof a.reason === 'string' ? oneLine(a.reason).trim().slice(0, WAIT_REASON_MAX) : ''
   if (reason === '') return 'Not recorded: say what you are waiting for.'
   const until = typeof a.until === 'string' && ISO_DATE_TIME.test(a.until) ? Date.parse(a.until) : NaN
   if (Number.isNaN(until)) return 'Not recorded: until must be an ISO date-time, such as 2026-11-02T14:30:00Z.'
   if (until <= now.getTime()) return 'Not recorded: until is not in the future. Give the time the wait should end.'
-  if (until - now.getTime() > STUCK.maxWaitMs) {
-    return `Not recorded: until must be at most ${STUCK.maxWaitMs / 3_600_000} hours from now. For a longer wait, report again when this one ends.`
-  }
-  return { reason, until: new Date(until).toISOString() }
+  const latest = now.getTime() + STUCK.maxWaitMs
+  return { wait: { reason, until: new Date(Math.min(until, latest)).toISOString() }, shortened: until > latest }
 }
 
 /** True when the run's thread ends on a usage limit: no turn has succeeded since one was reported. */

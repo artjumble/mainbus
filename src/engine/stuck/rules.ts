@@ -66,15 +66,54 @@ export function repeatedFailure(events: StoredEvent[], count: number = STUCK.rep
   }
 }
 
-/** No file changes in the worktree and no new kind of tool for `noProgressMs`. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
+
+/**
+ * When a shell command last finished that differs (normalized) from each of the `recent` commands finished before it,
+ * or null for none. A different command finishing shows the agent moving on; the same one again does not.
+ */
+export function newCommandFinishedAt(events: StoredEvent[], recent: number = STUCK.recentCommands): number | null {
+  const calls = new Map<string, string>()
+  const finished: string[] = []
+  let last = null as number | null
+  for (const { at, event } of events) {
+    if (event.kind === 'tool_call' && SHELL_TOOLS.has(event.name)) {
+      calls.set(event.id, normalizeCommand(inputText(event.input)))
+    } else if (event.kind === 'tool_result') {
+      const command = calls.get(event.id)
+      if (command === undefined) continue
+      calls.delete(event.id)
+      if (!finished.includes(command)) last = Date.parse(at)
+      finished.push(command)
+      if (finished.length > recent) finished.shift()
+    }
+  }
+  return last
+}
+
+/**
+ * No file changes in the worktree, no new kind of tool and no new command finishing for `noProgressMs`, unless a
+ * command is still running within its timeout.
+ */
 export function noProgress(i: RuleInput): StuckHit | null {
+  if (commandRunning(i)) return null
   const seen = toolKindsSeen(i.events)
-  const since = Math.max(i.startedAt, i.turnStartedAt, i.waitEndedAt ?? 0, i.filesChangedAt ?? 0, ...seen.values())
+  const since = Math.max(
+    i.startedAt,
+    i.turnStartedAt,
+    i.waitEndedAt ?? 0,
+    i.filesChangedAt ?? 0,
+    newCommandFinishedAt(i.events) ?? 0,
+    ...seen.values()
+  )
   if (i.now - since < STUCK.noProgressMs) return null
   const tools = [...seen.keys()].join(', ')
   return {
     rule: 'no_progress',
-    evidence: [`No file changed in the worktree and no new kind of tool was used for ${minutes(i.now - since)} minutes`, ...(tools ? [`Tools used so far: ${tools}`] : [])]
+    evidence: [
+      `No file changed in the worktree, no new kind of tool was used and no new command finished for ${minutes(i.now - since)} minutes`,
+      ...(tools ? [`Tools used so far: ${tools}`] : [])
+    ]
   }
 }
 
@@ -85,7 +124,7 @@ const MAX_COMMAND_TIMEOUT_MS = 1_800_000
 function commandRunning(i: RuleInput): boolean {
   const open = new Map<string, number>()
   for (const { at, event } of i.events) {
-    if (event.kind === 'tool_call' && (event.name === 'Bash' || event.name === 'PowerShell')) {
+    if (event.kind === 'tool_call' && SHELL_TOOLS.has(event.name)) {
       const given = (event.input as { timeout?: unknown } | null)?.timeout
       const timeout = typeof given === 'number' && given > 0 ? Math.min(given, MAX_COMMAND_TIMEOUT_MS) : DEFAULT_COMMAND_TIMEOUT_MS
       open.set(event.id, Date.parse(at) + timeout)

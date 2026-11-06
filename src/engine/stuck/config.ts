@@ -5,7 +5,7 @@ const MINUTE = 60_000
 /** Plain words for what each rule saw. */
 export const STUCK_RULE_TEXT: Record<StuckRule, string> = {
   repeated_failure: 'the same command failing again and again',
-  no_progress: 'no file changes or new kinds of tool for a while',
+  no_progress: 'no file changes, new kinds of tool or new commands for a while',
   silence: 'no events for a while',
   long_turn: 'one turn running very long',
   dead_process: 'the agent process ended'
@@ -17,8 +17,10 @@ export const STUCK = {
   checkIntervalMs: MINUTE,
   /** The same failing command (normalized) this many times in a row. */
   repeatedFailures: 5,
-  /** No file changes and no new tool kinds for this long. */
+  /** No file changes, no new tool kinds and no new command finishing for this long. */
   noProgressMs: 15 * MINUTE,
+  /** A finished shell command is new when it differs from each of this many commands finished before it. */
+  recentCommands: 5,
   /** No events at all for this long while the agent is working. */
   silenceMs: 10 * MINUTE,
   /** A single turn running longer than this. */
