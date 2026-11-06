@@ -257,3 +257,17 @@ test('a failed card has a dashed border and a Needs you card an orange one', () 
   const needs = renderWithMantine(<TicketCard ticket={makeTicket({}, { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' })} onOpen={() => {}} />)
   expect(needs.container.querySelector<HTMLElement>('.mantine-Paper-root')!.style.border).toContain('needs-6')
 })
+
+test('the handle shares the number\'s row, and the title keeps a gutter clear of the handle\'s hit area', async () => {
+  const onOpen = vi.fn()
+  const ticket = makeTicket({ number: 61, title: 'A very long title '.repeat(12) })
+  renderWithMantine(<TicketCard ticket={ticket} onOpen={onOpen} handle={<button aria-label="Move ticket #61">⠿</button>} />)
+  const row = screen.getByText('#61').parentElement!
+  expect(row).toContainElement(screen.getByRole('button', { name: 'Move ticket #61' }))
+  const title = screen.getByText(/A very long title/).closest('button')!
+  expect(row).not.toContainElement(title)
+  // 22 px of hit area left of the handle's centre plus half its 18 px width.
+  expect(parseInt(title.style.marginRight, 10)).toBeGreaterThanOrEqual(31)
+  await userEvent.click(title)
+  expect(onOpen).toHaveBeenCalledWith(ticket.id)
+})
