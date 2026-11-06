@@ -9,15 +9,22 @@ import {
   Modal,
   Stack,
   Text,
-  Tooltip,
   UnstyledButton
 } from '@mantine/core'
+import { useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { WorkspaceSummary } from '../../../shared/api'
 import { openFolder } from '../api'
+import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
 import { useMainbus } from '../store'
+import classes from './WorkspaceRail.module.css'
+
+/** The rail's layout width: always collapsed to initials, so the board never shifts. */
+export const RAIL_WIDTH = 72
+/** The width it opens to, over the board. */
+export const RAIL_EXPANDED_WIDTH = 200
 
 /** Up to two letters for a narrow rail: the first letters of the first two words, or the name's first two letters. */
 export function initials(name: string): string {
@@ -48,6 +55,38 @@ export function WorkspaceRail(): ReactElement {
   const openSettings = useMainbus((s) => s.openSettings)
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<WorkspaceSummary | null>(null)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [hovered, setHovered] = useState(false)
+  const [keyboardFocused, setKeyboardFocused] = useState(false)
+  const navRef = useRef<HTMLDivElement>(null)
+  const reducedMotion = useReducedMotion()
+  // The menu and the dialogs render in portals outside the rail, so moving into them must not collapse it.
+  const held = menuFor !== null || adding || removing !== null
+  const expanded = useExpandOnHover(keyboardFocused || held, hovered)
+
+  // Native listeners, since React carries enter, leave and focus events through portals, which would count the
+  // menu and the dialogs as part of the rail. Only keyboard focus expands it: a click leaves focus on the button.
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const enter = (): void => setHovered(true)
+    const leave = (): void => setHovered(false)
+    const focusIn = (e: FocusEvent): void =>
+      setKeyboardFocused(e.target instanceof Element && isKeyboardFocus(e.target))
+    const focusOut = (e: FocusEvent): void => {
+      if (!(e.relatedTarget instanceof Node && nav.contains(e.relatedTarget))) setKeyboardFocused(false)
+    }
+    nav.addEventListener('pointerenter', enter)
+    nav.addEventListener('pointerleave', leave)
+    nav.addEventListener('focusin', focusIn)
+    nav.addEventListener('focusout', focusOut)
+    return () => {
+      nav.removeEventListener('pointerenter', enter)
+      nav.removeEventListener('pointerleave', leave)
+      nav.removeEventListener('focusin', focusIn)
+      nav.removeEventListener('focusout', focusOut)
+    }
+  }, [])
 
   async function focus(w: WorkspaceSummary): Promise<void> {
     try {
@@ -68,85 +107,125 @@ export function WorkspaceRail(): ReactElement {
   }
 
   return (
-    // The bottom padding leaves room for the Add workspace button's 44 px hit area.
-    <Stack component="nav" aria-label="Workspaces" gap="xs" p="xs" pb="md" h="100%" justify="space-between">
+    // Out of flow over the board: expanding widens the rail without moving anything beside it. The bottom padding
+    // leaves room for the Add workspace button's 44 px hit area.
+    <Stack
+      component="nav"
+      ref={navRef}
+      aria-label="Workspaces"
+      data-expanded={expanded}
+      gap="xs"
+      p={4}
+      pt="xs"
+      pb="md"
+      justify="space-between"
+      style={{
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: 0,
+        zIndex: 1,
+        width: expanded ? RAIL_EXPANDED_WIDTH : '100%',
+        overflowX: 'hidden',
+        background: 'var(--mantine-color-body)',
+        borderRight: expanded ? '1px solid var(--mantine-color-default-border)' : undefined,
+        boxShadow: expanded ? 'var(--mantine-shadow-md)' : undefined,
+        transition: reducedMotion ? 'none' : 'width 150ms ease'
+      }}
+    >
       <Stack gap={4}>
         {workspaces.map((w) => (
           <Box key={w.id}>
             <Group gap={2} wrap="nowrap" justify="space-between">
-              <Tooltip label={`${w.name} — ${w.repoPath}`} position="right" openDelay={400}>
-                <UnstyledButton
-                  onClick={() => void focus(w)}
-                  aria-current={w.id === focusedId ? 'true' : undefined}
-                  aria-label={describe(w)}
-                  p={6}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    borderRadius: 'var(--mantine-radius-sm)',
-                    background: w.id === focusedId ? 'var(--mantine-color-default-hover)' : undefined
-                  }}
+              <UnstyledButton
+                onClick={() => void focus(w)}
+                aria-current={w.id === focusedId ? 'true' : undefined}
+                aria-label={describe(w)}
+                p={expanded ? 6 : 4}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  borderRadius: 'var(--mantine-radius-sm)',
+                  background: w.id === focusedId ? 'var(--mantine-color-default-hover)' : undefined
+                }}
+              >
+                <Group gap={expanded ? 6 : 4} wrap="nowrap" justify={expanded ? undefined : 'center'}>
+                  {/* Always laid out, so the name doesn't shift when the dot comes and goes. */}
+                  <Box
+                    role={w.active ? 'img' : undefined}
+                    aria-label={w.active ? 'agents working' : undefined}
+                    data-activity={w.active ? '' : undefined}
+                    w={8}
+                    h={8}
+                    style={{
+                      flexShrink: 0,
+                      borderRadius: '50%',
+                      background: w.active ? 'var(--mantine-color-working-filled)' : 'transparent'
+                    }}
+                  />
+                  {/* The button's label already says all of this, so the text stays out of the screen reader's name. */}
+                  {expanded ? (
+                    <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate aria-hidden>
+                      {w.name}
+                    </Text>
+                  ) : (
+                    <Text
+                      size="sm"
+                      fw={w.id === focusedId ? 700 : 500}
+                      className={classes.initials}
+                      data-initials={initials(w.name)}
+                      aria-hidden
+                    />
+                  )}
+                  {w.needsYou > 0 && (
+                    <>
+                      {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}{' '}
+                      <Badge
+                        color="needs"
+                        variant="filled"
+                        circle
+                        size={expanded ? 'md' : 'sm'}
+                        data-needs-you
+                        role="img"
+                        aria-hidden
+                        aria-label={`${w.needsYou} need you`}
+                      >
+                        {w.needsYou}
+                      </Badge>
+                    </>
+                  )}
+                </Group>
+              </UnstyledButton>
+              {expanded && (
+                <Menu
+                  position="right-start"
+                  withinPortal
+                  onOpen={() => setMenuFor(w.id)}
+                  onClose={() => setMenuFor(null)}
                 >
-                  <Stack gap={0}>
-                    <Group gap={6} wrap="nowrap">
-                      {/* Always laid out, so the name doesn't shift when the dot comes and goes. */}
-                      <Box
-                        role={w.active ? 'img' : undefined}
-                        aria-label={w.active ? 'agents working' : undefined}
-                        data-activity={w.active ? '' : undefined}
-                        w={8}
-                        h={8}
-                        style={{
-                          flexShrink: 0,
-                          borderRadius: '50%',
-                          background: w.active ? 'var(--mantine-color-working-filled)' : 'transparent'
-                        }}
-                      />
-                      <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate visibleFrom="lg">
-                        {w.name}
-                      </Text>
-                      {/* The button's label already says all of this, so the initials stay out of the screen reader's name. */}
-                      <Text size="sm" fw={w.id === focusedId ? 700 : 500} hiddenFrom="lg" aria-hidden>
-                        {initials(w.name)}
-                      </Text>
-                      {w.needsYou > 0 && (
-                        <>
-                          {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}{' '}
-                          <Badge
-                            color="needs"
-                            variant="filled"
-                            circle
-                            data-needs-you
-                            role="img"
-                            aria-hidden
-                            aria-label={`${w.needsYou} need you`}
-                          >
-                            {w.needsYou}
-                          </Badge>
-                        </>
-                      )}
-                    </Group>
-                  </Stack>
-                </UnstyledButton>
-              </Tooltip>
-              <Menu position="right-start" withinPortal>
-                <Menu.Target>
-                  <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Options for ${w.name}`}>
-                    <span aria-hidden>⋯</span>
-                  </ActionIcon>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item onClick={() => void settings(w)}>Settings</Menu.Item>
-                  <Menu.Item color="red" onClick={() => setRemoving(w)}>
-                    Remove…
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Options for ${w.name}`}>
+                      <span aria-hidden>⋯</span>
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Label ff="monospace" maw={280} style={{ wordBreak: 'break-all', textTransform: 'none' }}>
+                      {w.repoPath}
+                    </Menu.Label>
+                    <Menu.Item onClick={() => void settings(w)}>Settings</Menu.Item>
+                    <Menu.Item color="red" onClick={() => setRemoving(w)}>
+                      Remove…
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              )}
             </Group>
             {/* Under the button, not in it: the button's label says all this, and must contain the button's own visible text. */}
-            <Text size="xs" c="dimmed" pl={20} visibleFrom="lg" aria-hidden data-rail-status>
-              {railStatus(w)}
-            </Text>
+            {expanded && (
+              <Text size="xs" c="dimmed" pl={20} aria-hidden data-rail-status>
+                {railStatus(w)}
+              </Text>
+            )}
           </Box>
         ))}
       </Stack>
@@ -159,16 +238,15 @@ export function WorkspaceRail(): ReactElement {
           aria-label="Add workspace"
           styles={{ root: { borderStyle: 'dashed' } }}
         >
-          <Text component="span" size="xs" visibleFrom="lg">
-            + Add workspace
-          </Text>
-          <Text component="span" size="xs" hiddenFrom="lg" aria-hidden>
-            +
+          <Text component="span" size="xs" aria-hidden>
+            {expanded ? '+ Add workspace' : '+'}
           </Text>
         </Button>
-        <Text size="xs" c="dimmed" visibleFrom="lg">
-          Pick a local repo folder to add it.
-        </Text>
+        {expanded && (
+          <Text size="xs" c="dimmed">
+            Pick a local repo folder to add it.
+          </Text>
+        )}
       </Stack>
       <AddWorkspaceModal opened={adding} onClose={() => setAdding(false)} />
       <RemoveWorkspaceModal workspace={removing} onClose={() => setRemoving(null)} />

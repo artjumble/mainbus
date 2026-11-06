@@ -53,11 +53,18 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await expect(panel.getByRole('group', { name: 'Proposal: Start #2 Rate-limit login' })).toBeVisible({ timeout: 30_000 })
 
     // The rail: both workspaces, with a status line, and the needs-you count on the one that needs you.
+    // Collapsed to initials, it opens over the board when hovered.
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
+    await shot(page, 'board-rail-collapsed')
+    await rail.hover()
+    await expect(rail).toHaveAttribute('data-expanded', 'true')
     await expect(rail.locator('[data-rail-status]').first()).toContainText('working')
     await expect(rail.locator('[data-needs-you]').first()).toBeVisible()
     await expect(rail.locator('[data-rail-status]').nth(1)).toContainText('Idle')
     await expect(rail.getByText('Pick a local repo folder to add it.')).toBeVisible()
+    await shot(page, 'board-rail-expanded')
+    await page.mouse.move(700, 500)
+    await expect(rail).toHaveAttribute('data-expanded', 'false')
 
     // A card in every column, with the chips that lead with a symbol.
     const column = (name: string) => page.getByRole('region', { name, exact: true })
@@ -141,6 +148,10 @@ test('Ticket detail: lineup strip, controls, thread with thinking and tool rows,
     await expect(activity.getByText('Created by you')).toBeVisible()
     await expect(activity.getByText(/Started with the web-app lineup/)).toBeVisible()
     await expect(activity.getByText('Planner handed off to the Implementer')).toBeVisible()
+    // The rail is collapsed to initials, as in the artboard.
+    const rail = page.getByRole('navigation', { name: 'Workspaces' })
+    expect((await rail.boundingBox())!.width).toBeLessThanOrEqual(72)
+    await expect(rail.getByRole('button', { name: /^web-app/ }).locator('[data-initials]')).toHaveAttribute('data-initials', 'WA')
     await shot(page, 'ticket-detail')
 
     // In a narrow window, each tool tag keeps its full width and one-line height beside a long target, with no scrollbar.

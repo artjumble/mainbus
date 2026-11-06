@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
@@ -21,6 +21,14 @@ const alpha: WorkspaceSummary = { ...workspace, id: 'a', name: 'alpha-repo', rep
 const bravo: WorkspaceSummary = { ...workspace, id: 'b', name: 'bravo', repoPath: '/r/bravo', active: false, needsYou: 0, working: 0, waiting: 0, idle: 0 }
 
 /** The engine as the rail sees it: focus moves, and summaries are what `summaries` holds. */
+/** Hover the rail until it has expanded (real timers: the hover delay is 150 ms). */
+async function expand(): Promise<HTMLElement> {
+  const nav = screen.getByRole('navigation', { name: 'Workspaces' })
+  fireEvent.pointerEnter(nav)
+  await vi.waitFor(() => expect(nav).toHaveAttribute('data-expanded', 'true'))
+  return nav
+}
+
 function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
   const summaries = [alpha, bravo]
   let focused = alpha
@@ -115,6 +123,7 @@ test('an error from opening a folder is shown plainly in the dialog', async () =
 })
 
 async function chooseRemove(name: string): Promise<HTMLElement> {
+  await expand()
   await userEvent.click(screen.getByRole('button', { name: `Options for ${name}` }))
   await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove…' }))
   return screen.findByRole('dialog')
@@ -143,6 +152,7 @@ test('the engine refusal to remove is shown and the dialog stays', async () => {
 test('Settings focuses the workspace first, then opens the drawer', async () => {
   engine()
   renderWithMantine(<WorkspaceRail />)
+  await expand()
   await userEvent.click(screen.getByRole('button', { name: 'Options for bravo' }))
   await userEvent.click(await screen.findByRole('menuitem', { name: 'Settings' }))
   await vi.waitFor(() => expect(useMainbus.getState().settingsOpen).toBe(true))
@@ -154,6 +164,8 @@ describe('accessibility', () => {
   test('the rail, its options menu and the Add and Remove dialogs have no axe violations', async () => {
     engine()
     renderWithMantine(<WorkspaceRail />)
+    await expectNoAxeViolations()
+    await expand()
     await expectNoAxeViolations()
 
     await userEvent.click(screen.getByRole('button', { name: 'Options for bravo' }))
@@ -179,4 +191,137 @@ test('each entry has a status line: working, waiting on you or idle', () => {
   expect(railStatus(w({ needsYou: 1 }))).toBe('◆ Waiting on you')
   expect(railStatus(w({ waiting: 1 }))).toBe('◆ Waiting on you')
   expect(railStatus(w({ idle: 1 }))).toBe('○ Idle')
+})
+
+describe('collapsed and expanded', () => {
+  const navOf = (): HTMLElement => screen.getByRole('navigation', { name: 'Workspaces' })
+
+  test('is collapsed by default: initials, dot and badge, no names, status or menus', () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    expect(navOf()).toHaveAttribute('data-expanded', 'false')
+    const a = screen.getByRole('button', { name: /^alpha-repo/ })
+    // The initials are drawn from an attribute, so they aren't text the label must contain.
+    expect(a.querySelector('[data-initials]')).toHaveAttribute('data-initials', 'AR')
+    expect(a).not.toHaveTextContent('alpha-repo')
+    expect(within(a).getByLabelText('agents working')).toBeInTheDocument()
+    expect(within(a).getByLabelText('1 need you')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Options for/ })).not.toBeInTheDocument()
+    expect(navOf().querySelector('[data-rail-status]')).toBeNull()
+  })
+
+  test('hover expands it after a delay and leaving collapses it after a longer one', async () => {
+    engine()
+    vi.useFakeTimers()
+    try {
+      renderWithMantine(<WorkspaceRail />)
+      fireEvent.pointerEnter(navOf())
+      await act(() => vi.advanceTimersByTimeAsync(100))
+      expect(navOf()).toHaveAttribute('data-expanded', 'false')
+      await act(() => vi.advanceTimersByTimeAsync(60))
+      expect(navOf()).toHaveAttribute('data-expanded', 'true')
+      expect(screen.getByRole('button', { name: 'Options for alpha-repo' })).toBeInTheDocument()
+      expect(navOf()).toHaveTextContent('+ Add workspace')
+      expect(navOf().querySelectorAll('[data-rail-status]')).toHaveLength(2)
+
+      fireEvent.pointerLeave(navOf())
+      await act(() => vi.advanceTimersByTimeAsync(250))
+      expect(navOf()).toHaveAttribute('data-expanded', 'true')
+      await act(() => vi.advanceTimersByTimeAsync(60))
+      expect(navOf()).toHaveAttribute('data-expanded', 'false')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('Tab into the rail expands it at once, and the next Tab reaches the options menu', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await userEvent.tab()
+    expect(screen.getByRole('button', { name: /^alpha-repo/ })).toHaveFocus()
+    expect(navOf()).toHaveAttribute('data-expanded', 'true')
+    await userEvent.tab()
+    expect(screen.getByRole('button', { name: 'Options for alpha-repo' })).toHaveFocus()
+  })
+
+  test('a mouse click leaves it to collapse once the pointer is gone', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await expand()
+    await userEvent.click(screen.getByRole('button', { name: /^bravo/ }))
+    fireEvent.pointerLeave(navOf())
+    await vi.waitFor(() => expect(navOf()).toHaveAttribute('data-expanded', 'false'))
+  })
+
+  test('stays open while its menu or the Remove dialog is open', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await expand()
+    await userEvent.click(screen.getByRole('button', { name: 'Options for bravo' }))
+    await screen.findByRole('menuitem', { name: 'Remove…' })
+    fireEvent.pointerLeave(navOf())
+    await act(() => new Promise((r) => setTimeout(r, 450)))
+    expect(navOf()).toHaveAttribute('data-expanded', 'true')
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Remove…' }))
+    const dialog = await screen.findByRole('dialog')
+    await act(() => new Promise((r) => setTimeout(r, 450)))
+    expect(navOf()).toHaveAttribute('data-expanded', 'true')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    // The pointer left the rail again on its way to the dialog.
+    fireEvent.pointerLeave(navOf())
+    await vi.waitFor(() => expect(navOf()).toHaveAttribute('data-expanded', 'false'), { timeout: 2000 })
+  })
+
+  test('stays open while the Add workspace dialog is open', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await expand()
+    await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+    await screen.findByRole('dialog')
+    fireEvent.pointerLeave(navOf())
+    await act(() => new Promise((r) => setTimeout(r, 450)))
+    expect(navOf()).toHaveAttribute('data-expanded', 'true')
+  })
+
+  test('shows the repo path in the options menu', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    await expand()
+    await userEvent.click(screen.getByRole('button', { name: 'Options for bravo' }))
+    expect(await screen.findByText('/r/bravo')).toBeInTheDocument()
+  })
+
+  test('accessible names are the same in both states', async () => {
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    expect(screen.getByRole('button', { name: /^alpha-repo 1 need you · agents working$/ })).toBeInTheDocument()
+    await expand()
+    expect(screen.getByRole('button', { name: /^alpha-repo 1 need you · agents working$/ })).toBeInTheDocument()
+  })
+
+  test('is laid out over the board and animates its width, unless motion is reduced', () => {
+    engine()
+    const { unmount } = renderWithMantine(<WorkspaceRail />)
+    expect(navOf().style.position).toBe('absolute')
+    expect(navOf().style.transition).toContain('width 150ms')
+    unmount()
+    const original = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+      onchange: null
+    })) as unknown as typeof window.matchMedia
+    try {
+      renderWithMantine(<WorkspaceRail />)
+      expect(navOf().style.transition).toBe('none')
+    } finally {
+      window.matchMedia = original
+    }
+  })
 })
