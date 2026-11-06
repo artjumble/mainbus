@@ -26,12 +26,12 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | # | Area | Wireframe | App before | Action |
 |---|------|-----------|------------|--------|
 | B1 | layout | "Mainbus" at the top of the rail, with a WORKSPACES heading | A full-width header bar above everything | Kept: it is the page's one `h1`, and the layout around it is unchanged. Moving it is optional styling |
-| B2 | content | Rail entry has a status line: "• 2 working", "○ Idle", "◆ Waiting on you" | Name, dot and needs-you count only | Fixed: status line under each name (`railStatus`); the summary gained `working`, `waiting`, `idle` |
-| B3 | layout | "+ Add workspace" is a dashed, full-width button; hint "Pick a local repo folder to add it." | A plain small button | Fixed |
+| B2 | content | Rail entry has a status line: "• 2 working", "○ Idle", "◆ Waiting on you" | Name, dot and needs-you count only | Fixed: status line under each name (`railStatus`); the summary gained `working`, `waiting`, `idle`. Since ticket #63 it shows in the expanded rail |
+| B3 | layout | "+ Add workspace" is a dashed, full-width button; hint "Pick a local repo folder to add it." | A plain small button | Fixed; since ticket #63 the label and the hint show in the expanded rail |
 | B4 | content | Header: name, then the repo path in monospace and "· local tickets" | The path beside the name, in the body font | Fixed. Empty workspace says "· just added" |
 | B5 | wording | A "Search" label beside the box | Box labelled for assistive technology only, placeholder "Search (Ctrl+K)" | Kept: the placeholder carries the shortcut (search ticket) |
 | B6 | layout | Uppercase small column headings with a plain count; Needs you tinted | Title-case headings, circled count, no tint | Fixed. Grey-filled columns are styling: not done |
-| B7 | layout | Six columns fit beside the rail and the panel at 1440 px | Columns scrolled sideways from 220 px | Fixed: the rail is 190 px and the panel 340 px (was 220 and 380), and the columns shrink to 120 px, so all six fit at 1440 (checked in the artboard e2e). Wide sentence-case chips wrap instead of being cut off |
+| B7 | layout | Six columns fit beside the rail and the panel at 1440 px | Columns scrolled sideways from 220 px | Fixed: the rail is 190 px (since ticket #63 its layout width is 72 px, and it opens over the board) and the panel 340 px (was 220 and 380), and the columns shrink to 120 px, so all six fit at 1440 (checked in the artboard e2e). Wide sentence-case chips wrap instead of being cut off |
 | B8 | state | Chips lead with a symbol: ◆ filled orange, • light blue, – / ○ / ✓ outlined, ✕ dark; full text, wrapping to two lines | Colour-only, uppercase chips cut off in narrow columns | Fixed (`PhaseChip`, Held, Paused, Queued, Looks stuck chips, lineup strip), in sentence case that wraps. Failed reads "✕ Failed in <phase>" |
 | B9 | state | Needs you card has an orange border; a failed card a dashed one | No border change | Fixed |
 | B10 | content | Needs you card shows the question | Question's first line (clamped) | Kept as is |
@@ -53,7 +53,7 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | T7 | layout | Lineup pills on one line: "Planner ✓ Handed off" | Name above status, no symbol | Fixed; "replaced ×N" kept |
 | T8 | content | Timeline times as HH:MM; "Created by you"; "Started with the web-app lineup"; "Planner handed off to the Implementer" | Locale date and time; "Run started"; "Handed off" | Fixed. Only the first run of a ticket run says it started the lineup. The phase after "·" is not shown: the strip does not know a role's phase |
 | T10 | content | Tool rows name their target: "Read tests/fixtures/cart.ts" | The tool name and the result summary ("42 lines") | Fixed: the file, pattern or command from the tool's input is shown between the name and the summary |
-| T11 | layout | Split view: the rail collapses to initials (WA/AS/DS/IN) and the orchestrator panel to a strip with the needs-you count, giving the thread room | Rail and panel stay fully open when a ticket opens | Asked → answer: no, keep both as they are. Spec §13 only has the panel collapsible by hand; auto-collapsing is not wanted |
+| T11 | layout | Split view: the rail collapses to initials (WA/AS/DS/IN) and the orchestrator panel to a strip with the needs-you count, giving the thread room | Rail and panel stay fully open when a ticket opens | Asked → answer: no, keep both as they are. Spec §13 only has the panel collapsible by hand; auto-collapsing is not wanted. Changed by ticket #63: the rail is collapsed to initials at any width and expands over the board on hover and keyboard focus, so its collapsed state now matches the artboard. The orchestrator panel is unchanged (collapsed by hand) |
 | T9 | styling | The user's messages as dark bubbles on the right | Light bubble | Kept: styling only |
 
 ## Orchestrator panel (Board and Decision artboards)

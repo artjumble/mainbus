@@ -1,0 +1,7 @@
+/*
+ * The collapsed rail's initials are drawn from an attribute, not written as text: they abbreviate the entry's
+ * name, so as text they would be visible words missing from the button's label (WCAG 2.5.3).
+ */
+.initials::before {
+  content: attr(data-initials);
+}

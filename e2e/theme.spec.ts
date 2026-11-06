@@ -33,6 +33,7 @@ const pageGround = (page: Page): Promise<string> => page.evaluate(() => getCompu
 const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
 
 async function openSettings(page: Page): Promise<void> {
+  await page.getByRole('navigation', { name: 'Workspaces' }).hover()
   await page.getByRole('button', { name: 'Options for web-app' }).click()
   await page.getByRole('menuitem', { name: 'Settings' }).click()
   await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()

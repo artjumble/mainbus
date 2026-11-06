@@ -44,6 +44,7 @@ import {
   type ReactElement
 } from 'react'
 import type { Column } from '../../../shared/domain'
+import { useExpandOnHover } from '../expandOnHover'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
@@ -107,28 +108,6 @@ const GRID_STYLE = {
   '--done-strip': DONE_STRIP,
   '--column-width': 'max(120px, calc((100cqw - var(--done-strip) - 5 * var(--mantine-spacing-sm)) / 5))'
 } as CSSProperties
-
-/** Hovering opens Done after this long, so passing over it on the way elsewhere doesn't. */
-const DONE_OPEN_MS = 150
-/** Done closes this long after nothing holds it open any more, so it doesn't flicker. */
-const DONE_CLOSE_MS = 300
-
-/**
- * Whether Done is open: at once while `now` holds (focus inside, a card dragged over or out of it), since the
- * cards must be reachable before the next key press; after a delay for a hover; and a little after both end.
- */
-function useDoneOpen(now: boolean, hovered: boolean): boolean {
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    if (now) {
-      setOpen(true)
-      return
-    }
-    const timer = setTimeout(() => setOpen(hovered), hovered ? DONE_OPEN_MS : DONE_CLOSE_MS)
-    return () => clearTimeout(timer)
-  }, [now, hovered])
-  return open || now
-}
 
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
@@ -509,7 +488,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
   const [focused, setFocused] = useState(false)
   // A Done card being dragged out must not vanish under the pointer.
   const draggingFromHere = active != null && tickets.some((t) => t.id === active.id)
-  const open = useDoneOpen(isOver || focused || draggingFromHere, hovered)
+  const open = useExpandOnHover(isOver || focused || draggingFromHere, hovered)
   const cleaningUp = tickets.some((t) => pendingMoves[t.id] === 'done')
   const headingId = `column-${id}`
   const countId = `column-${id}-count`

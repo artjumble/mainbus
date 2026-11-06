@@ -10,7 +10,7 @@ import { SetupScreen } from './setup/SetupScreen'
 import { startSync, useMainbus } from './store'
 import { TicketView } from './ticket/TicketView'
 import { OpenWorkspace } from './workspace/OpenWorkspace'
-import { WorkspaceRail } from './workspace/WorkspaceRail'
+import { RAIL_WIDTH, WorkspaceRail } from './workspace/WorkspaceRail'
 import { WorkspaceSettings } from './workspace/WorkspaceSettings'
 import { UsageBanner } from './UsageBanner'
 
@@ -54,8 +54,8 @@ export function App(): ReactElement {
   return (
     <AppShell
       header={{ height: 48 }}
-      // Names beside the entries when wide, initials when narrow.
-      navbar={withPanel ? { width: { base: 72, lg: 190 }, breakpoint: 0 } : undefined}
+      // The rail's layout width is always the collapsed one; expanded, it lies over the board.
+      navbar={withPanel ? { width: RAIL_WIDTH, breakpoint: 0 } : undefined}
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
       aside={withPanel ? { width: panelOpen ? PANEL_WIDTH : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >

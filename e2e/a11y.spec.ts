@@ -242,6 +242,10 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     expect(await smallTargets(page), 'small targets in the ticket view').toEqual([])
 
     // The settings window.
+    await page.getByRole('navigation', { name: 'Workspaces' }).hover()
+    await expect(page.getByRole('navigation', { name: 'Workspaces' })).toHaveAttribute('data-expanded', 'true')
+    await expectNoAxeViolations(page, 'the expanded workspace rail')
+    expect(await smallTargets(page, 'nav'), 'small targets in the expanded rail').toEqual([])
     await page.getByRole('button', { name: 'Options for repo' }).click()
     await page.getByRole('menuitem', { name: 'Settings' }).click()
     await expect(page.getByRole('menu')).toHaveCount(0)
