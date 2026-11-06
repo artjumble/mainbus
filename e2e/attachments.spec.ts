@@ -112,6 +112,8 @@ test('a pasted screenshot reaches every role without a card, one attached mid-ru
     await page.getByRole('button', { name: /Fix the login page/ }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Move to Done' }).click()
     const done = page.getByRole('region', { name: 'Done' })
+    // Done is a narrow strip: its cards show while it is hovered.
+    await done.hover()
     await expect(done.getByText('Fix the login page')).toBeVisible()
     await done.getByRole('button', { name: /Fix the login page/ }).click()
     await expect(attachments.getByRole('img', { name: 'image.png' })).toBeVisible()

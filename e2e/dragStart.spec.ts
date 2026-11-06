@@ -54,8 +54,19 @@ test('dragging a Backlog card into In progress proposes a start in the panel; th
     await expect(panel.getByRole('textbox', { name: 'Message the orchestrator' })).toHaveCount(0)
 
     async function dragToInProgress(): Promise<void> {
+      // The columns widen as the panel slides shut: measure only once they have stopped moving.
+      const inProgress = page.getByRole('region', { name: 'In progress' })
+      let last: string | undefined
+      await expect
+        .poll(async () => {
+          const box = JSON.stringify(await inProgress.boundingBox())
+          const still = box === last
+          last = box
+          return still
+        })
+        .toBe(true)
       const from = (await backlog.getByRole('button', { name: /Add hello file/ }).boundingBox())!
-      const to = (await page.getByRole('region', { name: 'In progress' }).boundingBox())!
+      const to = (await inProgress.boundingBox())!
       await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
       await page.mouse.down()
       await page.mouse.move(from.x + from.width / 2 + 20, from.y + from.height / 2, { steps: 5 })

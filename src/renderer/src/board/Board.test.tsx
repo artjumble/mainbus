@@ -1,5 +1,5 @@
 import type { DragEndEvent } from '@dnd-kit/core'
-import { act, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
@@ -209,6 +209,8 @@ describe('a move shows at once', () => {
     drag(ticket.id, 'backlog')
     expect(mockInvoke).toHaveBeenCalledTimes(1)
 
+    // The card is in Done now, whose cards show while it is open.
+    act(() => column('Done').focus())
     screen.getByRole('button', { name: /Ship me/ }).focus()
     await userEvent.keyboard('{Shift>}{F10}{/Shift}')
     expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
@@ -486,6 +488,151 @@ describe('empty states', () => {
     renderWithMantine(<Board />)
     expect(within(screen.getByRole('region', { name: 'Done' })).getByText('Nothing here')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Backlog' })).queryByText('Nothing here')).not.toBeInTheDocument()
+  })
+})
+
+describe('the Done column', () => {
+  const done = (): HTMLElement => screen.getByRole('region', { name: 'Done' })
+  const expanded = (): string | null => done().getAttribute('data-expanded')
+  const count = (): string | null => within(done()).getByTestId('column-count').textContent
+  const shipped = (title: string): ReturnType<typeof makeTicket> =>
+    makeTicket({ title }, { column: 'done', phase: 'done' })
+
+  const realMatchMedia = window.matchMedia
+  afterEach(() => {
+    window.matchMedia = realMatchMedia
+    vi.useRealTimers()
+  })
+
+  test('is a closed strip by default, with its title and count, and the count follows a search', async () => {
+    showBoard(shipped('Old work'), shipped('Older work'), makeTicket({ title: 'Fresh' }, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    expect(expanded()).toBe('false')
+    expect(within(done()).getByRole('heading', { level: 3, name: 'Done' })).toBeInTheDocument()
+    expect(count()).toBe('2')
+    expect(done()).toHaveAccessibleDescription('2 tickets')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search tickets' }), 'Older')
+    expect(count()).toBe('1')
+    expect(done()).toHaveAccessibleDescription('1 ticket')
+  })
+
+  test('opens after a short hover and closes a little after the pointer leaves', () => {
+    vi.useFakeTimers()
+    showBoard(shipped('Old work'))
+    renderWithMantine(<Board />)
+    fireEvent.pointerEnter(done())
+    act(() => void vi.advanceTimersByTime(100))
+    expect(expanded()).toBe('false')
+    act(() => void vi.advanceTimersByTime(60))
+    expect(expanded()).toBe('true')
+    expect(screen.getByRole('button', { name: /Old work/ })).toBeVisible()
+
+    fireEvent.pointerLeave(done())
+    act(() => void vi.advanceTimersByTime(250))
+    expect(expanded()).toBe('true')
+    act(() => void vi.advanceTimersByTime(60))
+    expect(expanded()).toBe('false')
+  })
+
+  test('passing over it does not open it', () => {
+    vi.useFakeTimers()
+    showBoard(shipped('Old work'))
+    renderWithMantine(<Board />)
+    fireEvent.pointerEnter(done())
+    act(() => void vi.advanceTimersByTime(100))
+    fireEvent.pointerLeave(done())
+    act(() => void vi.advanceTimersByTime(1000))
+    expect(expanded()).toBe('false')
+  })
+
+  test('opens at once on focus, its cards are then in the tab order, and it closes after focus leaves', async () => {
+    showBoard(shipped('Old work'))
+    renderWithMantine(<Board />)
+    act(() => done().focus())
+    expect(expanded()).toBe('true')
+    expect(screen.getByRole('button', { name: /Old work/ })).toBeVisible()
+    await userEvent.tab()
+    expect(document.activeElement).not.toBe(done())
+    expect(done()).toContainElement(document.activeElement as HTMLElement)
+
+    act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
+    expect(expanded()).toBe('true')
+    await vi.waitFor(() => expect(expanded()).toBe('false'))
+  })
+
+  test('closed, its cards are hidden from sight, the tab order and screen readers', async () => {
+    const review = makeTicket({ title: 'Look at me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(review, shipped('Old work'))
+    renderWithMantine(<Board />)
+    const card = screen.getByText('Old work')
+    expect(card).not.toBeVisible()
+    expect(card.closest('[inert]')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /Old work/ })).not.toBeInTheDocument()
+    // Tab out of Review lands on the strip itself, not on a card in it.
+    screen.getByRole('button', { name: `Move ticket #${review.number}` }).focus()
+    await userEvent.tab()
+    expect(done()).toHaveFocus()
+  })
+
+  test('shows a working indicator while a move to Done is cleaning up, gone when the engine answers', async () => {
+    for (const answer of ['moved', 'dirty'] as const) {
+      const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+      showBoard(ticket)
+      let settle: (value: string) => void = () => {}
+      mockInvoke.mockImplementation((command: string) =>
+        command === 'ticket.move' ? new Promise((resolve) => (settle = resolve)) : Promise.resolve({ tickets: [ticket] })
+      )
+      const { unmount } = renderWithMantine(<Board />)
+      expect(within(done()).queryByTestId('done-working')).not.toBeInTheDocument()
+      drag(ticket.id, 'done')
+      expect(within(done()).getByTestId('done-working')).toHaveTextContent('Cleaning up')
+      await act(async () => settle(answer))
+      await vi.waitFor(() => expect(within(done()).queryByTestId('done-working')).not.toBeInTheDocument())
+      unmount()
+    }
+  })
+
+  test('Move to Done from the card menu leaves focus on the card, in Done opened', async () => {
+    const ticket = makeTicket({ title: 'Menu me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(ticket)
+    mockInvoke.mockImplementation((command: string) => (command === 'ticket.move' ? new Promise(() => {}) : Promise.resolve({ tickets: [ticket] })))
+    renderWithMantine(<Board />)
+    screen.getByRole('button', { name: /Menu me/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to Done' }))
+    await vi.waitFor(() => expect(within(done()).getByRole('button', { name: /Menu me/ })).toHaveFocus())
+    expect(expanded()).toBe('true')
+  })
+
+  test.each([
+    [false, /width 150ms/],
+    [true, /^none$/]
+  ])('with reduced motion %s, the transition is %s', (reduce, transition) => {
+    window.matchMedia = ((query: string) => ({
+      matches: reduce && query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+      onchange: null
+    })) as unknown as typeof window.matchMedia
+    showBoard(shipped('Old work'))
+    renderWithMantine(<Board />)
+    expect(done().style.transition).toMatch(transition)
+    act(() => done().focus())
+    expect(expanded()).toBe('true')
+    expect(done().style.transition).toMatch(transition)
+  })
+
+  test('has no axe violations, closed or open', async () => {
+    showBoard(shipped('Old work'), makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    await expectNoAxeViolations()
+    act(() => done().focus())
+    expect(expanded()).toBe('true')
+    await expectNoAxeViolations()
   })
 })
 

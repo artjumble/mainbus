@@ -71,6 +71,8 @@ test("an Investigate ticket's report is promoted into a Change ticket in Ready w
     await expect(page.getByRole('button', { name: 'Promote', exact: true })).toHaveCount(0)
 
     await page.getByRole('button', { name: /board/ }).click()
+    // Done is a narrow strip: its cards show while it is hovered.
+    await page.getByRole('region', { name: 'Done' }).hover()
     await expect(page.getByRole('region', { name: 'Done' }).getByText('Why is login slow')).toBeVisible()
     const ready = page.getByRole('region', { name: 'Ready' })
     await expect(ready.getByText('Speed up login')).toBeVisible()
