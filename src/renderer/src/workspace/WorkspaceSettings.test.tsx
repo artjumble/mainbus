@@ -35,6 +35,22 @@ test('shows the lineup, the pull request switch, the allow list and Connect agen
   expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Change', 'Investigate'])
 })
 
+test('General keeps Agents running at once and When I close the window, and has no Theme', async () => {
+  const base = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
+    command === 'settings.get'
+      ? { maxAgents: 3, whenClosed: 'tray', theme: { choice: 'light', light: 'light', dark: 'dark' } }
+      : base(command, ...args)
+  )
+  renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)
+  const general = screen.getByRole('region', { name: 'General' })
+  await vi.waitFor(() => expect(within(general).getByRole('textbox', { name: 'Agents running at once' })).toHaveValue('3'))
+  expect(within(general).getByRole('radiogroup', { name: 'When I close the window' })).toBeInTheDocument()
+  expect(within(general).getByRole('radio', { name: 'Keep running in the tray while agents work' })).toBeChecked()
+  expect(screen.queryByRole('radiogroup', { name: 'Theme' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('radio', { name: 'Match Windows' })).not.toBeInTheDocument()
+})
+
 test('lists allow rules and removes one', async () => {
   rules = [
     rule('a1', 'Bash', 'pnpm install *'),

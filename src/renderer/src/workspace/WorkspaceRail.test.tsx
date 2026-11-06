@@ -160,6 +160,38 @@ test('Settings focuses the workspace first, then opens the drawer', async () => 
   expect(useMainbus.getState().workspace?.id).toBe('b')
 })
 
+test('the Mainbus settings button opens the Mainbus settings, collapsed and expanded, and is the same button', async () => {
+  engine()
+  renderWithMantine(<WorkspaceRail />)
+  const nav = screen.getByRole('navigation', { name: 'Workspaces' })
+  expect(nav).toHaveAttribute('data-expanded', 'false')
+  const button = within(nav).getByRole('button', { name: 'Mainbus settings' })
+  await userEvent.click(button)
+  expect(useMainbus.getState().appSettingsOpen).toBe(true)
+  // Not the workspace's settings, and no workspace focus moved.
+  expect(useMainbus.getState().settingsOpen).toBe(false)
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.focus', expect.anything())
+
+  useMainbus.getState().closeAppSettings()
+  await expand()
+  // The same element, so focus can come back to it whichever way the rail is.
+  expect(within(nav).getByRole('button', { name: 'Mainbus settings' })).toBe(button)
+  expect(button).toHaveTextContent('Mainbus settings')
+  await userEvent.click(button)
+  expect(useMainbus.getState().appSettingsOpen).toBe(true)
+})
+
+test('with no workspace yet, the rail has the Mainbus settings button and leaves Add workspace to the welcome screen', async () => {
+  mockInvoke.mockImplementation(async () => [])
+  useMainbus.setState({ workspace: null, workspaces: [], currentTicketId: null })
+  renderWithMantine(<WorkspaceRail />)
+  const nav = screen.getByRole('navigation', { name: 'Workspaces' })
+  expect(within(nav).queryByRole('button', { name: 'Add workspace' })).not.toBeInTheDocument()
+  await userEvent.click(within(nav).getByRole('button', { name: 'Mainbus settings' }))
+  expect(useMainbus.getState().appSettingsOpen).toBe(true)
+  await expectNoAxeViolations()
+})
+
 describe('accessibility', () => {
   test('the rail, its options menu and the Add and Remove dialogs have no axe violations', async () => {
     engine()

@@ -20,6 +20,8 @@ interface MainbusState {
   workspaces: WorkspaceSummary[]
   /** The workspace settings drawer (it shows the focused workspace). */
   settingsOpen: boolean
+  /** The Mainbus settings drawer: what applies to the whole app, whichever workspace is focused. */
+  appSettingsOpen: boolean
   tickets: BoardTicket[]
   /** False until the focused workspace's board has been read, so an empty board isn't shown as "No tickets yet" meanwhile. */
   boardLoaded: boolean
@@ -63,6 +65,8 @@ interface MainbusState {
   removeWorkspace(id: string): Promise<{ keptFolders: string[] }>
   openSettings(): void
   closeSettings(): void
+  openAppSettings(): void
+  closeAppSettings(): void
   /** Reads the board. Runs one at a time: a call made meanwhile waits and reads once more afterwards. */
   refreshBoard(): Promise<void>
   /** Re-reads the focused workspace, its board and its unattended state, after focus moved or a workspace opened or was removed. */
@@ -161,6 +165,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   workspaceLoaded: false,
   workspaces: [],
   settingsOpen: false,
+  appSettingsOpen: false,
   tickets: [],
   boardLoaded: false,
   loadError: null,
@@ -223,6 +228,8 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
 
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+  openAppSettings: () => set({ appSettingsOpen: true }),
+  closeAppSettings: () => set({ appSettingsOpen: false }),
 
   async reloadFocused() {
     const workspace = await invoke('workspace.get')

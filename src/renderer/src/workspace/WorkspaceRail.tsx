@@ -47,12 +47,13 @@ function describe(w: WorkspaceSummary): string {
   return w.active ? `${named} · agents working` : named
 }
 
-/** The left rail: every open workspace with its activity and needs-you count, and a way to add one. */
+/** The left rail: every open workspace with its activity and needs-you count, a way to add one, and the Mainbus settings. */
 export function WorkspaceRail(): ReactElement {
   const workspaces = useMainbus((s) => s.workspaces)
   const focusedId = useMainbus((s) => s.workspace?.id ?? null)
   const focusWorkspace = useMainbus((s) => s.focusWorkspace)
   const openSettings = useMainbus((s) => s.openSettings)
+  const openAppSettings = useMainbus((s) => s.openAppSettings)
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<WorkspaceSummary | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
@@ -108,7 +109,7 @@ export function WorkspaceRail(): ReactElement {
 
   return (
     // Out of flow over the board: expanding widens the rail without moving anything beside it. The bottom padding
-    // leaves room for the Add workspace button's 44 px hit area.
+    // leaves room for the Mainbus settings button's 44 px hit area.
     <Stack
       component="nav"
       ref={navRef}
@@ -229,24 +230,44 @@ export function WorkspaceRail(): ReactElement {
           </Box>
         ))}
       </Stack>
-      <Stack gap={6}>
+      {/* Apart enough that the two buttons' 44 px hit areas don't overlap. */}
+      <Stack gap="md">
+        {/* With no workspace yet, the welcome screen offers Add workspace itself. */}
+        {workspaces.length > 0 && (
+          <Stack gap={6}>
+            <Button
+              variant="default"
+              size="xs"
+              fullWidth
+              onClick={() => setAdding(true)}
+              aria-label="Add workspace"
+              styles={{ root: { borderStyle: 'dashed' } }}
+            >
+              <Text component="span" size="xs" aria-hidden>
+                {expanded ? '+ Add workspace' : '+'}
+              </Text>
+            </Button>
+            {expanded && (
+              <Text size="xs" c="dimmed">
+                Pick a local repo folder to add it.
+              </Text>
+            )}
+          </Stack>
+        )}
+        {/* One button, collapsed or expanded, so the drawer can give focus back to it whatever the rail did meanwhile. */}
         <Button
-          variant="default"
+          variant="subtle"
+          color="gray"
           size="xs"
           fullWidth
-          onClick={() => setAdding(true)}
-          aria-label="Add workspace"
-          styles={{ root: { borderStyle: 'dashed' } }}
+          onClick={openAppSettings}
+          aria-label="Mainbus settings"
+          justify={expanded ? 'flex-start' : 'center'}
         >
           <Text component="span" size="xs" aria-hidden>
-            {expanded ? '+ Add workspace' : '+'}
+            {expanded ? '⚙ Mainbus settings' : '⚙'}
           </Text>
         </Button>
-        {expanded && (
-          <Text size="xs" c="dimmed">
-            Pick a local repo folder to add it.
-          </Text>
-        )}
       </Stack>
       <AddWorkspaceModal opened={adding} onClose={() => setAdding(false)} />
       <RemoveWorkspaceModal workspace={removing} onClose={() => setRemoving(null)} />
