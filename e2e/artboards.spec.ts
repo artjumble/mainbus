@@ -91,7 +91,7 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
 })
 
 test('Ticket detail: lineup strip, controls, thread with thinking and tool rows, live line, composer and activity', async () => {
-  await withArtboard({ fixture: 'e2e/fixtures/artboard-detail-by-role.json', size: BOARD }, async ({ page }) => {
+  await withArtboard({ fixture: 'e2e/fixtures/artboard-detail-by-role.json', size: BOARD }, async ({ app, page }) => {
     await createTicket(page, {
       title: 'Add CSV export',
       intent: 'Reports need a CSV export.',
@@ -134,6 +134,24 @@ test('Ticket detail: lineup strip, controls, thread with thinking and tool rows,
     await expect(activity.getByText(/Started with the web-app lineup/)).toBeVisible()
     await expect(activity.getByText('Planner handed off to the Implementer')).toBeVisible()
     await shot(page, 'ticket-detail')
+
+    // In a narrow window, each tool tag keeps its full width and one-line height beside a long target, with no scrollbar.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(900, 800))
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(900)
+    const tags = page.locator('[data-event="tool"] [data-tool-tag]')
+    await expect(tags).toHaveText(['PowerShell', 'Read', 'Edit'])
+    const sizes = await tags.evaluateAll((all) =>
+      all.map((tag) => {
+        const label = tag.querySelector('.mantine-Badge-label')!
+        return { overflow: Math.max(tag.scrollWidth - tag.clientWidth, label.scrollWidth - label.clientWidth), height: tag.getBoundingClientRect().height }
+      })
+    )
+    expect(sizes.every((s) => s.overflow <= 0)).toBe(true)
+    // Edit's target is short, so its tag is never squeezed: the one-line height the others must match.
+    expect(sizes.map((s) => s.height)).toEqual(sizes.map(() => sizes[2]!.height))
+    // The long targets are the ones cut short.
+    const targets = page.locator('[data-event="tool"] [data-tool-target]')
+    expect(await targets.evaluateAll((all) => all.slice(0, 2).every((t) => t.scrollWidth > t.clientWidth))).toBe(true)
   })
 })
 

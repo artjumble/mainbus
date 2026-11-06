@@ -39,6 +39,28 @@ test('a collapsed, expanded, running and failed row have no axe violations', asy
   await expectNoAxeViolations()
 })
 
+test.each([
+  ['Read', { file_path: 'C:\\Users\\dev\\AppData\\Local\\Mainbus\\work\\web-app\\42-add-csv-export\\src\\reports\\renderers\\table.ts' }],
+  ['PowerShell', { command: 'Get-ChildItem -Recurse -Filter *.ts src\\renderer\\src\\thread | Select-String -Pattern "ToolRow" -SimpleMatch' }]
+])('in a narrow row with a long target, the %s tag keeps its width and never scrolls; the target is cut short', (name, input) => {
+  renderWithMantine(
+    <div style={{ width: 160 }}>
+      <ToolRow name={name} input={input} result={{ ok: true, summary: '42 lines' }} />
+    </div>
+  )
+  const tag = document.querySelector<HTMLElement>('[data-tool-tag]')!
+  expect(tag).toHaveTextContent(name)
+  // jsdom has no layout, so the measured check is in the artboard e2e test; here, the styles that keep the tag whole.
+  expect(getComputedStyle(tag).flexShrink).toBe('0')
+  expect(getComputedStyle(tag).overflow).toBe('visible')
+  const label = tag.querySelector<HTMLElement>('.mantine-Badge-label')!
+  expect(getComputedStyle(label).overflow).toBe('visible')
+  expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
+  const target = document.querySelector<HTMLElement>('[data-tool-target]')!
+  expect(target).toHaveAttribute('title', toolTarget(input))
+  expect(target).toHaveAttribute('data-truncate', 'end')
+})
+
 test('a ToolRow names what the tool acted on, from its input', () => {
   renderWithMantine(<ToolRow name="Read" input={{ file_path: 'tests/fixtures/cart.ts' }} result={{ ok: true, summary: '42 lines' }} />)
   expect(screen.getByText('tests/fixtures/cart.ts')).toBeInTheDocument()
