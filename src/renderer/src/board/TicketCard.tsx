@@ -176,25 +176,31 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       style={{ cursor: 'pointer', ...(recent && !reducedMotion ? { animationDelay: `-${Date.now() - changedAt!}ms` } : {}) }}
       onClick={() => onOpen(ticket.id)}
     >
-      <Text size="xs" c="dimmed">
-        #{ticket.number}
-      </Text>
-      {/* The handle sits beside the title, not above it, so their 44 px hit areas don't overlap. */}
-      <Group gap="xs" wrap="nowrap" align="flex-start" mb={6}>
-        <UnstyledButton
-          data-card-title={ticket.id}
-          style={{ display: 'block', textAlign: 'left', flex: 1, minWidth: 0 }}
-          onClick={(e) => {
-            e.stopPropagation()
-            onOpen(ticket.id)
-          }}
-        >
-          <Text fw={500} size="sm">
-            {ticket.title}
-          </Text>
-        </UnstyledButton>
+      {/* The number and the handle share a row, the handle at the right and level with the number. */}
+      <Group gap="xs" wrap="nowrap" justify="space-between" align="center">
+        <Text size="xs" c="dimmed">
+          #{ticket.number}
+        </Text>
         {handle}
       </Group>
+      {/*
+        The title has the card's full width, except for a right gutter as wide as the part of the handle's 44 px hit area
+        that reaches left of the handle (22 px from its centre, plus half its 18 px width), so a long title wraps before
+        it and the two hit areas never overlap.
+      */}
+      <UnstyledButton
+        data-card-title={ticket.id}
+        mb={6}
+        style={{ display: 'block', textAlign: 'left', marginRight: 31, minWidth: 0 }}
+        onClick={(e) => {
+          e.stopPropagation()
+          onOpen(ticket.id)
+        }}
+      >
+        <Text fw={500} size="sm">
+          {ticket.title}
+        </Text>
+      </UnstyledButton>
       <Group gap="xs">
         <PhaseChip state={state} />
         <PausedChip state={state} />
