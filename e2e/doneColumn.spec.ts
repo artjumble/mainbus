@@ -164,3 +164,40 @@ test("hovering the strip shows Done's cards, and one can be opened", async () =>
     await expect(page.getByRole('heading', { name: 'Ship it' })).toBeVisible()
   })
 })
+
+test('a Done card dragged out to Ready stays in sight under the pointer, and lands in Ready', async () => {
+  await withBoard(async (page) => {
+    await ticketInReview(page, 'Ship it')
+    await review(page).getByRole('button', { name: /Ship it/ }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Move to Done' }).click()
+    await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
+
+    await done(page).hover()
+    const title = done(page).getByRole('button', { name: /Ship it/ })
+    await expect(title).toBeVisible()
+    const card = (await title.boundingBox())!
+    const ready = page.getByRole('region', { name: 'Ready', exact: true })
+    const to = (await ready.boundingBox())!
+    await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(card.x + card.width / 2 - 20, card.y + card.height / 2, { steps: 5 })
+    const x = to.x + to.width / 2
+    const y = card.y + card.height / 2
+    await page.mouse.move(x, y, { steps: 15 })
+
+    // Mid-drag, the card is what is under the pointer, not Ready's empty placeholder.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ([px, py]) => document.elementFromPoint(px!, py!)?.closest('[data-card-title], .mantine-Paper-root')?.textContent ?? '',
+          [x, y]
+        )
+      )
+      .toContain('Ship it')
+    await expect(done(page)).toHaveAttribute('data-expanded', 'true')
+    await page.mouse.up()
+
+    await expect(ready.getByText('Ship it')).toBeVisible()
+    await expect(done(page).getByTestId('column-count')).toHaveText('0')
+  })
+})

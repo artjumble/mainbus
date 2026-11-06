@@ -530,7 +530,8 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
     alignSelf: 'stretch',
     position: 'relative',
     zIndex: 2,
-    overflow: 'hidden',
+    // Clipped while it widens or narrows; but a card dragged out of it is still its child, and must stay in sight.
+    overflow: draggingFromHere ? 'visible' : 'hidden',
     boxShadow: open ? 'var(--mantine-shadow-md)' : undefined,
     transition: reducedMotion ? 'none' : 'width 150ms ease, margin-left 150ms ease'
   }
