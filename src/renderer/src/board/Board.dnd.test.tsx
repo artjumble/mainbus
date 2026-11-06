@@ -136,6 +136,19 @@ describe('moving a card by keyboard', () => {
     await vi.waitFor(() => expect(ready.style.background).toContain('--mainbus-color-lane'))
   })
 
+  test('while a card is carried on a board whose columns fit, the board clips sideways instead of growing a scrollbar', async () => {
+    const ticket = show()
+    layOutColumns()
+    renderWithMantine(<Board />)
+    const board = screen.getByRole('region', { name: 'Ready' }).parentElement!
+    expect(board.style.overflowX).toBe('auto')
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(board.style.overflowX).toBe('hidden'))
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(board.style.overflowX).toBe('auto'))
+  })
+
   test('Arrow Right skips the columns that take no drops', async () => {
     const ticket = show()
     layOutColumns()

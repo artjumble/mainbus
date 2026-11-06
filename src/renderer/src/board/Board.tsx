@@ -269,12 +269,17 @@ export function Board(): ReactElement {
     () => ({ canScroll: (el: Element) => el !== boardRef.current || boardOverflows.current }),
     []
   )
+  // The same card, carried past the board's right edge, would also give the board a sideways scrollbar for the drag,
+  // and the scrollbar's height would come off every lane, Review's under Done too. While the columns fit, clip instead.
+  const [clipSideways, setClipSideways] = useState(false)
   function onDragStart(): void {
     const board = boardRef.current
     boardOverflows.current = board !== null && board.scrollWidth > board.clientWidth + 1
+    setClipSideways(!boardOverflows.current)
   }
 
   function onDragEnd({ active, over }: DragEndEvent): void {
+    setClipSideways(false)
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
     if (!ticket || target === null) return
@@ -376,6 +381,7 @@ export function Board(): ReactElement {
           sensors={sensors}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
+          onDragCancel={() => setClipSideways(false)}
           autoScroll={autoScroll}
           accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
@@ -383,6 +389,7 @@ export function Board(): ReactElement {
             ref={boardRef}
             style={{
               ...gridStyle(needsYouCollapsed),
+              ...(clipSideways ? { overflowX: 'hidden' } : {}),
               transition: reducedMotion ? 'none' : 'grid-template-columns 150ms ease'
             }}
           >
