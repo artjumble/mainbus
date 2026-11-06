@@ -8,6 +8,7 @@ import { makeRepo } from './artboardHelpers'
 
 const root = path.resolve(import.meta.dirname, '..')
 
+/** `repo` may list several folders, joined with the path delimiter: the folder picker answers them in order. */
 async function launch(home: string, repo: string): Promise<{ app: ElectronApplication; page: Page }> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
@@ -32,11 +33,11 @@ const pageScheme = (page: Page): Promise<string | null> => page.locator('html').
 const pageGround = (page: Page): Promise<string> => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
 const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
 
+/** Opens the Mainbus settings from the rail's button; the Theme is under Appearance. */
 async function openSettings(page: Page): Promise<void> {
-  await page.getByRole('navigation', { name: 'Workspaces' }).hover()
-  await page.getByRole('button', { name: 'Options for web-app' }).click()
-  await page.getByRole('menuitem', { name: 'Settings' }).click()
-  await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
+  await page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' }).click()
+  const appearance = page.getByRole('dialog', { name: 'Mainbus settings' }).getByRole('region', { name: 'Appearance' })
+  await expect(appearance.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
 }
 
 test('the Theme setting switches to Dark and back without a restart, and a dark app opens dark', async () => {
@@ -167,6 +168,71 @@ test('Night Owl applies without a restart, stays after a relaunch, and Match Win
     await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
     await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
     await expect(page.getByRole('radiogroup', { name: 'Dark theme' }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
+  } finally {
+    await app?.close().catch(() => {})
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    } catch {
+      // A temp folder left behind is harmless.
+    }
+  }
+})
+
+test('the Theme is in the Mainbus settings before any workspace, and is the same whichever workspace is focused', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-theme-'))
+  let app: ElectronApplication | undefined
+  try {
+    const home = path.join(tmp, 'home')
+    const repoA = makeRepo(tmp, 'alpha-repo')
+    const repoB = makeRepo(tmp, 'bravo-repo')
+    let page: Page
+    // The folder picker answers alpha-repo first, then bravo-repo.
+    ;({ app, page } = await launch(home, [repoA, repoB].join(path.delimiter)))
+
+    // The first launch: no workspace yet, and the rail's button is there all the same.
+    await expect(page.getByRole('heading', { name: 'Welcome to Mainbus' })).toBeVisible()
+    const button = page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' })
+    await button.click()
+    const drawer = page.getByRole('dialog', { name: 'Mainbus settings' })
+    await drawer.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Night Owl', exact: true }).check()
+    await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'night-owl')
+    await expect.poll(() => pageGround(page)).toBe(rgb(GROUND['night-owl']))
+    // Esc closes it and gives focus back to the button.
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
+    await expect(button).toBeFocused()
+
+    // Two workspaces.
+    await page.getByRole('main').getByRole('button', { name: 'Add workspace' }).click()
+    const rail = page.getByRole('navigation', { name: 'Workspaces' })
+    await expect(rail.getByRole('button', { name: /^alpha-repo/ })).toHaveAttribute('aria-current', 'true')
+    await rail.getByRole('button', { name: 'Add workspace' }).click()
+    await page.getByRole('dialog', { name: 'Add workspace' }).getByRole('button', { name: 'Choose folder…' }).click()
+    await expect(rail.getByRole('button', { name: /^bravo-repo/ })).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'night-owl')
+
+    // Picked with bravo-repo focused, it holds for alpha-repo too.
+    await page.keyboard.press('Control+,')
+    await drawer.getByRole('radio', { name: 'Light Owl', exact: true }).check()
+    await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
+    await rail.getByRole('button', { name: /^alpha-repo/ }).click()
+    await expect(page.getByRole('heading', { level: 2, name: 'alpha-repo' })).toBeVisible()
+    await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
+    expect(await pageGround(page)).toBe(rgb(GROUND['light-owl']))
+    await page.keyboard.press('Control+,')
+    await expect(drawer.getByRole('radio', { name: 'Light Owl', exact: true })).toBeChecked()
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
+
+    // The Workspace settings no longer show the Theme; General keeps its two settings.
+    await page.getByRole('button', { name: 'Workspace settings' }).click()
+    const workspaceSettings = page.getByRole('dialog', { name: 'Workspace settings' })
+    const general = workspaceSettings.getByRole('region', { name: 'General' })
+    await expect(general.getByRole('textbox', { name: 'Agents running at once' })).toBeVisible()
+    await expect(general.getByRole('radiogroup', { name: 'When I close the window' })).toBeVisible()
+    await expect(workspaceSettings.getByRole('radiogroup', { name: 'Theme', exact: true })).toHaveCount(0)
   } finally {
     await app?.close().catch(() => {})
     try {

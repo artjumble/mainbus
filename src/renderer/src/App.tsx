@@ -14,6 +14,7 @@ import {
   writePanelOpen,
   writePanelWidth
 } from './orchestrator/panelState'
+import { AppSettings } from './settings/AppSettings'
 import { SetupScreen } from './setup/SetupScreen'
 import { startSync, useMainbus } from './store'
 import { TicketView } from './ticket/TicketView'
@@ -49,12 +50,28 @@ export function App(): ReactElement {
   const revealedProposal = useMainbus((s) => s.revealedProposal)
   const settingsOpen = useMainbus((s) => s.settingsOpen)
   const closeSettings = useMainbus((s) => s.closeSettings)
+  const appSettingsOpen = useMainbus((s) => s.appSettingsOpen)
+  const openAppSettings = useMainbus((s) => s.openAppSettings)
+  const closeAppSettings = useMainbus((s) => s.closeAppSettings)
 
   useEffect(() => startSync((err) => showError(err, 'Could not load Mainbus')), [])
   useEffect(() => startNavigation(), [])
 
+  // Ctrl+, opens the Mainbus settings from anywhere, a text field too, unless whatever has focus took the keys itself.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.defaultPrevented || e.key !== ',' || !e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return
+      e.preventDefault()
+      openAppSettings()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [openAppSettings])
+
   // The orchestrator sits beside the board and the ticket view; it stays mounted between them, so its thread is kept.
   const withPanel = !loadError && setup?.ok === true && workspaceLoaded && workspace !== null
+  // The rail is there before the first workspace too, for the Mainbus settings.
+  const withRail = !loadError && setup?.ok === true && workspaceLoaded
 
   function onPanelOpenChange(open: boolean): void {
     setPanelOpen(open)
@@ -85,7 +102,7 @@ export function App(): ReactElement {
       transitionDuration={resizing ? 0 : undefined}
       header={{ height: 48 }}
       // The rail's layout width is always the collapsed one; expanded, it lies over the board.
-      navbar={withPanel ? { width: RAIL_WIDTH, breakpoint: 0 } : undefined}
+      navbar={withRail ? { width: RAIL_WIDTH, breakpoint: 0 } : undefined}
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
       aside={withPanel ? { width: panelOpen ? shownWidth : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >
@@ -97,7 +114,7 @@ export function App(): ReactElement {
           </Title>
         </Group>
       </AppShell.Header>
-      {withPanel && (
+      {withRail && (
         <AppShell.Navbar>
           <WorkspaceRail />
         </AppShell.Navbar>
@@ -107,6 +124,8 @@ export function App(): ReactElement {
         {screen()}
         {/* Outside screen(), so Settings from the rail works from the ticket view too. */}
         {withPanel && <WorkspaceSettings opened={settingsOpen} onClose={closeSettings} />}
+        {/* Always there, so Ctrl+, works on every screen. */}
+        <AppSettings opened={appSettingsOpen} onClose={closeAppSettings} />
       </AppShell.Main>
       {withPanel && (
         <AppShell.Aside aria-label="Orchestrator">

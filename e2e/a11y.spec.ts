@@ -252,17 +252,36 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await expect(page.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeVisible()
     await expectNoAxeViolations(page, 'the settings window')
     expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the settings window').toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toBeHidden()
+
+    // The Mainbus settings, from the rail.
+    const mainbusSettings = page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' })
+    await mainbusSettings.click()
+    const drawer = page.getByRole('dialog', { name: 'Mainbus settings' })
+    await expect(drawer.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
+    // Axe measures colours as they are on screen, so wait for the drawer to finish fading in.
+    await expect
+      .poll(() => page.locator('.mantine-Drawer-root', { has: drawer }).evaluate((root) => root.getAnimations({ subtree: true }).length))
+      .toBe(0)
+    await expectNoAxeViolations(page, 'the Mainbus settings')
+    expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the Mainbus settings').toEqual([])
 
     // Match Windows and its Light theme and Dark theme choices, still in this theme: Windows, as the page sees it,
     // is in this theme's scheme, and this theme is the pick for it.
     const scheme = themeOf(theme).scheme
     await page.emulateMedia({ colorScheme: scheme })
-    await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
-    const picks = page.getByRole('radiogroup', { name: scheme === 'light' ? 'Light theme' : 'Dark theme' })
+    await drawer.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
+    const picks = drawer.getByRole('radiogroup', { name: scheme === 'light' ? 'Light theme' : 'Dark theme' })
     await picks.getByRole('radio', { name: themeOf(theme).name, exact: true }).check()
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', theme)
-    await expectNoAxeViolations(page, 'the settings window with Match Windows')
-    expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the settings window with Match Windows').toEqual([])
+    await expectNoAxeViolations(page, 'the Mainbus settings with Match Windows')
+    expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the Mainbus settings with Match Windows').toEqual([])
+
+    // Esc closes it, and focus is back on the button that opened it.
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
+    await expect(mainbusSettings).toBeFocused()
   }, theme)
 })
 
