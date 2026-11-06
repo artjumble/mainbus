@@ -30,6 +30,13 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await createTicket(page, { title: 'Migrate dates to Temporal' }) // #7, Backlog, held
     await createTicket(page, { title: 'Fix README links' }) // #8, Done
 
+    // Nothing waits on the person yet: Needs you is a narrow strip with its count, like Done.
+    const needsYouStrip = page.getByRole('region', { name: 'Needs you, no tickets', exact: true })
+    await expect(needsYouStrip).toHaveAttribute('data-collapsed', 'true')
+    await expect(needsYouStrip.getByTestId('column-count')).toHaveText('0')
+    expect((await needsYouStrip.boundingBox())!.width).toBeLessThan(60)
+    await shot(page, 'board-needs-you-collapsed')
+
     // Starts, in this order: the nth Planner of the fixture does what its ticket needs.
     for (const title of ['Fix flaky checkout test', 'Webhook retry policy', 'Remove unused flags', 'Health check endpoint']) {
       await openTicket(page, title)
@@ -241,6 +248,8 @@ test('A decision shown in three places: board card, panel card and thread card, 
     await card.getByRole('button', { name: 'Answer', exact: true }).click()
     await expect(needsYou.getByText('Webhook retry policy')).toHaveCount(0)
     await expect(panelOf(page).getByText(/^✓ Answered: docs folder\. Webhook retry policy is back in /)).toBeVisible()
+    // With nothing left in it, Needs you is a strip again.
+    await expect(page.getByRole('region', { name: 'Needs you, no tickets', exact: true })).toBeVisible()
     await shot(page, 'decision-answered')
   })
 })

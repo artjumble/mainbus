@@ -1,0 +1,19 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "callTool": "askUser", "args": { "question": "Where should hello.txt go?", "options": ["Repo root", "docs folder"], "recommended": 0 } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Got your answer, planning it." } },
+    { "callTool": "handoff", "args": { "summary": "Plan: add hello.txt", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "waitForSend": true }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "waitForSend": true }
+  ]
+}
