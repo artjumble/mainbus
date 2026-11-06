@@ -119,7 +119,8 @@ export function App(): ReactElement {
           <WorkspaceRail />
         </AppShell.Navbar>
       )}
-      <AppShell.Main>
+      {/* A column, so the board can fill the height under the header and the usage banner. */}
+      <AppShell.Main style={{ display: 'flex', flexDirection: 'column' }}>
         {withPanel && <UsageBanner />}
         {screen()}
         {/* Outside screen(), so Settings from the rail works from the ticket view too. */}

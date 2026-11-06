@@ -46,10 +46,11 @@ test('light looks exactly as it did before the dark scheme', () => {
 })
 
 test.each(['light', 'dark'] as const)('%s looks exactly as it did before the theme registry', (id) => {
-  // The snapshot was taken before named themes were added; the light and dark tuples behind each virtual colour are not in it.
+  // The snapshot was taken before named themes were added; the light and dark tuples behind each virtual colour are not
+  // in it, nor the board's lane and card border, added since.
   const now = resolvedVariables(id)
   const before = Object.keys(now)
-    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-/.test(k))
+    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$/.test(k))
     .sort()
   expect(Object.fromEntries(before.map((k) => [k, now[k]]))).toMatchSnapshot()
 })
@@ -90,7 +91,7 @@ describe.each(THEME_IDS)('%s', (id) => {
   test('has every token: the palette, ten shades of each named colour, and a neutral ramp in a dark theme', () => {
     for (const v of Object.values(def.palette)) expect(v).toMatch(HEX)
     expect(Object.keys(def.palette).sort()).toEqual(
-      ['anchor', 'border', 'dimmed', 'error', 'ground', 'raised', 'strongBorder', 'surface', 'text'].sort()
+      ['anchor', 'border', 'cardBorder', 'dimmed', 'error', 'ground', 'lane', 'raised', 'strongBorder', 'surface', 'text'].sort()
     )
     expect(Object.keys(def.colors).sort()).toEqual([...NAMED_COLORS].sort())
     for (const name of NAMED_COLORS) {
@@ -118,6 +119,13 @@ describe.each(THEME_IDS)('%s', (id) => {
     expect(color('anchor')).toBe(def.palette.anchor)
     expect(color('error')).toBe(def.palette.error)
     expect(vars['--mainbus-color-strong-border']).toBe(def.palette.strongBorder)
+    expect(vars['--mainbus-color-lane']).toBe(def.palette.lane)
+    expect(vars['--mainbus-color-card-border']).toBe(def.palette.cardBorder)
+  })
+
+  test('a lane is a step away from the ground, and from the cards on it', () => {
+    expect(def.palette.lane).not.toBe(def.palette.ground)
+    expect(def.palette.lane).not.toBe(def.palette.surface)
   })
 
   test('the Needs you orange and Working blue stay orange and blue', () => {
@@ -146,6 +154,8 @@ describe.each(THEME_IDS)('%s', (id) => {
       ['dimmed on the working tint (a drop target)', dimmed, color('working-0')],
       ['dimmed on the needs tint (the Needs you column, a permission card)', dimmed, color('needs-0')],
       ['text on the needs tint', text, color('needs-0')],
+      ['a lane heading on the lane', text, vars['--mainbus-color-lane']],
+      ['a lane count and its placeholder on the lane', dimmed, vars['--mainbus-color-lane']],
       ['placeholder on a surface', color('placeholder'), surface],
       ['anchor on ground', color('anchor'), ground],
       ['anchor on a surface', color('anchor'), surface],
@@ -188,6 +198,10 @@ describe.each(THEME_IDS)('%s', (id) => {
       ['the recently-changed outline on the ground', color('working-5'), ground],
       ['the working dot on the ground', color('working-filled'), ground],
       ['the border of a card that needs you', color('needs-6'), ground],
+      ['a card border on the lane', vars['--mainbus-color-card-border'], vars['--mainbus-color-lane']],
+      ['a card border on a lane a card is dragged over', vars['--mainbus-color-card-border'], color('working-0')],
+      ['the border of a card that needs you on the Needs you tint', color('needs-6'), color('needs-0')],
+      ['the dashed border of a failed card on the lane', vars['--mainbus-color-strong-border'], vars['--mainbus-color-lane']],
       ['the dashed border of a failed card', vars['--mainbus-color-strong-border'], ground],
       ['the border of the active role in the lineup strip', color('working-6'), color('working-light')]
     ])('%s', (_name, fg, bg) => {

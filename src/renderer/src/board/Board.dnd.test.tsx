@@ -122,6 +122,20 @@ describe('moving a card by keyboard', () => {
     expect(announced()).toMatch(/was dropped on Ready/)
   })
 
+  test('the lane a card is over is highlighted, over its fill, and goes back to the fill after', async () => {
+    const ticket = show()
+    layOutColumns()
+    renderWithMantine(<Board />)
+    const ready = screen.getByRole('region', { name: 'Ready' })
+    expect(ready.style.background).toContain('--mainbus-color-lane')
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}')
+    await vi.waitFor(() => expect(ready.style.background).toContain('--mantine-color-working-0'))
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(ready.style.background).toContain('--mainbus-color-lane'))
+  })
+
   test('Arrow Right skips the columns that take no drops', async () => {
     const ticket = show()
     layOutColumns()

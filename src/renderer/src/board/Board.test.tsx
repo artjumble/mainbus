@@ -463,6 +463,93 @@ describe('search', () => {
   })
 })
 
+describe('lanes', () => {
+  const lanes = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('[data-lane]')]
+
+  /** jsdom has no layout: what makes a lane full height is the layout's styles, checked here; the e2e measures it. */
+  function expectFullHeight(board: HTMLElement): void {
+    expect(board.style.display).toBe('grid')
+    expect(board.style.alignItems).toBe('stretch')
+    // The board grows to the height left under the header, and grows past it with its cards; it never shrinks.
+    expect(board.style.flex).toBe('1 0 auto')
+    expect(board.parentElement!.style.flex).toBe('1 0 auto')
+    for (const lane of lanes()) {
+      expect(lane.style.minHeight).toBe('')
+      expect(lane.style.height).toBe('')
+      expect(lane.style.alignSelf).toBe('')
+    }
+  }
+
+  test('every lane, the strips too, stretches to the board, which fills the height left and grows with its cards', () => {
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    expect(lanes().map((l) => l.getAttribute('aria-label') ?? l.getAttribute('aria-labelledby'))).toEqual([
+      'column-backlog',
+      'column-ready',
+      'column-in_progress',
+      'Needs you, no tickets',
+      'column-review',
+      'column-done'
+    ])
+    expectFullHeight(lanes()[0].parentElement!)
+    // No scrolling inside a lane: the board scrolls.
+    for (const lane of lanes()) expect(lane.style.overflowY).toBe('')
+  })
+
+  test('lanes have no outline and square corners, a fill of their own, while cards keep their border and shadow', () => {
+    showBoard(
+      makeTicket({ title: 'Plain' }, { column: 'backlog' }),
+      makeTicket({ title: 'Waiting' }, { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' })
+    )
+    renderWithMantine(<Board />)
+    for (const lane of lanes()) {
+      expect(lane).not.toHaveAttribute('data-with-border')
+      expect(lane.style.border).toBe('')
+      expect(lane.style.borderTop).toBe('')
+      expect(lane.style.borderBottom).toBe('')
+      expect(lane.style.getPropertyValue('--paper-radius')).toMatch(/^0(px|rem)?$/)
+    }
+    const fill = (name: string): string => screen.getByRole('region', { name }).style.background
+    for (const name of ['Backlog', 'Ready', 'In progress', 'Review', 'Done']) expect(fill(name)).toContain('--mainbus-color-lane')
+    // The Needs you tint.
+    expect(fill('Needs you')).toContain('--mantine-color-needs-0')
+
+    const card = (title: string): HTMLElement => screen.getByRole('button', { name: title }).closest<HTMLElement>('.mantine-Paper-root')!
+    for (const title of ['Plain', 'Waiting']) {
+      expect(card(title)).toHaveAttribute('data-with-border')
+      expect(card(title).style.getPropertyValue('--paper-shadow')).not.toBe('')
+    }
+    expect(card('Plain').style.border).toContain('--mainbus-color-card-border')
+    expect(card('Waiting').style.border).toContain('--mantine-color-needs-6')
+  })
+
+  test('Done open over Review keeps its shadow and gets a line at its edge, with still no top or bottom border', () => {
+    showBoard(makeTicket({}, { column: 'done', phase: 'done' }))
+    renderWithMantine(<Board />)
+    const done = screen.getByRole('region', { name: 'Done' })
+    expect(done.style.borderLeft).toBe('')
+    act(() => done.focus())
+    expect(done).toHaveAttribute('data-expanded', 'true')
+    expect(done.style.boxShadow).toContain('--mantine-shadow-md')
+    expect(done.style.borderLeft).toContain('--mainbus-color-card-border')
+    expect(done.style.borderTop).toBe('')
+    expect(done.style.borderBottom).toBe('')
+  })
+
+  test("the empty board's placeholder lanes are full height too, with the lanes' look, and the message lies over them", () => {
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [] }, true)
+    renderWithMantine(<Board />)
+    expect(lanes()).toHaveLength(6)
+    expectFullHeight(lanes()[0].parentElement!)
+    for (const lane of lanes()) {
+      expect(lane).not.toHaveAttribute('data-with-border')
+      expect(lane.style.border).toBe('')
+      expect(lane.style.background).toContain('--mainbus-color-lane')
+    }
+    expect(screen.getByText(/No tickets in .* yet/).closest('.mantine-Paper-root')).toHaveAttribute('data-with-border')
+  })
+})
+
 describe('empty states', () => {
   test('a workspace with no tickets shows No tickets yet with both actions and no header New ticket', async () => {
     useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [] }, true)
