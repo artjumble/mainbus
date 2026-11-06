@@ -2,15 +2,9 @@ import { Group, NativeSelect, Text } from '@mantine/core'
 import type { ReactElement } from 'react'
 import type { Effort } from '../../../shared/domain'
 import { EFFORT_OPTIONS, MODEL_OPTIONS, effortLabel } from '../../../shared/models'
+import type { RoleChoice } from '../../../shared/runSettings'
 
-/** One role of a start being chosen: whether it runs, and with which model and effort. */
-export interface RoleChoice {
-  roleId: string
-  name: string
-  ticked: boolean
-  model: string
-  effort: Effort
-}
+export type { RoleChoice }
 
 /** The options plus, when the stored value isn't one of them, that value, so the select never misreports it. */
 export function withCurrent(options: { value: string; label: string }[], current: string): { value: string; label: string }[] {

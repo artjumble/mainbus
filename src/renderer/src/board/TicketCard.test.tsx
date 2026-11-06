@@ -12,6 +12,15 @@ test('TicketCard shows number, title and phase chip only', () => {
   expect(container.textContent).not.toMatch(/model|effort|token/i)
 })
 
+test('a ticket with saved run settings shows a Custom run chip; one without shows none', () => {
+  const saved = { excludedRoleIds: ['p'], roles: {}, extraInstructions: null, roleNames: { p: 'Planner' } }
+  const { unmount } = renderWithMantine(<TicketCard ticket={makeTicket({ runSettings: saved })} onOpen={() => {}} />)
+  expect(screen.getByText('Custom run').closest('[data-run-settings-chip]')).not.toBeNull()
+  unmount()
+  renderWithMantine(<TicketCard ticket={makeTicket()} onOpen={() => {}} />)
+  expect(screen.queryByText('Custom run')).not.toBeInTheDocument()
+})
+
 test('a card paused by the usage limit shows Paused and the reason', () => {
   const ticket = makeTicket(
     {},

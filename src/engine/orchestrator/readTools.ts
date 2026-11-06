@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
-import type { Column, Decision, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
+import type { Column, Decision, LineupRole, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { ordinal } from '../../shared/queue'
+import { applyRunSettings } from '../../shared/runSettings'
 import { usageBannerText } from '../../shared/usage'
 import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
@@ -13,7 +14,7 @@ import { STUCK_RULE_TEXT } from '../stuck/config'
 import { firedAgainAfterRedirect } from '../stuck/ladder'
 
 export interface ReadToolDeps {
-  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck'>
+  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck' | 'lineups'>
   /** The focused workspace, or null. */
   focused(): Promise<Workspace | null>
   /** Every open workspace, oldest first. */
@@ -86,6 +87,27 @@ function heldText(t: BoardTicket): string {
   if (!t.hold) return ''
   const until = t.hold.until === null ? 'until the user releases it' : `until ${t.hold.until.slice(0, 10)}`
   return ` · held by the user ${until} (don't propose starting it)`
+}
+
+/** The run settings the user saved for the ticket against its lineup now, with what was dropped, or that there are none. */
+function runSettingsText(t: BoardTicket, lineup: LineupRole[]): string {
+  if (t.runSettings === null) return "None saved: the lineup's defaults."
+  const { options } = applyRunSettings(t.runSettings, lineup)
+  const run = lineup.filter((r) => options.roleIds?.includes(r.id))
+  const lines = [
+    `Roles that run, in order: ${run.map((r) => oneLine(r.name)).join(', ')}. Keep exactly these roles when proposing a start.`,
+    ...run
+      .filter((r) => options.roles?.[r.id] !== undefined)
+      .map((r) => {
+        const { model, effort } = options.roles![r.id]!
+        return `- ${oneLine(r.name)}: model ${model ?? '(yours to choose)'}, effort ${effort ?? '(yours to choose)'}`
+      }),
+    options.extraInstructions !== undefined
+      ? `Extra instructions (the user's):\n${data('run-settings-extra', options.extraInstructions)}`
+      : 'Extra instructions: none saved.',
+    ...t.runSettingsNotices.map((n) => `Notice: ${n}`)
+  ]
+  return lines.join('\n')
 }
 
 function activeRole(t: BoardTicket): string {
@@ -338,6 +360,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
         `## Latest run\n${roles}`,
+        `## Run settings (the user's)\n${runSettingsText(t, await deps.repos.lineups.get(found.ws.id, t.kind))}`,
         ...(t.kind === 'investigate' ? [`## Report\n${t.report ? data('report', t.report) : 'None yet.'}`] : []),
         ...(t.kind === 'change' && t.report ? [`## Investigation report\n${data('report', t.report)}`] : [])
       ]

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
 import {
   ResumeFailedError,
@@ -35,6 +36,8 @@ export type FakeStep =
   | { waitForSend: true }
   /** Fails the script, with an error event and the run closed, unless the run's launch prompt contains this text. */
   | { expectPrompt: string }
+  /** Fails the script, with an error event and the run closed, unless the run was launched with this model and effort. */
+  | { expectModel: { model: string; effort: Effort } }
   /**
    * Reads a file whose path is the first group of a pattern, matched in the run's system prompt (`fromPrompt`) or in
    * the last message sent to it (`fromMessage`), as the Read tool would: inside the run's folder or an additional
@@ -361,6 +364,11 @@ export class FakeRuntime implements AgentRuntime {
           run.queue.push({ kind: 'message', text: `I see ${count} ${count === 1 ? 'image' : 'images'} (${images.map((i) => i.mime).join(', ')}).`, partial: false })
         } else if ('expectPrompt' in step) {
           if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
+        } else if ('expectModel' in step) {
+          const launched = spec.kind === 'orchestrator' ? {} : { model: spec.model, effort: spec.effort }
+          if (launched.model !== step.expectModel.model || launched.effort !== step.expectModel.effort) {
+            throw new Error(`The launch has model ${launched.model ?? 'none'}, effort ${launched.effort ?? 'none'}`)
+          }
         } else if ('waitForSend' in step) {
           while (run.pendingSends === 0 && !run.stopped) {
             await new Promise<void>((resolve) => (run.sendWaiter = resolve))

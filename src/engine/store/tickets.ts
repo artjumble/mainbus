@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { Criterion, IntentEntry, NewTicketInput, PullRequest, Ticket, TicketKind, TicketPatch } from '../../shared/domain'
+import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
 
@@ -26,6 +26,8 @@ export interface TicketRepo {
   /** Records the ticket's pull request and clears any earlier failure. */
   setPr(id: string, pr: PullRequest): Promise<Ticket>
   setPrError(id: string, error: string | null): Promise<Ticket>
+  /** Saves the ticket's run settings, already checked; null clears them, back to the lineup's defaults. */
+  setRunSettings(id: string, settings: RunSettings | null): Promise<Ticket>
   /**
    * Promotes an Investigate ticket: inserts a Change ticket in Ready carrying the original's intent exactly (every
    * entry, with its timestamp and source), its labels and its report, with `promotedFrom` set. Moving the original
@@ -63,6 +65,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     prError: row.prError,
     report: row.report,
     promotedFrom: row.promotedFrom,
+    runSettings: row.runSettings === null ? null : (JSON.parse(row.runSettings) as RunSettings),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -260,6 +263,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
 
     async setPrError(id, error) {
       await patchRow(id, { prError: error })
+      return get(id)
+    },
+
+    async setRunSettings(id, settings) {
+      await patchRow(id, { runSettings: settings === null ? null : JSON.stringify(settings) })
       return get(id)
     },
 

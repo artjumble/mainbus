@@ -16,6 +16,7 @@ import type {
   LineupRole,
   LineupRoleInput,
   NewTicketInput,
+  RunSettingsInput,
   StartOptions,
   StripRole,
   StuckEpisode,
@@ -65,6 +66,8 @@ export type BoardTicket = Ticket & {
   stuck: StuckEpisode | null
   /** The images the user attached, oldest first. */
   attachments: Attachment[]
+  /** What was dropped from the saved run settings because the lineup changed since, one sentence each. */
+  runSettingsNotices: string[]
 }
 
 /** An image to attach to a ticket being created: its name as given and its bytes. */
@@ -156,6 +159,11 @@ export interface EngineCommands {
   'ticket.hold'(id: string, opts?: HoldOptions): Hold
   /** Releases the ticket's hold; nothing happens when it has none. */
   'ticket.unhold'(id: string): void
+  /**
+   * Saves the run settings every start of the ticket uses unless it chooses its own; null clears them, back to the
+   * lineup's defaults. Only while the ticket is in Backlog or Ready with no run open.
+   */
+  'ticket.setRunSettings'(id: string, settings: RunSettingsInput | null): Ticket
   /**
    * The title and spec the Promote dialog starts with for an Investigate ticket's report: the ticket's title and a
    * spec drafted from the report (`drafted`), or the report itself when that failed. Refuses a ticket that can't be promoted.

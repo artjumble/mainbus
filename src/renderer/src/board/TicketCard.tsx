@@ -8,6 +8,7 @@ import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
 import { HoldChip } from './HoldChip'
+import { RunSettingsChip } from './RunSettingsChip'
 import { StuckChip } from './StuckChip'
 import { WRAPPING_CHIP } from './chipStyles'
 import classes from './TicketCard.module.css'
@@ -206,6 +207,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <PausedChip state={state} />
         <QueuedChip state={state} />
         <HoldChip hold={ticket.hold} />
+        <RunSettingsChip ticket={ticket} />
         <StuckChip stuck={ticket.stuck} />
         {ticket.kind === 'investigate' && (
           <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>

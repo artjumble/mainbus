@@ -9,6 +9,7 @@ import {
   sameRoleName
 } from '../../shared/models'
 import type { StartLineupPayload, StartLineupResult, StartRolePlan } from '../../shared/proposals'
+import { applyRunSettings } from '../../shared/runSettings'
 import { listJoin } from './createTickets'
 import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
 
@@ -45,8 +46,8 @@ function rolesText(roles: { name: string; model: string; effort: Effort }[]): st
 
 /**
  * Starting a ticket with some or all of the lineup's roles, each with a model and effort. Each role's model and
- * effort are resolved when proposed (its own lineup setting, else the orchestrator's choice, else the defaults) and
- * stored, so the card shows exactly what will run.
+ * effort are resolved when proposed (the ticket's saved run settings, else its own lineup setting, else the
+ * orchestrator's choice, else the defaults) and stored, so the card shows exactly what will run.
  */
 export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = {
   label: 'start a ticket',
@@ -74,14 +75,20 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
       chosen.set(role.id, r)
     }
 
+    // The user's saved run settings win: their roles run (the orchestrator's list only gives those roles a model and
+    // effort), and their model, effort and extra instructions beat the orchestrator's.
+    const saved = applyRunSettings(ticket.runSettings, lineup).options
+    const runs = (id: string): boolean => (saved.roleIds ? saved.roleIds.includes(id) : chosen.has(id))
+
     // In lineup order, whatever order the orchestrator listed them in.
     const roles: StartRolePlan[] = lineup
-      .filter((role) => chosen.has(role.id))
+      .filter((role) => runs(role.id))
       .map((role) => {
-        const resolved = resolveModelEffort(role, { proposed: chosen.get(role.id) })
+        const resolved = resolveModelEffort(role, { user: saved.roles?.[role.id], proposed: chosen.get(role.id) })
         return { roleId: role.id, name: role.name, ...resolved }
       })
-    return { ticketId: ticket.id, number: ticket.number, title: ticket.title, roles, extraInstructions: extraText(p.extraInstructions) }
+    const extraInstructions = saved.extraInstructions ?? extraText(p.extraInstructions)
+    return { ticketId: ticket.id, number: ticket.number, title: ticket.title, roles, extraInstructions }
   },
 
   override(stored, input) {

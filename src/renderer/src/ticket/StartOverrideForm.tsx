@@ -9,6 +9,9 @@ interface Props {
   extraInstructions: string
   onRolesChange: (roles: RoleChoice[]) => void
   onExtraInstructionsChange: (text: string) => void
+  /** Says how long the choices last; this start's by default. */
+  rolesHint?: string
+  extraHint?: string
 }
 
 /**
@@ -16,7 +19,14 @@ interface Props {
  * the lineup's roles as numbered ticks (one always stays ticked), a collapsed section for each role's model and
  * effort, and extra instructions for this run.
  */
-export function StartOverrideForm({ roles, extraInstructions, onRolesChange, onExtraInstructionsChange }: Props): ReactElement {
+export function StartOverrideForm({
+  roles,
+  extraInstructions,
+  onRolesChange,
+  onExtraInstructionsChange,
+  rolesHint = 'Untick a role to skip it for this ticket only.',
+  extraHint = "Added to every role's instructions in this run."
+}: Props): ReactElement {
   const workspaceName = useMainbus((s) => s.workspace?.name)
   const [modelsOpen, setModelsOpen] = useState(false)
   const tickedCount = roles.filter((r) => r.ticked).length
@@ -38,7 +48,7 @@ export function StartOverrideForm({ roles, extraInstructions, onRolesChange, onE
           />
         ))}
         <Text size="xs" c="dimmed">
-          Untick a role to skip it for this ticket only.
+          {rolesHint}
         </Text>
       </Stack>
       <Stack gap={6}>
@@ -59,7 +69,7 @@ export function StartOverrideForm({ roles, extraInstructions, onRolesChange, onE
       </Stack>
       <Textarea
         label="Extra instructions for this agent"
-        description="Added to every role's instructions in this run."
+        description={extraHint}
         placeholder="Optional"
         autosize
         minRows={2}

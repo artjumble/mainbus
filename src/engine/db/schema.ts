@@ -72,6 +72,8 @@ export const tickets = sqliteTable(
     promotedFrom: text('promoted_from'),
     /** "Ask the orchestrator to start an agent once it's in Ready": set at creation, cleared when the start is proposed. */
     startWhenReady: integer('start_when_ready', { mode: 'boolean' }).notNull().default(false),
+    /** The run settings the user saved for the ticket's next start (JSON of RunSettings); null means the lineup's defaults. */
+    runSettings: text('run_settings'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },

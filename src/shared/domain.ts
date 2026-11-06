@@ -192,9 +192,29 @@ export interface Ticket {
   report: string | null
   /** The id of the Investigate ticket this Change ticket was promoted from; null for any other ticket. */
   promotedFrom: string | null
+  /** The run settings the user saved for the ticket's starts; null means the lineup's defaults. */
+  runSettings: RunSettings | null
   createdAt: string
   updatedAt: string
 }
+
+/**
+ * A ticket's saved run settings: which roles run, the model and effort the user chose per role, and extra
+ * instructions. Every start that doesn't choose its own uses them; they stay for the next start after a run ends.
+ */
+export interface RunSettings {
+  /** The lineup roles that don't run, by id: a role added to the lineup later runs. */
+  excludedRoleIds: string[]
+  /** The model and effort the user chose, by role id; a role or field left out resolves as usual. */
+  roles: Record<string, { model?: string; effort?: Effort }>
+  /** Added to every role's prompt; null for none. */
+  extraInstructions: string | null
+  /** The names of the roles above when saved, so one that has since left the lineup can still be named. */
+  roleNames: Record<string, string>
+}
+
+/** Run settings as the ticket view saves them; the engine fills in the role names. */
+export type RunSettingsInput = Omit<RunSettings, 'roleNames' | 'extraInstructions'> & { extraInstructions: string }
 
 export interface PullRequest {
   url: string

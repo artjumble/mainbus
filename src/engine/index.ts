@@ -10,7 +10,18 @@ import {
   type EngineEvent
 } from '../shared/api'
 import type { DraftColumn } from '../shared/proposals'
-import { LINEUPS, type AgentLauncher, type Lineup, type LineupRole, type NewTicketInput, type StuckEpisode, type Ticket, type Workspace } from '../shared/domain'
+import {
+  LINEUPS,
+  type AgentLauncher,
+  type Lineup,
+  type LineupRole,
+  type NewTicketInput,
+  type RunSettingsInput,
+  type StuckEpisode,
+  type Ticket,
+  type Workspace
+} from '../shared/domain'
+import { applyRunSettings, checkRunSettings } from '../shared/runSettings'
 import { openDb } from './db/open'
 import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
@@ -635,9 +646,24 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           ...(await runner.boardView(t.id, () => workspaceLineup(t.kind))),
           hold: holdOf.get(t.id) ?? null,
           stuck: stuckOf.get(t.id) ?? null,
-          attachments: attached.filter((a) => a.ticketId === t.id)
+          attachments: attached.filter((a) => a.ticketId === t.id),
+          // Worked out on each read and never written back: they show until the user saves or resets.
+          runSettingsNotices: t.runSettings === null ? [] : applyRunSettings(t.runSettings, await workspaceLineup(t.kind)).notices
         }))
       )
+    }
+
+    /** Saves a ticket's run settings, checked against its own lineup, while it hasn't started: Backlog or Ready with no run open. */
+    const setRunSettings = async (id: string, input: RunSettingsInput | null): Promise<Ticket> => {
+      const ticket = await repos.tickets.get(id)
+      const { column } = await runner.stateOf(id)
+      const latest = await repos.runs.latest(id)
+      if ((latest && latest.endReason === null) || runner.isLaunching(id)) throw new Error("Run settings can't be changed while a run is open")
+      if (column !== 'backlog' && column !== 'ready') throw new Error('Run settings can only be changed in Backlog or Ready')
+      const settings = input === null ? null : checkRunSettings(input, await repos.lineups.get(ticket.workspaceId, ticket.kind))
+      const saved = await repos.tickets.setRunSettings(id, settings)
+      emit({ type: 'board.changed', workspaceId: saved.workspaceId })
+      return saved
     }
 
     /** What the renderer is told of an attachment: never where its file is. */
@@ -939,6 +965,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.promote': (id, fields) => promoteTicket(id, fields),
       'ticket.hold': (id, opts) => holds.hold(id, opts),
       'ticket.unhold': (id) => holds.unhold(id),
+      'ticket.setRunSettings': (id, settings) => setRunSettings(id, settings),
       'ticket.openPr': (id) => runner.openPr(id),
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.

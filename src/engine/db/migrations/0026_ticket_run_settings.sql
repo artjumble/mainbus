@@ -1,0 +1,1 @@
+ALTER TABLE `tickets` ADD `run_settings` text;

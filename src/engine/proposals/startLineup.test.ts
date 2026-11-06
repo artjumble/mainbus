@@ -13,17 +13,17 @@ const LINEUP: LineupRole[] = [
   testRole({ id: 'r', name: 'Reviewer', position: 3 })
 ]
 
-const TICKET = { id: 't12', number: 12, title: 'Rate-limit login', kind: 'change' } as Ticket
+const TICKET = { id: 't12', number: 12, title: 'Rate-limit login', kind: 'change', runSettings: null } as Ticket
 
-/** A fake engine: ticket #12 exists; `why` says whether it can be started now. */
-function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: LineupRole[] } = {}) {
+/** A fake engine: ticket #12 exists (`ticket` changes it); `why` says whether it can be started now. */
+function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: LineupRole[]; ticket?: Ticket } = {}) {
   let why = over.why ?? null
   const c = {
     orchestratorFolder: '/home/orchestrator',
     workspace: async () => (over.open === undefined ? ws : over.open),
     createTickets: async () => [],
     lineup: vi.fn(async (_w: string, _kind: Lineup) => over.lineup ?? LINEUP),
-    ticketByNumber: async (_w: string, n: number) => (n === 12 ? TICKET : null),
+    ticketByNumber: async (_w: string, n: number) => (n === 12 ? (over.ticket ?? TICKET) : null),
     whyNotStartable: vi.fn(async () => why),
     startTicket: vi.fn(async (_id: string, _opts: StartOptions) => {}),
     activeRole: async () => null,
@@ -111,6 +111,61 @@ describe('start_lineup: propose', () => {
 
   test('rejects a workspace with no roles', async () => {
     await expect(propose({ ticket: 12 }, ctx({ lineup: [] }))).rejects.toThrow('roles: this workspace has no roles')
+  })
+})
+
+describe("start_lineup: the ticket's saved run settings", () => {
+  // The user left out the Planner and chose Opus for the Reviewer, with extra instructions.
+  const saved = ctx({
+    ticket: {
+      ...TICKET,
+      runSettings: {
+        excludedRoleIds: ['p'],
+        roles: { r: { model: 'opus' } },
+        extraInstructions: 'Use the existing limiter.',
+        roleNames: { p: 'Planner', r: 'Reviewer' }
+      }
+    }
+  })
+
+  test('with no roles (a drag into In progress), the card is the saved settings', async () => {
+    expect(await propose({ ticket: 12 }, saved)).toEqual({
+      ticketId: 't12',
+      number: 12,
+      title: 'Rate-limit login',
+      roles: [
+        { roleId: 'i', name: 'Implementer', model: 'sonnet', effort: 'medium', source: 'role' },
+        { roleId: 'r', name: 'Reviewer', model: 'opus', effort: 'medium', source: 'user' }
+      ],
+      extraInstructions: 'Use the existing limiter.'
+    })
+  })
+
+  test("the user's roles, model and extra instructions win; the orchestrator only fills in what's left", async () => {
+    const p = await propose(
+      {
+        ticket: 12,
+        roles: [
+          { role: 'Planner', model: 'haiku' },
+          { role: 'Reviewer', model: 'haiku', effort: 'high' }
+        ],
+        extraInstructions: 'Rewrite it all.'
+      },
+      saved
+    )
+    // The Planner stays out, the Implementer the user kept runs, and the Reviewer keeps the user's Opus but takes the orchestrator's effort.
+    expect(p.roles).toEqual([
+      { roleId: 'i', name: 'Implementer', model: 'sonnet', effort: 'medium', source: 'role' },
+      { roleId: 'r', name: 'Reviewer', model: 'opus', effort: 'high', source: 'user' }
+    ])
+    expect(p.extraInstructions).toBe('Use the existing limiter.')
+  })
+
+  test("with no saved extra instructions, the orchestrator's are used", async () => {
+    const t = { ...TICKET, runSettings: { excludedRoleIds: [], roles: {}, extraInstructions: null, roleNames: {} } }
+    const p = await propose({ ticket: 12, extraInstructions: 'Mine.' }, ctx({ ticket: t }))
+    expect(p.extraInstructions).toBe('Mine.')
+    expect(p.roles.map((r) => r.roleId)).toEqual(['p', 'i', 'r'])
   })
 })
 
