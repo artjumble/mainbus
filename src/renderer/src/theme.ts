@@ -372,8 +372,8 @@ function mantineTheme(def: ThemeDef, scheme: ThemeScheme): MantineThemeOverride 
     respectReducedMotion: true,
     components: {
       // Controls smaller than 44 px get a hit area of that size (see targets.module.css).
-      Button: Button.extend({ classNames: { root: targets.target } }),
-      ActionIcon: ActionIcon.extend({ classNames: { root: targets.target } }),
+      Button: Button.extend({ classNames: { root: targets.target, inner: targets.loadingContent } }),
+      ActionIcon: ActionIcon.extend({ classNames: { root: targets.target, icon: targets.loadingContent } }),
       CloseButton: CloseButton.extend({ classNames: { root: targets.target } }),
       UnstyledButton: UnstyledButton.extend({ classNames: { root: targets.target } }),
       Anchor: Anchor.extend({ classNames: { root: targets.target } }),

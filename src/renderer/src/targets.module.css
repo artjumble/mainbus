@@ -18,6 +18,14 @@
   transform: translate(-50%, -50%);
 }
 
+/*
+ * While loading, Mantine fades the label out and slides it down by its own height, to be clipped by the button. The
+ * button no longer clips, so the label would hang below it and make a dialog scroll: it only fades here.
+ */
+.target[data-loading] .loadingContent.loadingContent {
+  transform: none;
+}
+
 /* A text field without a label of its own, like the search box, is 44 px tall. */
 .field {
   min-height: 44px;
