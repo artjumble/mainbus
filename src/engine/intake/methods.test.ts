@@ -277,8 +277,8 @@ describe('intake list and get', () => {
     expect(error.code).toBe('unknown_method')
   })
 
-  it.each(['openPr', 'ticket.openPr', 'push', 'setOpenPrOnReview', 'workspace.setOpenPrOnReview'])(
-    'has no way to make Mainbus push: %s is unknown',
+  it.each(['openPr', 'ticket.openPr', 'push', 'setOpenPrOnReview', 'workspace.setOpenPrOnReview', 'ticket.saveReport', 'saveReport', 'workspace.setReportSettings'])(
+    'has no way to make Mainbus push or commit: %s is unknown',
     async (method) => {
       const { engine } = await board()
       expect((await failure(engine.intake(method as 'get', { number: 1 }))).code).toBe('unknown_method')

@@ -27,14 +27,19 @@ const HANDOFF_LINE =
  * The protocol for a role of an Investigate ticket: it never commits, and the last role ends with a report
  * instead of a handoff. A Change ticket's role gets ROLE_PROTOCOL as it is.
  */
-export function investigateProtocol(endsWithReport: boolean): string {
+export function investigateProtocol(endsWithReport: boolean, reportSavedAt: string | null = null): string {
   const finish = endsWithReport
     ? '- mcp__mainbus__submit_report(markdown): call it when your investigation is finished, with your report in markdown. Your report may recommend changes but does not authorize them. It ends your part and the ticket goes to Review.'
     : HANDOFF_LINE.replace(' Commit all work on the current branch before you call it.', '')
   let text = ROLE_PROTOCOL.replace(HANDOFF_LINE, finish)
   if (endsWithReport) text = text.replace('and handing off ends it.', 'and submitting your report ends it.')
+  const saved =
+    reportSavedAt === null
+      ? ''
+      : `
+- Mainbus, not you, saves your report as a markdown file in the repository, at ${oneLine(reportSavedAt)}, and commits it on this ticket's branch. Write it to stand alone: a reader of the file won't have this ticket, its thread or your tools, so say what was asked, what you looked at and what you found. Anyone who can read the repository can read the report: if the repository is public, so is the report. Leave out secrets and anything private.`
   return `${text}
-- This is an Investigate ticket: never commit, and leave the branch as you found it.`
+- This is an Investigate ticket: never commit, and leave the branch as you found it.${saved}`
 }
 
 /** Newlines become single spaces, so one-line fields can't start a heading or a Q/A line. */
@@ -168,7 +173,9 @@ export function buildRolePrompt(
   /** The role is the last of an Investigate lineup: it ends with submit_report. */
   endsWithReport = false,
   /** The ticket's images, copied into its scratch folder. */
-  attachments: PromptAttachment[] = []
+  attachments: PromptAttachment[] = [],
+  /** Where Mainbus saves the report as a file (a path, or a folder ending in "/"); null when it doesn't. */
+  reportSavedAt: string | null = null
 ): string {
   // Numbered by position, from 0, as check_criterion takes them.
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
@@ -181,7 +188,7 @@ export function buildRolePrompt(
 
   const sections = [
     `## Your role: ${role.name}\n${role.instructions}`,
-    ticket.kind === 'investigate' ? investigateProtocol(endsWithReport) : ROLE_PROTOCOL,
+    ticket.kind === 'investigate' ? investigateProtocol(endsWithReport, endsWithReport ? reportSavedAt : null) : ROLE_PROTOCOL,
     TRUST_STATEMENT,
     ...intentSections(ticket),
     `## Ticket\n#${ticket.number} ${data('title', oneLine(ticket.title), true)}`,

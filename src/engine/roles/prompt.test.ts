@@ -52,6 +52,9 @@ const ticket: Ticket = {
   pr: null,
   prError: null,
   report: null,
+  reportFile: null,
+  reportCommit: null,
+  reportFileError: null,
   promotedFrom: null,
   runSettings: null,
   createdAt: '2026-10-30T10:00:00.000Z',
@@ -427,6 +430,20 @@ describe('the prompt of an Investigate ticket', () => {
     expect(earlier).toContain('never commit')
     expect(earlier).toContain('mcp__mainbus__handoff(summary, notes_for_next)')
     expect(earlier).not.toContain('Commit all work')
+  })
+
+  test('tells the last role its report is saved as a file in the repo by Mainbus: written to stand alone, and public if the repo is', () => {
+    const saved = buildRolePrompt(role, investigation, [], [], null, true, [], 'docs/investigations/')
+    expect(saved).toContain(
+      "- Mainbus, not you, saves your report as a markdown file in the repository, at docs/investigations/, and commits it on this ticket's branch. Write it to stand alone:"
+    )
+    expect(saved).toContain('if the repository is public, so is the report')
+    // Still never commits itself.
+    expect(saved).toContain('This is an Investigate ticket: never commit, and leave the branch as you found it.')
+    // Not when the setting is off, and never to an earlier role or a Change ticket's.
+    expect(buildRolePrompt(role, investigation, [], [], null, true)).not.toContain('saves your report')
+    expect(buildRolePrompt(role, investigation, [], [], null, false, [], 'docs/investigations/')).not.toContain('saves your report')
+    expect(buildRolePrompt(role, ticket, [], [], null, false, [], 'docs/investigations/')).not.toContain('saves your report')
   })
 
   test("a Change ticket promoted from an investigation gets the report as context; others don't", () => {

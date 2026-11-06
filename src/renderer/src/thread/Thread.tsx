@@ -403,6 +403,17 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           {event.text}
         </Text>
       )
+    case 'report_file':
+      // Right under the report it saved: where the file is in the repo, and the commit.
+      return (
+        <Text size="xs" c="dimmed" data-event="report_file">
+          {'Saved as '}
+          <Text span ff="monospace" size="xs">
+            {event.path}
+          </Text>
+          {` in commit ${event.commit.slice(0, 7)} on ${event.branch}`}
+        </Text>
+      )
     case 'pull_request':
       return (
         <Text size="xs" c="dimmed" data-event="pull_request">

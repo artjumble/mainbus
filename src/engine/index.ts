@@ -29,6 +29,7 @@ import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
 import { PullRequestPublisher } from './git/pullRequests'
+import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
 import { WorktreeManager } from './git/worktrees'
 import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
@@ -52,7 +53,7 @@ import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detect
 import { newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
 import { TicketRunner, SKIP_SUMMARY_MS, type RunExpectation } from './runner/ticketRunner'
-import { draftPromotionSpec, whyNotPromotable } from './tickets/promote'
+import { draftPromotionSpec, whyNotPromotable, withReportFile } from './tickets/promote'
 import { planEdit, whyNotEditable, type EditInput } from './tickets/edit'
 import { EditChangedError } from './store/ticketEdits'
 import { ticketFields } from './tickets/validate'
@@ -232,6 +233,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       unattended: (workspaceId) => modes.get(workspaceId)?.isOn() ?? false,
       usage: usageHooks(gate),
       pullRequests,
+      reportFiles: new ReportFileSaver(cfg.commands ?? runCommand),
       processes: cfg.processes ?? new ProcessSweeper(),
       onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId),
       attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) }
@@ -544,7 +546,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         if (original.manualColumn !== 'done' && (await moveTicketToDone(ticketId)) === 'dirty') {
           throw new Error(`#${original.number}'s folder has uncommitted changes, so it can't move to Done; nothing was promoted`)
         }
-        const created = await repos.tickets.createPromoted(await repos.tickets.get(ticketId), fields)
+        const moved = await repos.tickets.get(ticketId)
+        // Whatever spec was confirmed, it names the report's file in the repo.
+        const created = await repos.tickets.createPromoted(moved, { ...fields, spec: withReportFile(fields.spec, moved) })
         // The promoted ticket's agents get the same images; a failed copy doesn't undo the promotion.
         await attachments.copyAll(original, created).catch((err: unknown) => console.warn(`Mainbus could not copy #${original.number}'s attachments: ${errorText(err)}`))
         emit({ type: 'board.changed', workspaceId: created.workspaceId })
@@ -975,6 +979,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
       },
+      // Renderer-only too: the agent intake has no way to make Mainbus commit.
+      'workspace.setReportSettings': async (settings, workspaceId) => {
+        const input = z
+          .strictObject({ saveReports: z.boolean().optional(), reportsFolder: z.string().max(500).optional() })
+          .parse(settings)
+        const ws = await repos.workspaces.setReportSettings((await requireWorkspace(workspaceId)).id, input)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return ws
+      },
       'github.check': async (workspaceId) => pullRequests.checkGh((await requireWorkspace(workspaceId)).repoPath),
 
       'board.get': async (workspaceId) => {
@@ -1047,6 +1060,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.unhold': (id) => holds.unhold(id),
       'ticket.setRunSettings': (id, settings) => setRunSettings(id, settings),
       'ticket.openPr': (id) => runner.openPr(id),
+      'ticket.saveReport': (id) => runner.saveReport(id),
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.
       'thread.get': async (ticketId) => {

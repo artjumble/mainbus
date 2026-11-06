@@ -243,6 +243,25 @@ describe('get_ticket', () => {
     )
   })
 
+  test("shows where an Investigate ticket's report is saved in the repo, with the commit, or why saving it failed", async () => {
+    const investigation = await ticket({ kind: 'investigate' })
+    await repos.tickets.setReport(investigation.id, '# Findings')
+    await repos.tickets.setWorktree(investigation.id, 'mainbus/1-why', null)
+    expect(await tools.getTicket({ number: investigation.number })).not.toContain('## Report file')
+
+    const file = 'docs/investigations/2026-11-06-1-why.md'
+    await repos.tickets.setReportFile(investigation.id, { path: file, commit: null, error: 'git commit failed: no identity' })
+    const failed = await tools.getTicket({ number: investigation.number })
+    expect(failed).toContain(`## Report file\nNot saved: the latest save of ${file}, relative to the repository, on the branch mainbus/1-why failed: `)
+    expect(failed).toContain('<ticket-data field="report-file-error">\ngit commit failed: no identity\n</ticket-data>')
+    expect(failed).toContain('"Save report to repo"')
+
+    await repos.tickets.setReportFile(investigation.id, { path: file, commit: 'a'.repeat(40), error: null })
+    expect(await tools.getTicket({ number: investigation.number })).toContain(
+      `## Report file\nSaved as ${file}, relative to the repository, on the branch mainbus/1-why, in commit ${'a'.repeat(40)}.`
+    )
+  })
+
   test('links a promoted investigation and the Change ticket made from it, with the report', async () => {
     const investigation = await ticket({ kind: 'investigate', title: 'Why slow' })
     await repos.tickets.setReport(investigation.id, '# Findings')

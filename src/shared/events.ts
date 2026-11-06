@@ -62,6 +62,8 @@ export type ThreadEvent =
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
   /** The run's role submitted its report (Investigate tickets); the ticket view shows it where the final message would be. */
   | { kind: 'report'; markdown: string }
+  /** Mainbus saved the report as a file in the repo (`path`, relative to it) and committed it on `branch`. */
+  | { kind: 'report_file'; path: string; commit: string; branch: string }
   /** The first event of a role's run when an earlier role of the same ticket run handed off to it. */
   | { kind: 'role_handoff'; from: string; to: string }
   /**

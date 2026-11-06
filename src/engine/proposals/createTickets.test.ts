@@ -12,7 +12,9 @@ const ws: Workspace = {
   repoPath: '/repo',
   baseBranch: 'main',
   slug: 'repo',
-  openPrOnReview: false
+  openPrOnReview: false,
+  saveReports: true,
+  reportsFolder: 'docs/investigations'
 }
 
 function propose(input: unknown): CreateTicketsPayload {

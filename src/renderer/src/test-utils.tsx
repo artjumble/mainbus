@@ -40,7 +40,9 @@ export const workspace: Workspace = {
   repoPath: 'C:\\repos\\mainbus',
   baseBranch: 'main',
   slug: 'mainbus',
-  openPrOnReview: false
+  openPrOnReview: false,
+  saveReports: true,
+  reportsFolder: 'docs/investigations'
 }
 
 let counter = 0
@@ -64,6 +66,9 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     pr: null,
     prError: null,
     report: null,
+    reportFile: null,
+    reportCommit: null,
+    reportFileError: null,
     promotedFrom: null,
     runSettings: null,
     runSettingsNotices: [],

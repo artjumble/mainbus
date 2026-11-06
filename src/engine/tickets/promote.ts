@@ -37,6 +37,17 @@ export function promoteSpecPrompt(title: string, report: string): string {
   )
 }
 
+/**
+ * The spec with a line saying where the investigation's report is saved in the repo, when it is saved and the spec
+ * doesn't name the file yet. The Change ticket's agents and the user find the file from it.
+ */
+export function withReportFile(spec: string, ticket: Ticket): string {
+  if (!ticket.reportFile || !ticket.reportCommit || spec.includes(ticket.reportFile)) return spec
+  const on = ticket.branch ? ` on the branch \`${ticket.branch}\`` : ''
+  const line = `The investigation's report is saved in the repo as \`${ticket.reportFile}\`${on}.`
+  return spec.trim() === '' ? line : `${spec.trimEnd()}\n\n${line}`
+}
+
 /** The spec when none could be drafted: the report itself. */
 export function fallbackSpec(report: string): string {
   return `## From the investigation\n\n${report}`
@@ -60,9 +71,9 @@ export async function draftPromotionSpec(
     const call = runtime.summarize({ cwd: dir, tempDir: dir, prompt: promoteSpecPrompt(ticket.title, report), timeoutMs })
     // Bounded here too, whatever the runtime does with its timeout.
     const spec = (await withinMs(call, timeoutMs)).trim()
-    if (spec) return { spec, drafted: true }
+    if (spec) return { spec: withReportFile(spec, ticket), drafted: true }
   } catch {
     // The report stands in.
   }
-  return { spec: fallbackSpec(report), drafted: false }
+  return { spec: withReportFile(fallbackSpec(report), ticket), drafted: false }
 }

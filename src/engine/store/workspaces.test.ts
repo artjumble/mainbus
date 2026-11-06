@@ -26,9 +26,25 @@ describe('workspace repo', () => {
       repoPath: 'C:\\code\\my-app',
       baseBranch: 'main',
       slug: 'my-app',
-      openPrOnReview: false
+      openPrOnReview: false,
+      saveReports: true,
+      reportsFolder: 'docs/investigations'
     })
     expect(await repo.get(created.id)).toEqual(created)
+  })
+
+  it('saves the report settings: on by default, a folder inside the repo, and refuses one that leaves it', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const ws = await repo.create('/r', 'main', 'r', 'r')
+    expect((await repo.setReportSettings(ws.id, { saveReports: false })).saveReports).toBe(false)
+    expect(await repo.get(ws.id)).toMatchObject({ saveReports: false, reportsFolder: 'docs/investigations' })
+    // Stored the one way: forward slashes, no "." segments or trailing slash.
+    expect((await repo.setReportSettings(ws.id, { reportsFolder: ' .\\notes\\reports\\ ' })).reportsFolder).toBe('notes/reports')
+    for (const outside of ['../elsewhere', 'docs/../../x', 'C:\\reports', '/abs', '.git/reports', '', '  ']) {
+      await expect(repo.setReportSettings(ws.id, { saveReports: true, reportsFolder: outside })).rejects.toThrow()
+    }
+    // A refused folder saves nothing, not even the switch beside it.
+    expect(await repo.get(ws.id)).toMatchObject({ saveReports: false, reportsFolder: 'notes/reports' })
   })
 
   it('switches opening a PR on Review on and off', async () => {

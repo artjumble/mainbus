@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { asc, eq, isNull, sql } from 'drizzle-orm'
-import type { Workspace } from '../../shared/domain'
+import { checkReportsFolder, REPORTS_FOLDER_DEFAULT, type ReportSettingsInput, type Workspace } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { appSettings, workspaces } from '../db/schema'
 import { slugify } from '../git/slug'
@@ -27,6 +27,8 @@ export interface WorkspaceRepo {
   markRemoved(id: string): Promise<void>
   restore(id: string): Promise<void>
   setOpenPrOnReview(id: string, on: boolean): Promise<Workspace>
+  /** Saves the settings given; a reports folder that leaves the repo is refused with the reason, and nothing is saved. */
+  setReportSettings(id: string, settings: ReportSettingsInput): Promise<Workspace>
   /** Whether unattended mode was on for this workspace when the app last ran. */
   unattendedOn(id: string): Promise<boolean>
   setUnattendedOn(id: string, on: boolean): Promise<void>
@@ -39,7 +41,9 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
     repoPath: row.repoPath,
     baseBranch: row.baseBranch,
     slug: row.slug,
-    openPrOnReview: row.openPrOnReview
+    openPrOnReview: row.openPrOnReview,
+    saveReports: row.saveReports,
+    reportsFolder: row.reportsFolder
   }
 }
 
@@ -66,7 +70,16 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
       const base = slug ?? slugify(name)
       let unique = base
       for (let n = 2; taken.has(unique); n++) unique = `${base}-${n}`
-      const workspace: Workspace = { id: randomUUID(), name, repoPath, baseBranch, slug: unique, openPrOnReview: false }
+      const workspace: Workspace = {
+        id: randomUUID(),
+        name,
+        repoPath,
+        baseBranch,
+        slug: unique,
+        openPrOnReview: false,
+        saveReports: true,
+        reportsFolder: REPORTS_FOLDER_DEFAULT
+      }
       await db.insert(workspaces).values({ ...workspace, createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
       return workspace
@@ -106,6 +119,20 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
 
     async setOpenPrOnReview(id, on) {
       await db.update(workspaces).set({ openPrOnReview: on }).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setReportSettings(id, settings) {
+      const set: Partial<typeof workspaces.$inferInsert> = {}
+      if (settings.saveReports !== undefined) set.saveReports = settings.saveReports
+      if (settings.reportsFolder !== undefined) {
+        const checked = checkReportsFolder(settings.reportsFolder)
+        if (!checked.ok) throw new Error(checked.reason)
+        set.reportsFolder = checked.folder
+      }
+      if (Object.keys(set).length > 0) await db.update(workspaces).set(set).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)

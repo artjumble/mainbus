@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { GhStatus, PullRequest, Ticket } from '../../shared/domain'
 import type { CommandOutput, CommandRunner } from './command'
+import { investigationTitle } from './reportFiles'
 
 /** How long one git or gh command may take before it is killed: a credential prompt must not hang it. */
 export const PR_COMMAND_TIMEOUT_MS = 2 * 60 * 1000
@@ -87,7 +88,7 @@ export class PullRequestPublisher {
       await fs.writeFile(bodyFile, prBody(ticket, handoffSummary), 'utf8')
       // `--flag=value`, so a title that starts with "-" is still a title. No --draft: the PR is ready for review.
       const created = await this.gh(
-        ['pr', 'create', `--base=${baseBranch}`, `--head=${branch}`, `--title=${ticket.title}`, `--body-file=${bodyFile}`],
+        ['pr', 'create', `--base=${baseBranch}`, `--head=${branch}`, `--title=${prTitle(ticket)}`, `--body-file=${bodyFile}`],
         cwd,
         'gh pr create',
         null
@@ -151,11 +152,20 @@ export class PullRequestPublisher {
   }
 }
 
-/** The PR description: the user's own words, the handoff summary, the criteria as a checklist, and the ticket. */
+/** The PR's title: the ticket's, or "Investigation #<n>: <title>" for an Investigate ticket. */
+export function prTitle(ticket: Ticket): string {
+  return ticket.kind === 'investigate' ? investigationTitle(ticket) : ticket.title
+}
+
+/**
+ * The PR description: the user's own words, the handoff summary (or, for an Investigate ticket, where its report is
+ * saved), the criteria as a checklist, and the ticket.
+ */
 export function prBody(ticket: Ticket, handoffSummary: string | null): string {
   const words = ticket.intent.filter((e) => !e.source).map((e) => e.text.trim())
   const parts = ['## In your words', words.length > 0 ? words.join('\n\n') : '_No words from the user yet._']
   if (handoffSummary !== null && handoffSummary.trim() !== '') parts.push('## Handoff', handoffSummary.trim())
+  if (ticket.kind === 'investigate' && ticket.reportFile !== null) parts.push('## Report', `Saved as \`${ticket.reportFile}\`.`)
   if (ticket.criteria.length > 0) {
     parts.push('## Acceptance criteria', ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.text}`).join('\n'))
   }

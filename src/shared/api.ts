@@ -16,6 +16,7 @@ import type {
   LineupRole,
   LineupRoleInput,
   NewTicketInput,
+  ReportSettingsInput,
   RunSettingsInput,
   StartOptions,
   StripRole,
@@ -131,6 +132,11 @@ export interface EngineCommands {
    * the agent intake (pipe, CLI, MCP) has no way to make Mainbus push.
    */
   'workspace.setOpenPrOnReview'(on: boolean, workspaceId?: string): Workspace
+  /**
+   * "Save investigation reports in the repo" and its folder; what is left out stays as it is. A folder that leaves the
+   * repo is refused with the reason. Like the switch above, only the renderer can reach it.
+   */
+  'workspace.setReportSettings'(settings: ReportSettingsInput, workspaceId?: string): Workspace
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
   'github.check'(workspaceId?: string): GhStatus
   /** The tickets of the workspace (the focused one unless given). */
@@ -187,6 +193,11 @@ export interface EngineCommands {
   'ticket.promote'(id: string, fields: { title: string; spec: string }): Ticket
   /** Retry: pushes the branch of a ticket in Review again and opens its PR if it has none. Never forces. */
   'ticket.openPr'(id: string): void
+  /**
+   * "Save report to repo": writes and commits an Investigate ticket's report in Review again, after a failure, then
+   * pushes and opens its PR when the workspace asks for that. Only the renderer can reach it.
+   */
+  'ticket.saveReport'(id: string): void
   /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */
   'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[]; runs: ThreadRun[] }
   /**
