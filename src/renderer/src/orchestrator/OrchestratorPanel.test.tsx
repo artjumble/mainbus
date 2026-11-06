@@ -37,7 +37,8 @@ function history(events: StoredEvent[] = [], status: OrchestratorThread['status'
         status,
         runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }],
         events,
-        proposals
+        proposals,
+        edits: []
       } satisfies OrchestratorThread
     }
     return undefined
@@ -179,7 +180,7 @@ test('a status that arrives while the history loads is applied after it', async 
   )
   renderWithMantine(<Panel />)
   act(() => emit({ type: 'orchestrator.status', status: 'working' }))
-  await act(async () => answer({ status: 'idle', runs: [], events: [], proposals: [] }))
+  await act(async () => answer({ status: 'idle', runs: [], events: [], proposals: [], edits: [] }))
   expect(screen.getByText('Working…')).toBeInTheDocument()
 })
 
@@ -535,7 +536,7 @@ describe('images in a message', () => {
     ]
     mockInvoke.mockImplementation(async (command: string, id?: string) => {
       if (command === 'orchestrator.get') {
-        return { status: 'idle', runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }], events, proposals: [] } satisfies OrchestratorThread
+        return { status: 'idle', runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }], events, proposals: [], edits: [] } satisfies OrchestratorThread
       }
       if (command === 'orchestrator.image') return `data:image/png;base64,${id}`
       return undefined

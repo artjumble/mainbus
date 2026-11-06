@@ -214,6 +214,7 @@ describe('FakeRuntime: the orchestrator', () => {
         getRecentEvents: vi.fn(async () => 'events'),
         listPendingDecisions: vi.fn(async () => 'decisions'),
         createTickets: vi.fn(async () => 'created'),
+        updateTicket: vi.fn(async () => 'updated'),
         proposeCreateTickets: vi.fn(async () => 'proposed'),
         proposeStart: vi.fn(async () => 'proposed'),
         proposePause: vi.fn(async () => 'proposed'),

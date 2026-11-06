@@ -64,7 +64,9 @@ describe('orchestratorVerdict', () => {
       // Proposing only stores a proposal for the user to decide.
       ['mcp__mainbus__propose_create_tickets', { tickets: [{ title: 'Add login' }] }],
       // Creating only puts tickets in a Backlog, where nothing runs.
-      ['mcp__mainbus__create_tickets', { workspace: 'repo', tickets: [{ title: 'Add login' }] }]
+      ['mcp__mainbus__create_tickets', { workspace: 'repo', tickets: [{ title: 'Add login' }] }],
+      // Editing only changes tickets that have no run open, and can be undone.
+      ['mcp__mainbus__update_ticket', { workspace: 'repo', ticket: 1, spec: 'Smaller', add_user_words: true }]
     ]
     for (const [tool, input] of allowed) expect(await verdict(tool, input), `${tool} ${JSON.stringify(input)}`).toEqual({ allow: true })
   })

@@ -7,6 +7,8 @@ import type { Proposal } from '../../../shared/proposals'
 import { waitingText } from '../../../shared/waiting'
 import { SentImages } from '../attachments/Attachments'
 import { CreatedTicketsReceipt } from '../orchestrator/CreatedTicketsReceipt'
+import { TicketEditReceipt } from '../orchestrator/TicketEditReceipt'
+import type { TicketEdit } from '../../../shared/domain'
 import { ProposalCard } from '../orchestrator/ProposalCard'
 import { annotate, type Annotation } from './annotate'
 import { DecisionCard } from './DecisionCard'
@@ -25,6 +27,8 @@ interface Props {
   summariseTools?: boolean
   /** The orchestrator's proposals, by id: each one's card goes where it was proposed. */
   proposals?: Record<string, Proposal>
+  /** The orchestrator's edits of tickets, by id: each one's receipt goes where it was made. */
+  edits?: Record<string, TicketEdit>
   /** A proposal whose card to scroll into view, once per `n`; it is tried again as the card arrives. */
   reveal?: { id: string; n: number } | null
   /** Opens a run's thread on its own, read-only: the "View previous run" link of a replacement. Absent: no link. */
@@ -34,6 +38,7 @@ interface Props {
 }
 
 const NO_PROPOSALS: Record<string, Proposal> = {}
+const NO_EDITS: Record<string, TicketEdit> = {}
 
 const NEAR_BOTTOM_PX = 48
 
@@ -47,6 +52,7 @@ export function Thread({
   runs,
   summariseTools: summarise = false,
   proposals = NO_PROPOSALS,
+  edits = NO_EDITS,
   reveal = null,
   onViewRun,
   readOnly = false
@@ -57,7 +63,7 @@ export function Thread({
   useEffect(() => {
     const el = scroller.current
     if (el && atBottom.current) el.scrollTop = el.scrollHeight
-  }, [events, decisions, proposals])
+  }, [events, decisions, proposals, edits])
 
   // A narrower panel rewraps the content taller: stay pinned to the bottom if we were there.
   useEffect(() => {
@@ -122,6 +128,7 @@ export function Thread({
                   joined={event.kind === 'tool_result' && called.has(event.id)}
                   decision={event.kind === 'decision' ? decisionById.get(event.decisionId) : undefined}
                   proposal={event.kind === 'proposal' ? proposals[event.proposalId] : undefined}
+                  edit={event.kind === 'ticket_edited' ? edits[event.editId] : undefined}
                 />
               )}
             </Fragment>
@@ -260,6 +267,8 @@ interface Lookup {
   decision: Decision | undefined
   /** For a proposal event: the proposal it points at, once loaded. */
   proposal: Proposal | undefined
+  /** For a ticket_edited event: the edit it points at, once loaded. */
+  edit: TicketEdit | undefined
 }
 
 function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
@@ -430,6 +439,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       )
     case 'tickets_created':
       return <CreatedTicketsReceipt event={event} />
+    case 'ticket_edited':
+      return lookup.edit ? (
+        <TicketEditReceipt event={event} edit={lookup.edit} />
+      ) : (
+        <Loader size="xs" type="dots" role="status" aria-label="Loading the edit" data-event="ticket_edited" />
+      )
     default:
       // session, rate_limit, vcs_changed, turn_end, role_handoff and role_hand_back (the handoff or hand-back
       // before it shows it), stuck and stuck_failed (the Activity list tells them) and the engine-only kinds are not for the person. annotate.ts keeps the same list.

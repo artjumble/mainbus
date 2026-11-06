@@ -10,6 +10,7 @@ import { createOrchestratorImageRepo, type OrchestratorImageRepo } from './orche
 import { createProposalRepo, type ProposalRepo } from './proposals'
 import { createRunRepo, type RunRepo } from './runs'
 import { createSettingsRepo, type SettingsRepo } from './settings'
+import { createTicketEditRepo, type TicketEditRepo } from './ticketEdits'
 import { createStuckRepo, type StuckRepo } from './stuck'
 import { createTicketRepo, type TicketRepo } from './tickets'
 import { createWakeRepo, type WakeRepo } from './wakes'
@@ -19,6 +20,7 @@ export interface Repos {
   workspaces: WorkspaceRepo
   lineups: LineupRepo
   tickets: TicketRepo
+  ticketEdits: TicketEditRepo
   attachments: AttachmentRepo
   allowRules: AllowRuleRepo
   runs: RunRepo
@@ -34,10 +36,12 @@ export interface Repos {
 }
 
 export function createRepos(db: Db, now: () => Date): Repos {
+  const tickets = createTicketRepo(db, now)
   return {
     workspaces: createWorkspaceRepo(db, now),
     lineups: createLineupRepo(db),
-    tickets: createTicketRepo(db, now),
+    tickets,
+    ticketEdits: createTicketEditRepo(db, now, tickets),
     attachments: createAttachmentRepo(db, now),
     allowRules: createAllowRuleRepo(db),
     runs: createRunRepo(db, now),

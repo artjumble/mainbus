@@ -135,6 +135,21 @@ test('a ticket the orchestrator created says it did so at your request', () => {
   expect(activity.queryByText('Created by you')).not.toBeInTheDocument()
 })
 
+test('an edit the orchestrator made is in the Activity, and so is its Undo', () => {
+  const edited = makeTicket({
+    edits: [
+      { id: 'e1', at: '2026-10-30T10:00:00.000Z', fields: ['spec', 'criteria'], userWords: 1, undoneAt: null },
+      { id: 'e2', at: '2026-10-30T11:00:00.000Z', fields: ['title'], userWords: 0, undoneAt: '2026-10-30T11:05:00.000Z' }
+    ]
+  })
+  renderWithMantine(<ContextPane ticket={edited} events={[]} decisions={[]} />)
+  const activity = within(screen.getByRole('region', { name: 'Activity' }))
+  expect(activity.getByText('Edited by the orchestrator at your request: spec, criteria, your words (+1)')).toBeInTheDocument()
+  expect(activity.getByText('Edited by the orchestrator at your request: title')).toBeInTheDocument()
+  expect(activity.getByText('Undone')).toBeInTheDocument()
+  expect(activity.getByText("The orchestrator's edit: title")).toBeInTheDocument()
+})
+
 test('entry times are the time of day, with the date when it is not today', () => {
   const now = new Date(2026, 10, 3, 15, 0)
   expect(entryTime(new Date(2026, 10, 3, 9, 5).toISOString(), now)).toBe('09:05')

@@ -143,6 +143,16 @@ describe('a failure', () => {
     expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
   })
 
+  test('cannot edit tickets either', async () => {
+    const { engine, runtime, ticket } = await failed([session('orch')])
+    await clock.advance(WAKE_DEBOUNCE_MS)
+    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    expect(await runtime.orchestratorSpecs[0]!.tools.updateTicket({ ticket: ticket.number, title: 'Other' })).toBe(
+      'Tickets can only be edited in answer to a message of the user. Nothing was changed.'
+    )
+    expect((await engine.invoke('board.get')).tickets[0]!.title).toBe(ticket.title)
+  })
+
   test('is acknowledged once the turn finished: the next launch presents nothing', async () => {
     const { engine, ticket } = await failed()
     await clock.advance(WAKE_DEBOUNCE_MS)

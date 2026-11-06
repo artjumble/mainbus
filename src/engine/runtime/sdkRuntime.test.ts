@@ -669,6 +669,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       getRecentEvents: vi.fn(async () => 'events'),
       listPendingDecisions: vi.fn(async () => 'decisions'),
       createTickets: vi.fn(async () => "Created #1 in app's Backlog."),
+      updateTicket: vi.fn(async () => 'Updated #1.'),
       proposeCreateTickets: vi.fn(async () => 'Proposed p1.'),
       proposeStart: vi.fn(async () => 'Proposed p2.'),
       proposePause: vi.fn(async () => 'Proposed p3.'),
@@ -740,6 +741,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__get_recent_events',
       'mcp__mainbus__list_pending_decisions',
       'mcp__mainbus__create_tickets',
+      'mcp__mainbus__update_ticket',
       'mcp__mainbus__propose_create_tickets',
       'mcp__mainbus__propose_start',
       'mcp__mainbus__propose_pause',
@@ -779,6 +781,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'get_recent_events',
       'list_pending_decisions',
       'create_tickets',
+      'update_ticket',
       'propose_create_tickets',
       'propose_start',
       'propose_pause',
@@ -819,6 +822,14 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(spec.tools.createTickets).toHaveBeenCalledWith(createArgs)
     expect(Object.keys(create.shape)).toEqual(['workspace', 'tickets', 'request_messages_back', 'context'])
     expect((create.shape.tickets as z.ZodType).safeParse([{ title: 'Add login', intent: 'The user said so' }]).success).toBe(false)
+
+    // update_ticket: the fields to change, and no way to supply the user's words: add_user_words is a flag.
+    const update = byName.get('update_ticket')!
+    const updateArgs = { workspace: 'app', ticket: 7, spec: 'Smaller', criteria: ['one'], add_user_words: true, request_messages_back: 1 }
+    expect(await update.handler(updateArgs, {})).toEqual({ content: [{ type: 'text', text: 'Updated #1.' }] })
+    expect(spec.tools.updateTicket).toHaveBeenCalledWith(updateArgs)
+    expect(Object.keys(update.shape)).toEqual(['workspace', 'ticket', 'title', 'spec', 'criteria', 'labels', 'add_user_words', 'request_messages_back'])
+    expect((update.shape.add_user_words as z.ZodType).safeParse('The user said so').success).toBe(false)
 
     const start = byName.get('propose_start')!
     const startArgs = { ticket: 4, roles: [{ role: 'Implementer', model: 'opus', effort: 'high' }], reason: 'It is ready' }

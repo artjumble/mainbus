@@ -138,7 +138,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           </Text>
         </Center>
       ) : (
-        <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} proposals={thread.proposals} reveal={reveal} summariseTools />
+        <Thread events={thread.events} decisions={NO_DECISIONS} runs={thread.runs} proposals={thread.proposals} edits={thread.edits} reveal={reveal} summariseTools />
       )}
       {/* Always mounted, so a screen reader announces the line when it appears, once, and politely. */}
       <div role="status">

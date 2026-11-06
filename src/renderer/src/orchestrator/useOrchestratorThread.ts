@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { EngineEvent } from '../../../shared/api'
+import type { TicketEdit } from '../../../shared/domain'
 import type { OrchestratorStatus, StoredEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
@@ -13,6 +14,8 @@ export interface OrchestratorThreadState {
   runs: Record<string, ThreadRun>
   /** Every proposal it made, by id: their cards are in the thread. */
   proposals: Record<string, Proposal>
+  /** Every edit it made to a ticket, by id: their receipts are in the thread. */
+  edits: Record<string, TicketEdit>
 }
 
 /**
@@ -31,6 +34,7 @@ function apply(state: OrchestratorThreadState, e: EngineEvent): OrchestratorThre
   }
   if (e.type === 'orchestrator.status') return { ...state, status: e.status }
   if (e.type === 'proposal.changed') return { ...state, proposals: { ...state.proposals, [e.proposal.id]: e.proposal } }
+  if (e.type === 'ticketEdit.changed') return { ...state, edits: { ...state.edits, [e.edit.id]: e.edit } }
   return state
 }
 
@@ -57,13 +61,14 @@ export function useOrchestratorThread(): OrchestratorThreadState | null {
         const events = history.events.reduce<StoredEvent[]>(mergeEvent, [])
         const runs = Object.fromEntries(history.runs.map((r) => [r.id, threadRun(r.id)]))
         const proposals = Object.fromEntries(history.proposals.map((p) => [p.id, p]))
-        setState(held.reduce(apply, { events, status: history.status, runs, proposals }))
+        const edits = Object.fromEntries(history.edits.map((x) => [x.id, x]))
+        setState(held.reduce(apply, { events, status: history.status, runs, proposals, edits }))
       },
       (err: unknown) => {
         if (cancelled) return
         loaded = true
         showError(err, 'Could not load the orchestrator')
-        setState({ events: [], status: 'idle', runs: {}, proposals: {} })
+        setState({ events: [], status: 'idle', runs: {}, proposals: {}, edits: {} })
       }
     )
     return () => {

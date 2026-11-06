@@ -21,6 +21,8 @@ import type {
   StripRole,
   StuckEpisode,
   Ticket,
+  TicketEdit,
+  TicketEditNote,
   TicketPatch,
   ThemeChoice,
   ThemeId,
@@ -68,6 +70,8 @@ export type BoardTicket = Ticket & {
   attachments: Attachment[]
   /** What was dropped from the saved run settings because the lineup changed since, one sentence each. */
   runSettingsNotices: string[]
+  /** The edits the orchestrator made to it at the user's request, oldest first (the ticket's Activity). */
+  edits: TicketEditNote[]
 }
 
 /** An image to attach to a ticket being created: its name as given and its bytes. */
@@ -93,6 +97,8 @@ export type EngineEvent =
   | { type: 'orchestrator.status'; status: OrchestratorStatus }
   /** A proposal was made, decided, carried out or failed. */
   | { type: 'proposal.changed'; proposal: Proposal }
+  /** The orchestrator edited a ticket, or the edit was undone. */
+  | { type: 'ticketEdit.changed'; edit: TicketEdit }
   /** The Theme setting changed: the window and the page switch theme without a restart. */
   | { type: 'theme.changed'; theme: ThemeSetting }
 
@@ -150,6 +156,11 @@ export interface EngineCommands {
   'attachment.data'(id: string): string
   'ticket.update'(id: string, p: TicketPatch): Ticket
   'ticket.appendIntent'(id: string, text: string): Ticket
+  /**
+   * Puts every field the orchestrator's edit changed back as it was, and removes the intent entries that edit appended.
+   * Refused, with the reason, when the ticket changed or started since, or the edit is already undone. Only the renderer can reach it.
+   */
+  'ticket.undoEdit'(editId: string): TicketEdit
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
   'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done'): 'moved' | 'dirty'
   /**

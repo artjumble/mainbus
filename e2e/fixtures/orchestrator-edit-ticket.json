@@ -1,0 +1,20 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-edit-ticket" } },
+    { "emit": { "kind": "tool_call", "id": "u1", "name": "mcp__mainbus__update_ticket", "input": {} } },
+    {
+      "callTool": "updateTicket",
+      "args": {
+        "ticket": 1,
+        "spec": "Build a login form.\nTests cover the bad password.",
+        "criteria": ["Form renders", "Bad password rejected"],
+        "add_user_words": true
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "u1", "ok": true, "summary": "Updated" } },
+    { "emit": { "kind": "message", "text": "Dropped the Run settings part from #1's spec and criteria. You can Undo it from the receipt." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

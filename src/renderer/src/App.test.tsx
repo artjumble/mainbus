@@ -25,7 +25,7 @@ function answer(setup: unknown, ws: unknown, tickets: unknown[] = []): void {
     if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
     if (command === 'usage.get') return { kind: 'ok' }
-    if (command === 'orchestrator.get') return { status: 'idle', runs: [], events: [], proposals: [] }
+    if (command === 'orchestrator.get') return { status: 'idle', runs: [], events: [], proposals: [], edits: [] }
     if (command === 'settings.get') return { maxAgents: 3, whenClosed: 'tray', theme: { choice: 'light', light: 'light', dark: 'dark' } }
     throw new Error(`unexpected ${command}`)
   })

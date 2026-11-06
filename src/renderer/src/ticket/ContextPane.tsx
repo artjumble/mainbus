@@ -3,6 +3,7 @@ import { useState, type ReactElement, type ReactNode } from 'react'
 import { ANSWERED_VIA_PHRASES, type Criterion, type Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { stuckHeadline } from '../../../shared/stuck'
+import { describeEdit } from '../../../shared/ticketEdit'
 import { invoke } from '../api'
 import { AttachmentsSection } from '../attachments/Attachments'
 import { AgentBadge } from '../board/AgentBadge'
@@ -359,6 +360,11 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
       const times = event.replacements === 1 ? 'once' : `${event.replacements} times`
       entries.push({ at, title: `${event.role} marked Failed: stuck again after being replaced ${times} (by Mainbus)`, links: [go.run('View run', runId)] })
     }
+  }
+  for (const edit of ticket.edits) {
+    const what = describeEdit(edit.fields, edit.userWords, 'your words')
+    entries.push({ at: edit.at, title: `Edited by the orchestrator at your request: ${what}` })
+    if (edit.undoneAt !== null) entries.push({ at: edit.undoneAt, title: 'Undone', detail: `The orchestrator's edit: ${what}` })
   }
   for (const d of decisions) {
     if (d.status !== 'answered' || !d.answeredAt || !d.answer) continue

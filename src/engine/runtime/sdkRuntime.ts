@@ -56,8 +56,8 @@ function roleTools(endsWithReport: boolean | undefined): string[] {
 }
 /**
  * The orchestrator's Mainbus tools, pre-approved like the role tools: the read tools, create_tickets, which only
- * creates tickets in a Backlog (where nothing runs), and the propose tools, which only store a proposal for the user
- * to decide.
+ * creates tickets in a Backlog (where nothing runs), update_ticket, which only edits tickets that have no run open
+ * (and has an Undo), and the propose tools, which only store a proposal for the user to decide.
  */
 export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__list_workspaces',
@@ -67,6 +67,7 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__get_recent_events',
   'mcp__mainbus__list_pending_decisions',
   'mcp__mainbus__create_tickets',
+  'mcp__mainbus__update_ticket',
   'mcp__mainbus__propose_create_tickets',
   'mcp__mainbus__propose_start',
   'mcp__mainbus__propose_pause',
@@ -529,8 +530,8 @@ export class SdkRuntime implements AgentRuntime {
   }
 
   /**
-   * The orchestrator reads and changes nothing but a Backlog's new tickets: only Read, Grep and Glob among the built-in
-   * tools, the Mainbus read tools, create_tickets and the propose tools, and no settings files. Every call it makes goes through `spec.onPermission`, which never
+   * The orchestrator reads and changes nothing but a Backlog's new tickets and the fields of tickets that haven't started:
+   * only Read, Grep and Glob among the built-in tools, the Mainbus read tools, create_tickets, update_ticket and the propose tools, and no settings files. Every call it makes goes through `spec.onPermission`, which never
    * raises a card.
    */
   private orchestratorOptions(spec: OrchestratorRunSpec, abortController: AbortController): Options {
@@ -628,6 +629,28 @@ export class SdkRuntime implements AgentRuntime {
           },
           // The engine validates it again, strictly: the SDK passes what the agent sent.
           async (a) => toolText(await t.createTickets(a))
+        ),
+        sdk.tool(
+          'update_ticket',
+          "Edit a ticket that hasn't started, now, with no card, when the user asks to change it. Give only the fields to change: title, spec, criteria (the full new list; a ticked criterion stays ticked only if its text is unchanged) and labels. The user's own words can't be written or changed: with add_user_words true, Mainbus appends the user's message (and any later ones up to this turn's, per request_messages_back) verbatim. A ticket with a run open, or Done, is refused: tell the user to stop the run first, or to let it finish. Then tell the user what changed.",
+          {
+            workspace: z
+              .string()
+              .optional()
+              .describe("The ticket's workspace, by name or id. Required when more than one workspace is open; there is no default to the focused one"),
+            ticket: z.number().int().describe('The ticket number'),
+            title: z.string().optional().describe('The new title: one line'),
+            spec: z.string().optional().describe('The new spec, replacing the old one'),
+            criteria: z.array(z.string()).optional().describe('The full new list of acceptance criteria, replacing the old one'),
+            labels: z.array(z.string()).optional().describe('The full new list of labels, replacing the old one'),
+            add_user_words: z
+              .boolean()
+              .optional()
+              .describe("true: append the user's own message to the ticket's words, verbatim. You cannot supply the text"),
+            request_messages_back: requestMessagesBack
+          },
+          // The engine validates it again, strictly: the SDK passes what the agent sent.
+          async (a) => toolText(await t.updateTicket(a))
         ),
         sdk.tool(
           'propose_create_tickets',

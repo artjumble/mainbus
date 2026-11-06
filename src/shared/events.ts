@@ -1,6 +1,6 @@
 // Shared by the engine and the renderer: types only, no Node imports.
 import type { ImageRef } from './attachments'
-import type { AgentStatus, StuckRule } from './domain'
+import type { AgentStatus, StuckRule, TicketEdit } from './domain'
 import type { Proposal } from './proposals'
 
 /** What an agent asks the user; the engine turns it into a stored Decision. */
@@ -111,6 +111,8 @@ export type ThreadEvent =
   | { kind: 'proposal'; proposalId: string; from?: 'drag' | 'button' }
   /** The orchestrator created these tickets directly in the workspace's Backlog, at the user's request; the panel shows a receipt. `context`: it added its summary of the conversation to each ticket. `images`: how many of the user's images it attached, in all. */
   | { kind: 'tickets_created'; workspaceId: string; workspace: string; tickets: { id: string; number: number; title: string }[]; context?: true; images?: number }
+  /** The orchestrator edited this ticket directly, at the user's request; the panel shows a receipt (the edit, by id) with Undo. */
+  | { kind: 'ticket_edited'; editId: string; workspaceId: string; workspace: string; ticket: { id: string; number: number; title: string } }
 
 export type StoredEvent = { runId: string; seq: number; at: string; event: ThreadEvent }
 
@@ -131,6 +133,8 @@ export interface OrchestratorThread {
   runs: OrchestratorRun[]
   events: StoredEvent[]
   proposals: Proposal[]
+  /** Every edit the orchestrator made to a ticket, oldest first. */
+  edits: TicketEdit[]
 }
 
 /** The agent run a thread event belongs to: its ticket run and its role's name. */
