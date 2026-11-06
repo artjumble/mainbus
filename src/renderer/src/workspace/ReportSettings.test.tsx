@@ -14,8 +14,9 @@ let saved: { saveReports: boolean; reportsFolder: string }
 beforeEach(() => {
   mockInvoke.mockReset()
   saved = { saveReports: true, reportsFolder: 'docs/investigations' }
+  // The focused workspace the board already loaded: the section reads it from the store, not with a fresh load.
+  useMainbus.setState({ workspace: { ...workspace, ...saved } })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
-    if (command === 'workspace.get') return { ...workspace, ...saved }
     if (command === 'workspace.setReportSettings') {
       const input = args[0] as Partial<typeof saved>
       saved = { ...saved, ...input, ...(input.reportsFolder !== undefined ? { reportsFolder: input.reportsFolder.replace(/\\/g, '/') } : {}) }
@@ -30,9 +31,12 @@ const folder = (): HTMLElement => screen.getByRole('textbox', { name: /^Reports 
 
 test('is on by default with docs/investigations, and switching it off saves it for the workspace', async () => {
   renderWithMantine(<ReportSettings opened />)
+  // Settled from the first render: enabled, with what is saved.
   const sw = await toggle()
-  await vi.waitFor(() => expect(sw).toBeChecked())
+  expect(sw).toBeChecked()
+  expect(sw).toBeEnabled()
   expect(folder()).toHaveValue('docs/investigations')
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.get')
   expect(screen.getByText(/If the repository is public, so are the reports/)).toBeInTheDocument()
 
   await userEvent.click(sw)

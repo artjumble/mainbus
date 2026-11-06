@@ -1,33 +1,23 @@
 import { Button, Group, Stack, Switch, TextInput, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import { checkReportsFolder, type ReportSettingsInput, type Workspace } from '../../../shared/domain'
+import { checkReportsFolder, type ReportSettingsInput } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
 
 /** Settings section: whether Mainbus commits an Investigate ticket's report on its branch, and the folder it goes in. */
 export function ReportSettings({ opened }: { opened: boolean }): ReactElement {
-  const [workspace, setWorkspace] = useState<Workspace | null>(null)
-  const [folder, setFolder] = useState('')
+  // The focused workspace the board already has: nothing loads after the drawer opens, so nothing shifts while it fades in.
+  const workspace = useMainbus((s) => s.workspace)
+  const saved = workspace?.reportsFolder ?? ''
+  const [folder, setFolder] = useState(saved)
   const [saving, setSaving] = useState(false)
   const on = workspace?.saveReports === true
 
+  // Each opening starts from what is saved.
   useEffect(() => {
-    if (!opened) return
-    let cancelled = false
-    invoke('workspace.get')
-      .then((ws) => {
-        if (cancelled) return
-        setWorkspace(ws ?? null)
-        setFolder(ws?.reportsFolder ?? '')
-      })
-      .catch((err) => {
-        if (!cancelled) showError(err, 'Could not load the settings')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [opened])
+    if (opened) setFolder(saved)
+  }, [opened, saved])
 
   const checked = checkReportsFolder(folder)
   const changed = workspace !== null && folder.trim() !== workspace.reportsFolder
@@ -36,7 +26,6 @@ export function ReportSettings({ opened }: { opened: boolean }): ReactElement {
     setSaving(true)
     try {
       const ws = await invoke('workspace.setReportSettings', settings)
-      setWorkspace(ws)
       setFolder(ws.reportsFolder)
       useMainbus.setState({ workspace: ws })
     } catch (err) {
