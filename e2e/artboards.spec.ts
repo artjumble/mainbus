@@ -350,9 +350,9 @@ test('Empty states: an empty workspace, and a ticket nobody is working on', asyn
     await createTicket(page, { title: 'Add CSV export', column: 'ready' })
     await openTicket(page, 'Add CSV export')
     await expect(page.getByRole('heading', { name: 'Nobody is working on this yet' })).toBeVisible()
-    await expect(page.getByText('Starting runs the web-app lineup: Planner → Implementer → Reviewer. You can adjust it before it begins.')).toBeVisible()
+    await expect(page.getByText('Starting runs the web-app lineup: Planner → Implementer → Reviewer. Change which roles run, and their models, in Run settings.')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Adjust before starting' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Run settings…' })).toBeVisible()
     await expect(page.getByText('Past runs on this ticket appear in the activity timeline.')).toBeVisible()
     await expect(page.getByLabel('First message (starts the lineup)')).toHaveAttribute('placeholder', 'Optional instructions for the lineup')
     // The composer stays on screen, and the window itself does not scroll.

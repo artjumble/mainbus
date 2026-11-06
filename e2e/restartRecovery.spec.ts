@@ -78,11 +78,13 @@ test('after the app is killed mid-run, the working agents resume and a pending q
 
     // The third runs only its Implementer, which asks a question and waits for the answer.
     await page.getByRole('button', { name: /Charlie ticket/ }).click()
-    await page.getByRole('button', { name: 'Adjust before starting' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Adjust before starting' })
+    await page.getByRole('button', { name: 'Run settings…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Run settings' })
     await dialog.getByRole('checkbox', { name: 'Planner' }).uncheck()
     await dialog.getByRole('checkbox', { name: 'Reviewer' }).uncheck()
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
     await page.getByRole('button', { name: /board/ }).click()
     await expect(page.getByRole('region', { name: 'Needs you' }).getByText('Charlie ticket')).toBeVisible()

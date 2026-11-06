@@ -517,5 +517,6 @@ This design is the record of what was decided at the start, and it is left as wr
 | The rail and the orchestrator panel stay open when a ticket is opened, instead of collapsing to a strip. | §13 | #49 |
 | A ticket created in Backlog can carry a flag that has the orchestrator propose a start once it reaches Ready. | §13 | #49 |
 | Promote makes the new Change ticket's spec with a one-shot call from the report, and uses the report itself if that call fails. It works once, from Review or Done. | §9 | #43 |
+| A ticket's **Run settings…** dialog replaces Adjust before starting. It saves the roles, models and extra instructions that every start uses (Save, Reset to defaults, Cancel) and never starts the ticket; they can be changed whenever no run is open. | §9, §13 | #68, #71 |
 
 For the differences between each wireframe artboard and the app, and what was done about each, see [`docs/superpowers/plans/m7-wireframe-pass.md`](../plans/m7-wireframe-pass.md).

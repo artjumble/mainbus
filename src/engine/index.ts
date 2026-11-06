@@ -653,13 +653,11 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       )
     }
 
-    /** Saves a ticket's run settings, checked against its own lineup, while it hasn't started: Backlog or Ready with no run open. */
+    /** Saves a ticket's run settings, checked against its own lineup, whenever no run is open: before the first start, or after a run has ended. */
     const setRunSettings = async (id: string, input: RunSettingsInput | null): Promise<Ticket> => {
       const ticket = await repos.tickets.get(id)
-      const { column } = await runner.stateOf(id)
       const latest = await repos.runs.latest(id)
       if ((latest && latest.endReason === null) || runner.isLaunching(id)) throw new Error("Run settings can't be changed while a run is open")
-      if (column !== 'backlog' && column !== 'ready') throw new Error('Run settings can only be changed in Backlog or Ready')
       const settings = input === null ? null : checkRunSettings(input, await repos.lineups.get(ticket.workspaceId, ticket.kind))
       const saved = await repos.tickets.setRunSettings(id, settings)
       emit({ type: 'board.changed', workspaceId: saved.workspaceId })

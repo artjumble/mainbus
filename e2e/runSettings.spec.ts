@@ -59,15 +59,16 @@ test("a Backlog ticket's saved run settings are what unattended mode starts it w
     await backlog.getByText('Add hello file').click()
 
     // Its run settings, without starting it: no Planner, and the Implementer on Opus, high.
-    const settings = page.getByRole('region', { name: 'Run settings' })
-    await expect(settings.getByText('Lineup defaults')).toBeVisible()
-    await settings.getByRole('button', { name: 'Edit' }).click()
+    await expect(page.getByText('Custom run')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Run settings…' }).click()
+    const settings = page.getByRole('dialog', { name: 'Run settings' })
     await settings.getByRole('checkbox', { name: '1. Planner' }).uncheck()
     await settings.getByRole('button', { name: /Models and effort per role/ }).click()
     await settings.getByRole('combobox', { name: 'Model for Implementer' }).selectOption('opus')
     await settings.getByRole('combobox', { name: 'Effort for Implementer' }).selectOption('high')
     await settings.getByRole('button', { name: 'Save' }).click()
-    await expect(settings.getByText('Implementer, Reviewer · Implementer on Opus, high')).toBeVisible()
+    await expect(settings).toHaveCount(0)
+    await expect(page.getByText('Custom run').first()).toBeVisible()
     // Saving doesn't start it.
     await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
 
@@ -102,7 +103,12 @@ test("a Backlog ticket's saved run settings are what unattended mode starts it w
     await expect(page.getByText('The launch has model')).toHaveCount(0)
     await expect(page.getByText('The Planner ran')).toHaveCount(0)
     // The settings are kept for the next start.
-    await expect(page.getByRole('region', { name: 'Run settings' }).getByText('Implementer, Reviewer · Implementer on Opus, high')).toBeVisible()
+    await page.getByRole('button', { name: 'Run settings…' }).click()
+    const kept = page.getByRole('dialog', { name: 'Run settings' })
+    await expect(kept.getByRole('checkbox', { name: '1. Planner' })).not.toBeChecked()
+    await kept.getByRole('button', { name: /Models and effort per role/ }).click()
+    await expect(kept.getByRole('combobox', { name: 'Model for Implementer' })).toHaveValue('opus')
+    await expect(kept.getByRole('combobox', { name: 'Effort for Implementer' })).toHaveValue('high')
   } finally {
     await session?.app.close().catch(() => {})
     if (tmp) {

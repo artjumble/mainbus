@@ -258,7 +258,7 @@ test('the Reviewer ticks a criterion and hands a problem back once, and the tick
   }
 })
 
-test('Adjust before starting runs only the ticked roles, and Start again begins a new run', async () => {
+test('Run settings saved in the dialog are what Start runs; Reset to defaults, then Start again runs the whole lineup', async () => {
   const { tmp, home, repo } = makeRepo()
   let app: ElectronApplication | undefined
   try {
@@ -270,8 +270,8 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
     await page.getByRole('button', { name: 'Create' }).click()
     await page.getByRole('button', { name: /Add hello file/ }).click()
 
-    await page.getByRole('button', { name: 'Adjust before starting' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Adjust before starting' })
+    await page.getByRole('button', { name: 'Run settings…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Run settings' })
     for (const name of ['Planner', 'Implementer', 'Reviewer']) await expect(dialog.getByRole('checkbox', { name })).toBeChecked()
     // Each box is level with its label's text.
     for (const [i, name] of ['Planner', 'Implementer', 'Reviewer'].entries()) {
@@ -285,8 +285,12 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
         .toBeLessThan(1)
     }
     await dialog.getByRole('checkbox', { name: 'Planner' }).uncheck()
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: 'Start' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(dialog).toHaveCount(0)
+    // Saving starts nothing; the header says the run is custom.
+    await expect(page.getByText('Custom run').first()).toBeVisible()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
 
     // Only the ticked roles are in the strip, and the Implementer goes first.
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
@@ -307,7 +311,11 @@ test('Adjust before starting runs only the ticked roles, and Start again begins 
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
 
-    // Start again runs the whole lineup as a new run, with a divider where it begins.
+    // Reset to defaults (editable once the run has ended), so Start again runs the whole lineup as a new run, with a divider where it begins.
+    await page.getByRole('button', { name: 'Run settings…' }).click()
+    await page.getByRole('dialog', { name: 'Run settings' }).getByRole('button', { name: 'Reset to defaults' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByText('Custom run')).toHaveCount(0)
     await expect(page.getByText('New run', { exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Start again' }).click()
     await expect(page.getByText('New run', { exact: true })).toBeVisible()
