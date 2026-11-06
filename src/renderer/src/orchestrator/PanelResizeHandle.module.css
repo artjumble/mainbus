@@ -1,0 +1,37 @@
+/*
+ * The pointer area is 12px wide, narrower than the app's 44px target rule: the keyboard path
+ * (arrows, Home/End, Enter) and double-click to reset make up for it.
+ */
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -6px;
+  width: 12px;
+  z-index: 10;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--mantine-color-default-border);
+}
+
+.handle:hover::before,
+.handle:focus-visible::before,
+.handle[data-dragging]::before {
+  left: 4px;
+  width: 3px;
+  background: var(--mantine-primary-color-filled);
+}
+
+.handle:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}

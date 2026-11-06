@@ -59,6 +59,18 @@ export function Thread({
     if (el && atBottom.current) el.scrollTop = el.scrollHeight
   }, [events, decisions, proposals])
 
+  // A narrower panel rewraps the content taller: stay pinned to the bottom if we were there.
+  useEffect(() => {
+    const content = scroller.current?.firstElementChild
+    if (!content) return
+    const observer = new ResizeObserver(() => {
+      const el = scroller.current
+      if (el && atBottom.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [])
+
   const revealed = useRef(0)
   useEffect(() => {
     if (!reveal || reveal.n === revealed.current) return
