@@ -42,9 +42,20 @@ export function ToolRow({ name, input, result }: Props): ReactElement {
           <Text size="xs" c="dimmed" aria-hidden>
             {opened ? '▾' : '▸'}
           </Text>
-          <Code>{name}</Code>
+          {/* The tag keeps its full width beside a long target: only the target and the outcome are cut short. */}
+          <Badge
+            variant="light"
+            color="gray"
+            size="sm"
+            radius="sm"
+            tt="none"
+            data-tool-tag
+            styles={{ root: { flexShrink: 0, overflow: 'visible' }, label: { overflow: 'visible', textOverflow: 'clip' } }}
+          >
+            {name}
+          </Badge>
           {target && (
-            <Text size="sm" truncate style={{ minWidth: 0, flexShrink: 1 }} data-tool-target>
+            <Text size="sm" truncate title={target} style={{ minWidth: 0, flexShrink: 1 }} data-tool-target>
               {target}
             </Text>
           )}
