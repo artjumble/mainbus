@@ -205,6 +205,26 @@ describe('openDb', () => {
     expect(ticket).toMatchObject({ id: 't1', kind: 'investigate', promotedFrom: null })
   })
 
+  it('adds the run_settings column, empty for every existing ticket, after a backup', async () => {
+    // The migrations as they were before saved run settings.
+    const first = await open(firstMigrations(26))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 10, 6, 9, 0, 0))
+    expect(backupFiles()).toHaveLength(1)
+    const [ticket] = await db.select().from(tickets)
+    expect(ticket).toMatchObject({ id: 't1', runSettings: null })
+  })
+
   it('gives every existing agent run its own one-role ticket run, keeping its thread and decisions', async () => {
     // The migrations as they were before ticket runs.
     const first = await open(firstMigrations(3))

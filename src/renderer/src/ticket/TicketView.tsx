@@ -5,6 +5,7 @@ import { invoke } from '../api'
 import { attachToTicket, useImagePaste } from '../attachments/files'
 import { asOwnChange } from '../board/ownChanges'
 import { HoldChip } from '../board/HoldChip'
+import { RunSettingsChip } from '../board/RunSettingsChip'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
 import { PausedChip, PhaseChip, PrLink, QueuedChip } from '../board/TicketCard'
 import { showError } from '../notify'
@@ -20,6 +21,7 @@ import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
 import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
+import { runSettingsEditable } from './RunSettingsSection'
 import { SkipModal } from './SkipModal'
 
 const HEADER_HEIGHT = 48
@@ -61,6 +63,7 @@ export function TicketView(): ReactElement {
           <PausedChip state={ticket.state} />
           <QueuedChip state={ticket.state} />
           <HoldChip hold={ticket.hold} />
+          <RunSettingsChip ticket={ticket} />
           <StuckChip stuck={ticket.stuck} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" ml="auto">
@@ -317,7 +320,13 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               )}
             </Group>
           </Group>
-          <AdjustStartModal opened={adjusting && canStart} onClose={() => setAdjusting(false)} onStart={startRoles} lineup={ticket.kind} />
+          <AdjustStartModal
+            opened={adjusting && canStart}
+            onClose={() => setAdjusting(false)}
+            onStart={startRoles}
+            ticket={ticket}
+            canSave={runSettingsEditable(ticket)}
+          />
           <PromoteModal opened={promoting && canPromote} ticketId={ticket.id} onClose={() => setPromoting(false)} />
           <SkipModal
             opened={skipping && runOpen && activeRole !== undefined}

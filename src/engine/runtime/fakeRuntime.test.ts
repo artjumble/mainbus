@@ -346,6 +346,26 @@ describe('expectPrompt', () => {
   })
 })
 
+describe('expectModel', () => {
+  async function play(model: string, effort: 'low' | 'high'): Promise<AgentEvent[]> {
+    const script: FakeStep[] = [{ expectModel: { model: 'opus', effort: 'high' } }, { emit: { kind: 'message', text: 'ok' } }, { exit: 0 }]
+    const rt = new FakeRuntime(script)
+    const handle = await rt.start({ ...makeSpec().spec, model, effort })
+    const events: AgentEvent[] = []
+    for await (const e of rt.events(handle)) events.push(e)
+    return events
+  }
+
+  test('passes when the run was launched with the model and effort', async () => {
+    expect(await play('opus', 'high')).toEqual([{ kind: 'message', text: 'ok' }])
+  })
+
+  test('fails the run with an error when either differs', async () => {
+    expect(await play('sonnet', 'high')).toEqual([{ kind: 'error', message: 'The launch has model sonnet, effort high' }])
+    expect(await play('opus', 'low')).toEqual([{ kind: 'error', message: 'The launch has model opus, effort low' }])
+  })
+})
+
 describe('FakeRuntime: sessions kept across processes', () => {
   async function dir() {
     const fsm = await import('node:fs/promises')

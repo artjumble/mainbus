@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
 import type { Hold, StripRole, Ticket, TicketState, UsageState, Workspace } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
+import { applyRunSettings } from '../../shared/runSettings'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, openTestDb, testRole } from '../store/testDb'
@@ -36,7 +37,7 @@ const STATE: TicketState = {
 
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
-  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [] }
+  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [], runSettingsNotices: [] }
 }
 
 beforeEach(async () => {
@@ -52,7 +53,14 @@ beforeEach(async () => {
     repos,
     focused: async () => open,
     list: async () => (open ? [open] : []),
-    board: async (w) => (await repos.tickets.list(w.id)).map(boardTicket),
+    // The notices as the engine's board view works them out.
+    board: async (w) =>
+      Promise.all(
+        (await repos.tickets.list(w.id)).map(async (t) => ({
+          ...boardTicket(t),
+          runSettingsNotices: applyRunSettings(t.runSettings, await repos.lineups.get(w.id, t.kind)).notices
+        }))
+      ),
     usage: async () => usage
   })
   noWorkspace = () => (open = null)
@@ -175,6 +183,35 @@ describe('get_ticket', () => {
     expect(out).toContain('## Labels\n<ticket-data field="labels">auth</ticket-data>')
     expect(out).toContain('## Pull request\nhttps://github.com/o/r/pull/7')
     expect(out).toContain('## Latest run\n- Planner: handed off\n- Implementer: working (active)')
+  })
+
+  test('says when the user saved no run settings', async () => {
+    await ticket()
+    expect(await tools.getTicket({ number: 1 })).toContain("## Run settings (the user's)\nNone saved: the lineup's defaults.")
+  })
+
+  test("shows the run settings the user saved, their extra instructions as data, and what the lineup's changes dropped", async () => {
+    const t = await ticket()
+    const lineup = await repos.lineups.get(ws.id, 'change')
+    const id = (name: string) => lineup.find((r) => r.name === name)!.id
+    await repos.tickets.setRunSettings(t.id, {
+      excludedRoleIds: [id('Planner'), 'gone'],
+      roles: { [id('Implementer')]: { model: 'opus', effort: 'high' }, [id('Reviewer')]: { effort: 'low' } },
+      extraInstructions: 'Keep the diff small.',
+      roleNames: { gone: 'Tester' }
+    })
+    const out = await tools.getTicket({ number: t.number })
+    expect(out).toContain(
+      [
+        "## Run settings (the user's)",
+        'Roles that run, in order: Implementer, Reviewer. Keep exactly these roles when proposing a start.',
+        '- Implementer: model opus, effort high',
+        '- Reviewer: model (yours to choose), effort low',
+        "Extra instructions (the user's):",
+        '<ticket-data field="run-settings-extra">\nKeep the diff small.\n</ticket-data>',
+        'Notice: Tester is no longer in the lineup, so its saved setting was dropped.'
+      ].join('\n')
+    )
   })
 
   test("shows the orchestrator's summary under the agent heading, apart from the user's words", async () => {

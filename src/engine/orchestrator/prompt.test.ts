@@ -19,6 +19,12 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).not.toContain('Until proposals are available')
   })
 
+  test("says to keep the run settings the user saved when proposing a start", () => {
+    expect(prompt).toContain('the roles of its latest run and the run settings the user saved')
+    expect(prompt).toContain('If the ticket has run settings the user saved (get_ticket shows them), keep them')
+    expect(prompt).toContain('you only fill in what they left to you')
+  })
+
   test('explains that a drafted ticket gets the user\'s message as its intent, and its own drafting goes in the spec', () => {
     expect(prompt).toContain('mcp__mainbus__propose_create_tickets')
     expect(prompt).toContain("filled in by Mainbus with the user's request, verbatim; you can't set it")

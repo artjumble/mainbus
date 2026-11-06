@@ -99,6 +99,7 @@ describe('ticket repo', () => {
       prError: null,
       report: null,
       promotedFrom: null,
+      runSettings: null,
       createdAt: FIXED_NOW.toISOString(),
       updatedAt: FIXED_NOW.toISOString()
     })
@@ -288,6 +289,31 @@ describe('ticket repo', () => {
     expect(await repo.promotedTo(original.id)).toEqual(promoted)
     expect(await repo.promotedTo(promoted.id)).toBeNull()
     expect((await repo.get(promoted.id)).promotedFrom).toBe(original.id)
+  })
+
+  it('stores run settings, reads them back, and clears them', async () => {
+    const repo = createTicketRepo(db, now)
+    const t = await repo.create(input())
+    expect(t.runSettings).toBeNull()
+    const settings = {
+      excludedRoleIds: ['p'],
+      roles: { i: { model: 'opus', effort: 'high' as const } },
+      extraInstructions: 'Keep it small.',
+      roleNames: { p: 'Planner', i: 'Implementer' }
+    }
+    expect((await repo.setRunSettings(t.id, settings)).runSettings).toEqual(settings)
+    expect((await repo.get(t.id)).runSettings).toEqual(settings)
+    expect((await repo.list(workspaceId))[0]!.runSettings).toEqual(settings)
+    expect((await repo.setRunSettings(t.id, null)).runSettings).toBeNull()
+    await expect(repo.setRunSettings('missing', null)).rejects.toThrow(/ticket/i)
+  })
+
+  it("createPromoted doesn't copy the run settings: the lineup differs", async () => {
+    const repo = createTicketRepo(db, now)
+    const original = await repo.create(input({ kind: 'investigate' }))
+    const saved = await repo.setRunSettings(original.id, { excludedRoleIds: [], roles: {}, extraInstructions: 'x', roleNames: {} })
+    const promoted = await repo.createPromoted(saved, { title: 'Fix it', spec: 'Do X' })
+    expect(promoted.runSettings).toBeNull()
   })
 
   it('throws for an unknown ticket', async () => {

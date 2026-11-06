@@ -1,8 +1,9 @@
-import { Button, Center, Group, Loader, Modal, Stack } from '@mantine/core'
+import { Button, Center, Checkbox, Group, Loader, Modal, Stack } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import type { Lineup, StartOptions } from '../../../shared/domain'
-import { resolveModelEffort } from '../../../shared/models'
+import type { LineupRole, RunSettings, StartOptions, TicketKind } from '../../../shared/domain'
+import { choicesFromSettings, inputFromChoices } from '../../../shared/runSettings'
 import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { showError } from '../notify'
 import type { RoleChoice } from './RoleChoice'
 import { StartOverrideForm } from './StartOverrideForm'
@@ -12,39 +13,39 @@ interface Props {
   onClose: () => void
   /** Starts the ticket with these options; resolves true once it has started. */
   onStart: (opts: StartOptions) => Promise<boolean>
-  /** The ticket's kind: which lineup's roles to offer. */
-  lineup: Lineup
+  ticket: { id: string; kind: TicketKind; runSettings: RunSettings | null }
+  /** Whether the ticket's run settings may be saved from here: only while it is in Backlog or Ready. */
+  canSave: boolean
 }
 
 /**
  * "Adjust before starting": the Override form (the same one the orchestrator's start proposal opens) over the lineup's
- * roles, all ticked to begin with, each with its own model and effort (its setting, else Mainbus's default).
+ * roles, filled in from the ticket's run settings (else every role ticked, each with its setting or Mainbus's default).
+ * Changes apply to this start only, unless "Save as this ticket's run settings" is ticked.
  */
-export function AdjustStartModal({ opened, onClose, onStart, lineup }: Props): ReactElement {
+export function AdjustStartModal({ opened, onClose, onStart, ticket, canSave }: Props): ReactElement {
   return (
     <Modal opened={opened} onClose={onClose} title="Adjust before starting" size="lg">
-      {/* Mounted while open only, so every opening reads the lineup afresh with every role ticked. */}
-      {opened && <RolePicker onClose={onClose} onStart={onStart} lineup={lineup} />}
+      {/* Mounted while open only, so every opening reads the lineup and the run settings afresh. */}
+      {opened && <RolePicker onClose={onClose} onStart={onStart} ticket={ticket} canSave={canSave} />}
     </Modal>
   )
 }
 
-function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): ReactElement {
+function RolePicker({ onClose, onStart, ticket, canSave }: Omit<Props, 'opened'>): ReactElement {
+  const [lineup, setLineup] = useState<LineupRole[] | null>(null)
   const [roles, setRoles] = useState<RoleChoice[] | null>(null)
-  const [extra, setExtra] = useState('')
+  const [extra, setExtra] = useState(ticket.runSettings?.extraInstructions ?? '')
+  const [save, setSave] = useState(false)
   const [starting, setStarting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    invoke('lineup.get', kind).then(
-      (lineup) => {
+    invoke('lineup.get', ticket.kind).then(
+      (read) => {
         if (cancelled) return
-        setRoles(
-          lineup.map((role) => {
-            const { model, effort } = resolveModelEffort(role)
-            return { roleId: role.id, name: role.name, ticked: true, model, effort }
-          })
-        )
+        setLineup(read)
+        setRoles(choicesFromSettings(read, ticket.runSettings))
       },
       (err: unknown) => {
         if (cancelled) return
@@ -58,7 +59,7 @@ function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): 
     // Once per opening: a new onClose from the parent must not read the lineup again and reset the ticks.
   }, [])
 
-  if (!roles) {
+  if (!roles || !lineup) {
     return (
       <Center py="md">
         <Loader size="sm" />
@@ -71,6 +72,14 @@ function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): 
   async function start(): Promise<void> {
     setStarting(true)
     try {
+      if (save && canSave) {
+        try {
+          await asOwnChange(ticket.id, () => invoke('ticket.setRunSettings', ticket.id, inputFromChoices(roles!, lineup!, extra)))
+        } catch (err) {
+          showError(err, "Could not save the run settings, so the ticket wasn't started")
+          return
+        }
+      }
       // In lineup order, as the engine runs them.
       const opts: StartOptions = {
         roleIds: ticked.map((r) => r.roleId),
@@ -86,6 +95,9 @@ function RolePicker({ onClose, onStart, lineup: kind }: Omit<Props, 'opened'>): 
   return (
     <Stack gap="sm">
       <StartOverrideForm roles={roles} extraInstructions={extra} onRolesChange={setRoles} onExtraInstructionsChange={setExtra} />
+      {canSave && (
+        <Checkbox label="Save as this ticket's run settings" checked={save} onChange={(e) => setSave(e.currentTarget.checked)} />
+      )}
       <Group justify="flex-end" mt="xs">
         <Button variant="default" onClick={onClose}>
           Cancel

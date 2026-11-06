@@ -18,6 +18,7 @@ import {
 } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shared/events'
 import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
+import { applyRunSettings } from '../../shared/runSettings'
 import { clockTime } from '../../shared/waiting'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import type { WorktreeManager } from '../git/worktrees'
@@ -841,10 +842,15 @@ export class TicketRunner {
     if (latest && latest.endReason === null) {
       throw new Error('This ticket already has an agent; continue or stop it instead')
     }
-    const { workspaceId, kind } = await this.repos.tickets.get(ticketId)
+    const { workspaceId, kind, runSettings } = await this.repos.tickets.get(ticketId)
+    const lineup = await this.repos.lineups.get(workspaceId, kind)
+    // A start that chooses nothing itself (Start, Start again, unattended mode) uses the ticket's saved run settings.
+    if (opts?.roleIds === undefined && opts?.roles === undefined && opts?.extraInstructions === undefined) {
+      opts = applyRunSettings(runSettings, lineup).options
+    }
     // Copied into the ticket run, so editing the lineup later never changes this run. Each role's model and
     // effort are resolved now, so every launch of the run uses the same ones.
-    const picked = pickRoles(await this.repos.lineups.get(workspaceId, kind), opts?.roleIds)
+    const picked = pickRoles(lineup, opts?.roleIds)
     const { roles: chosen, extraInstructions } = checkStartOptions(picked, opts)
     const roles = picked.map((role) => {
       const { model, effort } = resolveModelEffort(role, { user: chosen[role.id] })
