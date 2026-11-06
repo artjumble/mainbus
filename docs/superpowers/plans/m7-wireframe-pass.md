@@ -39,6 +39,7 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 | B12 | missing | — | Unattended switch and the settings gear in the header | Kept: later tickets |
 | B13 | styling | Near-black primary buttons | Working-blue primary buttons | Kept: inside the §16 palette; changing it risks the contrast checks |
 | B14 | layout | Done is a full column like the others | Done a full column | Changed by ticket #61: Done is a 44 px strip with a vertical title and its count, and the other five columns share the width. It opens to a full column over Review, with a shadow, on hover, on focus and while a card is dragged over it, and closes a moment after. Closed, its cards are hidden and inert. The artboard e2e shoots it closed (`board.png`) and open (`board-done-expanded.png`) |
+| B15 | layout | Needs you is a full column like the others | Needs you a full column, saying "Nothing here" when empty | Changed by ticket #65: while no ticket is in it, Needs you is a 44 px strip like Done's, with its vertical title, a count of 0 and its orange tint, named "Needs you, no tickets"; the other full columns share the width. It opens to a full column as soon as a ticket arrives (a 150 ms width change, none with reduced motion) and collapses when the last one leaves. A search doesn't collapse it. It never opens on hover. Done still opens to one full column's width in both states. The artboard e2e shoots it collapsed (`board-needs-you-collapsed.png`) and open (`board.png`) |
 
 ## Ticket detail — `ticket-detail.png` · `Ticket detail (split view)@1x.png`
 

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, makeLineup, makeTicket, renderWithMantine, workspace } from '../test-utils'
-import { Board } from './Board'
+import { Board, gridStyle } from './Board'
 
 // Capture the drag handler so a test can call it the way dnd-kit would.
 let onDragEnd: (e: DragEndEvent) => void = () => {}
@@ -49,7 +49,7 @@ test('Board renders six columns in order with counts', () => {
   const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
   expect(headings).toEqual(['Backlog', 'Ready', 'In progress', 'Needs you', 'Review', 'Done'])
 
-  const counts = ['Backlog', 'Ready', 'In progress', 'Needs you', 'Review', 'Done'].map((name) =>
+  const counts = ['Backlog', 'Ready', 'In progress', 'Needs you, no tickets', 'Review', 'Done'].map((name) =>
     within(screen.getByRole('region', { name })).getByTestId('column-count').textContent
   )
   expect(counts).toEqual(['2', '1', '0', '0', '1', '0'])
@@ -408,7 +408,8 @@ describe('search', () => {
     expect(within(screen.getByRole('region', { name: 'Backlog' })).getByText('No matches')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Backlog' })).getByTestId('column-count')).toHaveTextContent('0')
     expect(within(screen.getByRole('region', { name: 'Ready' })).getByTestId('column-count')).toHaveTextContent('1')
-    expect(screen.getAllByText('No matches')).toHaveLength(5)
+    // Needs you, with no tickets at all, is a strip with no placeholder.
+    expect(screen.getAllByText('No matches')).toHaveLength(4)
   })
 
   test('the clear button and Escape reset the filter', async () => {
@@ -568,8 +569,8 @@ describe('the Done column', () => {
     expect(card).not.toBeVisible()
     expect(card.closest('[inert]')).not.toBeNull()
     expect(screen.queryByRole('button', { name: /Old work/ })).not.toBeInTheDocument()
-    // Tab out of Review lands on the strip itself, not on a card in it.
-    screen.getByRole('button', { name: `Move ticket #${review.number}` }).focus()
+    // Tab out of Review (its card's title is its last stop) lands on the strip itself, not on a card in it.
+    screen.getByRole('button', { name: /Look at me/ }).focus()
     await userEvent.tab()
     expect(done()).toHaveFocus()
   })
@@ -632,6 +633,108 @@ describe('the Done column', () => {
     await expectNoAxeViolations()
     act(() => done().focus())
     expect(expanded()).toBe('true')
+    await expectNoAxeViolations()
+  })
+})
+
+describe('the Needs you column', () => {
+  const strip = (): HTMLElement => screen.getByRole('region', { name: 'Needs you, no tickets' })
+  const full = (): HTMLElement => screen.getByRole('region', { name: 'Needs you' })
+  const board = (): HTMLElement => full().parentElement!
+  const waiting = (title: string): ReturnType<typeof makeTicket> =>
+    makeTicket({ title }, { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' })
+
+  const realMatchMedia = window.matchMedia
+  afterEach(() => {
+    window.matchMedia = realMatchMedia
+  })
+
+  test('is a strip while empty, with its heading, a count of 0 and no placeholder, and the grid gives it a strip track', () => {
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    expect(strip()).toHaveAttribute('data-collapsed')
+    expect(within(strip()).getByRole('heading', { level: 3, name: 'Needs you' })).toBeInTheDocument()
+    expect(within(strip()).getByTestId('column-count')).toHaveTextContent('0')
+    expect(within(strip()).queryByText('Nothing here')).not.toBeInTheDocument()
+    expect(strip().parentElement!.style.gridTemplateColumns).toBe(gridStyle(true).gridTemplateColumns)
+  })
+
+  test('opens to a full column when a ticket arrives, and collapses again when the last one leaves', () => {
+    const backlog = makeTicket({}, { column: 'backlog' })
+    showBoard(backlog)
+    renderWithMantine(<Board />)
+    expect(strip()).toBeInTheDocument()
+
+    const arriving = waiting('Which database?')
+    act(() => useMainbus.setState({ tickets: [backlog, arriving], recentlyChanged: { [arriving.id]: Date.now() } }))
+    expect(screen.queryByRole('region', { name: 'Needs you, no tickets' })).not.toBeInTheDocument()
+    // The arriving card has the usual recently-changed outline.
+    expect(full().querySelector('[data-recently-changed]')).not.toBeNull()
+    expect(full()).not.toHaveAttribute('data-collapsed')
+    expect(within(full()).getByText('Which database?')).toBeInTheDocument()
+    expect(within(full()).getByTestId('column-count')).toHaveTextContent('1')
+    expect(board().style.gridTemplateColumns).toBe(gridStyle(false).gridTemplateColumns)
+
+    act(() => useMainbus.setState({ tickets: [backlog] }))
+    expect(strip()).toHaveAttribute('data-collapsed')
+    expect(strip().parentElement!.style.gridTemplateColumns).toBe(gridStyle(true).gridTemplateColumns)
+  })
+
+  test('stays full while a search matches none of its tickets, saying No matches', async () => {
+    showBoard(waiting('Which database?'), makeTicket({ title: 'Add docs' }, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search tickets' }), 'docs')
+    expect(full()).not.toHaveAttribute('data-collapsed')
+    expect(within(full()).getByText('No matches')).toBeInTheDocument()
+    expect(within(full()).getByTestId('column-count')).toHaveTextContent('0')
+  })
+
+  test.each([true, false])('with Needs you collapsed %s, Done opens to exactly one full column', (collapsed) => {
+    const style = gridStyle(collapsed) as Record<string, string>
+    const fullTracks = (style['gridTemplateColumns']!.match(/minmax\(120px, 1fr\)/g) ?? []).length
+    const strips = 6 - fullTracks
+    expect(fullTracks).toBe(collapsed ? 4 : 5)
+    // Evaluated for a 1440 px board with 12 px gaps and the 44 px strip.
+    const [width, gap, stripWidth] = [1440, 12, 44]
+    const expr = style['--column-width']!
+      .replace(/^max\(120px, calc\((.*)\)\)$/, '$1')
+      .replaceAll('100cqw', String(width))
+      .replaceAll('var(--strip)', String(stripWidth))
+      .replaceAll('var(--mantine-spacing-sm)', String(gap))
+    expect(expr).toMatch(/^[\d\s()*/+-]+$/)
+    const doneOpen = Number(new Function(`return ${expr}`)())
+    // Each full track's share of what the strips and the gaps leave.
+    expect(doneOpen).toBeCloseTo((width - strips * stripWidth - 5 * gap) / fullTracks)
+    expect(style['--strip']).toBe(`${stripWidth}px`)
+  })
+
+  test.each([
+    [false, /grid-template-columns 150ms/],
+    [true, /^none$/]
+  ])('with reduced motion %s, the width change is %s', (reduce, transition) => {
+    window.matchMedia = ((query: string) => ({
+      matches: reduce && query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+      onchange: null
+    })) as unknown as typeof window.matchMedia
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    expect(strip().parentElement!.style.transition).toMatch(transition)
+  })
+
+  test('has no axe violations, as a strip or full', async () => {
+    const backlog = makeTicket({}, { column: 'backlog' })
+    showBoard(backlog)
+    renderWithMantine(<Board />)
+    expect(strip()).toBeInTheDocument()
+    await expectNoAxeViolations()
+    act(() => useMainbus.setState({ tickets: [backlog, waiting('Which database?')] }))
+    expect(full()).toBeInTheDocument()
     await expectNoAxeViolations()
   })
 })

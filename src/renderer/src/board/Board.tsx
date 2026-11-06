@@ -92,22 +92,36 @@ export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, cu
   return { x: next.left + 8, y: next.top + 48 }
 }
 
-/** Done is a narrow strip at the right; the other five columns share the rest. */
-const DONE_STRIP = '44px'
+/** The width of a column shown as a narrow strip: Done always, Needs you while it has no tickets. */
+const STRIP = '44px'
+const FULL_TRACK = 'minmax(120px, 1fr)'
+// Same shape as a full track, so the grid can animate between the two: the strip's flex share goes to the others.
+const STRIP_TRACK = `minmax(${STRIP}, 0fr)`
 
-const GRID_STYLE = {
-  display: 'grid',
-  gridTemplateColumns: `repeat(5, minmax(120px, 1fr)) ${DONE_STRIP}`,
-  gap: 'var(--mantine-spacing-sm)',
-  overflowX: 'auto',
-  alignItems: 'start',
-  // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
-  position: 'relative',
-  // So 100cqw is the board's width, and Done open is exactly as wide as one of the other columns' tracks.
-  containerType: 'inline-size',
-  '--done-strip': DONE_STRIP,
-  '--column-width': 'max(120px, calc((100cqw - var(--done-strip) - 5 * var(--mantine-spacing-sm)) / 5))'
-} as CSSProperties
+/**
+ * The board's grid: Done is a strip at the right, Needs you one too while it is empty, and the other full columns
+ * share the rest. `--column-width` is one full column's width, the width Done opens to.
+ */
+export function gridStyle(needsYouCollapsed: boolean): CSSProperties {
+  const full = needsYouCollapsed ? 4 : 5
+  const strips = COLUMNS.length - full
+  const tracks = COLUMNS.map((c) =>
+    c.id === 'done' ? STRIP : c.id === 'needs_you' && needsYouCollapsed ? STRIP_TRACK : FULL_TRACK
+  )
+  return {
+    display: 'grid',
+    gridTemplateColumns: tracks.join(' '),
+    gap: 'var(--mantine-spacing-sm)',
+    overflowX: 'auto',
+    alignItems: 'start',
+    // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
+    position: 'relative',
+    // So 100cqw is the board's width, and Done open is exactly as wide as one of the other columns' tracks.
+    containerType: 'inline-size',
+    '--strip': STRIP,
+    '--column-width': `max(120px, calc((100cqw - ${strips} * var(--strip) - ${COLUMNS.length - 1} * var(--mantine-spacing-sm)) / ${full}))`
+  } as CSSProperties
+}
 
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
@@ -180,6 +194,9 @@ export function Board(): ReactElement {
     const shown = tickets.filter((t) => matchesSearch(t, search))
     return new Map(COLUMNS.map((c) => [c.id, shown.filter((t) => (pendingMoves[t.id] ?? t.state.column) === c.id)]))
   }, [tickets, pendingMoves, search])
+  // Needs you is a strip while no ticket is in it; a search doesn't count, so the columns don't jump while typing.
+  const needsYouCollapsed = !tickets.some((t) => t.state.column === 'needs_you' && !(t.id in pendingMoves))
+  const reducedMotion = useReducedMotion()
   // The empty state's New ticket button is gone once the first ticket exists, so focus can have nowhere to return to
   // after the dialog closes: once the dialog is gone and focus is on nothing, send it to the header's button.
   const closeNewTicket = useCallback((): void => {
@@ -314,7 +331,7 @@ export function Board(): ReactElement {
       {empty ? (
         <Stack flex={1} gap="lg" mih={0}>
           {/* The columns the board will have, faint, with their names: no scrolling, they share the width. */}
-          <Box aria-hidden style={{ ...GRID_STYLE, gridTemplateColumns: `repeat(5, minmax(0, 1fr)) ${DONE_STRIP}`, overflowX: 'hidden' }}>
+          <Box aria-hidden style={{ ...gridStyle(false), gridTemplateColumns: `repeat(5, minmax(0, 1fr)) ${STRIP}`, overflowX: 'hidden' }}>
             {COLUMNS.map((c) => (
               <Paper key={c.id} radius="md" withBorder bd="1px dashed var(--mantine-color-default-border)" bg="transparent" p="xs" mih={180}>
                 <Text
@@ -353,22 +370,29 @@ export function Board(): ReactElement {
           autoScroll={autoScroll}
           accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
-          <Box ref={boardRef} style={GRID_STYLE}>
+          <Box
+            ref={boardRef}
+            style={{
+              ...gridStyle(needsYouCollapsed),
+              transition: reducedMotion ? 'none' : 'grid-template-columns 150ms ease'
+            }}
+          >
             {COLUMNS.map((c) => {
-              const Column = c.id === 'done' ? DoneColumn : BoardColumn
-              return (
-                <Column
-                  key={c.id}
-                  id={c.id}
-                  title={c.title}
-                  tickets={byColumn.get(c.id) ?? []}
-                  pendingMoves={pendingMoves}
-                  recentlyChanged={recentlyChanged}
-                  filtering={filtering}
-                  onOpen={openTicket}
-                  onMove={onMove}
-                  onPropose={onPropose}
-                />
+              const props: ColumnProps = {
+                id: c.id,
+                title: c.title,
+                tickets: byColumn.get(c.id) ?? [],
+                pendingMoves,
+                recentlyChanged,
+                filtering,
+                onOpen: openTicket,
+                onMove,
+                onPropose
+              }
+              return c.id === 'done' ? (
+                <DoneColumn key={c.id} {...props} />
+              ) : (
+                <BoardColumn key={c.id} {...props} collapsed={c.id === 'needs_you' && needsYouCollapsed} />
               )
             })}
           </Box>
@@ -402,10 +426,39 @@ const BoardColumn = memo(function BoardColumn({
   filtering,
   onOpen,
   onMove,
-  onPropose
-}: ColumnProps): ReactElement {
+  onPropose,
+  collapsed = false
+}: ColumnProps & {
+  /** Needs you with no tickets: a narrow strip with its title and count, like Done's, that never opens. */
+  collapsed?: boolean
+}): ReactElement {
   const { setNodeRef, isOver } = useDroppable({ id, disabled: !isManual(id) && id !== 'in_progress' })
   const headingId = `column-${id}`
+  if (collapsed) {
+    return (
+      <Paper
+        ref={setNodeRef}
+        component="section"
+        aria-label={`${title}, no tickets`}
+        data-collapsed
+        p="xs"
+        radius="md"
+        withBorder
+        bg="needs.0"
+        mih={160}
+        style={{ alignSelf: 'stretch', overflow: 'hidden', minWidth: 0 }}
+      >
+        <Stack align="center" gap="xs">
+          <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
+            0
+          </Text>
+          <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId} style={{ writingMode: 'vertical-rl' }}>
+            {title}
+          </Title>
+        </Stack>
+      </Paper>
+    )
+  }
   return (
     <Paper
       ref={setNodeRef}
@@ -504,8 +557,8 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
 
   const style: CSSProperties = {
     // The track stays as wide as the strip; open, the negative margin makes it grow to the left, over Review.
-    width: open ? 'var(--column-width)' : 'var(--done-strip)',
-    marginLeft: open ? 'calc(var(--done-strip) - var(--column-width))' : 0,
+    width: open ? 'var(--column-width)' : 'var(--strip)',
+    marginLeft: open ? 'calc(var(--strip) - var(--column-width))' : 0,
     alignSelf: 'stretch',
     position: 'relative',
     zIndex: 2,
