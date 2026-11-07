@@ -14,6 +14,10 @@ export const workspaces = sqliteTable(
     slug: text('slug').notNull(),
     /** Push the branch and open a pull request when a ticket reaches Review. */
     openPrOnReview: integer('open_pr_on_review', { mode: 'boolean' }).notNull().default(false),
+    /** "Save investigation reports in the repo": Mainbus commits an Investigate ticket's report on its branch. */
+    saveReports: integer('save_reports', { mode: 'boolean' }).notNull().default(true),
+    /** The folder, relative to the repo, that investigation reports are saved in. */
+    reportsFolder: text('reports_folder').notNull().default('docs/investigations'),
     /** Unattended mode is on for this workspace; remembered across a restart. */
     unattendedOn: integer('unattended_on', { mode: 'boolean' }).notNull().default(false),
     /** Set when the workspace was removed from Mainbus. The row stays so its tickets, history and proposal cards remain intact. */
@@ -68,6 +72,12 @@ export const tickets = sqliteTable(
     prError: text('pr_error'),
     /** The markdown report an Investigate ticket's last role submitted; on a Change ticket, the report it was promoted from. */
     report: text('report'),
+    /** The repo-relative path the report is saved at on the ticket's branch; kept once chosen, so a resubmission overwrites it. */
+    reportFile: text('report_file'),
+    /** The commit that saved the report's latest version; null until one does, or while the latest save failed. */
+    reportCommit: text('report_commit'),
+    /** Why the latest save of the report to the repo failed; null once one succeeds. */
+    reportFileError: text('report_file_error'),
     /** The Investigate ticket this Change ticket was promoted from. */
     promotedFrom: text('promoted_from'),
     /** "Ask the orchestrator to start an agent once it's in Ready": set at creation, cleared when the start is proposed. */

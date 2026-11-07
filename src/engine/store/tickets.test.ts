@@ -76,6 +76,19 @@ describe('ticket repo', () => {
     expect(await repo.get(t.id)).toMatchObject({ report: '# Findings' })
   })
 
+  it("records the report's file: its path, then the commit or why the save failed", async () => {
+    const repo = createTicketRepo(db, now)
+    const t = await repo.create({ ...input(), kind: 'investigate' })
+    const path = 'docs/investigations/2026-11-06-1-x.md'
+    expect(await repo.setReportFile(t.id, { path, commit: null, error: 'git commit failed' })).toMatchObject({
+      reportFile: path,
+      reportCommit: null,
+      reportFileError: 'git commit failed'
+    })
+    await repo.setReportFile(t.id, { path, commit: 'abc123', error: null })
+    expect(await repo.get(t.id)).toMatchObject({ reportFile: path, reportCommit: 'abc123', reportFileError: null })
+  })
+
   it('creates a ticket with its criteria unchecked and in order', async () => {
     const repo = createTicketRepo(db, now)
     const t = await repo.create(input({ column: 'ready' }))
@@ -98,6 +111,9 @@ describe('ticket repo', () => {
       pr: null,
       prError: null,
       report: null,
+      reportFile: null,
+      reportCommit: null,
+      reportFileError: null,
       promotedFrom: null,
       runSettings: null,
       createdAt: FIXED_NOW.toISOString(),

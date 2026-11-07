@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import type { Workspace } from '../../shared/domain'
 import { NO_WORKSPACE, resolveTargetWorkspace } from './workspaceRef'
 
-const ws = (id: string, name: string): Workspace => ({ id, name, slug: name, repoPath: `/${name}`, baseBranch: 'main', openPrOnReview: false })
+const ws = (id: string, name: string): Workspace => ({ id, name, slug: name, repoPath: `/${name}`, baseBranch: 'main', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations' })
 const mainbus = ws('w1', 'mainbus')
 const website = ws('w2', 'website')
 

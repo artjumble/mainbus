@@ -136,6 +136,15 @@ async function folderText(worktreePath: string | null): Promise<string> {
   return `${oneLine(worktreePath)}${there ? '' : ' (no longer there)'}`
 }
 
+/** Where Mainbus saved an Investigate ticket's report in the repo, with the commit, or why the latest save failed. */
+function reportFileText(t: BoardTicket): string {
+  const file = t.reportFile === null ? 'the report' : `${oneLine(t.reportFile)}, relative to the repository,`
+  const where = `${file} on the branch ${oneLine(t.branch ?? 'none')}`
+  if (t.reportCommit !== null) return `Saved as ${where}, in commit ${t.reportCommit}.`
+  const why = t.reportFileError ? `: ${data('report-file-error', clip(t.reportFileError, MESSAGE_MAX))}` : ''
+  return `Not saved: the latest save of ${where} failed${why}\nThe report itself is kept on the ticket; the user can retry with "Save report to repo".`
+}
+
 function labels(t: BoardTicket): string {
   return t.labels.length ? data('labels', oneLine(t.labels.join(', ')), true) : 'none'
 }
@@ -233,6 +242,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
       return `${oneLine(e.from)} handed the ticket back to ${oneLine(e.to)}`
     case 'criterion_checked':
       return `${role} checked criterion ${e.index}: ${data('criterion', clip(oneLine(e.text), MESSAGE_MAX), true)}`
+    case 'report_file':
+      return `Mainbus saved the report as ${oneLine(e.path)} and committed it on ${oneLine(e.branch)} (${e.commit.slice(0, 7)})`
     case 'pull_request':
       return `Mainbus pushed ${oneLine(e.branch)}${e.opened ? ' and opened' : ' for'} pull request #${e.number}: ${oneLine(e.url)}`
     default:
@@ -362,6 +373,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         `## Latest run\n${roles}`,
         `## Run settings (the user's)\n${runSettingsText(t, await deps.repos.lineups.get(found.ws.id, t.kind))}`,
         ...(t.kind === 'investigate' ? [`## Report\n${t.report ? data('report', t.report) : 'None yet.'}`] : []),
+        ...(t.kind === 'investigate' && (t.reportFile !== null || t.reportFileError !== null) ? [`## Report file\n${reportFileText(t)}`] : []),
         ...(t.kind === 'change' && t.report ? [`## Investigation report\n${data('report', t.report)}`] : [])
       ]
       return sections.join('\n\n')

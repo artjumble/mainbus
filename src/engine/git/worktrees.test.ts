@@ -46,7 +46,7 @@ beforeEach(async () => {
   closeDb = testDb.cleanup
   cleanups = createCleanupRepo(testDb.db, () => FIXED_NOW)
   manager = new WorktreeManager(runGit, paths, cleanups)
-  ws = { id: 'ws-1', name: 'My repo', repoPath, baseBranch: 'main', slug: 'my-repo', openPrOnReview: false }
+  ws = { id: 'ws-1', name: 'My repo', repoPath, baseBranch: 'main', slug: 'my-repo', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations' }
 })
 
 afterEach(async () => {

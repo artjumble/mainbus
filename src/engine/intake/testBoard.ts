@@ -33,6 +33,9 @@ async function git(args: string[], cwd: string): Promise<void> {
 export async function makeRepo(dir: string): Promise<string> {
   await fs.mkdir(dir, { recursive: true })
   await git(['init', '-b', 'main'], dir)
+  // The repo's own identity, which commits Mainbus makes in it (an investigation's report) use, whatever the machine's is.
+  await git(['config', 'user.name', 'Test'], dir)
+  await git(['config', 'user.email', 'test@example.com'], dir)
   await fs.writeFile(path.join(dir, 'README.md'), 'hello\n')
   await git(['add', '.'], dir)
   await git(['commit', '-m', 'initial'], dir)

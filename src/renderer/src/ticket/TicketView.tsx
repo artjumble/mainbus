@@ -73,6 +73,7 @@ export function TicketView(): ReactElement {
             {ticket.state.summary}
           </Text>
         )}
+        {ticket.reportFileError !== null && ticket.state.column === 'review' && <ReportFileFailure ticket={ticket} />}
         {ticket.prError !== null && ticket.state.column === 'review' && <PrFailure ticket={ticket} />}
         <StuckEvidence stuck={ticket.stuck} />
       </Stack>
@@ -103,6 +104,34 @@ function PrFailure({ ticket }: { ticket: BoardTicket }): ReactElement {
         <Text size="sm">{`Couldn't open a PR: ${ticket.prError}`}</Text>
         <Button size="compact-sm" variant="default" loading={retrying} onClick={() => void retry()}>
           Retry
+        </Button>
+      </Group>
+    </Alert>
+  )
+}
+
+/** Why Mainbus couldn't save the report as a file in the repo (the report itself is kept), with a retry. */
+function ReportFileFailure({ ticket }: { ticket: BoardTicket }): ReactElement {
+  const [saving, setSaving] = useState(false)
+
+  async function retry(): Promise<void> {
+    setSaving(true)
+    try {
+      // A new failure comes back on the ticket, through the board; a refusal comes back here.
+      await invoke('ticket.saveReport', ticket.id)
+    } catch (err) {
+      showError(err, "Couldn't save the report to the repo")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Alert color="needs" variant="light" p="xs" mt={4}>
+      <Group gap="sm" wrap="nowrap" justify="space-between">
+        <Text size="sm">{`Couldn't save the report to the repo: ${ticket.reportFileError?.replace(/\.$/, '')}. The report is kept on the ticket.`}</Text>
+        <Button size="compact-sm" variant="default" loading={saving} onClick={() => void retry()} style={{ flexShrink: 0 }}>
+          Save report to repo
         </Button>
       </Group>
     </Alert>

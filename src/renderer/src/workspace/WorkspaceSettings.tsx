@@ -7,6 +7,7 @@ import { ConnectAgents } from './ConnectAgents'
 import { GeneralSettings } from './GeneralSettings'
 import { LineupSettings } from './LineupSettings'
 import { PullRequestSettings } from './PullRequestSettings'
+import { ReportSettings } from './ReportSettings'
 
 interface Props {
   opened: boolean
@@ -55,6 +56,8 @@ export function WorkspaceSettings({ opened, onClose }: Props): ReactElement {
         <LineupSettings opened={opened} />
 
         <PullRequestSettings opened={opened} />
+
+        <ReportSettings opened={opened} />
 
         <Stack gap="sm">
           <Title order={3} size="h4">

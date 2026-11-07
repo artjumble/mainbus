@@ -240,6 +240,24 @@ test('a push says whether it opened the PR, and links to it', () => {
   }
 })
 
+test("the report's file in the repo shows under the report, with its commit", () => {
+  const commit = 'abcdef0123456789abcdef0123456789abcdef01'
+  const { container } = renderWithMantine(
+    <Thread
+      events={[
+        ev({ kind: 'report', markdown: '# Findings' }),
+        ev({ kind: 'report_file', path: 'docs/investigations/2026-11-06-4-why.md', commit, branch: 'mainbus/4-why' })
+      ]}
+      decisions={[]}
+    />
+  )
+  const rows = [...container.querySelectorAll('[data-event]')].map((el) => el.getAttribute('data-event'))
+  expect(rows).toEqual(['report', 'report_file'])
+  expect(container.querySelector('[data-event="report_file"]')).toHaveTextContent(
+    'Saved as docs/investigations/2026-11-06-4-why.md in commit abcdef0 on mainbus/4-why'
+  )
+})
+
 test('partial messages are replaced by the final message, not duplicated', () => {
   const partial = (text: string): StoredEvent => makeEvent({ kind: 'message', text, partial: true }, { seq: 0 })
   const stream = [partial('Hel'), partial('Hello'), ev({ kind: 'message', text: 'Hello world' })]

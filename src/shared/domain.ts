@@ -98,6 +98,38 @@ export interface Workspace {
   slug: string
   /** Push the ticket's branch and open a pull request when it reaches Review. Off unless the user turns it on. */
   openPrOnReview: boolean
+  /** "Save investigation reports in the repo": Mainbus commits an Investigate ticket's report on its branch. On unless the user turns it off. */
+  saveReports: boolean
+  /** The folder, relative to the repo, investigation reports are saved in (see reportsFolderProblem). */
+  reportsFolder: string
+}
+
+/** The two settings of saving investigation reports in the repo; either can be left out. */
+export interface ReportSettingsInput {
+  saveReports?: boolean
+  reportsFolder?: string
+}
+
+export const REPORTS_FOLDER_DEFAULT = 'docs/investigations'
+
+/**
+ * The reports folder as Mainbus stores it (forward slashes, no `.` segments, no trailing slash), or why it is refused:
+ * it must be a relative path that stays inside the repo, and outside `.git`.
+ */
+export function checkReportsFolder(input: string): { ok: true; folder: string } | { ok: false; reason: string } {
+  const text = input.trim().replace(/\\/g, '/')
+  if (text === '') return { ok: false, reason: 'Give a folder inside the repository, such as docs/investigations' }
+  if (text.startsWith('/') || /^[A-Za-z]:/.test(text)) {
+    return { ok: false, reason: 'The folder must be relative to the repository, such as docs/investigations, not a full path' }
+  }
+  // Control characters and the ones Windows refuses in a file name.
+  if (/[\u0000-\u001f<>:"|?*]/.test(text)) return { ok: false, reason: 'The folder has a character a folder name can\'t have' }
+  const segments = text.split('/').filter((s) => s !== '' && s !== '.')
+  if (segments.includes('..')) return { ok: false, reason: 'The folder must stay inside the repository: ".." leaves it' }
+  if (segments.some((s) => s.toLowerCase() === '.git')) return { ok: false, reason: "The folder can't be inside .git" }
+  if (segments.some((s) => /[ .]$/.test(s))) return { ok: false, reason: "A folder name can't end with a space or a dot" }
+  if (segments.length === 0) return { ok: false, reason: 'Give a folder inside the repository, such as docs/investigations' }
+  return { ok: true, folder: segments.join('/') }
 }
 
 /** A workspace's lineups: Change tickets run the Change lineup, Investigate tickets the Investigate one. */
@@ -190,6 +222,15 @@ export interface Ticket {
   prError: string | null
   /** The markdown report an Investigate ticket's last role submitted; null until then. On a Change ticket, the investigation report it was promoted from. */
   report: string | null
+  /**
+   * Where Mainbus saves an Investigate ticket's report on its branch: the repo-relative path, chosen at the first save
+   * and kept, so a resubmitted report overwrites it. Null until a save is tried (or on any other ticket).
+   */
+  reportFile: string | null
+  /** The commit that saved the report's latest version; null until one does, or while the latest save failed. */
+  reportCommit: string | null
+  /** Why the latest save of the report to the repo failed; null once one succeeds. The report itself is kept either way. */
+  reportFileError: string | null
   /** The id of the Investigate ticket this Change ticket was promoted from; null for any other ticket. */
   promotedFrom: string | null
   /** The run settings the user saved for the ticket's starts; null means the lineup's defaults. */

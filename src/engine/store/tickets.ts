@@ -41,6 +41,8 @@ export interface TicketRepo {
   promotedTo(id: string): Promise<Ticket | null>
   /** Saves the report an Investigate ticket's last role submitted. */
   setReport(id: string, markdown: string): Promise<Ticket>
+  /** Records the latest save of the report to the repo: the file's path, and the commit or why it failed. */
+  setReportFile(id: string, saved: { path: string | null; commit: string | null; error: string | null }): Promise<Ticket>
   /**
    * Ticks the criterion at `position` (never unticks). Returns it with `wasChecked` (whether it was already
    * ticked), or null when the ticket has no criterion there.
@@ -67,6 +69,9 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     pr: row.prUrl !== null && row.prNumber !== null ? { url: row.prUrl, number: row.prNumber } : null,
     prError: row.prError,
     report: row.report,
+    reportFile: row.reportFile,
+    reportCommit: row.reportCommit,
+    reportFileError: row.reportFileError,
     promotedFrom: row.promotedFrom,
     runSettings: row.runSettings === null ? null : (JSON.parse(row.runSettings) as RunSettings),
     createdAt: row.createdAt,
@@ -295,6 +300,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
 
     async setReport(id, markdown) {
       await patchRow(id, { report: markdown })
+      return get(id)
+    },
+
+    async setReportFile(id, saved) {
+      await patchRow(id, { reportFile: saved.path, reportCommit: saved.commit, reportFileError: saved.error })
       return get(id)
     },
 

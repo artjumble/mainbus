@@ -402,6 +402,38 @@ test("a PR failure shows the reason in Review, and Retry runs it again", async (
   expect(mockInvoke).toHaveBeenCalledWith('ticket.openPr', ticket.id)
 })
 
+test('a report that could not be saved to the repo says why in Review, keeps the report, and "Save report to repo" retries it', async () => {
+  const ticket = makeTicket(
+    { kind: 'investigate', report: '# Findings', reportFile: 'docs/investigations/x.md', reportFileError: 'git commit failed: no identity.' },
+    { column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' }
+  )
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  renderWithMantine(<TicketView />)
+  expect(
+    screen.getByText("Couldn't save the report to the repo: git commit failed: no identity. The report is kept on the ticket.")
+  ).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Save report to repo' }))
+  expect(mockInvoke).toHaveBeenCalledWith('ticket.saveReport', ticket.id)
+})
+
+test('a refused "Save report to repo" says why, and the notice is gone outside Review', async () => {
+  const ticket = makeTicket({ kind: 'investigate', report: '# R', reportFileError: 'disk full' }, { column: 'review', agentStatus: 'handed_off' })
+  useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'thread.get') return thread
+    if (command === 'ticket.saveReport') throw new Error('Turn on "Save investigation reports in the repo" in the workspace settings first')
+    return undefined
+  })
+  const { unmount } = renderWithMantine(<TicketView />)
+  await userEvent.click(screen.getByRole('button', { name: 'Save report to repo' }))
+  expect(await screen.findByText(/Turn on "Save investigation reports in the repo"/)).toBeInTheDocument()
+  unmount()
+
+  useMainbus.setState({ tickets: [{ ...ticket, state: { ...ticket.state, column: 'done', phase: 'done' } }] })
+  renderWithMantine(<TicketView />)
+  expect(screen.queryByRole('button', { name: 'Save report to repo' })).not.toBeInTheDocument()
+})
+
 test('a refused Retry says why', async () => {
   const ticket = makeTicket({ prError: 'gh is not signed in' }, { column: 'review', agentStatus: 'handed_off' })
   useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })

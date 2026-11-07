@@ -22,6 +22,9 @@ const INVESTIGATOR: FakeStep[] = [
   { emit: { kind: 'turn_end', ok: true } }
 ]
 const ORCHESTRATOR: FakeStep[] = [{ emit: { kind: 'session', sessionId: 's' } }, { waitForSend: true }]
+/** The spec's line naming the investigation's report file in the repo. */
+const fileLine = (t: { reportFile: string | null; branch: string | null }) =>
+  `\n\nThe investigation's report is saved in the repo as \`${t.reportFile}\` on the branch \`${t.branch}\`.`
 
 let tmp: string
 let repoPath: string
@@ -51,6 +54,8 @@ async function setup(summary?: FakeSummary, promoteSummaryTimeoutMs?: number) {
     const t = await engine.invoke('ticket.create', { title, intent: 'Find out why login is slow', spec: '', criteria: [], labels: ['perf'], column: 'ready', kind: 'investigate' })
     await engine.invoke('agent.start', t.id)
     await vi.waitFor(async () => expect((await find(t.id)).state.column).toBe('review'))
+    // Mainbus commits the report's file just after.
+    await vi.waitFor(async () => expect((await find(t.id)).reportCommit).not.toBeNull(), { timeout: 15_000 })
     return find(t.id)
   }
   await engine.invoke('orchestrator.send', 'Look at the investigation')
@@ -64,7 +69,7 @@ describe('ticket.draftPromotion', () => {
   test('drafts the spec from the report through the summary call, and starts from the ticket title', async () => {
     const s = await setup()
     const t = await s.investigate()
-    expect(await s.engine.invoke('ticket.draftPromotion', t.id)).toEqual({ title: 'Why is login slow', spec: FAKE_SUMMARY, drafted: true })
+    expect(await s.engine.invoke('ticket.draftPromotion', t.id)).toEqual({ title: 'Why is login slow', spec: FAKE_SUMMARY + fileLine(t), drafted: true })
     expect(s.runtime.summaries).toHaveLength(1)
     expect(s.runtime.summaries[0]!.prompt).toContain(REPORT)
     expect(s.runtime.summaries[0]!.cwd.startsWith(paths.scratch)).toBe(true)
@@ -79,7 +84,7 @@ describe('ticket.draftPromotion', () => {
     const t = await s.investigate()
     expect(await s.engine.invoke('ticket.draftPromotion', t.id)).toEqual({
       title: 'Why is login slow',
-      spec: `## From the investigation\n\n${REPORT}`,
+      spec: `## From the investigation\n\n${REPORT}${fileLine(t)}`,
       drafted: false
     })
   })
@@ -91,7 +96,16 @@ describe('ticket.promote', () => {
     const t = await s.investigate()
     const created = await s.engine.invoke('ticket.promote', t.id, { title: 'Speed up login', spec: 'Cache the lookup.' })
 
-    expect(created).toMatchObject({ kind: 'change', title: 'Speed up login', spec: 'Cache the lookup.', report: REPORT, promotedFrom: t.id, manualColumn: 'ready', labels: ['perf'] })
+    expect(t.reportFile).toMatch(/^docs\/investigations\/\d{4}-\d{2}-\d{2}-1-why-is-login-slow\.md$/)
+    expect(created).toMatchObject({
+      kind: 'change',
+      title: 'Speed up login',
+      spec: `Cache the lookup.${fileLine(t)}`,
+      report: REPORT,
+      promotedFrom: t.id,
+      manualColumn: 'ready',
+      labels: ['perf']
+    })
     expect(created.intent).toEqual(t.intent)
     const after = await s.board()
     const newOne = after.find((x) => x.id === created.id)!
@@ -150,12 +164,14 @@ describe('propose_promote', () => {
     const t = await s.investigate()
     expect(await s.tools.proposePromote({ ticket: t.number })).toMatch(/Proposed/)
     const [p] = await s.proposals()
-    expect(p).toMatchObject({ kind: 'promote', status: 'pending', payload: { ticketId: t.id, title: 'Why is login slow', spec: FAKE_SUMMARY, specSource: 'summary' } })
+    const spec = FAKE_SUMMARY + fileLine(t)
+    expect(p).toMatchObject({ kind: 'promote', status: 'pending', payload: { ticketId: t.id, title: 'Why is login slow', spec, specSource: 'summary' } })
 
     const done = await s.engine.invoke('proposal.confirm', p!.id)
     expect(done).toMatchObject({ status: 'confirmed' })
     const created = (await s.board()).find((x) => x.promotedFrom === t.id)!
-    expect(created).toMatchObject({ kind: 'change', title: 'Why is login slow', spec: FAKE_SUMMARY, report: REPORT })
+    // Named once, not twice: the drafted spec already has it.
+    expect(created).toMatchObject({ kind: 'change', title: 'Why is login slow', spec, report: REPORT })
     expect(created.state.column).toBe('ready')
     expect((await s.find(t.id)).state.column).toBe('done')
     expect(done.result).toMatchObject({ ticketId: created.id, number: created.number, fromTicketId: t.id, fromNumber: t.number })
@@ -169,7 +185,8 @@ describe('propose_promote', () => {
     expect(p!.payload).toMatchObject({ title: 'Speed up login', spec: 'Cache the lookup.', specSource: 'orchestrator' })
     expect(s.runtime.summaries).toHaveLength(0)
     await s.engine.invoke('proposal.confirm', p!.id, { title: 'Cache logins', spec: 'Edited spec.' })
-    expect((await s.board()).find((x) => x.promotedFrom === t.id)).toMatchObject({ title: 'Cache logins', spec: 'Edited spec.' })
+    // Whatever spec is confirmed names the report's file.
+    expect((await s.board()).find((x) => x.promotedFrom === t.id)).toMatchObject({ title: 'Cache logins', spec: `Edited spec.${fileLine(t)}` })
   })
 
   test('falls back to the report when the summary fails', async () => {
@@ -177,7 +194,7 @@ describe('propose_promote', () => {
     const t = await s.investigate()
     await s.tools.proposePromote({ ticket: t.number })
     const [p] = await s.proposals()
-    expect(p!.payload).toMatchObject({ spec: `## From the investigation\n\n${REPORT}`, specSource: 'report' })
+    expect(p!.payload).toMatchObject({ spec: `## From the investigation\n\n${REPORT}${fileLine(t)}`, specSource: 'report' })
   })
 
   test('is refused for a Change ticket, one without a report and an unknown ticket', async () => {

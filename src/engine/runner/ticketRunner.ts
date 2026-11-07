@@ -21,6 +21,14 @@ import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModel
 import { applyRunSettings } from '../../shared/runSettings'
 import { clockTime } from '../../shared/waiting'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
+import {
+  investigationTitle,
+  reportDate,
+  reportFilePath,
+  reportFileText,
+  type SaveReportInput,
+  type SaveReportResult
+} from '../git/reportFiles'
 import type { WorktreeManager } from '../git/worktrees'
 import { endedNotice, type ProcessRef, type ProcessSweeper } from '../processes/sweep'
 import { credentialReason } from '../permissions/credentials'
@@ -85,6 +93,11 @@ export interface RunnerDeps {
    * Mainbus runs it itself, after the handoff: it never goes through the agent's permissions.
    */
   pullRequests?: { publish(input: PublishInput): Promise<PublishResult> }
+  /**
+   * Writes an Investigate ticket's report into its worktree and commits it on its branch, when the workspace asks for
+   * that. Mainbus runs it itself, after submit_report; the agent stays read-only. Without it no report is saved as a file.
+   */
+  reportFiles?: { save(input: SaveReportInput): Promise<SaveReportResult> }
   /** How long a skipped role's summary call may take before the digest is used instead (tests shorten it). */
   summaryTimeoutMs?: number
   /**
@@ -136,7 +149,12 @@ const NOT_INVESTIGATE =
 const NOT_LAST_ROLE =
   'Not submitted: only the last role of an Investigate lineup submits a report. When your part is finished, call mcp__mainbus__handoff.'
 const EMPTY_REPORT = 'Not submitted: the report is empty. Write up what you found and call mcp__mainbus__submit_report again.'
-const NEVER_PUBLISHED = 'Investigate tickets never push or open a pull request'
+const REPORT_NOT_SAVED = "The report isn't saved in the repo yet, so there is nothing to push: save it to the repo first"
+const REPORT_SAVE_FAILED = "Couldn't save the report to the repo"
+const REPORTS_OFF = 'Turn on "Save investigation reports in the repo" in the workspace settings first'
+const NO_REPORT = 'This ticket has no report to save'
+const REPORT_NOT_IN_REVIEW = 'Only an Investigate ticket in Review can save its report to the repo'
+const REPORT_NO_BRANCH = 'This ticket has no branch to save its report on'
 const RUN_ENDED = 'This run has ended.'
 const REDIRECT_STALE = 'The agent is no longer stuck in that episode, or it was already redirected'
 const NOT_WORKING = 'No agent is working on this ticket'
@@ -635,6 +653,14 @@ export class TicketRunner {
    */
   openPr(ticketId: string): Promise<void> {
     return this.serial(ticketId, () => this.publishNow(ticketId, true))
+  }
+
+  /**
+   * "Save report to repo": writes and commits an Investigate ticket's report again, after a failure, then pushes and
+   * opens its PR when the workspace asks for that. The user's retry only: the agent intake has no way to it.
+   */
+  saveReport(ticketId: string): Promise<void> {
+    return this.serial(ticketId, () => this.saveReportNow(ticketId, true))
   }
 
   moveToDone(ticketId: string): Promise<'done' | 'dirty'> {
@@ -1364,10 +1390,11 @@ export class TicketRunner {
     const run = await this.repos.runs.latest(ticketId)
     const publisher = this.deps.pullRequests
     const { branch, worktreePath } = ticket
-    if (ticket.kind === 'investigate') return cannotPublish(retry, NEVER_PUBLISHED)
     if (!publisher || !workspace.openPrOnReview) return cannotPublish(retry, PR_SETTING_OFF)
     if (!run || run.endReason !== 'handoff' || ticket.manualColumn === 'done') return cannotPublish(retry, PR_NOT_IN_REVIEW)
     if (branch === null || worktreePath === null) return cannotPublish(retry, PR_NO_BRANCH)
+    // An investigation's branch holds nothing but its report's commits: until one is saved there is nothing to push.
+    if (ticket.kind === 'investigate' && ticket.reportCommit === null) return cannotPublish(retry, REPORT_NOT_SAVED)
 
     const events = await this.repos.runs.events(run.id)
     const handoff = events.findLast((e) => e.event.kind === 'handoff')?.event
@@ -1387,6 +1414,49 @@ export class TicketRunner {
     } else {
       await this.repos.tickets.setPrError(ticketId, result.reason)
       await this.record(target, { kind: 'notice', text: `${PR_FAILED}: ${result.reason}` })
+    }
+  }
+
+  /**
+   * Saves an Investigate ticket's report as a file in its worktree and commits it on its branch, then pushes and opens
+   * the PR as publishNow does. The file's path is chosen once and kept, so a resubmitted report overwrites the same
+   * file in a new commit. A failure is recorded on the ticket and in its thread; the report itself stays on the ticket.
+   * `retry` is the user asking: then a ticket whose report can't be saved is an error rather than nothing to do.
+   */
+  private async saveReportNow(ticketId: string, retry: boolean): Promise<void> {
+    const ticket = await this.repos.tickets.get(ticketId)
+    const workspace = await this.workspaceOf(ticket)
+    const run = await this.repos.runs.latest(ticketId)
+    const saver = this.deps.reportFiles
+    const { branch, worktreePath, report } = ticket
+    if (ticket.kind !== 'investigate' || report === null) return cannotPublish(retry, NO_REPORT)
+    if (!saver || !workspace.saveReports) return cannotPublish(retry, REPORTS_OFF)
+    if (!run || run.endReason !== 'handoff' || ticket.manualColumn === 'done') return cannotPublish(retry, REPORT_NOT_IN_REVIEW)
+    if (branch === null || worktreePath === null) return cannotPublish(retry, REPORT_NO_BRANCH)
+
+    const date = reportDate(this.deps.now())
+    let relPath = ticket.reportFile
+    let result: SaveReportResult
+    try {
+      relPath ??= reportFilePath(workspace.reportsFolder, ticket, date)
+      result = await saver.save({
+        worktreePath,
+        relPath,
+        content: reportFileText(ticket, report, date),
+        message: investigationTitle(ticket)
+      })
+    } catch (err) {
+      result = { ok: false, reason: err instanceof Error ? err.message : String(err) }
+    }
+    const target = this.target(run, ticket)
+    if (result.ok && relPath !== null) {
+      await this.repos.tickets.setReportFile(ticketId, { path: relPath, commit: result.commit, error: null })
+      await this.record(target, { kind: 'report_file', path: relPath, commit: result.commit, branch })
+      await this.publishNow(ticketId, false)
+    } else {
+      const reason = result.ok ? 'there is no file to save it in' : result.reason
+      await this.repos.tickets.setReportFile(ticketId, { path: relPath, commit: null, error: reason })
+      await this.record(target, { kind: 'notice', text: `${REPORT_SAVE_FAILED}: ${reason}` })
     }
   }
 
@@ -1574,7 +1644,17 @@ export class TicketRunner {
       tempDir: worktree.scratch,
       ownBranch: worktree.branch,
       prompt,
-      appendSystemPrompt: buildRolePrompt(role, ticket, decisions, launch.handoffs, launch.extraInstructions, endsWithReport, attachments),
+      appendSystemPrompt: buildRolePrompt(
+        role,
+        ticket,
+        decisions,
+        launch.handoffs,
+        launch.extraInstructions,
+        endsWithReport,
+        attachments,
+        // Where Mainbus saves the report: the file already chosen, or the workspace's folder.
+        endsWithReport && this.deps.reportFiles && launch.workspace.saveReports ? (ticket.reportFile ?? `${launch.workspace.reportsFolder}/`) : null
+      ),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,
       toolProfile: role.toolProfile,
@@ -1923,7 +2003,9 @@ export class TicketRunner {
         await this.repos.tickets.setReport(target.ticketId, markdown)
         await this.record(target, { kind: 'report', markdown })
         await this.expirePending(target, (d) => d.kind === 'question' && d.agentRunId === target.runId)
-        // Investigate tickets never push or open a pull request, so unlike handoff there is no publish here.
+        // The ticket is in Review now; Mainbus commits the report's file, then pushes and opens the PR, in the
+        // ticket's queue, without holding up this reply.
+        void this.serial(target.ticketId, () => this.saveReportNow(target.ticketId, false)).catch(() => {})
         return REPORT_SUBMITTED
       },
 

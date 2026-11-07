@@ -132,6 +132,17 @@ describe('PullRequestPublisher', () => {
     )
   })
 
+  it('titles an Investigate ticket\'s PR "Investigation #<n>: <title>" and names its report file in the body', async () => {
+    const investigation = ticket({ kind: 'investigate', title: 'Why is login slow', criteria: [], reportFile: 'docs/investigations/2026-11-06-3-why.md' })
+    const result = await publisher().publish({ ticket: investigation, baseBranch: 'main', handoffSummary: null })
+    expect(result).toMatchObject({ ok: true, opened: true })
+    expect(gh.prs[0]).toMatchObject({ title: 'Investigation #3: Why is login slow', draft: false })
+    expect(gh.prs[0].body).toBe(
+      ['## In your words', 'Let people log in', '## Report', 'Saved as `docs/investigations/2026-11-06-3-why.md`.', '---', 'Mainbus ticket #3'].join('\n\n') +
+        '\n'
+    )
+  })
+
   it('only pushes when the ticket already has a PR, so the same PR is updated', async () => {
     const first = await publisher().publish({ ticket: ticket(), baseBranch: 'main', handoffSummary: null })
     if (!first.ok) throw new Error(first.reason)
