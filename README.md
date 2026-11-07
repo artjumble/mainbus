@@ -28,7 +28,7 @@ The name comes from the "main bus" pattern in Factorio: one central line that fe
   - one turn running over an hour;
   - an agent process that has ended.
 
-  An agent that is still changing files, has declared a wait, or has a command still running within its timeout isn't stuck. Each stuck episode raises one alert rather than a stream of them. Recovery goes up a ladder:
+  An agent that is still changing files, has declared a wait, or has a command still running within its timeout doesn't trip the no-progress or silence checks. Each stuck episode raises one alert rather than a stream of them. Recovery goes up a ladder:
   1. **Redirect:** one corrective message to the agent.
   2. **Replace:** a fresh agent for the same role, which starts from a generated summary of the previous run.
   3. **Failed:** after two replacements, the ticket comes to you.
@@ -225,8 +225,8 @@ npm test
 npm run e2e
 ```
 
-- **Unit tests** (Vitest, about 3,500 cases) cover the engine, the permission guard and shell parser, the stuck detector's rules, restart recovery, the concurrency queue, the CLI and intake protocol, and the React components, which are also checked with axe for accessibility. The SDK message normalizer is tested against messages recorded from real sessions during the spike.
-- **End-to-end tests** (Playwright for Electron) build the app and drive it against throwaway repositories and a temporary data home. A scripted fake agent runtime asks questions, requests permissions, hands off and loops on a failing command, so the full flow runs without calling a model. A fake clock moves time forward for holds, deferred decisions, usage-limit resets and the stuck detector. There are about 75 scenarios in all, and further ones cover the whole app: a keyboard-only run of the core flow, an axe pass over every screen, and the artboard tests, which reproduce each wireframe artboard and save screenshots to `test-results/artboards/`.
+- **Unit tests** (Vitest, about 5,500 cases) cover the engine, the permission guard and shell parser, the stuck detector's rules, restart recovery, the concurrency queue, the CLI and intake protocol, and the React components, which are also checked with axe for accessibility. The SDK message normalizer is tested against messages recorded from real sessions during the spike.
+- **End-to-end tests** (Playwright for Electron) build the app and drive it against throwaway repositories and a temporary data home. A scripted fake agent runtime asks questions, requests permissions, hands off and loops on a failing command, so the full flow runs without calling a model. A fake clock moves time forward for holds, deferred decisions, usage-limit resets and the stuck detector. There are about 80 scenarios in all, and further ones cover the whole app: a keyboard-only run of the core flow, an axe pass over every screen, and the artboard tests, which reproduce each wireframe artboard and save screenshots to `test-results/artboards/`.
 - **By hand:** [the M5 stuck-recovery scenario](docs/manual/m5-stuck-recovery-by-hand.md) runs the same detect, redirect and replace sequence against a real `claude` agent.
 
 ## Project layout
@@ -252,12 +252,14 @@ src/
   main/           Electron main process
     tray/         the tray, its close behaviour, notifications and the Start Menu shortcut
   preload/        the bridge between the renderer and the engine
-  renderer/       React UI built from Mantine components: board, ticket, thread, orchestrator, workspace, settings (Mainbus settings and themes) and attachments
+  renderer/       React UI built from Mantine components: board, ticket, thread, orchestrator, workspace, settings (Mainbus settings and themes), setup and attachments
   shared/         types and pure rules shared by the engine and the renderer
   cli/            the mainbus CLI and MCP server
 e2e/              Playwright end-to-end tests and fake-runtime scripts
-docs/             design, spike results, roadmap, plans, a [proposal for sharing tickets between computers](docs/superpowers/plans/2026-11-06-ticket-sharing-options.md) and manual test runs
+docs/             design, spike results, roadmap, plans, proposals and manual test runs
 ```
+
+One of the plans, [options for sharing tickets between computers](docs/superpowers/plans/2026-11-06-ticket-sharing-options.md), is a proposal, not work in progress.
 
 ## Acknowledgements
 
