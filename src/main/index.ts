@@ -23,7 +23,7 @@ import { agentLauncher } from './launcher'
 import { TrayController } from './tray/controller'
 import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenuShortcut, filePrefs, realTimer } from './tray/electron'
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
-import { testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
+import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
 import { WindowTheme } from './windowTheme'
 
 let mainWindow: BrowserWindow | null = null
@@ -121,6 +121,8 @@ function createWindow(): BrowserWindow {
       sandbox: true
     }
   })
+  // Opens maximized; 1280×800 is the size it restores to.
+  if (launchMaximizedFromEnv(process.env)) win.maximize()
 
   // With agents open, closing the window hides it to the tray instead. Electron can't wait for an async answer,
   // so the close is always held back and the tray controller then hides the window or quits.
