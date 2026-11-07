@@ -163,13 +163,13 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       px={6}
       radius="md"
       shadow="xs"
-      // Orange border when the person is needed; a dashed one when the agent failed.
+      // Orange border when the person is needed; a dashed one when the agent failed; otherwise one that shows on the lane.
       bd={
         state.agentStatus === 'failed'
           ? '1px dashed var(--mainbus-color-strong-border)'
           : state.column === 'needs_you'
             ? '1px solid var(--mantine-color-needs-6)'
-            : undefined
+            : '1px solid var(--mainbus-color-card-border)'
       }
       className={recent ? (reducedMotion ? classes.recentStill : classes.recent) : undefined}
       data-recently-changed={recent ? (reducedMotion ? 'still' : 'fade') : undefined}

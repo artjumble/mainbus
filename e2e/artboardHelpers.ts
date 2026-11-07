@@ -146,3 +146,57 @@ export async function openTicket(page: Page, title: string): Promise<void> {
 export async function backToBoard(page: Page): Promise<void> {
   await page.getByRole('button', { name: /board/ }).click()
 }
+
+export interface LaneLayout {
+  /** Each lane's top and bottom, and the board's, in the window. */
+  lanes: { top: number; bottom: number }[]
+  board: { top: number; bottom: number }
+  /** The bottom of the board area: the window's height, less the board's bottom padding. */
+  areaBottom: number
+  /** Every lane's top and bottom border widths, in px. */
+  laneBorders: number[]
+  /** Every card's top border width, in px. */
+  cardBorders: number[]
+}
+
+/** Measures the board's lanes (the empty board's placeholder lanes too), their borders and their cards'. */
+export function laneLayout(page: Page): Promise<LaneLayout> {
+  return page.evaluate(() => {
+    const lanes = Array.from(document.querySelectorAll<HTMLElement>('[data-lane]'))
+    const board = lanes[0]!.parentElement!
+    const root = board.closest<HTMLElement>('main > *') ?? board
+    const box = (el: Element): { top: number; bottom: number } => {
+      const r = el.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom }
+    }
+    return {
+      lanes: lanes.map(box),
+      board: box(board),
+      areaBottom: window.innerHeight - parseFloat(getComputedStyle(root).paddingBottom),
+      laneBorders: lanes.flatMap((l) => [parseFloat(getComputedStyle(l).borderTopWidth), parseFloat(getComputedStyle(l).borderBottomWidth)]),
+      cardBorders: lanes.flatMap((l) =>
+        Array.from(l.querySelectorAll('[data-card-title]')).map((t) =>
+          parseFloat(getComputedStyle(t.closest('.mantine-Paper-root')!).borderTopWidth)
+        )
+      )
+    }
+  })
+}
+
+/**
+ * Every lane runs the board's full height, and the board at least to the bottom of the window's board area; lanes
+ * have no top or bottom border, and cards keep theirs.
+ */
+export async function expectFullHeightLanes(page: Page): Promise<LaneLayout> {
+  const layout = await laneLayout(page)
+  expect(layout.lanes).toHaveLength(6)
+  for (const lane of layout.lanes) {
+    expect(lane.top).toBeCloseTo(layout.board.top, 0)
+    expect(lane.bottom).toBeCloseTo(layout.board.bottom, 0)
+  }
+  expect(layout.board.bottom).toBeGreaterThanOrEqual(layout.areaBottom - 1)
+  for (const w of layout.laneBorders) expect(w).toBe(0)
+  // 1 px, which the display's scaling can round down to a device pixel.
+  for (const w of layout.cardBorders) expect(w).toBeGreaterThan(0)
+  return layout
+}

@@ -122,6 +122,33 @@ describe('moving a card by keyboard', () => {
     expect(announced()).toMatch(/was dropped on Ready/)
   })
 
+  test('the lane a card is over is highlighted, over its fill, and goes back to the fill after', async () => {
+    const ticket = show()
+    layOutColumns()
+    renderWithMantine(<Board />)
+    const ready = screen.getByRole('region', { name: 'Ready' })
+    expect(ready.style.background).toContain('--mainbus-color-lane')
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}')
+    await vi.waitFor(() => expect(ready.style.background).toContain('--mantine-color-working-0'))
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(ready.style.background).toContain('--mainbus-color-lane'))
+  })
+
+  test('while a card is carried on a board whose columns fit, the board clips sideways instead of growing a scrollbar', async () => {
+    const ticket = show()
+    layOutColumns()
+    renderWithMantine(<Board />)
+    const board = screen.getByRole('region', { name: 'Ready' }).parentElement!
+    expect(board.style.overflowX).toBe('auto')
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(board.style.overflowX).toBe('hidden'))
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(board.style.overflowX).toBe('auto'))
+  })
+
   test('Arrow Right skips the columns that take no drops', async () => {
     const ticket = show()
     layOutColumns()

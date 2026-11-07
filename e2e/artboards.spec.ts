@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, type Page } from '@playwright/test'
-import { backToBoard, createTicket, makeRepo, openTicket, shot, withArtboard } from './artboardHelpers'
+import { backToBoard, createTicket, expectFullHeightLanes, makeRepo, openTicket, shot, withArtboard } from './artboardHelpers'
 
 /**
  * One test per wireframe artboard (docs/wireframes/): each builds the artboard's situation with FakeRuntime in a temporary
@@ -35,6 +35,8 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await expect(needsYouStrip).toHaveAttribute('data-collapsed', 'true')
     await expect(needsYouStrip.getByTestId('column-count')).toHaveText('0')
     expect((await needsYouStrip.boundingBox())!.width).toBeLessThan(60)
+    // Every lane, the strips too, is full height, a fill with no top or bottom border; the cards keep theirs.
+    await expectFullHeightLanes(page)
     await shot(page, 'board-needs-you-collapsed')
 
     // Starts, in this order: the nth Planner of the fixture does what its ticket needs.
@@ -87,9 +89,12 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await expect(column('Done')).toHaveAttribute('data-expanded', 'false')
     await expect(column('Done').getByTestId('column-count')).toHaveText('1')
     await expect(column('Done').getByText('Fix README links')).toBeHidden()
+    await expectFullHeightLanes(page)
     await shot(page, 'board')
     await column('Done').hover()
     await expect(column('Done').getByText('Fix README links')).toBeVisible()
+    // Open over Review, Done is as tall as the other lanes.
+    await expectFullHeightLanes(page)
     await shot(page, 'board-done-expanded')
     await page.mouse.move(0, 0)
     await expect(column('Done')).toHaveAttribute('data-expanded', 'false')
@@ -341,9 +346,15 @@ test('Empty states: an empty workspace, and a ticket nobody is working on', asyn
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask orchestrator to draft tickets' })).toBeVisible()
     await expect(page.getByText(/· just added$/)).toBeVisible()
-    // The six faint columns are all on screen, named, with no sideways scrolling.
+    // The six placeholder lanes are all on screen, named, with no sideways scrolling, full height, the message over them.
     await expect(page.getByText('Done', { exact: true })).toBeInViewport({ ratio: 1 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const { board } = await expectFullHeightLanes(page)
+    const message = (await page.getByRole('heading', { name: 'No tickets in web-app yet' }).boundingBox())!
+    expect(message.y).toBeGreaterThan(board.top)
+    expect(message.y + message.height).toBeLessThan(board.bottom)
+    // Nothing scrolls: the lanes fill the window and no more.
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= document.documentElement.clientHeight)).toBe(true)
     await shot(page, 'empty-workspace')
 
     // A ticket with no agent: the panel in place of the empty thread.

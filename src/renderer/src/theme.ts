@@ -49,8 +49,12 @@ export interface Palette {
   text: string
   /** Dimmed text, placeholders. */
   dimmed: string
-  /** Default borders: cards, panels, dividers. */
+  /** A board lane (column): a step away from the ground, so lanes read as fills and the cards on them stand out. */
+  lane: string
+  /** Default borders: panels, dividers, inputs. */
   border: string
+  /** A board card's border: 3:1 on the lane, so a card's edge shows against it. */
+  cardBorder: string
   /** A border that means something: the dashed border of a failed card. */
   strongBorder: string
   /** Links. */
@@ -153,7 +157,9 @@ const light: ThemeDef = {
     raised: grayLight[0],
     text: '#1F1F1F',
     dimmed: grayLight[6],
+    lane: '#EAEAE5',
     border: '#CFCFCA',
+    cardBorder: '#82827C',
     strongBorder: DEFAULT_THEME.colors.dark[6],
     anchor: workingLight[6],
     error: redLight[6]
@@ -255,7 +261,9 @@ const dark: ThemeDef = {
     raised: neutralDark[5],
     text: neutralDark[0],
     dimmed: neutralDark[2],
+    lane: '#252523',
     border: neutralDark[4],
+    cardBorder: '#74746D',
     strongBorder: neutralDark[2],
     anchor: workingDark[7],
     error: redDark[7]
@@ -285,7 +293,9 @@ const nightOwl: ThemeDef = {
     raised: '#1D3B53', // editor.selectionBackground
     text: '#D6DEEB', // editor.foreground
     dimmed: '#8CA6BC',
+    lane: '#04203A',
     border: '#122D42', // focusBorder
+    cardBorder: '#58789A',
     strongBorder: '#8CA6BC',
     anchor: '#82AAFF',
     error: '#F26B68'
@@ -326,7 +336,9 @@ const lightOwl: ThemeDef = {
     raised: '#D3E8F8', // list.hoverBackground
     text: '#403F53', // editor.foreground
     dimmed: '#495F6A',
+    lane: '#E6E6E6',
     border: '#D9D9D9', // input.border
+    cardBorder: '#7E7E7E',
     strongBorder: '#435761',
     anchor: '#2D5EC7',
     error: '#C12321'
@@ -430,6 +442,8 @@ function cssVariablesResolverOf(def: ThemeDef, scheme: ThemeScheme): CSSVariable
       '--mantine-color-anchor': p.anchor,
       '--mantine-color-error': p.error,
       '--mainbus-color-strong-border': p.strongBorder,
+      '--mainbus-color-lane': p.lane,
+      '--mainbus-color-card-border': p.cardBorder,
       // What Mantine gives a colour with autoContrast; unused while that is off, and kept as it was before themes.
       ...Object.fromEntries(
         NAMED_COLORS.filter((n) => n !== 'green').map((n) => [

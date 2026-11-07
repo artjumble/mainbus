@@ -113,7 +113,10 @@ export function gridStyle(needsYouCollapsed: boolean): CSSProperties {
     gridTemplateColumns: tracks.join(' '),
     gap: 'var(--mantine-spacing-sm)',
     overflowX: 'auto',
-    alignItems: 'start',
+    // The board fills the height left under the header, and each lane the board's: an empty lane is full height, and
+    // a drop anywhere in it lands in it. A lane with more cards makes the board taller, and the page scrolls.
+    flex: '1 0 auto',
+    alignItems: 'stretch',
     // The containing block of the columns' visually hidden text, so it scrolls with the board, not the page.
     position: 'relative',
     // So 100cqw is the board's width, and Done open is exactly as wide as one of the other columns' tracks.
@@ -122,6 +125,9 @@ export function gridStyle(needsYouCollapsed: boolean): CSSProperties {
     '--column-width': `max(120px, calc((100cqw - ${strips} * var(--strip) - ${COLUMNS.length - 1} * var(--mantine-spacing-sm)) / ${full}))`
   } as CSSProperties
 }
+
+/** A lane is a fill a step away from the ground, with no outline and square corners, unlike the cards on it. */
+const LANE = 'var(--mainbus-color-lane)'
 
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
@@ -263,12 +269,17 @@ export function Board(): ReactElement {
     () => ({ canScroll: (el: Element) => el !== boardRef.current || boardOverflows.current }),
     []
   )
+  // The same card, carried past the board's right edge, would also give the board a sideways scrollbar for the drag,
+  // and the scrollbar's height would come off every lane, Review's under Done too. While the columns fit, clip instead.
+  const [clipSideways, setClipSideways] = useState(false)
   function onDragStart(): void {
     const board = boardRef.current
     boardOverflows.current = board !== null && board.scrollWidth > board.clientWidth + 1
+    setClipSideways(!boardOverflows.current)
   }
 
   function onDragEnd({ active, over }: DragEndEvent): void {
+    setClipSideways(false)
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
     if (!ticket || target === null) return
@@ -277,7 +288,7 @@ export function Board(): ReactElement {
   }
 
   return (
-    <Stack gap="md" p="md" h="100%">
+    <Stack gap="md" p="md" style={{ flex: '1 0 auto' }}>
       <Group justify="space-between">
         <Stack gap={0}>
           <Title order={2}>{workspace?.name ?? 'Board'}</Title>
@@ -329,11 +340,11 @@ export function Board(): ReactElement {
       </Group>
 
       {empty ? (
-        <Stack flex={1} gap="lg" mih={0}>
-          {/* The columns the board will have, faint, with their names: no scrolling, they share the width. */}
+        <Box pos="relative" style={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column' }}>
+          {/* The lanes the board will have, full height, with their names: no scrolling, they share the width. */}
           <Box aria-hidden style={{ ...gridStyle(false), gridTemplateColumns: `repeat(5, minmax(0, 1fr)) ${STRIP}`, overflowX: 'hidden' }}>
             {COLUMNS.map((c) => (
-              <Paper key={c.id} radius="md" withBorder bd="1px dashed var(--mantine-color-default-border)" bg="transparent" p="xs" mih={180}>
+              <Paper key={c.id} data-lane radius={0} bg={LANE} p="xs">
                 <Text
                   size="xs"
                   fw={700}
@@ -347,26 +358,30 @@ export function Board(): ReactElement {
               </Paper>
             ))}
           </Box>
-          <Center>
-            <Stack align="center" gap="sm" maw={460} ta="center" p="md">
-              <Title order={3}>No tickets in {workspace?.name ?? 'this workspace'} yet</Title>
-              <Text c="dimmed">
-                Write one yourself, or have the orchestrator read the repo and draft a starter set for you to review.
-              </Text>
-              <Group gap="sm" justify="center">
-                <Button onClick={() => setCreating(true)}>New ticket</Button>
-                <Button variant="default" onClick={() => askOrchestrator(DRAFT_PREFILL)}>
-                  Ask orchestrator to draft tickets
-                </Button>
-              </Group>
-            </Stack>
+          {/* The message lies over the lanes, on a surface of its own. */}
+          <Center pos="absolute" inset={0} p="md">
+            <Paper withBorder shadow="sm" radius="md" maw={460} p="md">
+              <Stack align="center" gap="sm" ta="center">
+                <Title order={3}>No tickets in {workspace?.name ?? 'this workspace'} yet</Title>
+                <Text c="dimmed">
+                  Write one yourself, or have the orchestrator read the repo and draft a starter set for you to review.
+                </Text>
+                <Group gap="sm" justify="center">
+                  <Button onClick={() => setCreating(true)}>New ticket</Button>
+                  <Button variant="default" onClick={() => askOrchestrator(DRAFT_PREFILL)}>
+                    Ask orchestrator to draft tickets
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
           </Center>
-        </Stack>
+        </Box>
       ) : (
         <DndContext
           sensors={sensors}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
+          onDragCancel={() => setClipSideways(false)}
           autoScroll={autoScroll}
           accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
@@ -374,6 +389,7 @@ export function Board(): ReactElement {
             ref={boardRef}
             style={{
               ...gridStyle(needsYouCollapsed),
+              ...(clipSideways ? { overflowX: 'hidden' } : {}),
               transition: reducedMotion ? 'none' : 'grid-template-columns 150ms ease'
             }}
           >
@@ -441,12 +457,11 @@ const BoardColumn = memo(function BoardColumn({
         component="section"
         aria-label={`${title}, no tickets`}
         data-collapsed
+        data-lane
         p="xs"
-        radius="md"
-        withBorder
+        radius={0}
         bg="needs.0"
-        mih={160}
-        style={{ alignSelf: 'stretch', overflow: 'hidden', minWidth: 0 }}
+        style={{ overflow: 'hidden', minWidth: 0 }}
       >
         <Stack align="center" gap="xs">
           <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
@@ -464,11 +479,10 @@ const BoardColumn = memo(function BoardColumn({
       ref={setNodeRef}
       component="section"
       aria-labelledby={headingId}
+      data-lane
       p="xs"
-      radius="md"
-      withBorder
-      bg={isOver ? 'working.0' : id === 'needs_you' ? 'needs.0' : 'transparent'}
-      mih={160}
+      radius={0}
+      bg={isOver ? 'working.0' : id === 'needs_you' ? 'needs.0' : LANE}
     >
       <Group justify="space-between" mb="xs" px={4}>
         <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
@@ -559,12 +573,13 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
     // The track stays as wide as the strip; open, the negative margin makes it grow to the left, over Review.
     width: open ? 'var(--column-width)' : 'var(--strip)',
     marginLeft: open ? 'calc(var(--strip) - var(--column-width))' : 0,
-    alignSelf: 'stretch',
     position: 'relative',
     zIndex: 2,
     // Clipped while it widens or narrows; but a card dragged out of it is still its child, and must stay in sight.
     overflow: draggingFromHere ? 'visible' : 'hidden',
     boxShadow: open ? 'var(--mantine-shadow-md)' : undefined,
+    // Open, its edge over Review, a lane of the same fill, shows as a line too; never a top or bottom border.
+    borderLeft: open ? '1px solid var(--mainbus-color-card-border)' : undefined,
     transition: reducedMotion ? 'none' : 'width 150ms ease, margin-left 150ms ease'
   }
 
@@ -577,11 +592,11 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
       tabIndex={0}
       className="mantine-focus-auto"
       data-expanded={open}
+      data-lane
       p="xs"
-      radius="md"
-      withBorder
-      bg={isOver ? 'working.0' : 'var(--mantine-color-body)'}
-      mih={160}
+      radius={0}
+      // Opaque, so open it covers Review.
+      bg={isOver ? 'working.0' : LANE}
       style={style}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
