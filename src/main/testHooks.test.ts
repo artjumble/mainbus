@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import path from 'node:path'
-import { testClockStartFromEnv, testReposFromEnv as testRepoFromEnv, trayTestHookFromEnv } from './testHooks'
+import {
+  launchMaximizedFromEnv,
+  testClockStartFromEnv,
+  testReposFromEnv as testRepoFromEnv,
+  trayTestHookFromEnv
+} from './testHooks'
 
 const test_env = { MAINBUS_HOME: '/tmp/h', MAINBUS_RUNTIME: 'fake:e2e/script.json', MAINBUS_TEST_REPO: '/tmp/repo' }
 
@@ -60,5 +65,18 @@ describe('trayTestHookFromEnv', () => {
     expect(trayTestHookFromEnv({ ...test_env, MAINBUS_HOME: undefined })).toBe(false)
     expect(trayTestHookFromEnv({ ...test_env, MAINBUS_RUNTIME: undefined })).toBe(false)
     expect(trayTestHookFromEnv({ ...test_env, MAINBUS_RUNTIME: 'sdk' })).toBe(false)
+  })
+})
+
+describe('launchMaximizedFromEnv', () => {
+  test('is on for a normal launch, even with a stray MAINBUS_HOME or runtime', () => {
+    expect(launchMaximizedFromEnv({})).toBe(true)
+    expect(launchMaximizedFromEnv({ ...test_env, MAINBUS_HOME: undefined })).toBe(true)
+    expect(launchMaximizedFromEnv({ ...test_env, MAINBUS_RUNTIME: 'sdk' })).toBe(true)
+  })
+
+  test('is off in a scripted test run unless the test asks for it', () => {
+    expect(launchMaximizedFromEnv(test_env)).toBe(false)
+    expect(launchMaximizedFromEnv({ ...test_env, MAINBUS_TEST_MAXIMIZED: '1' })).toBe(true)
   })
 })
