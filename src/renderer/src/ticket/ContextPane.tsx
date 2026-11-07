@@ -7,6 +7,7 @@ import { describeEdit } from '../../../shared/ticketEdit'
 import { invoke } from '../api'
 import { AttachmentsSection } from '../attachments/Attachments'
 import { AgentBadge } from '../board/AgentBadge'
+import { BlockedByPicker } from './BlockedByPicker'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { PERMISSION_ANSWERS } from '../thread/PermissionCard'
@@ -34,6 +35,7 @@ export function ContextPane({ ticket, events, decisions, runs, onViewRun }: Prop
       <Section title="Attachments">
         <AttachmentsSection ticket={ticket} />
       </Section>
+      <BlockedBy ticket={ticket} />
       <Labels labels={ticket.labels} />
       <Branch branch={ticket.branch} />
       <Activity ticket={ticket} events={events} decisions={decisions} runs={runs} onViewRun={onViewRun} />
@@ -233,6 +235,30 @@ function Criteria({ ticket }: { ticket: BoardTicket }): ReactElement | null {
   )
 }
 
+/** The tickets that should be Done first; changed at any time, and saved as soon as it changes. */
+function BlockedBy({ ticket }: { ticket: BoardTicket }): ReactElement {
+  const saved = ticket.blockedBy.map((b) => b.id)
+  // What was picked while saving; null when the saved list shows.
+  const [picked, setPicked] = useState<string[] | null>(null)
+
+  async function change(ids: string[]): Promise<void> {
+    setPicked(ids)
+    try {
+      await invoke('ticket.setBlockedBy', ticket.id, ids)
+    } catch (err) {
+      showError(err, 'Could not change what blocks the ticket')
+    } finally {
+      setPicked(null)
+    }
+  }
+
+  return (
+    <Section title="Blocked by">
+      <BlockedByPicker ticketId={ticket.id} value={picked ?? saved} onChange={(ids) => void change(ids)} />
+    </Section>
+  )
+}
+
 function Labels({ labels }: { labels: string[] }): ReactElement | null {
   if (labels.length === 0) return null
   return (
@@ -365,6 +391,14 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
     const what = describeEdit(edit.fields, edit.userWords, 'your words')
     entries.push({ at: edit.at, title: `Edited by the orchestrator at your request: ${what}` })
     if (edit.undoneAt !== null) entries.push({ at: edit.undoneAt, title: 'Undone', detail: `The orchestrator's edit: ${what}` })
+  }
+  for (const note of ticket.dependencyNotes) {
+    const numbers = note.blockers.map((b) => `#${b.number}`).join(', ')
+    entries.push(
+      note.kind === 'unblocked'
+        ? { at: note.at, title: `Unblocked: ${numbers} ${note.blockers.length === 1 ? 'is' : 'are'} Done` }
+        : { at: note.at, title: `Started while blocked by ${numbers} (${note.via === 'proposal' ? 'you confirmed the start anyway' : 'you chose to start anyway'})` }
+    )
   }
   for (const d of decisions) {
     if (d.status !== 'answered' || !d.answeredAt || !d.answer) continue

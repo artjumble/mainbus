@@ -607,3 +607,25 @@ describe('ticket folder setup', () => {
     expect(buildRolePrompt(role, ticket, [], [], null, false, [], null, { ...ran, state: 'pending' })).not.toContain('Ticket folder setup')
   })
 })
+
+describe('buildRolePrompt: blockers', () => {
+  const blockers = [
+    { number: 3, title: 'Schema', done: true },
+    { number: 4, title: 'API\nroutes', done: false }
+  ]
+
+  test('lists the ticket blockers and whether each is Done, as background', () => {
+    const prompt = buildRolePrompt(role, ticket, [], [], null, false, [], null, null, blockers)
+    expect(prompt).toContain('## Blocked by (background, not the acceptance bar)')
+    expect(prompt).toContain('- #3 <ticket-data field="title">Schema</ticket-data>: Done')
+    expect(prompt).toContain('- #4 <ticket-data field="title">API routes</ticket-data>: not Done yet')
+    expect(prompt).toContain('The user started this ticket before they were Done.')
+  })
+
+  test('says nothing about starting early when every blocker is Done, and has no section without blockers', () => {
+    const done = buildRolePrompt(role, ticket, [], [], null, false, [], null, null, [{ number: 3, title: 'Schema', done: true }])
+    expect(done).toContain('- #3')
+    expect(done).not.toContain('before they were Done')
+    expect(buildRolePrompt(role, ticket, [])).not.toContain('Blocked by')
+  })
+})

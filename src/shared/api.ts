@@ -4,6 +4,8 @@ import type { Attachment } from './attachments'
 import type {
   AgentLauncher,
   AllowRule,
+  Blocker,
+  DependencyNote,
   AppSettings,
   CardVia,
   ClaudeSetup,
@@ -74,6 +76,10 @@ export type BoardTicket = Ticket & {
   runSettingsNotices: string[]
   /** The edits the orchestrator made to it at the user's request, oldest first (the ticket's Activity). */
   edits: TicketEditNote[]
+  /** The tickets that block it, by number; empty when none. */
+  blockedBy: Blocker[]
+  /** When it was unblocked, or started while blocked, oldest first (the ticket's Activity). */
+  dependencyNotes: DependencyNote[]
 }
 
 /** An image to attach to a ticket being created: its name as given and its bytes. */
@@ -168,6 +174,8 @@ export interface EngineCommands {
   /** The image as a data URL: the renderer's only way to an attachment's file. */
   'attachment.data'(id: string): string
   'ticket.update'(id: string, p: TicketPatch): Ticket
+  /** Replaces the ticket's blockers (ids of tickets in its workspace) at any time; a cycle or another workspace's ticket is refused. Only the renderer can reach it. */
+  'ticket.setBlockedBy'(id: string, blockerIds: string[]): Ticket
   'ticket.appendIntent'(id: string, text: string): Ticket
   /**
    * Puts every field the orchestrator's edit changed back as it was, and removes the intent entries that edit appended.

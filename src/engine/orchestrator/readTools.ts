@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
+import { openBlockers } from '../../shared/dependencies'
 import type { Column, Decision, LineupRole, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { ordinal } from '../../shared/queue'
@@ -80,6 +81,19 @@ function filedByAgent(t: BoardTicket): boolean {
 
 function title(t: BoardTicket): string {
   return `#${t.number} ${data('title', oneLine(t.title), true)}`
+}
+
+/** " · blocked by #39, #40 (not Done; don't propose starting it)" while a blocker isn't Done, else nothing. */
+function blockedText(t: BoardTicket): string {
+  const open = openBlockers(t.blockedBy)
+  if (open.length === 0) return ''
+  return ` · blocked by ${open.map((b) => `#${b.number}`).join(', ')} (not Done; don't propose starting it)`
+}
+
+/** The ticket's blockers, each with whether it is Done. */
+function blockersSection(t: BoardTicket): string {
+  if (t.blockedBy.length === 0) return 'None.'
+  return t.blockedBy.map((b) => `- #${b.number} ${data('blocker', oneLine(b.title), true)}: ${b.done ? 'Done' : 'not Done yet'}`).join('\n')
 }
 
 /** " · held until 2026-11-04" for a held ticket, else nothing. */
@@ -331,6 +345,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           queuedText(t) +
           limitText(t, usage) +
           heldText(t) +
+          blockedText(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
       )
       return `Tickets${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${lines.join('\n')}`
@@ -361,12 +376,13 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
             .join('\n')}`
         : 'None.'
       const sections = [
-        `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}`,
+        `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}${blockedText(t)}`,
         ...(promoted.length ? [promoted.join('\n')] : []),
         ...intentSections(t),
         t.spec ? `## Spec${byAgent}\n${data('spec', t.spec)}` : `## Spec\nNone.`,
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,
         `## Labels\n${labels(t)}`,
+        `## Blocked by\n${blockersSection(t)}`,
         `## Attachments\n${attached}`,
         `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,

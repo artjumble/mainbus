@@ -7,6 +7,7 @@ import { PendingImages } from '../attachments/Attachments'
 import { filesOf, readImages } from '../attachments/files'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
+import { BlockedByPicker } from '../ticket/BlockedByPicker'
 
 interface Props {
   opened: boolean
@@ -41,6 +42,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
   const [startWhenReady, setStartWhenReady] = useState(false)
   const [kind, setKind] = useState<TicketKind>('change')
   const [images, setImages] = useState<NewAttachment[]>([])
+  const [blockedBy, setBlockedBy] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
   const canCreate = title.trim() !== '' && intent.trim() !== ''
@@ -73,6 +75,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
         column,
         kind,
         ...(startWhenReady ? { startWhenReady } : {}),
+        ...(blockedBy.length > 0 ? { blockedBy } : {}),
         ...(images.length > 0 ? { attachments: images } : {})
       })
       setTitle('')
@@ -84,6 +87,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
       setStartWhenReady(false)
       setKind('change')
       setImages([])
+      setBlockedBy([])
       onClose()
       // The board also refreshes on board.changed; a failure here is not a failed create.
       void refreshBoard().catch((err) => showError(err, 'Could not refresh the board'))
@@ -143,6 +147,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             value={labels}
             onChange={(e) => setLabels(e.currentTarget.value)}
           />
+          <BlockedByPicker value={blockedBy} onChange={setBlockedBy} />
           <PendingImages
             images={images}
             onAdd={(files) => void addImages(files)}

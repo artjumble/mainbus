@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 import type { ImageRef } from '../../shared/attachments'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
-import type { StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Blocker, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -12,7 +12,11 @@ export class ProposalInvalid extends Error {
 }
 
 /** A ticket to create, with the ids of images the user sent the orchestrator to attach to it. */
-export type TicketToCreate = Omit<NewTicketInput, 'workspaceId'> & { images?: string[] }
+export type TicketToCreate = Omit<NewTicketInput, 'workspaceId' | 'blockedBy'> & {
+  images?: string[]
+  /** What blocks it: an existing ticket by id, or an earlier ticket of the same batch by its index. */
+  blockedBy?: ({ id: string } | { draft: number })[]
+}
 
 /** What carrying out a proposal may use of the engine. Later kinds add to it. */
 export interface ExecContext {
@@ -30,6 +34,8 @@ export interface ExecContext {
   /** The workspace's lineup of that kind (the one a ticket of that kind runs), in order. */
   lineup(workspaceId: string, lineup: Lineup): Promise<LineupRole[]>
   ticketByNumber(workspaceId: string, number: number): Promise<Ticket | null>
+  /** The ticket's blockers that aren't Done yet, in number order. */
+  openBlockers?(ticket: Ticket): Promise<Blocker[]>
   /** Why the ticket can't be started now (it is running, or not in Backlog or Ready), or null when it can. */
   whyNotStartable(ticket: Ticket): Promise<string | null>
   /** The same path as the ticket view's Start. */

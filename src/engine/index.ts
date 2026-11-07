@@ -17,6 +17,7 @@ import {
   type LineupRole,
   type NewTicketInput,
   type RunSettingsInput,
+  type StartOptions,
   type StuckEpisode,
   type Ticket,
   type TicketEdit,
@@ -42,7 +43,12 @@ import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import type { StuckReport } from './orchestrator/stuckBlock'
 import { OrchestratorImages } from './orchestrator/images'
 import { OrchestratorSession } from './orchestrator/session'
-import type { TicketToCreate } from './proposals/kind'
+import { ProposalInvalid, type TicketToCreate } from './proposals/kind'
+import type { BatchItem } from 'drizzle-orm/batch'
+import { insertDependencyStatements, replaceDependencyStatements } from './store/dependencies'
+import { checkBlockers } from './tickets/dependencies'
+import { notDoneYetText, openBlockers } from '../shared/dependencies'
+import type { UnblockedTicket } from './orchestrator/unblockedBlock'
 import { WakeScheduler } from './orchestrator/wakes'
 import type { OpenDecision, WakeItem } from './orchestrator/wakeDigest'
 import type { Wake, WakeKind } from './store/wakes'
@@ -307,6 +313,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           emit,
           limitedUntil: () => gate.limitedUntil(),
           held: () => holds.heldIds(),
+          blocked: () => repos.dependencies.blockedIds(ws.id),
           keepAwake,
           now,
           remember: (on) => repos.workspaces.setUnattendedOn(ws.id, on),
@@ -460,11 +467,29 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const prepared = inputs.some((i) => i.images?.length) ? await attachments.prepareForNew(ws, await imagesToAttach(inputs)) : null
       let tickets: Ticket[]
       try {
+        const known = new Set((await repos.tickets.list(ws.id)).map((t) => t.id))
+        inputs.forEach((input, i) => {
+          for (const b of input.blockedBy ?? []) {
+            if ('draft' in b ? b.draft < 0 || b.draft >= i : !known.has(b.id)) {
+              throw new ProposalInvalid(`A blocker of ticket ${i} isn't a ticket in ${ws.name} or an earlier ticket of this call`)
+            }
+          }
+        })
+        const at = now().toISOString()
         tickets = await repos.tickets.createMany(
-          inputs.map(({ images: _images, ...input }) => ({ ...input, workspaceId: ws.id })),
+          inputs.map(({ images: _images, blockedBy: _blockedBy, ...input }) => ({ ...input, workspaceId: ws.id })),
           (ids) => [
             ...(record ? [repos.proposals.ticketsResultStatement(record.proposalId, ids, record.column)] : []),
-            ...(prepared?.statements(ids) ?? [])
+            ...(prepared?.statements(ids) ?? []),
+            // The links go in the same batch: the tickets and their blockers are all or none.
+            ...inputs.flatMap((input, i) =>
+              insertDependencyStatements(
+                handle.db,
+                ids[i]!,
+                [...new Set((input.blockedBy ?? []).map((b) => ('draft' in b ? ids[b.draft]! : b.id)))],
+                at
+              )
+            )
           ]
         )
       } catch (err) {
@@ -478,7 +503,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return tickets
     }
     // The user's and the agents' own tickets: only the orchestrator's carry its images.
-    const createTicket = async (ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket> =>
+    const createTicket = async (ws: Workspace, input: Omit<TicketToCreate, 'images'>): Promise<Ticket> =>
       (await createTickets(ws, [{ ...input, images: undefined }]))[0]!
 
     /** Each ticket's images to attach: the files of the images the user sent the orchestrator, read and checked again. */
@@ -533,10 +558,42 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     /** The one way a ticket moves to Done: the ticket view's move, and a promotion's. 'dirty' leaves it where it was. */
     const moveTicketToDone = async (id: string): Promise<'moved' | 'dirty'> => {
       ;(await modeOfTicket(id))?.userMoved(id, 'done')
+      const wasDone = (await repos.tickets.get(id)).manualColumn === 'done'
       const moved = (await runner.moveToDone(id)) === 'done'
       // A Done ticket has nothing left to hold back.
       if (moved) await holds.unhold(id)
+      if (moved && !wasDone) await noteUnblocked(id)
       return moved ? 'moved' : 'dirty'
+    }
+    /** After a ticket reached Done: each ticket it was the last open blocker of is noted as unblocked (its Activity, the orchestrator's next turn). */
+    async function noteUnblocked(doneId: string): Promise<void> {
+      let any = false
+      let workspaceId: string | null = null
+      for (const dependentId of await repos.dependencies.dependentsOf(doneId)) {
+        const dependent = await repos.tickets.get(dependentId)
+        if (dependent.manualColumn === 'done') continue
+        const blockers = await repos.dependencies.blockersOf(dependentId)
+        if (blockers.length === 0 || openBlockers(blockers).length > 0) continue
+        await repos.dependencies.addNote(dependentId, { kind: 'unblocked', blockers: blockers.map((b) => ({ number: b.number, title: b.title })), via: null })
+        any = true
+        workspaceId = dependent.workspaceId
+      }
+      if (any && workspaceId) emit({ type: 'board.changed', workspaceId })
+    }
+    /**
+     * The one way a ticket is started by the user or a confirmed proposal. A ticket with blockers that aren't Done is refused
+     * unless `startAnyway`; starting anyway is recorded in its Activity. (Unattended mode skips blocked tickets and never gets here.)
+     */
+    const startChecked = async (ticketId: string, opts: StartOptions | undefined, via: 'ticket' | 'proposal'): Promise<void> => {
+      requireRuntime()
+      const { startAnyway, ...rest } = opts ?? {}
+      const open = openBlockers(await repos.dependencies.blockersOf(ticketId))
+      if (open.length > 0 && !startAnyway) throw new Error(`${notDoneYetText(open)}, so it can't start yet`)
+      await runner.start(ticketId, opts === undefined ? undefined : rest)
+      if (open.length > 0) {
+        await repos.dependencies.addNote(ticketId, { kind: 'started_blocked', blockers: open.map((b) => ({ number: b.number, title: b.title })), via })
+        emit({ type: 'board.changed', workspaceId: (await repos.tickets.get(ticketId)).workspaceId })
+      }
     }
     async function promoteTicket(ticketId: string, input: { title: string; spec: string }): Promise<Ticket> {
       // The renderer is untrusted: the same rules as any ticket's fields.
@@ -588,9 +645,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           if (column === 'backlog' || column === 'ready') return null
           return `#${ticket.number} is in ${COLUMNS[column]}; only Backlog or Ready tickets can be started`
         },
-        startTicket: (ticketId, opts) => {
-          requireRuntime()
-          return runner.start(ticketId, opts)
+        // A proposal the user confirmed over a blocker is a start anyway; startLineup checks that it said so.
+        startTicket: (ticketId, opts) => startChecked(ticketId, { ...opts, startAnyway: true }, 'proposal'),
+        async openBlockers(ticket) {
+          return openBlockers(await repos.dependencies.blockersOf(ticket.id))
         },
         async activeRole(ticket) {
           return runner.activeRole(ticket.id)
@@ -653,6 +711,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const stuckOf = await repos.stuck.openByTicket()
       const attached = await repos.attachments.listForWorkspace(ws.id)
       const edited = await repos.ticketEdits.listForWorkspace(ws.id)
+      const blockedBy = await repos.dependencies.forWorkspace(ws.id)
+      const dependencyNotes = await repos.dependencies.notesForWorkspace(ws.id)
       return Promise.all(
         tickets.map(async (t) => ({
           ...t,
@@ -660,6 +720,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           hold: holdOf.get(t.id) ?? null,
           stuck: stuckOf.get(t.id) ?? null,
           attachments: attached.filter((a) => a.ticketId === t.id),
+          blockedBy: blockedBy.get(t.id) ?? [],
+          dependencyNotes: dependencyNotes.get(t.id) ?? [],
           edits: edited
             .filter((e) => e.ticketId === t.id)
             .map(({ id, at, fields, intentAdded, undoneAt }) => ({ id, at, fields, userWords: intentAdded.length, undoneAt })),
@@ -678,6 +740,21 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const saved = await repos.tickets.setRunSettings(id, settings)
       emit({ type: 'board.changed', workspaceId: saved.workspaceId })
       return saved
+    }
+
+    /** The blockers for this ticket, checked against its workspace's tickets and links: their ids, or the reason they are refused. */
+    const checkedBlockers = async (ticket: Ticket, ids: string[]): Promise<string[] | string> => {
+      const checked = checkBlockers(ticket.id, ids, await repos.tickets.list(ticket.workspaceId), await repos.dependencies.edges(ticket.workspaceId))
+      return checked.ok ? checked.ids : checked.reason
+    }
+    const resolveBlockerNumbers = async (ws: Workspace, ticket: Ticket, numbers: number[]): Promise<string[] | string> => {
+      const ids: string[] = []
+      for (const n of numbers) {
+        const found = await repos.tickets.byNumber(ws.id, n)
+        if (!found) return `There is no ticket #${n} in ${ws.name}`
+        ids.push(found.id)
+      }
+      return checkedBlockers(ticket, ids)
     }
 
     /** Tickets being edited or having an edit undone, so two of them never overlap. */
@@ -711,8 +788,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return withEditGuard(ticket.id, async () => {
         const why = await whyNotEditableNow(ticket)
         if (why !== null) throw new Error(why)
-        const plan = planEdit(ticket, input)
+        const current = await repos.dependencies.blockersOf(ticket.id)
+        const plan = planEdit(ticket, input, current.map((b) => b.number))
+        // Checked before anything is written, so a refusal changes nothing.
+        let blockedBy: string[] | undefined
+        if (plan.after.blockedBy) {
+          const resolved = await resolveBlockerNumbers(ws, ticket, plan.after.blockedBy)
+          if (typeof resolved === 'string') throw new ProposalInvalid(resolved)
+          blockedBy = resolved
+        }
         const edit = await repos.ticketEdits.apply({
+          ...(blockedBy ? { blockedBy } : {}),
           ticketId: ticket.id,
           workspaceId: ws.id,
           orchestratorRunId: ctx.orchestratorRunId,
@@ -740,7 +826,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         if (latest !== null && latest.startedAt > edit.at) throw new Error(`Can't undo: #${edit.number} was started since this edit`)
         let undone: TicketEdit
         try {
-          undone = await repos.ticketEdits.undo(edit)
+          let blockedBy: string[] | undefined
+          if (edit.before.blockedBy) {
+            // A ticket that is gone is dropped; a loop it would now make refuses the Undo.
+            const found = await Promise.all(edit.before.blockedBy.map((n) => repos.tickets.byNumber(edit.workspaceId, n)))
+            const resolved = await checkedBlockers(ticket, found.filter((t): t is Ticket => t !== null).map((t) => t.id))
+            if (typeof resolved === 'string') throw new Error(`Can't undo: ${resolved}`)
+            blockedBy = resolved
+          }
+          undone = await repos.ticketEdits.undo(edit, blockedBy)
         } catch (err) {
           if (err instanceof EditChangedError) throw new Error(`Can't undo: ${err.message}`)
           throw err
@@ -869,6 +963,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           for (const a of await repos.decisions.answeredSince(ws.id, since)) answered.push({ ...a, workspace: ws.name })
         }
         return answered
+      },
+      ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
+      unblockedSince: async (since) => {
+        const unblocked: UnblockedTicket[] = []
+        for (const n of await repos.dependencies.unblockedSince(since)) {
+          const ticket = await repos.tickets.get(n.ticketId).catch(() => null)
+          const ws = ticket && (await repos.workspaces.get(ticket.workspaceId))
+          if (ticket && ws) unblocked.push({ number: ticket.number, title: ticket.title, workspace: ws.name, blockers: n.blockers })
+        }
+        return unblocked
       },
       releasedSince: async (since) => {
         const released: ReleasedHold[] = []
@@ -1013,8 +1117,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.create': async ({ attachments: files, ...input }, workspaceId) => {
         const ws = await requireWorkspace(workspaceId)
         const images = checkNewAttachments(files)
+        const blockerIds = input.blockedBy ?? []
+        if (blockerIds.length > 0) {
+          const known = await repos.tickets.list(ws.id)
+          const checked = checkBlockers(null, blockerIds, known, new Map())
+          if (!checked.ok) throw new Error(checked.reason)
+        }
         const ticket = await createTicket(ws, {
           ...input,
+          blockedBy: undefined,
+          ...(blockerIds.length > 0 ? { blockedBy: blockerIds.map((id) => ({ id })) } : {}),
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
           source: undefined,
           via: undefined,
@@ -1048,6 +1160,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ticket = await repos.tickets.update(id, patch)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
         return ticket
+      },
+      // Reached only through `invoke` (the renderer's IPC): the user edits blockers at any time, even when a run is open.
+      'ticket.setBlockedBy': async (id, blockerIds) => {
+        const ticket = await repos.tickets.get(id)
+        const checked = await checkedBlockers(ticket, blockerIds)
+        if (typeof checked === 'string') throw new Error(checked)
+        await handle.db.batch(replaceDependencyStatements(handle.db, id, checked, now().toISOString()) as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]])
+        emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+        return repos.tickets.get(id)
       },
       'ticket.appendIntent': async (id, text) => {
         const ticket = await repos.tickets.appendIntent(id, text)
@@ -1090,8 +1211,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       // The user starting a held ticket by hand releases its hold (once the start has gone through).
       'agent.start': async (ticketId, opts) => {
-        requireRuntime()
-        await runner.start(ticketId, opts)
+        await startChecked(ticketId, opts, 'ticket')
         await holds.unhold(ticketId)
       },
       'agent.send': (ticketId, text) => {
@@ -1189,7 +1309,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const intake = createIntakeHandler({
       workspaces: () => repos.workspaces.list(),
       ticketFolders: (ws) => ticketFoldersFor(cfg.paths, ws.slug),
-      createTicket,
+      createTicket: (ws, input) => createTicket(ws, { ...input, blockedBy: undefined }),
       tickets: boardTickets,
       ticket: boardTicket
     })

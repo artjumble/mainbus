@@ -20,6 +20,8 @@ export interface UnattendedDeps {
   tickets: () => Promise<Ticket[]>
   /** The ids of the held tickets: a held ticket in Ready is not started. */
   held?: () => Promise<Set<string>>
+  /** The ids of the blocked tickets (a blocker isn't Done): a blocked ticket in Ready is not started either. */
+  blocked?: () => Promise<Set<string>>
   /** Throws, with the reason for the user, when agents can't run (Claude Code not set up, no workspace). */
   checkCanRun: () => Promise<void>
   emit: (e: EngineEvent) => void
@@ -233,6 +235,7 @@ export class UnattendedMode {
   private async startNext(): Promise<void> {
     const tickets = [...(await this.deps.tickets())].sort((a, b) => a.number - b.number)
     const held = (await this.deps.held?.()) ?? new Set<string>()
+    const blocked = (await this.deps.blocked?.()) ?? new Set<string>()
     let next: Ticket | null = null
     let skippedReady = false
     for (const ticket of tickets) {
@@ -244,7 +247,7 @@ export class UnattendedMode {
         return
       }
       if (state.column !== 'ready') continue
-      if (this.setAside.has(ticket.id) || held.has(ticket.id)) continue
+      if (this.setAside.has(ticket.id) || held.has(ticket.id) || blocked.has(ticket.id)) continue
       if (this.skipped.has(ticket.id)) skippedReady = true
       else next ??= ticket
     }

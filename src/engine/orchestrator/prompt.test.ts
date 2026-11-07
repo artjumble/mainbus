@@ -41,7 +41,7 @@ describe('buildOrchestratorPrompt', () => {
   })
 
   test("lets the orchestrator edit tickets that have not started, and never the user's words", () => {
-    expect(prompt).toContain('mcp__mainbus__update_ticket(workspace, ticket, title?, spec?, criteria?, labels?, add_user_words?, request_messages_back?)')
+    expect(prompt).toContain('mcp__mainbus__update_ticket(workspace, ticket, title?, spec?, criteria?, labels?, blocked_by?, add_user_words?, request_messages_back?)')
     expect(prompt).toContain("you can edit its title, spec, criteria and labels with update_ticket")
     expect(prompt).toContain('## Editing tickets')
     expect(prompt).toContain('edit it with update_ticket rather than asking the user to do it by hand')

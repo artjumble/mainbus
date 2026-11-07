@@ -10,6 +10,7 @@ import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, T
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
+import { unblockedBlock, type UnblockedTicket } from './unblockedBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
 import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
@@ -116,10 +117,14 @@ export interface OrchestratorDeps {
   ) => Promise<{ edit: TicketEdit; title: string }>
   /** Every edit the orchestrator made, oldest first, for the thread's receipts. */
   edits: () => Promise<TicketEdit[]>
+  /** The ticket with this number in the workspace, or null; checks the blockers a draft names. */
+  ticketByNumber?: (workspaceId: string, number: number) => Promise<Ticket | null>
   /** The decisions the user answered since `since` in any workspace, for the start of a message. */
   answeredSince: (since: string | null) => Promise<AnsweredDecision[]>
   /** The tickets whose hold was released since `since` in any workspace, by hand, by a start or by their date. */
   releasedSince: (since: string | null) => Promise<ReleasedHold[]>
+  /** The tickets whose last open blocker reached Done since `since` in any workspace. */
+  unblockedSince?: (since: string | null) => Promise<UnblockedTicket[]>
   /** The decisions the user put off that came back on their date since `since`. */
   resurfacedSince: (since: string | null) => Promise<ResurfacedDecision[]>
   /** The stuck episodes opened or escalated since `since` that are still open. */
@@ -276,6 +281,7 @@ export class OrchestratorSession {
       await this.deps.proposals.outcomeBlock(since),
       answeredBlock(await this.deps.answeredSince(since)),
       releasedHoldsBlock(await this.deps.releasedSince(since)),
+      unblockedBlock((await this.deps.unblockedSince?.(since)) ?? []),
       resurfacedBlock(await this.deps.resurfacedSince(since)),
       stuckBlock(await this.deps.stuckSince(since))
     ].filter((b) => b !== null)
@@ -527,7 +533,7 @@ export class OrchestratorSession {
     if (!req.ok) return `Invalid: ${req.error}. Nothing was created; fix it and try again.`
     let made: Awaited<ReturnType<typeof createInBacklog>>
     try {
-      made = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder)
+      made = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder, this.deps.ticketByNumber ? (n) => this.deps.ticketByNumber!(target.ws.id, n) : undefined)
     } catch (err) {
       if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was created; fix it and try again.`
       // An image that can't be attached any more (its file gone or changed): still nothing was created.

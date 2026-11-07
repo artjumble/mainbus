@@ -313,3 +313,50 @@ describe('createInBacklog', () => {
     expect(c).not.toHaveBeenCalled()
   })
 })
+
+describe('create_tickets: blocked_by', () => {
+  const byNumber = async (n: number) => (n === 5 ? ({ id: 't5', number: 5 } as Ticket) : null)
+  const proposeWith = (input: unknown) =>
+    Promise.resolve(createTickets.propose(input, { userMessage: MESSAGE, workspaceId: ws.id }, { ticketByNumber: (_w: string, n: number) => byNumber(n) } as unknown as ExecContext))
+
+  test('keeps ticket numbers and draft indexes on the drafts', async () => {
+    const p = await proposeWith({ tickets: [{ title: 'A', blocked_by: [5] }, { title: 'B', blocked_by: [{ draft: 0 }, 5] }] })
+    expect(p.tickets.map((t) => t.blocked_by)).toEqual([[5], [{ draft: 0 }, 5]])
+  })
+
+  test('refuses an unknown ticket, and a draft index that is not an earlier draft', async () => {
+    await expect(proposeWith({ tickets: [{ title: 'A', blocked_by: [9] }] })).rejects.toThrow('tickets.0.blocked_by: there is no ticket #9')
+    expect(() => proposeWith({ tickets: [{ title: 'A', blocked_by: [{ draft: 0 }] }] })).toThrow("tickets.0.blocked_by: draft 0 isn't an earlier ticket")
+    expect(() => proposeWith({ tickets: [{ title: 'A' }, { title: 'B', blocked_by: [{ draft: 1 }] }] })).toThrow(ProposalInvalid)
+    expect(() => proposeWith({ tickets: [{ title: 'A', blocked_by: [{ draft: -1 }] }] })).toThrow(ProposalInvalid)
+  })
+
+  test('an override is checked for draft indexes too', async () => {
+    const stored = await proposeWith({ tickets: [{ title: 'A' }, { title: 'B', blocked_by: [{ draft: 0 }] }] })
+    const kept = createTickets.override!(stored, { tickets: [{ title: 'B', blocked_by: [5] }], column: 'backlog' })
+    expect(kept.tickets[0]!.blocked_by).toEqual([5])
+    expect(() => createTickets.override!(stored, { tickets: [{ title: 'B', blocked_by: [{ draft: 0 }] }], column: 'backlog' })).toThrow(ProposalInvalid)
+  })
+
+  test('creating passes ids and draft indexes to the engine', async () => {
+    const create = vi.fn(async (_ws: Workspace, inputs: { title: string }[]) => inputs.map((i, n) => ({ id: `n${n}`, number: n + 1, title: i.title }) as Ticket))
+    const p = await proposeWith({ tickets: [{ title: 'A', blocked_by: [5] }, { title: 'B', blocked_by: [{ draft: 0 }] }, { title: 'C' }] })
+    await createTickets.execute(
+      p,
+      { workspaceId: 'ws1', proposalId: 'p1' },
+      { workspace: async () => ws, createTickets: create, ticketByNumber: (_w: string, n: number) => byNumber(n), orchestratorFolder: '/o' } as unknown as ExecContext
+    )
+    const inputs = create.mock.calls[0]![1] as { blockedBy?: unknown }[]
+    expect(inputs.map((i) => i.blockedBy)).toEqual([[{ id: 't5' }], [{ draft: 0 }], undefined])
+  })
+
+  test('create_tickets resolves the same way, and creates nothing for a bad reference', async () => {
+    const create = vi.fn(async (_ws: Workspace, inputs: { title: string }[]) => inputs.map((i, n) => ({ id: `n${n}`, number: n + 1, title: i.title }) as Ticket))
+    const turn = { userMessage: MESSAGE }
+    await createInBacklog({ tickets: [{ title: 'A', blocked_by: [5] }, { title: 'B', blocked_by: [{ draft: 0 }] }] }, turn, ws, create, '/o', byNumber)
+    expect((create.mock.calls[0]![1] as { blockedBy?: unknown }[]).map((i) => i.blockedBy)).toEqual([[{ id: 't5' }], [{ draft: 0 }]])
+    create.mockClear()
+    await expect(createInBacklog({ tickets: [{ title: 'A', blocked_by: [9] }] }, turn, ws, create, '/o', byNumber)).rejects.toThrow('there is no ticket #9')
+    expect(create).not.toHaveBeenCalled()
+  })
+})

@@ -179,6 +179,14 @@ ${data('setup-output', setup.tail)}` : ''
 Mainbus ran the workspace's setup command ${command} in this folder before you started, but it failed (${why}). The user chose to start without setup, so the folder may not be ready; the last lines of its output:${output}`
 }
 
+/** The tickets this one is blocked by, as background; empty when it has none. */
+function blockersSection(blockers: { number: number; title: string; done: boolean }[]): string {
+  if (blockers.length === 0) return ''
+  const lines = blockers.map((b) => `- #${b.number} ${data('title', oneLine(b.title), true)}: ${b.done ? 'Done' : 'not Done yet'}`)
+  const early = blockers.some((b) => !b.done) ? '\nThe user started this ticket before they were Done.' : ''
+  return `## Blocked by (background, not the acceptance bar)\n${lines.join('\n')}${early}`
+}
+
 /** `extraInstructions` are the ones given when this ticket run was started, for every role in it. */
 export function buildRolePrompt(
   role: LineupRole,
@@ -193,7 +201,9 @@ export function buildRolePrompt(
   /** Where Mainbus saves the report as a file (a path, or a folder ending in "/"); null when it doesn't. */
   reportSavedAt: string | null = null,
   /** What the workspace's setup command did in the ticket's folder; null when none applies. */
-  setup: TicketSetup | null = null
+  setup: TicketSetup | null = null,
+  /** The tickets that block this one, with whether each is Done. */
+  blockers: { number: number; title: string; done: boolean }[] = []
 ): string {
   // Numbered by position, from 0, as check_criterion takes them.
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
@@ -219,6 +229,7 @@ export function buildRolePrompt(
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
     attachmentsSection(attachments),
     setupSection(setup),
+    blockersSection(blockers),
     extraInstructions ? `${EXTRA_INSTRUCTIONS_HEADING}\n${data('extra-instructions', extraInstructions)}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',
     handoffSection(handoffs)

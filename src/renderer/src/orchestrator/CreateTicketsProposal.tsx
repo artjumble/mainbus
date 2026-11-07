@@ -27,6 +27,8 @@ interface DraftEdit {
   kind?: TicketKind
   /** The images proposed for it, each ticked to attach it. */
   images: (ImageRef & { include: boolean })[]
+  /** What blocks it, as proposed: not editable here. A `draft` is the index of an earlier draft as proposed. */
+  blockedBy: (number | { draft: number })[]
 }
 
 export interface CreateTicketsEdit {
@@ -34,6 +36,12 @@ export interface CreateTicketsEdit {
   column: DraftColumn
   /** The orchestrator's summary, as it will be stored; empty means left out. */
   context: string
+}
+
+/** "Blocked by #39 and ticket 1 above": a number is an existing ticket, a draft index one of the proposed tickets. */
+function blockedText(blockedBy: DraftEdit['blockedBy']): string {
+  const parts = blockedBy.map((b) => (typeof b === 'number' ? `#${b}` : `ticket ${b.draft + 1} above`))
+  return `Blocked by ${parts.join(', ')}`
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -169,6 +177,11 @@ function Editor({
             <Text size="xs" c="dimmed" pl={28}>
               {detail(draft)}
             </Text>
+            {draft.blockedBy.length > 0 && (
+              <Text size="xs" c="dimmed" pl={28} data-draft-blocked-by>
+                {blockedText(draft.blockedBy)}
+              </Text>
+            )}
             {draft.images.length > 0 && (
               <Stack gap={4} pl={28} role="group" aria-label={`Images for ${draft.title || `draft ${i + 1}`}`} data-draft-images>
                 {/* One row per image: its thumbnail, and a tick to attach it, each a full-size target. */}
@@ -249,6 +262,15 @@ function Receipt({ result }: { result: CreateTicketsResult }): ReactElement {
   )
 }
 
+function blockers(blockedBy: DraftEdit['blockedBy'], position: Map<number, number>): (number | { draft: number })[] {
+  const kept: (number | { draft: number })[] = []
+  for (const b of blockedBy) {
+    if (typeof b === 'number') kept.push(b)
+    else if (position.has(b.draft)) kept.push({ draft: position.get(b.draft)! })
+  }
+  return kept
+}
+
 export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTicketsResult, CreateTicketsEdit> = {
   summary: (p) => `Create ${plural(p.tickets.length, 'ticket', 'tickets')} in ${COLUMN_NAMES[p.column]}`,
   heading: (p, workspaceName) =>
@@ -268,13 +290,19 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
       criteria: d.criteria.join('\n'),
       labels: d.labels.join(', '),
       ...(d.kind ? { kind: d.kind } : {}),
-      images: (d.images ?? []).map((image) => ({ ...image, include: true }))
+      images: (d.images ?? []).map((image) => ({ ...image, include: true })),
+      blockedBy: d.blocked_by ?? []
     })),
     column: p.column,
     context: p.context ?? ''
   }),
   Editor,
   toOverride: (edit): CreateTicketsOverride | null => {
+    // The drafts that stay move up: a reference to one that stays follows it, one to a removed draft goes.
+    const position = new Map<number, number>()
+    edit.drafts.forEach((d, i) => {
+      if (d.include) position.set(i, position.size)
+    })
     const tickets = edit.drafts
       .filter((d) => d.include)
       .map((d) => ({
@@ -282,6 +310,7 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
         spec: d.spec,
         criteria: splitCriteria(d.criteria),
         labels: splitLabels(d.labels),
+        ...(blockers(d.blockedBy, position).length > 0 ? { blocked_by: blockers(d.blockedBy, position) } : {}),
         ...(d.kind ? { kind: d.kind } : {}),
         ...(d.images.some((image) => image.include) ? { images: d.images.filter((image) => image.include).map((image) => image.id) } : {})
       }))

@@ -20,7 +20,8 @@ const draftSchema = z.strictObject({
   // No default: an override keeps the kind as it was sent.
   kind: z.enum(['change', 'investigate']).optional(),
   // By name from the orchestrator, by id from the user's override; resolved against the request's images.
-  images: z.array(z.string()).max(ATTACHMENTS_PER_TICKET, `must have at most ${ATTACHMENTS_PER_TICKET} images`).optional()
+  images: z.array(z.string()).max(ATTACHMENTS_PER_TICKET, `must have at most ${ATTACHMENTS_PER_TICKET} images`).optional(),
+  blocked_by: z.array(z.union([z.number().int().positive(), z.strictObject({ draft: z.number().int().min(0) })])).max(MAX_DRAFTS).optional()
 })
 
 type ParsedDraft = z.infer<typeof draftSchema>
@@ -48,6 +49,45 @@ function withImages(drafts: ParsedDraft[], allowed: ImageRef[], by: 'filename' |
     }
     return { ...d, images: refs }
   })
+}
+
+type Blockers = ({ id: string } | { draft: number })[]
+
+/** Throws unless every draft index names an earlier draft, so a series is created in order. */
+function checkDraftIndexes(drafts: { blocked_by?: (number | { draft: number })[] }[]): void {
+  for (const [i, d] of drafts.entries()) {
+    for (const b of d.blocked_by ?? []) {
+      if (typeof b !== 'number' && b.draft >= i) {
+        throw new ProposalInvalid(`tickets.${i}.blocked_by: draft ${b.draft} isn't an earlier ticket of this call (a ticket can only be blocked by one listed before it)`)
+      }
+    }
+  }
+}
+
+/**
+ * Each draft's blockers resolved: a ticket number to the ticket's id (it must exist in the workspace), a draft index
+ * kept as it is. Throws ProposalInvalid.
+ */
+export async function resolveBlockers(
+  drafts: { blocked_by?: (number | { draft: number })[] }[],
+  byNumber: (number: number) => Promise<Ticket | null>
+): Promise<Blockers[]> {
+  checkDraftIndexes(drafts)
+  const out: Blockers[] = []
+  for (const [i, d] of drafts.entries()) {
+    const resolved: Blockers = []
+    for (const b of d.blocked_by ?? []) {
+      if (typeof b === 'number') {
+        const ticket = await byNumber(b)
+        if (!ticket) throw new ProposalInvalid(`tickets.${i}.blocked_by: there is no ticket #${b}`)
+        resolved.push({ id: ticket.id })
+      } else {
+        resolved.push({ draft: b.draft })
+      }
+    }
+    out.push(resolved)
+  }
+  return out
 }
 
 const draftsSchema = z
@@ -90,9 +130,10 @@ function ticketInputs(
   drafts: TicketDraft[],
   column: DraftColumn,
   context: { text: string; cwd: string } | undefined,
+  blockers: Blockers[],
   via?: 'orchestrator'
 ): TicketToCreate[] {
-  return drafts.map((d) => ({
+  return drafts.map((d, i) => ({
     title: d.title,
     intent,
     ...(intentAdded?.length ? { intentAdded } : {}),
@@ -103,6 +144,7 @@ function ticketInputs(
     kind: d.kind ?? 'change',
     ...(context ? { agentContext: { text: context.text, source: { kind: 'agent' as const, agent: 'orchestrator', cwd: context.cwd } } } : {}),
     ...(via ? { via } : {}),
+    ...(blockers[i]?.length ? { blockedBy: blockers[i] } : {}),
     ...(d.images?.length ? { images: d.images.map((i) => i.id) } : {})
   }))
 }
@@ -122,21 +164,28 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
   label: 'create tickets',
   atomicWithResult: true,
 
-  propose(input, turn) {
+  propose(input, turn, ctx) {
     if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
     const { context, tickets, ...rest } = parsePayload(editableSchema, input)
-    return {
+    const payload: CreateTicketsPayload = {
       intent: turn.userMessage,
       ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}),
       tickets: withImages(tickets, turn.images ?? [], 'filename'),
       ...rest,
       ...contextOf(context)
     }
+    // Only a draft that names a ticket by number needs the board; the others are checked at once.
+    if (!tickets.some((d) => d.blocked_by?.some((b) => typeof b === 'number'))) {
+      checkDraftIndexes(tickets)
+      return payload
+    }
+    return resolveBlockers(tickets, (n) => ctx.ticketByNumber(turn.workspaceId, n)).then(() => payload)
   },
 
   override(stored, input) {
     // The summary comes only from the override: leaving it out clears it.
     const { context, tickets, ...rest } = parsePayload(editableSchema, input)
+    checkDraftIndexes(tickets)
     // Only the images the proposal had: the user can untick them, never add others.
     const proposed = stored.tickets.flatMap((d) => d.images ?? [])
     return {
@@ -151,7 +200,8 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
   async execute(p, target, ctx) {
     const ws = await ctx.workspace(target.workspaceId)
     if (!ws || ws.id !== target.workspaceId) throw new Error('The workspace it was proposed for was removed')
-    const created = await ctx.createTickets(ws, ticketInputs(p.intent, p.intentAdded, p.tickets, p.column, p.context ? { text: p.context, cwd: ctx.orchestratorFolder } : undefined), {
+    const blockers = await resolveBlockers(p.tickets, (n) => ctx.ticketByNumber(ws.id, n))
+    const created = await ctx.createTickets(ws, ticketInputs(p.intent, p.intentAdded, p.tickets, p.column, p.context ? { text: p.context, cwd: ctx.orchestratorFolder } : undefined, blockers), {
       proposalId: target.proposalId,
       column: p.column
     })
@@ -178,15 +228,17 @@ export async function createInBacklog(
   turn: Pick<Turn, 'userMessage' | 'followUps' | 'images'>,
   ws: Workspace,
   create: ExecContext['createTickets'],
-  orchestratorFolder: string
+  orchestratorFolder: string,
+  byNumber: (number: number) => Promise<Ticket | null> = async () => null
 ): Promise<{ created: Ticket[]; withContext: boolean; images?: number }> {
   if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be created in answer to a message of the user')
   const parsed = parsePayload(directSchema, input)
   const tickets = withImages(parsed.tickets, turn.images ?? [], 'filename')
   const summary = contextOf(parsed.context).context
+  const blockers = await resolveBlockers(parsed.tickets, byNumber)
   const created = await create(
     ws,
-    ticketInputs(turn.userMessage, turn.followUps, tickets, 'backlog', summary ? { text: summary, cwd: orchestratorFolder } : undefined, 'orchestrator')
+    ticketInputs(turn.userMessage, turn.followUps, tickets, 'backlog', summary ? { text: summary, cwd: orchestratorFolder } : undefined, blockers, 'orchestrator')
   )
   return { created, withContext: summary !== undefined, ...imageCount(tickets) }
 }

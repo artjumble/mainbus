@@ -416,6 +416,8 @@ export type NewTicketInput = {
   via?: 'orchestrator'
   /** The user asked the orchestrator to propose starting the ticket once it is in Ready (now, if it was created there). */
   startWhenReady?: boolean
+  /** Tickets (by id) that block it; checked by the engine, which refuses a cycle. */
+  blockedBy?: string[]
 }
 
 /** Never includes intent: intent is append-only. */
@@ -427,10 +429,10 @@ export type TicketPatch = Partial<{
 }>
 
 /** The fields the orchestrator can edit, in the order they are listed. */
-export type EditedField = 'title' | 'spec' | 'criteria' | 'labels'
+export type EditedField = 'title' | 'spec' | 'criteria' | 'labels' | 'blockedBy'
 
 /** The values of the edited fields, before or after an edit; only the changed ones are present. */
-export type EditedValues = Partial<{ title: string; spec: string; criteria: Criterion[]; labels: string[] }>
+export type EditedValues = Partial<{ title: string; spec: string; criteria: Criterion[]; labels: string[]; blockedBy: number[] }>
 
 /**
  * One edit the orchestrator made to a ticket at the user's request, kept so the panel can show it and Undo it.
@@ -522,6 +524,26 @@ export interface StartOptions {
   roles?: Record<string, { model?: string; effort?: Effort }>
   /** Added to every role's prompt in this run. */
   extraInstructions?: string
+  /** The user chose to start although a blocker isn't Done yet; the start is recorded in Activity. */
+  startAnyway?: boolean
+}
+
+/** A ticket that blocks another: it is satisfied once it is Done. */
+export interface Blocker {
+  id: string
+  number: number
+  title: string
+  done: boolean
+}
+
+/** What happened with a ticket's blockers, for its Activity and the orchestrator. */
+export interface DependencyNote {
+  id: string
+  at: string
+  kind: 'unblocked' | 'started_blocked'
+  blockers: { number: number; title: string }[]
+  /** How a start-anyway was asked for; null for unblocked. */
+  via: 'ticket' | 'proposal' | null
 }
 
 /** What a hold is on. Tickets for now; "Later…" on decisions uses the same table. */

@@ -1,5 +1,6 @@
 import { Anchor, Group, Stack, Text } from '@mantine/core'
 import type { ReactElement } from 'react'
+import { notDoneYetText } from '../../../shared/dependencies'
 import type { StartLineupOverride, StartLineupPayload, StartLineupResult } from '../../../shared/proposals'
 import { useMainbus } from '../store'
 import { phaseLabel } from '../board/TicketCard'
@@ -20,6 +21,11 @@ function Body({ payload }: { payload: StartLineupPayload }): ReactElement {
       <Text size="xs" c="dimmed" aria-label="Roles">
         {`${workspaceName ? `${workspaceName} lineup` : 'Lineup'}: ${payload.roles.map((r) => r.name).join(' → ')}`}
       </Text>
+      {payload.blockedBy && payload.blockedBy.length > 0 && (
+        <Text size="xs" c="dimmed" data-blocked-note>
+          {`${notDoneYetText(payload.blockedBy)}. Confirming starts it anyway.`}
+        </Text>
+      )}
       {payload.extraInstructions !== null && (
         <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }} data-extra-instructions>
           {`Extra instructions: ${payload.extraInstructions}`}

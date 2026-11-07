@@ -21,6 +21,8 @@ import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
 import { RunSettingsModal, runSettingsEditable } from './RunSettingsModal'
 import { SkipModal } from './SkipModal'
+import { StartBlockedModal } from './StartBlockedModal'
+import { openBlockers } from '../../../shared/dependencies'
 
 const HEADER_HEIGHT = 48
 const CONTEXT_WIDTH = 380
@@ -152,6 +154,9 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
   const started = useRef(false)
   const [skipping, setSkipping] = useState(false)
+  // Start was asked for while a blocker isn't Done: the question is showing.
+  const [askingStart, setAskingStart] = useState(false)
+  const openBlocked = openBlockers(ticket.blockedBy)
   const [promoting, setPromoting] = useState(false)
   const promoted = useMainbus((s) => s.tickets.some((x) => x.promotedFrom === ticket.id))
   // A replaced run opened on its own, read-only; null for the live thread.
@@ -208,17 +213,30 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
 
   async function control(
     command: 'agent.start' | 'agent.stop' | 'agent.continue' | 'agent.pause' | 'agent.resume',
-    title: string
+    title: string,
+    startAnyway = false
   ): Promise<void> {
     await guarded(async () => {
-      await invoke(command, ticket.id)
+      if (command === 'agent.start' && startAnyway) await invoke(command, ticket.id, { startAnyway: true })
+      else await invoke(command, ticket.id)
       if (command === 'agent.start') started.current = false
     }, title)
+  }
+
+  /** Start, Start again and the empty panel's Start: a ticket with an open blocker asks first. */
+  function start(): void {
+    if (openBlocked.length > 0) setAskingStart(true)
+    else void control('agent.start', 'Could not start')
   }
 
   async function send(text: string): Promise<void> {
     // Another command is in progress, or a move that would have to finish before a start: keep the text, say nothing.
     if (working.current || (moving && canStart && !started.current)) throw new Error('busy')
+    // A blocked ticket asks before it starts; the text stays in the box, and sending again follows once the run has started.
+    if (canStart && !started.current && openBlocked.length > 0) {
+      setAskingStart(true)
+      throw new Error('busy')
+    }
     const delivered = await guarded(async () => {
       // A new run starts first, then gets the message.
       if (canStart && !started.current) {
@@ -336,7 +354,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                 </Button>
               )}
               {canStart && thread !== null && !emptyPanel && (
-                <Button size="compact-sm" disabled={busy || moving} onClick={() => void control('agent.start', 'Could not start')}>
+                <Button size="compact-sm" disabled={busy || moving} onClick={start}>
                   {ended ? 'Start again' : 'Start'}
                 </Button>
               )}
@@ -370,6 +388,15 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
             editable={runSettingsEditable(ticket.state) && !busy}
           />
           <PromoteModal opened={promoting && canPromote} ticketId={ticket.id} onClose={() => setPromoting(false)} />
+          <StartBlockedModal
+            opened={askingStart && canStart}
+            open={openBlocked}
+            onClose={() => setAskingStart(false)}
+            onStart={() => {
+              setAskingStart(false)
+              void control('agent.start', 'Could not start', true)
+            }}
+          />
           <SkipModal
             opened={skipping && runOpen && activeRole !== undefined}
             role={activeRole?.name ?? ''}
@@ -382,7 +409,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               workspaceName={workspace?.name ?? 'workspace'}
               roles={ticket.lineup.map((r) => r.name)}
               busy={busy || moving}
-              onStart={() => void control('agent.start', 'Could not start')}
+              onStart={start}
               onRunSettings={() => setSettingsOpen(true)}
             />
           ) : thread ? (
