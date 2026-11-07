@@ -828,7 +828,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const updateArgs = { workspace: 'app', ticket: 7, spec: 'Smaller', criteria: ['one'], add_user_words: true, request_messages_back: 1 }
     expect(await update.handler(updateArgs, {})).toEqual({ content: [{ type: 'text', text: 'Updated #1.' }] })
     expect(spec.tools.updateTicket).toHaveBeenCalledWith(updateArgs)
-    expect(Object.keys(update.shape)).toEqual(['workspace', 'ticket', 'title', 'spec', 'criteria', 'labels', 'add_user_words', 'request_messages_back'])
+    expect(Object.keys(update.shape)).toEqual(['workspace', 'ticket', 'title', 'spec', 'criteria', 'labels', 'blocked_by', 'add_user_words', 'request_messages_back'])
     expect((update.shape.add_user_words as z.ZodType).safeParse('The user said so').success).toBe(false)
 
     const start = byName.get('propose_start')!

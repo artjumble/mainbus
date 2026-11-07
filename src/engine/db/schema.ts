@@ -372,6 +372,38 @@ export const ticketEdits = sqliteTable(
   (t) => [index('ticket_edits_ticket_idx').on(t.ticketId)]
 )
 
+/** "Blocked by" links: the ticket is not to start until the blocking ticket is Done. Both tickets are in one workspace. */
+export const ticketDependencies = sqliteTable(
+  'ticket_dependencies',
+  {
+    ticketId: text('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    blockedById: text('blocked_by_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull()
+  },
+  (t) => [primaryKey({ columns: [t.ticketId, t.blockedById] }), index('ticket_dependencies_blocker_idx').on(t.blockedById)]
+)
+
+/** What happened with a ticket's blockers, for its Activity and the orchestrator: it was unblocked, or started while blocked. */
+export const ticketDependencyNotes = sqliteTable(
+  'ticket_dependency_notes',
+  {
+    id: text('id').primaryKey(),
+    ticketId: text('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['unblocked', 'started_blocked'] }).notNull(),
+    at: text('at').notNull(),
+    blockers: text('blockers').notNull(), // JSON: [{ number, title }]
+    /** How a start-anyway was asked for: in the ticket view, or by confirming a proposal; null for an unblocked note. */
+    via: text('via', { enum: ['ticket', 'proposal'] })
+  },
+  (t) => [index('ticket_dependency_notes_ticket_idx').on(t.ticketId), index('ticket_dependency_notes_kind_idx').on(t.kind, t.at)]
+)
+
 // Worktrees that still need removing; deliberately no foreign key, so a row can outlive its ticket.
 export const pendingCleanups = sqliteTable('pending_cleanups', {
   ticketId: text('ticket_id').primaryKey(),

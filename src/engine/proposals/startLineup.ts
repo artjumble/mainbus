@@ -10,6 +10,7 @@ import {
 } from '../../shared/models'
 import type { StartLineupPayload, StartLineupResult, StartRolePlan } from '../../shared/proposals'
 import { applyRunSettings } from '../../shared/runSettings'
+import { notDoneYetText } from '../../shared/dependencies'
 import { listJoin } from './createTickets'
 import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
 
@@ -60,6 +61,14 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
     if (!ticket) throw new ProposalInvalid(`ticket: there is no ticket #${p.ticket}`)
     const why = await ctx.whyNotStartable(ticket)
     if (why !== null) throw new ProposalInvalid(`ticket: ${why}`)
+    const open = (await ctx.openBlockers?.(ticket)) ?? []
+    const userAsked = turn.origin === 'drag' || turn.origin === 'button'
+    if (open.length > 0 && !userAsked) {
+      const names = open.map((b) => `#${b.number} ${JSON.stringify(b.title)}`).join(', ')
+      throw new ProposalInvalid(
+        `ticket: #${ticket.number} is blocked by ${names}, which ${open.length === 1 ? "isn't" : "aren't"} Done; don't propose starting it until its blockers are Done`
+      )
+    }
     const lineup = await ctx.lineup(turn.workspaceId, ticket.kind)
     if (lineup.length === 0) throw new ProposalInvalid('roles: this workspace has no roles')
 
@@ -88,7 +97,15 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
         return { roleId: role.id, name: role.name, ...resolved }
       })
     const extraInstructions = saved.extraInstructions ?? extraText(p.extraInstructions)
-    return { ticketId: ticket.id, number: ticket.number, title: ticket.title, roles, extraInstructions }
+    return {
+      ticketId: ticket.id,
+      number: ticket.number,
+      title: ticket.title,
+      roles,
+      extraInstructions,
+      // The user asked for it: the card says it is blocked, and confirming starts it anyway.
+      ...(open.length > 0 ? { blockedBy: open.map((b) => ({ number: b.number, title: b.title })) } : {})
+    }
   },
 
   override(stored, input) {
@@ -121,6 +138,10 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
     if (!ticket || ticket.id !== p.ticketId) throw new Error(`Ticket #${p.number} no longer exists`)
     const why = await ctx.whyNotStartable(ticket)
     if (why !== null) throw new Error(why)
+    const open = (await ctx.openBlockers?.(ticket)) ?? []
+    if (open.length > 0 && p.blockedBy === undefined) {
+      throw new Error(`#${ticket.number} is blocked now: ${notDoneYetText(open)}`)
+    }
     // The values on the card go in as the user's choice for this start, so the run uses exactly them even if
     // a role's own setting changed since; they are not resolved again.
     await ctx.startTicket(p.ticketId, {

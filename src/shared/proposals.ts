@@ -45,6 +45,8 @@ export interface TicketDraft {
   kind?: TicketKind
   /** Images the user sent with the request, to attach to the ticket; absent means none. */
   images?: ImageRef[]
+  /** What blocks it: an existing ticket's number, or `{ draft }`, the index of an earlier draft of the same proposal. */
+  blocked_by?: (number | { draft: number })[]
 }
 
 /** A draft as the user's Override sends it: the images it keeps, by id. */
@@ -96,6 +98,8 @@ export interface StartLineupPayload {
   title: string
   roles: StartRolePlan[]
   extraInstructions: string | null
+  /** Set when the user asked for the start (a drag, or start-when-ready) while these blockers weren't Done: confirming starts it anyway. */
+  blockedBy?: { number: number; title: string }[]
 }
 
 /** What the user's Override sends for start_lineup: the roles they kept, each one's model and effort. */

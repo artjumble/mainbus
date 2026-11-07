@@ -152,3 +152,25 @@ describe('whyNotEditable', () => {
     expect(whyNotEditable(ticket(), 'needs_you', false)).toContain('#7 is in Needs you')
   })
 })
+
+describe('planEdit: blocked_by', () => {
+  test('is the full new list of ticket numbers, compared as a set', () => {
+    const p = planEdit(ticket(), parseEditInput({ ticket: 7, blocked_by: [3, 2, 3] }), [1])
+    expect(p.fields).toEqual(['blockedBy'])
+    expect(p.before).toEqual({ blockedBy: [1] })
+    expect(p.after).toEqual({ blockedBy: [2, 3] })
+    expect(p.patch).toEqual({})
+  })
+
+  test('an empty list clears the blockers', () => {
+    expect(planEdit(ticket(), parseEditInput({ ticket: 7, blocked_by: [] }), [4]).after).toEqual({ blockedBy: [] })
+  })
+
+  test('the same blockers in another order change nothing', () => {
+    expect(() => planEdit(ticket(), parseEditInput({ ticket: 7, blocked_by: [2, 1] }), [1, 2])).toThrow(NOTHING_TO_CHANGE)
+  })
+
+  test('is listed last among the changed fields', () => {
+    expect(planEdit(ticket(), parseEditInput({ ticket: 7, blocked_by: [1], title: 'New' }), []).fields).toEqual(['title', 'blockedBy'])
+  })
+})

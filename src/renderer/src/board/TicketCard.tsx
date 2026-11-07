@@ -7,6 +7,7 @@ import { queuedLabel } from '../../../shared/queue'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
 import { BoardAnswer } from './BoardAnswer'
+import { BlockedChip } from './BlockedChip'
 import { HoldChip } from './HoldChip'
 import { RunSettingsChip } from './RunSettingsChip'
 import { StuckChip } from './StuckChip'
@@ -218,6 +219,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <QueuedChip state={state} />
         <SettingUpChip state={state} />
         <HoldChip hold={ticket.hold} />
+        <BlockedChip blockedBy={ticket.blockedBy} done={ticket.manualColumn === 'done'} />
         <RunSettingsChip ticket={ticket} />
         <StuckChip stuck={ticket.stuck} />
         {ticket.kind === 'investigate' && (

@@ -4,6 +4,7 @@ import type { BatchItem } from 'drizzle-orm/batch'
 import type { EditedField, EditedValues, IntentEntry, TicketEdit, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { ticketEdits, tickets } from '../db/schema'
+import { replaceDependencyStatements } from './dependencies'
 import { appendIntentStatement, patchStatements, type TicketRepo } from './tickets'
 
 export interface NewTicketEdit {
@@ -17,6 +18,8 @@ export interface NewTicketEdit {
   after: EditedValues
   /** The user's messages to append to the ticket's intent, verbatim. */
   userWords: string[]
+  /** The new blockers (ticket ids), already checked, when the edit changes them. */
+  blockedBy?: string[]
 }
 
 /** Why an Undo found the ticket changed: the engine words the refusal from the ticket's number. */
@@ -37,7 +40,7 @@ export interface TicketEditRepo {
    * entries are ever removed. Throws EditChangedError unless the ticket is exactly as the edit left it (not updated
    * since, its intent still ending with the entries the edit appended), and refuses an edit already undone.
    */
-  undo(edit: TicketEdit): Promise<TicketEdit>
+  undo(edit: TicketEdit, blockedBy?: string[]): Promise<TicketEdit>
   get(id: string): Promise<TicketEdit>
   /** Every edit, oldest first. */
   listAll(): Promise<TicketEdit[]>
@@ -81,6 +84,7 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
       const id = randomUUID()
       const statements: BatchItem<'sqlite'>[] = [
         ...patchStatements(db, input.ticketId, input.patch, at),
+        ...(input.blockedBy ? replaceDependencyStatements(db, input.ticketId, input.blockedBy, at) : []),
         ...intentAdded.map((entry) => appendIntentStatement(db, input.ticketId, entry)),
         db.insert(ticketEdits).values({
           id,
@@ -100,7 +104,7 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
       return toEdit((await db.select().from(ticketEdits).where(eq(ticketEdits.id, id)))[0]!, ticket.number)
     },
 
-    async undo(edit) {
+    async undo(edit, blockedBy) {
       if (edit.undoneAt !== null) throw new Error(`The edit of #${edit.number} is already undone`)
       const ticket = await ticketRepo.get(edit.ticketId)
       const added = edit.intentAdded
@@ -119,6 +123,7 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
       }
       const statements: BatchItem<'sqlite'>[] = [
         ...patchStatements(db, edit.ticketId, patch, at),
+        ...(blockedBy ? replaceDependencyStatements(db, edit.ticketId, blockedBy, at) : []),
         // Exactly the entries this edit appended: the check above found them at the end.
         ...(added.length > 0
           ? [db.update(tickets).set({ intent: JSON.stringify(ticket.intent.slice(0, ticket.intent.length - added.length)) }).where(eq(tickets.id, edit.ticketId))]

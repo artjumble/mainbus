@@ -547,6 +547,10 @@ export class SdkRuntime implements AgentRuntime {
           spec: z.string().optional().describe('Your draft: the approach, the files involved, the details'),
           criteria: z.array(z.string()).optional().describe('Acceptance criteria, one per item'),
           labels: z.array(z.string()).optional().describe('Labels, one word or short phrase each'),
+          blocked_by: z
+            .array(z.union([z.number().int(), z.strictObject({ draft: z.number().int() })]))
+            .optional()
+            .describe('What must be Done before this ticket starts: ticket numbers in the workspace, or { draft: i }, the 0-based index of an earlier ticket in this same call'),
           kind: z
             .enum(['change', 'investigate'])
             .optional()
@@ -632,7 +636,7 @@ export class SdkRuntime implements AgentRuntime {
         ),
         sdk.tool(
           'update_ticket',
-          "Edit a ticket that hasn't started, now, with no card, when the user asks to change it. Give only the fields to change: title, spec, criteria (the full new list; a ticked criterion stays ticked only if its text is unchanged) and labels. The user's own words can't be written or changed: with add_user_words true, Mainbus appends the user's message (and any later ones up to this turn's, per request_messages_back) verbatim. A ticket with a run open, or Done, is refused: tell the user to stop the run first, or to let it finish. Then tell the user what changed.",
+          "Edit a ticket that hasn't started, now, with no card, when the user asks to change it. Give only the fields to change: title, spec, criteria (the full new list; a ticked criterion stays ticked only if its text is unchanged), labels and blocked_by (the full new list of ticket numbers that must be Done first). The user's own words can't be written or changed: with add_user_words true, Mainbus appends the user's message (and any later ones up to this turn's, per request_messages_back) verbatim. A ticket with a run open, or Done, is refused: tell the user to stop the run first, or to let it finish. Then tell the user what changed.",
           {
             workspace: z
               .string()
@@ -643,6 +647,7 @@ export class SdkRuntime implements AgentRuntime {
             spec: z.string().optional().describe('The new spec, replacing the old one'),
             criteria: z.array(z.string()).optional().describe('The full new list of acceptance criteria, replacing the old one'),
             labels: z.array(z.string()).optional().describe('The full new list of labels, replacing the old one'),
+            blocked_by: z.array(z.number().int()).optional().describe('The full new list of blockers, as ticket numbers in the workspace, replacing the old one; [] clears it'),
             add_user_words: z
               .boolean()
               .optional()

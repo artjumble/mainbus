@@ -14,6 +14,8 @@ const editInput = z
     spec: ticketFields.spec.optional(),
     criteria: ticketFields.criteria.optional(),
     labels: ticketFields.labels.optional(),
+    /** The full new list of blockers, by ticket number; [] clears it. */
+    blocked_by: z.array(z.number().int().positive()).max(50).optional(),
     add_user_words: z.literal(true).optional()
   })
   .strict()
@@ -51,12 +53,12 @@ export function carryTicks(old: Criterion[], texts: string[]): Criterion[] {
 const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
 /** Works out what the edit changes in `current`; throws ProposalInvalid when it changes nothing. */
-export function planEdit(current: Ticket, input: EditInput): EditPlan {
+export function planEdit(current: Ticket, input: EditInput, currentBlockers: number[] = []): EditPlan {
   const patch: TicketPatch = {}
   const before: EditedValues = {}
   const after: EditedValues = {}
   const fields: EditedField[] = []
-  const changed = <K extends EditedField>(field: K, old: NonNullable<EditedValues[K]>, next: NonNullable<EditedValues[K]>): void => {
+  const changed = <K extends Exclude<EditedField, 'blockedBy'>>(field: K, old: NonNullable<EditedValues[K]>, next: NonNullable<EditedValues[K]>): void => {
     patch[field] = next as never
     before[field] = old as never
     after[field] = next as never
@@ -68,6 +70,15 @@ export function planEdit(current: Ticket, input: EditInput): EditPlan {
     changed('criteria', current.criteria, carryTicks(current.criteria, input.criteria))
   }
   if (input.labels !== undefined && !sameList(input.labels, current.labels)) changed('labels', current.labels, input.labels)
+  if (input.blocked_by !== undefined) {
+    const next = [...new Set(input.blocked_by)].sort((a, b) => a - b)
+    const old = [...currentBlockers].sort((a, b) => a - b)
+    if (!sameList(next.map(String), old.map(String))) {
+      before.blockedBy = old
+      after.blockedBy = next
+      fields.push('blockedBy')
+    }
+  }
   const addUserWords = input.add_user_words === true
   if (fields.length === 0 && !addUserWords) throw new ProposalInvalid(NOTHING_TO_CHANGE)
   return { patch, fields, before, after, addUserWords }

@@ -268,3 +268,40 @@ describe('start_lineup: execute and outcome', () => {
     expect(c.startTicket).not.toHaveBeenCalled()
   })
 })
+
+describe('start_lineup: blockers', () => {
+  const blocker = { id: 't9', number: 9, title: 'Schema', done: false }
+  const blockedCtx = (open = [blocker]) => Object.assign(ctx(), { openBlockers: async () => open })
+  const proposeAs = (origin: 'orchestrator' | 'drag' | 'button' | undefined, c: ExecContext) =>
+    Promise.resolve(startLineup.propose({ ticket: 12 }, { ...turn, ...(origin ? { origin } : {}) }, c))
+
+  test('the orchestrator may not propose starting a blocked ticket', async () => {
+    await expect(proposeAs(undefined, blockedCtx())).rejects.toThrow(
+      `ticket: #12 is blocked by #9 "Schema", which isn't Done; don't propose starting it until its blockers are Done`
+    )
+    await expect(proposeAs('orchestrator', blockedCtx())).rejects.toThrow(ProposalInvalid)
+  })
+
+  test('a ticket whose blockers are all Done is proposed as usual', async () => {
+    expect((await proposeAs(undefined, blockedCtx([]))).blockedBy).toBeUndefined()
+  })
+
+  test('a drag or the start-when-ready button gets a proposal that carries the blockers', async () => {
+    for (const origin of ['drag', 'button'] as const) {
+      expect((await proposeAs(origin, blockedCtx())).blockedBy).toEqual([{ number: 9, title: 'Schema' }])
+    }
+  })
+
+  test('confirming a drag proposal starts the ticket anyway; an orchestrator one that became blocked fails', async () => {
+    const c = blockedCtx()
+    const dragged = await proposeAs('drag', c)
+    await startLineup.execute(dragged, { workspaceId: ws.id, proposalId: 'p' }, c)
+    expect(c.startTicket).toHaveBeenCalledTimes(1)
+
+    const free = ctx()
+    const proposed = await proposeAs(undefined, free)
+    const nowBlocked = Object.assign(free, { openBlockers: async () => [blocker] })
+    await expect(startLineup.execute(proposed, { workspaceId: ws.id, proposalId: 'p' }, nowBlocked)).rejects.toThrow("#12 is blocked now: #9 isn't Done yet")
+    expect(free.startTicket).not.toHaveBeenCalled()
+  })
+})

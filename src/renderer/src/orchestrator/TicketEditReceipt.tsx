@@ -10,9 +10,10 @@ import { lineDiff } from './lineDiff'
 
 type Edited = Extract<ThreadEvent, { kind: 'ticket_edited' }>
 
-const FIELD_LABEL: Record<EditedField, string> = { title: 'Title', spec: 'Spec', criteria: 'Criteria', labels: 'Labels' }
+const FIELD_LABEL: Record<EditedField, string> = { title: 'Title', spec: 'Spec', criteria: 'Criteria', labels: 'Labels', blockedBy: 'Blocked by' }
 
 const criteriaText = (list: Criterion[]): string => (list.length === 0 ? '(none)' : list.map((c) => `${c.checked ? '[x]' : '[ ]'} ${c.text}`).join('\n'))
+const blockersText = (list: number[]): string => (list.length === 0 ? '(none)' : list.map((n) => `#${n}`).join(', '))
 const labelsText = (list: string[]): string => (list.length === 0 ? '(none)' : list.join(', '))
 
 function Block({ label, children }: { label: string; children: ReactNode }): ReactElement {
@@ -79,6 +80,12 @@ function Changes({ edit }: { edit: TicketEdit }): ReactElement {
             return (
               <Block key={field} label={FIELD_LABEL.labels}>
                 <Before old={labelsText(before.labels ?? [])} next={labelsText(after.labels ?? [])} />
+              </Block>
+            )
+          case 'blockedBy':
+            return (
+              <Block key={field} label={FIELD_LABEL.blockedBy}>
+                <Before old={blockersText(before.blockedBy ?? [])} next={blockersText(after.blockedBy ?? [])} />
               </Block>
             )
         }

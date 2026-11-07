@@ -39,7 +39,7 @@ beforeEach(async () => {
     // Like the engine's: the result is recorded in the same batch as the tickets.
     createTickets: (w, inputs, record) =>
       repos.tickets.createMany(
-        inputs.map((i) => ({ ...i, workspaceId: w.id })),
+        inputs.map((i) => ({ ...i, blockedBy: undefined, workspaceId: w.id })),
         record && ((ids) => [repos.proposals.ticketsResultStatement(record.proposalId, ids, record.column)])
       ),
     lineup: (workspaceId) => repos.lineups.get(workspaceId),
@@ -186,7 +186,7 @@ describe('proposal service', () => {
     const p = await proposeTwo()
     // The second insert fails, after the first went in: the transaction undoes it.
     exec.createTickets = (w, inputs) =>
-      repos.tickets.createMany(inputs.map((i, n) => ({ ...i, workspaceId: n === 1 ? 'missing' : w.id })))
+      repos.tickets.createMany(inputs.map((i, n) => ({ ...i, blockedBy: undefined, workspaceId: n === 1 ? 'missing' : w.id })))
     const done = await service.confirm(p.id)
     expect(done.status).toBe('failed')
     // The database's own error, not the query and its parameters.

@@ -2,6 +2,7 @@ import type { Db } from '../db/open'
 import { createAllowRuleRepo, type AllowRuleRepo } from './allowRules'
 import { createAttachmentRepo, type AttachmentRepo } from './attachments'
 import { createCleanupRepo, type PendingCleanupRepo } from './cleanups'
+import { createDependencyRepo, type DependencyRepo } from './dependencies'
 import { createDecisionRepo, type DecisionRepo } from './decisions'
 import { createHoldRepo, type HoldRepo } from './holds'
 import { createLineupRepo, type LineupRepo } from './lineups'
@@ -30,6 +31,7 @@ export interface Repos {
   orchestratorImages: OrchestratorImageRepo
   proposals: ProposalRepo
   holds: HoldRepo
+  dependencies: DependencyRepo
   stuck: StuckRepo
   wakes: WakeRepo
   settings: SettingsRepo
@@ -51,6 +53,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     orchestratorImages: createOrchestratorImageRepo(db, now),
     proposals: createProposalRepo(db, now),
     holds: createHoldRepo(db, now),
+    dependencies: createDependencyRepo(db, now),
     stuck: createStuckRepo(db, now),
     wakes: createWakeRepo(db, now),
     settings: createSettingsRepo(db)

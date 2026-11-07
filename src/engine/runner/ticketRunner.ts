@@ -1701,7 +1701,8 @@ export class TicketRunner {
         attachments,
         // Where Mainbus saves the report: the file already chosen, or the workspace's folder.
         endsWithReport && this.deps.reportFiles && launch.workspace.saveReports ? (ticket.reportFile ?? `${launch.workspace.reportsFolder}/`) : null,
-        gate.setup
+        gate.setup,
+        await this.repos.dependencies.blockersOf(ticket.id)
       ),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,
