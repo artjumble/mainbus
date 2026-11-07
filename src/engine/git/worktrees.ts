@@ -51,16 +51,17 @@ export class WorktreeManager {
   /**
    * Creates the ticket's branch and worktree, or returns the existing ones. Once the ticket has a stored
    * branch and worktree path they are reused, so renaming the ticket never moves its work.
+   * `created` is true only when this call made the folder, which is when the workspace's setup command is due.
    * The ticket's scratch folder is created too, every time, so one deleted since the last run comes back.
    */
-  async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string }> {
+  async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string; created: boolean }> {
     const branch = t.branch ?? branchName(t.number, t.title)
     const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(this.paths, ws.slug), `${t.number}-${slugify(t.title)}`)
     const scratch = scratchPathFor(this.paths, wtPath)
     await fs.mkdir(scratch, { recursive: true })
 
     if (await this.isRegistered(ws.repoPath, wtPath)) {
-      if (await exists(wtPath)) return { branch, path: wtPath, scratch }
+      if (await exists(wtPath)) return { branch, path: wtPath, scratch, created: false }
       // Registered but the folder was deleted behind git's back.
       await this.run(['worktree', 'prune'], ws.repoPath)
     }
@@ -77,7 +78,7 @@ export class WorktreeManager {
       added = await this.git(addArgs, ws.repoPath)
     }
     if (added.code !== 0) throw new Error(`git ${addArgs.join(' ')} failed: ${added.stderr.trim()}`)
-    return { branch, path: wtPath, scratch }
+    return { branch, path: wtPath, scratch, created: true }
   }
 
   /**

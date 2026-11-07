@@ -14,7 +14,9 @@ const ws: Workspace = {
   slug: 'repo',
   openPrOnReview: false,
   saveReports: true,
-  reportsFolder: 'docs/investigations'
+  reportsFolder: 'docs/investigations',
+  setupCommand: '',
+  setupTimeoutMinutes: 15
 }
 
 function propose(input: unknown): CreateTicketsPayload {

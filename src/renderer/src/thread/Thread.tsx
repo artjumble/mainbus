@@ -13,6 +13,7 @@ import { ProposalCard } from '../orchestrator/ProposalCard'
 import { annotate, type Annotation } from './annotate'
 import { DecisionCard } from './DecisionCard'
 import { PermissionCard } from './PermissionCard'
+import { SetupEntry } from './SetupEntry'
 import { ThinkingBlock } from './ThinkingBlock'
 import classes from './Thread.module.css'
 import { ToolRow } from './ToolRow'
@@ -414,6 +415,8 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           {` in commit ${event.commit.slice(0, 7)} on ${event.branch}`}
         </Text>
       )
+    case 'setup':
+      return <SetupEntry event={event} />
     case 'pull_request':
       return (
         <Text size="xs" c="dimmed" data-event="pull_request">

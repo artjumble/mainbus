@@ -88,6 +88,16 @@ export function PausedChip({ state }: { state: TicketState }): ReactElement | nu
   )
 }
 
+/** "Setting up…", beside the phase chip, while Mainbus runs the workspace's setup command in the ticket's folder. */
+export function SettingUpChip({ state }: { state: TicketState }): ReactElement | null {
+  if (!state.settingUp) return null
+  return (
+    <Badge color="gray" variant="outline" size="sm" radius="sm" leftSection={<Loader size={8} color="gray" />} {...WRAPPING_CHIP}>
+      Setting up…
+    </Badge>
+  )
+}
+
 /** "Queued · 2nd", beside the phase chip, while every agent slot is in use and the ticket's agent waits for one. */
 export function QueuedChip({ state }: { state: TicketState }): ReactElement | null {
   if (state.agentStatus !== 'queued') return null
@@ -206,6 +216,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <PhaseChip state={state} />
         <PausedChip state={state} />
         <QueuedChip state={state} />
+        <SettingUpChip state={state} />
         <HoldChip hold={ticket.hold} />
         <RunSettingsChip ticket={ticket} />
         <StuckChip stuck={ticket.stuck} />

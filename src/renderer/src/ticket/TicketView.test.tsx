@@ -831,3 +831,55 @@ describe('wireframe pass', () => {
     expect(screen.getByRole('button', { name: 'Send and start' })).toBeInTheDocument()
   })
 })
+
+describe('Run setup again', () => {
+  const withCommand = { ...workspace, setupCommand: 'npm ci' }
+
+  function showWithFolder(state: Partial<TicketState>, overrides: Record<string, unknown> = {}): ReturnType<typeof makeTicket> {
+    const ticket = makeTicket({ title: 'Add dark mode', number: 12, worktreePath: 'C:/wt/12', ...overrides }, state)
+    useMainbus.setState({ workspace: withCommand, tickets: [ticket], currentTicketId: ticket.id })
+    return ticket
+  }
+
+  test('is offered on a ticket with a folder while no role works, and runs the setup for the ticket', async () => {
+    const ticket = showWithFolder({ phase: 'not_started', agentStatus: null, column: 'ready' })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Run setup again' }))
+    expect(mockInvoke).toHaveBeenCalledWith('ticket.runSetup', ticket.id)
+  })
+
+  test('is not offered while a role works, without a command, without a folder, or in Done', async () => {
+    showWithFolder({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' })
+    const { unmount } = renderWithMantine(<TicketView />)
+    await screen.findByRole('button', { name: 'Stop' })
+    expect(screen.queryByRole('button', { name: 'Run setup again' })).not.toBeInTheDocument()
+    unmount()
+
+    showWithFolder({ phase: 'not_started', agentStatus: null, column: 'ready' }, { worktreePath: null })
+    const second = renderWithMantine(<TicketView />)
+    await screen.findByRole('button', { name: 'Start' })
+    expect(screen.queryByRole('button', { name: 'Run setup again' })).not.toBeInTheDocument()
+    second.unmount()
+
+    const ticket = makeTicket({ worktreePath: 'C:/wt/12' }, { phase: 'not_started', agentStatus: null, column: 'ready' })
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    const third = renderWithMantine(<TicketView />)
+    await screen.findByRole('button', { name: 'Start' })
+    expect(screen.queryByRole('button', { name: 'Run setup again' })).not.toBeInTheDocument()
+    third.unmount()
+
+    showWithFolder({ phase: 'done', agentStatus: null, column: 'done' })
+    renderWithMantine(<TicketView />)
+    await screen.findByText('This ticket is done.')
+    expect(screen.queryByRole('button', { name: 'Run setup again' })).not.toBeInTheDocument()
+  })
+
+  test('while setup runs the header says Setting up…, Run setup again is gone, and Stop is there to end it', async () => {
+    const ticket = showWithFolder({ phase: 'not_started', agentStatus: null, column: 'ready', settingUp: true })
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByText('Setting up…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Run setup again' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(mockInvoke).toHaveBeenCalledWith('agent.stop', ticket.id)
+  })
+})

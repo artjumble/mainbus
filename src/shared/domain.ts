@@ -102,6 +102,49 @@ export interface Workspace {
   saveReports: boolean
   /** The folder, relative to the repo, investigation reports are saved in (see reportsFolderProblem). */
   reportsFolder: string
+  /** The command Mainbus runs in each new ticket folder before the first role starts; empty for none (the default). */
+  setupCommand: string
+  /** How long the setup command may run, in minutes (SETUP_TIMEOUT_MIN to SETUP_TIMEOUT_MAX). */
+  setupTimeoutMinutes: number
+}
+
+export const SETUP_TIMEOUT_DEFAULT = 15
+export const SETUP_TIMEOUT_MIN = 1
+export const SETUP_TIMEOUT_MAX = 60
+export const SETUP_COMMAND_MAX = 1000
+
+/** The two settings of the ticket-folder setup step; either can be left out. */
+export interface SetupSettingsInput {
+  command?: string
+  timeoutMinutes?: number
+}
+
+/** The setup command as Mainbus stores it (trimmed, one line), or why it is refused. Empty means no setup. */
+export function checkSetupCommand(input: string): { ok: true; command: string } | { ok: false; reason: string } {
+  const command = input.trim()
+  if (/[\r\n]/.test(command)) return { ok: false, reason: 'The setup command must be one line' }
+  if (command.length > SETUP_COMMAND_MAX) return { ok: false, reason: `The setup command can be at most ${SETUP_COMMAND_MAX} characters` }
+  return { ok: true, command }
+}
+
+export function checkSetupTimeout(minutes: number): { ok: true; minutes: number } | { ok: false; reason: string } {
+  if (!Number.isInteger(minutes) || minutes < SETUP_TIMEOUT_MIN || minutes > SETUP_TIMEOUT_MAX) {
+    return { ok: false, reason: `The timeout must be a whole number of minutes from ${SETUP_TIMEOUT_MIN} to ${SETUP_TIMEOUT_MAX}` }
+  }
+  return { ok: true, minutes }
+}
+
+/**
+ * What the workspace's setup command did in a ticket's folder. pending: not run yet, or interrupted (it runs before the
+ * next role starts); failed: a non-zero exit or a timeout; skipped: the user chose to start without it.
+ */
+export interface TicketSetup {
+  state: 'pending' | 'succeeded' | 'failed' | 'skipped'
+  command: string
+  exitCode: number | null
+  timedOut: boolean
+  /** The last lines of the command's output, for the role prompt after a failure. */
+  tail: string
 }
 
 /** The two settings of saving investigation reports in the repo; either can be left out. */
@@ -235,6 +278,8 @@ export interface Ticket {
   promotedFrom: string | null
   /** The run settings the user saved for the ticket's starts; null means the lineup's defaults. */
   runSettings: RunSettings | null
+  /** The workspace's setup command in this ticket's folder; null when none applies. */
+  setup: TicketSetup | null
   createdAt: string
   updatedAt: string
 }
@@ -330,6 +375,8 @@ export interface TicketState {
   queuePosition?: number
   /** The usage limit paused the agent: Mainbus resumes it at the reset, or the user's Resume does it early. `summary` says why. */
   pausedByLimit?: boolean
+  /** Mainbus is running the workspace's setup command in the ticket's folder; no role has started yet. */
+  settingUp?: boolean
 }
 
 /** Where one role of a ticket run stands. `stopped` is a role whose run the user stopped. */

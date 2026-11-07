@@ -6,7 +6,7 @@ import { asOwnChange } from '../board/ownChanges'
 import { HoldChip } from '../board/HoldChip'
 import { RunSettingsChip } from '../board/RunSettingsChip'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
-import { PausedChip, PhaseChip, PrLink, QueuedChip } from '../board/TicketCard'
+import { PausedChip, PhaseChip, PrLink, QueuedChip, SettingUpChip } from '../board/TicketCard'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket } from '../store'
 import { showAgentError } from '../thread/agentError'
@@ -60,6 +60,7 @@ export function TicketView(): ReactElement {
           <PhaseChip state={ticket.state} />
           <PausedChip state={ticket.state} />
           <QueuedChip state={ticket.state} />
+          <SettingUpChip state={ticket.state} />
           <HoldChip hold={ticket.hold} />
           <RunSettingsChip ticket={ticket} />
           <StuckChip stuck={ticket.stuck} />
@@ -143,6 +144,8 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // A move the engine has not finished (a move to Done may remove the worktree): nothing may start meanwhile.
   const moving = useMainbus((s) => ticket.id in s.pendingMoves)
   const [busy, setBusy] = useState(false)
+  // Run setup again has been asked for and the engine has not answered yet; setup can take minutes, so it never holds `busy` (Stop must stay usable).
+  const [startingSetup, setStartingSetup] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Held in a ref as well: two clicks in the same tick must not both pass the guard.
   const working = useRef(false)
@@ -155,7 +158,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const [viewing, setViewing] = useState<string | null>(null)
   const proposeReplace = useMainbus((s) => s.proposeReplace)
   const workspace = useMainbus((s) => s.workspace)
-  const { agentStatus, canContinue, phase, pausedByUser, pausedByLimit } = ticket.state
+  const { agentStatus, canContinue, phase, pausedByUser, pausedByLimit, settingUp } = ticket.state
   const isDone = phase === 'done'
   // An Investigate ticket's report can become a Change ticket, once.
   const canPromote =
@@ -166,9 +169,25 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const runOpen =
     canContinue || pausedByUser || pausedByLimit === true || agentStatus === 'working' || agentStatus === 'queued' || agentStatus === 'waiting_on_you'
 
+  // "Run setup again": the workspace has a command, the folder exists and no role is working or about to be.
+  const canRunSetup =
+    !isDone &&
+    settingUp !== true &&
+    (workspace?.setupCommand ?? '') !== '' &&
+    ticket.worktreePath !== null &&
+    (agentStatus === null || agentStatus === 'handed_off' || agentStatus === 'failed' || agentStatus === 'paused')
+
   useEffect(() => {
     started.current = false
   }, [agentStatus, canContinue])
+
+  function runSetup(): void {
+    setStartingSetup(true)
+    // The result lands in the thread; only a refusal comes back here.
+    invoke('ticket.runSetup', ticket.id)
+      .catch((err: unknown) => showAgentError(err, 'Could not run setup'))
+      .finally(() => setStartingSetup(false))
+  }
 
   /** Runs one agent command at a time; resolves false when it failed or another one was in progress. */
   async function guarded(step: () => Promise<void>, title: string): Promise<boolean> {
@@ -291,9 +310,14 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                   Resume
                 </Button>
               )}
-              {runOpen && (
+              {(runOpen || settingUp === true) && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
                   Stop
+                </Button>
+              )}
+              {canRunSetup && (
+                <Button size="compact-sm" variant="default" disabled={busy || moving || startingSetup} onClick={runSetup}>
+                  Run setup again
                 </Button>
               )}
               {runOpen && activeRole && (

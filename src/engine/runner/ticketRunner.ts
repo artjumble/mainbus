@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import {
   ANSWERED_VIA,
@@ -13,6 +14,7 @@ import {
   type StripRole,
   type Ticket,
   type TicketKind,
+  type TicketSetup,
   type TicketState,
   type Workspace
 } from '../../shared/domain'
@@ -47,6 +49,7 @@ import {
   type RunSpec,
   type SpawnedClaude
 } from '../runtime/types'
+import type { SetupCommandRunner } from '../setup/setupCommand'
 import { currentState, pausedByUser } from '../state/currentState'
 import { lineupStrip } from '../state/lineupStrip'
 import type { Repos } from '../store'
@@ -112,6 +115,11 @@ export interface RunnerDeps {
    * Without it a role is told of none.
    */
   attachments?: { sync(ticketId: string, scratch: string): Promise<PromptAttachment[]> }
+  /**
+   * Runs the workspace's setup command in a new ticket folder, before its first role starts. Mainbus runs it itself,
+   * never through an agent or the permission guard. Without it no setup runs.
+   */
+  setup?: SetupCommandRunner
 }
 
 export const NUDGE_TEXT =
@@ -129,6 +137,7 @@ function nudgeText(kind: TicketKind, endsWithReport: boolean): string {
 const CONTINUE_TEXT = 'Continue where you left off.'
 /** What an agent that was working when Mainbus closed is told when it comes back. */
 export const RESTART_TEXT = 'Mainbus restarted; continue where you left off.'
+const SETUP_FAILED_OPEN = 'The setup command failed: answer the decision about it first (Retry, Start without setup or Stop)'
 const FOLDER_MISSING = "This ticket's folder is missing: answer the decision about it first"
 /** What Resume sends to a role the user paused. */
 const RESUME_TEXT = 'Continue.'
@@ -299,6 +308,10 @@ export class TicketRunner {
   private readonly admitting = new Set<string>()
   /** Tickets whose role handed off (or was skipped or replaced) while it held a slot: their next launch takes that slot. */
   private readonly slotKept = new Set<string>()
+  /** Tickets whose setup command is running right now. */
+  private readonly settingUp = new Set<string>()
+  /** The setup command running for each ticket in `settingUp`: abort it to end it; `done` settles once it has ended. */
+  private readonly setups = new Map<string, { controller: AbortController; done: Promise<void> }>()
   /** Serializes the decisions about slots, so two starts never take the last one together. */
   private slotLock: Promise<unknown> = Promise.resolve()
   /** There may be runs in the queue (true until a look at it finds none); lets the common case skip the database. */
@@ -315,7 +328,7 @@ export class TicketRunner {
    * and from one role handing off until the next role's launch is over.
    */
   isLaunching(ticketId: string): boolean {
-    return this.launching.has(ticketId) || this.handingOn.has(ticketId)
+    return this.launching.has(ticketId) || this.handingOn.has(ticketId) || this.settingUp.has(ticketId)
   }
 
   private unattended(workspaceId: string): boolean {
@@ -506,6 +519,8 @@ export class TicketRunner {
     // A stop for a run that has moved on must not mark the ticket as stopping, or it would kill the next role's launch.
     if (expect) await this.assertExpected(ticketId, expect)
     this.stopRequested.add(ticketId)
+    // The stop itself waits behind the action that is running setup, so setup is ended here, at once.
+    this.setups.get(ticketId)?.controller.abort()
     return this.serial(ticketId, () => this.stopNow(ticketId, expect))
   }
 
@@ -723,6 +738,7 @@ export class TicketRunner {
       pendingDecisions: pending,
       deferredDecisions: deferred,
       processAlive: run ? this.live.has(run.id) || this.isLaunching(ticketId) : false,
+      settingUp: this.settingUp.has(ticketId),
       queuePosition: await this.queuePositionOf(run),
       limitPaused: run && run.limitPausedSeq !== null ? { reason: this.deps.usage?.pauseReason() || USAGE_PAUSED_FALLBACK } : null,
       activePhase
@@ -802,6 +818,8 @@ export class TicketRunner {
         const events = await this.repos.runs.events(run.id)
         if (pausedByUser(events) || endedOnUsageLimit(events)) return
         if ((await this.repos.decisions.unsettled(ticket.id)).length > 0) return
+        // The app quit while the setup command ran: the run shows as paused, and Continue runs setup again.
+        if (ticket.setup?.state === 'pending') return
         working.push(run.id)
       }).catch(() => {})
     }
@@ -836,6 +854,10 @@ export class TicketRunner {
    */
   async shutdown(): Promise<void> {
     this.shuttingDown = true
+    // A setup command in progress ends first: the launch waiting on it would otherwise hold up the quit.
+    const setups = [...this.setups.values()]
+    for (const s of setups) s.controller.abort()
+    await settleWithin(Promise.all(setups.map((s) => s.done)).then(() => {}), SWEEP_WAIT_MS)
     await settleWithin(Promise.all([...this.chains.values()]).then(() => {}), SHUTDOWN_SETTLE_MS)
     const lives = [...this.live.values()]
     await Promise.all(lives.map((live) => this.stopProcess(live)))
@@ -981,6 +1003,7 @@ export class TicketRunner {
   ): Promise<boolean> {
     const chosen = decision.options[a.index]
     if (action.kind === 'missing_worktree') return this.answerMissingFolder(decision, a.index)
+    if (action.kind === 'setup_failed') return this.answerSetupFailed(decision, a.index)
     if (action.kind === 'round_trip' && chosen === TAKE_OVER) {
       await this.stopNow(decision.ticketId)
       return true
@@ -1007,9 +1030,14 @@ export class TicketRunner {
   }
 
   /** The open decision about the run's missing folder, or null. */
-  private async openFolderDecision(ticketId: string, runId: string): Promise<Decision | null> {
+  private openFolderDecision(ticketId: string, runId: string): Promise<Decision | null> {
+    return this.openActionDecision(ticketId, runId, 'missing_worktree')
+  }
+
+  /** The open decision of this kind of action on the run, or null. */
+  private async openActionDecision(ticketId: string, runId: string, kind: DecisionAction['kind']): Promise<Decision | null> {
     for (const d of await this.repos.decisions.unsettled(ticketId)) {
-      if (d.agentRunId === runId && (await this.repos.decisions.actionOf(d.id))?.kind === 'missing_worktree') return d
+      if (d.agentRunId === runId && (await this.repos.decisions.actionOf(d.id))?.kind === kind) return d
     }
     return null
   }
@@ -1025,7 +1053,10 @@ export class TicketRunner {
     const ticket = await this.repos.tickets.get(decision.ticketId)
     const target = this.target(run, ticket)
     try {
-      await this.deps.worktrees.recreate(await this.workspaceOf(ticket), ticket)
+      const workspace = await this.workspaceOf(ticket)
+      await this.deps.worktrees.recreate(workspace, ticket)
+      // A new folder, so the setup command is due again.
+      await this.markSetupDue(ticket, workspace)
     } catch (err) {
       await this.record(target, { kind: 'error', message: errorText(err) })
       if (await this.repos.runs.end(run.id, 'failed')) await this.deps.onFailed?.({ workspaceId: ticket.workspaceId, ticketId: ticket.id, runId: run.id })
@@ -1467,6 +1498,8 @@ export class TicketRunner {
     const workspace = await this.workspaceOf(ticket)
     const worktree = await this.deps.worktrees.ensure(workspace, ticket)
     ticket = await this.repos.tickets.setWorktree(ticket.id, worktree.branch, worktree.path)
+    // A folder made just now is due the setup command (or none, when the workspace has no command or this build runs none).
+    if (worktree.created) ticket = await this.markSetupDue(ticket, workspace)
     return { ticket, workspace, worktree }
   }
 
@@ -1534,6 +1567,7 @@ export class TicketRunner {
     }
     // Nothing recreates a missing folder behind the user's back while they are deciding what to do about it.
     if (await this.openFolderDecision(run.ticketId, run.id)) throw new Error(FOLDER_MISSING)
+    if (await this.openActionDecision(run.ticketId, run.id, 'setup_failed')) throw new Error(SETUP_FAILED_OPEN)
     await this.whileLaunching(run.ticketId, async () => {
       const prepared = await this.prepare(run.ticketId)
       const ticketRun = await this.repos.runs.ticketRun(current.ticketRunId)
@@ -1559,7 +1593,12 @@ export class TicketRunner {
         if (this.stopRequested.has(run.ticketId) || this.shuttingDown) return
         await this.record(this.target(current, launch.ticket), { kind: 'resumed' })
       }
-      const neverLaunched = [...before, ...events].every((e) => NOT_LAUNCHED_KINDS.has(e.event.kind))
+      // The question about a failed setup is no sign of a launch either: nothing has run yet.
+      const setupDecisions = new Set<string>()
+      for (const d of decisions) if ((await this.repos.decisions.actionOf(d.id))?.kind === 'setup_failed') setupDecisions.add(d.id)
+      const neverLaunched = [...before, ...events].every(
+        (e) => NOT_LAUNCHED_KINDS.has(e.event.kind) || (e.event.kind === 'decision' && setupDecisions.has(e.event.decisionId))
+      )
       if (current.sessionId === null && neverLaunched) {
         const handedBy = events.find((e) => e.event.kind === 'role_handoff')?.event
         const first = firstMessage(launch.ticket, handedBy?.kind === 'role_handoff' ? handedBy.from : undefined)
@@ -1617,19 +1656,27 @@ export class TicketRunner {
   ): Promise<void> {
     const { ticket, role, worktree } = launch
     if (this.stopRequested.has(ticket.id) || this.shuttingDown) return
-    // Every agent start takes a slot, or waits for one in the queue. The run stays open and queued, and the ticket
-    // keeps its column and phase.
-    if (!slot && !(await this.admit(ticket.id, runId, prompt))) {
-      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
-      this.kickQueue()
-      return
-    }
     const target: ThreadTarget = {
       runId,
       ticketRunId: launch.ticketRunId,
       ticketId: ticket.id,
       workspaceId: ticket.workspaceId,
       role: role.name
+    }
+    // The workspace's setup command runs before the agent starts, and before it takes a slot: setup never holds one.
+    const gate = await this.setupGate(launch, target)
+    if (gate === null) {
+      if (slot) this.admitting.delete(ticket.id)
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
+      return
+    }
+    // Every agent start takes a slot, or waits for one in the queue. The run stays open and queued, and the ticket
+    // keeps its column and phase.
+    if (!slot && !(await this.admit(ticket.id, runId, prompt))) {
+      this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
+      this.kickQueue()
+      return
     }
     // Ticket runs started before models were resolved at start hold nulls: those get the default table.
     const fallback = defaultFor(role.name)
@@ -1653,7 +1700,8 @@ export class TicketRunner {
         endsWithReport,
         attachments,
         // Where Mainbus saves the report: the file already chosen, or the workspace's folder.
-        endsWithReport && this.deps.reportFiles && launch.workspace.saveReports ? (ticket.reportFile ?? `${launch.workspace.reportsFolder}/`) : null
+        endsWithReport && this.deps.reportFiles && launch.workspace.saveReports ? (ticket.reportFile ?? `${launch.workspace.reportsFolder}/`) : null,
+        gate.setup
       ),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,
@@ -2328,6 +2376,152 @@ export class TicketRunner {
     }
   }
 
+  // --- the workspace's setup command ---
+
+  /** Records that the new folder awaits the setup command, or that there is none to run. */
+  private markSetupDue(ticket: Ticket, workspace: Workspace): Promise<Ticket> {
+    const due: TicketSetup | null =
+      workspace.setupCommand !== '' && this.deps.setup
+        ? { state: 'pending', command: workspace.setupCommand, exitCode: null, timedOut: false, tail: '' }
+        : null
+    return this.repos.tickets.setSetup(ticket.id, due)
+  }
+
+  /**
+   * Runs before every launch. Returns what the role's prompt says of setup, or null when the role must not start now:
+   * setup was stopped, or it failed and the user is asked what to do (Retry, Start without setup, Stop).
+   */
+  private async setupGate(launch: Launch, target: ThreadTarget): Promise<{ setup: TicketSetup | null } | null> {
+    const { ticket, workspace, worktree } = launch
+    const state = ticket.setup
+    if (state === null || state.state === 'succeeded' || state.state === 'skipped') return { setup: state }
+    if (!this.deps.setup) return { setup: null }
+    if (workspace.setupCommand === '') {
+      // The command was removed from the workspace since.
+      await this.repos.tickets.setSetup(ticket.id, null)
+      return { setup: null }
+    }
+    // Pending (not run yet, or cut short), or failed and being retried.
+    const result = await this.runSetup(target, workspace, worktree, false)
+    if (result.outcome === 'succeeded') return { setup: result.setup }
+    if (result.outcome === 'stopped') return null
+    const why = result.setup.timedOut
+      ? `timed out after ${workspace.setupTimeoutMinutes} `+ (workspace.setupTimeoutMinutes === 1 ? 'minute' : 'minutes')
+      : result.setup.exitCode === null
+        ? "couldn't run"
+        : `failed with exit code ${result.setup.exitCode}`
+    await this.ask(
+      target,
+      `The workspace's setup command (${oneLine(result.setup.command)}) ${why} in this ticket's folder, so the ${target.role} hasn't started. Retry runs it again; Start without setup starts the ${target.role} and tells it setup failed.`,
+      ['Retry', 'Start without setup', 'Stop'],
+      0,
+      { kind: 'setup_failed' }
+    )
+    return null
+  }
+
+  /**
+   * Runs the workspace's setup command in the ticket's folder and records the outcome: the ticket's setup state and a
+   * Setup entry in the run's thread. A stop or shutdown ends it, and the state goes back to pending, so the next
+   * start runs it again. Mainbus runs it itself, outside the agents' permissions; it holds no agent slot.
+   */
+  private async runSetup(
+    target: ThreadTarget,
+    workspace: Workspace,
+    folder: { path: string; scratch: string },
+    again: boolean
+  ): Promise<{ outcome: 'succeeded' | 'failed' | 'timed_out' | 'stopped'; setup: TicketSetup }> {
+    const command = workspace.setupCommand
+    const controller = new AbortController()
+    let finished!: () => void
+    const done = new Promise<void>((resolve) => (finished = resolve))
+    this.setups.set(target.ticketId, { controller, done })
+    this.settingUp.add(target.ticketId)
+    this.deps.emit({ type: 'board.changed', workspaceId: target.workspaceId })
+    try {
+      // A stop that came before the command could be registered has nothing to abort yet.
+      if (this.stopRequested.has(target.ticketId) || this.shuttingDown) controller.abort()
+      const started = this.deps.now()
+      const logPath = path.join(folder.scratch, `setup-${started.toISOString().replace(/[:.]/g, '-')}.log`)
+      const result = await this.deps
+        .setup!({
+          command,
+          cwd: folder.path,
+          tempDir: folder.scratch,
+          timeoutMs: workspace.setupTimeoutMinutes * 60_000,
+          signal: controller.signal,
+          logPath
+        })
+        .catch((err: unknown) => ({ exitCode: null, timedOut: false, aborted: false, tail: [errorText(err)] }))
+      const outcome = result.aborted ? 'stopped' : result.timedOut ? 'timed_out' : result.exitCode === 0 ? 'succeeded' : 'failed'
+      const setup: TicketSetup = {
+        state: outcome === 'stopped' ? 'pending' : outcome === 'succeeded' ? 'succeeded' : 'failed',
+        command,
+        exitCode: result.exitCode,
+        timedOut: outcome === 'timed_out',
+        tail: result.tail.join('\n')
+      }
+      await this.repos.tickets.setSetup(target.ticketId, setup)
+      await this.record(target, {
+        kind: 'setup',
+        command,
+        outcome,
+        exitCode: result.exitCode,
+        durationMs: this.deps.now().getTime() - started.getTime(),
+        tail: result.tail,
+        log: logPath,
+        ...(again ? { again: true as const } : {})
+      })
+      return { outcome, setup }
+    } finally {
+      this.settingUp.delete(target.ticketId)
+      this.setups.delete(target.ticketId)
+      finished()
+      this.deps.emit({ type: 'board.changed', workspaceId: target.workspaceId })
+    }
+  }
+
+  /** Retry (0) runs setup again as the run launches; Start without setup (1) goes on without it; anything else stops the run. */
+  private async answerSetupFailed(decision: Decision, index: number): Promise<boolean> {
+    if (index !== 0 && index !== 1) {
+      await this.stopNow(decision.ticketId)
+      return true
+    }
+    const run = await this.repos.runs.latest(decision.ticketId)
+    if (!run || run.id !== decision.agentRunId || run.endReason !== null) return true
+    if (index === 1) {
+      const ticket = await this.repos.tickets.get(decision.ticketId)
+      if (ticket.setup) await this.repos.tickets.setSetup(ticket.id, { ...ticket.setup, state: 'skipped' })
+    }
+    await this.resume(run, CONTINUE_TEXT)
+    return true
+  }
+
+  /** Runs the workspace's setup command again in the ticket's folder, while no role is working. */
+  runSetupAgain(ticketId: string): Promise<void> {
+    return this.serial(ticketId, () => this.runSetupAgainNow(ticketId))
+  }
+
+  private async runSetupAgainNow(ticketId: string): Promise<void> {
+    if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    const ticket = await this.repos.tickets.get(ticketId)
+    if (ticket.manualColumn === 'done') throw new Error('A ticket in Done has no folder to set up')
+    if (ticket.worktreePath === null || !(await pathExists(ticket.worktreePath))) throw new Error("This ticket's folder doesn't exist")
+    const workspace = await this.workspaceOf(ticket)
+    if (workspace.setupCommand === '' || !this.deps.setup) throw new Error('This workspace has no setup command: set one in the workspace settings first')
+    if (this.settingUp.has(ticketId)) throw new Error('Setup is already running on this ticket')
+    if (this.isLaunching(ticketId) || [...this.live.values()].some((l) => l.ticketId === ticketId && !l.ended)) {
+      throw new Error('An agent is working on this ticket: wait for it to finish or stop it first')
+    }
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run) throw new Error('Start the ticket first: its setup runs then')
+    if (run.endReason === null && run.queuedSeq !== null) throw new Error('This ticket is waiting for a free agent slot: stop it first')
+    if (await this.openActionDecision(ticketId, run.id, 'setup_failed')) throw new Error('Answer the decision about the failed setup first: use Retry')
+    // The folder exists, so this only finds its scratch folder.
+    const folder = await this.deps.worktrees.ensure(workspace, ticket)
+    await this.runSetup(this.target(run, ticket), workspace, folder, true)
+  }
+
   // --- helpers ---
 
   private async record(target: ThreadTarget, event: ThreadEvent): Promise<StoredEvent> {
@@ -2380,7 +2574,7 @@ function threadRun(target: ThreadTarget): ThreadRun {
 }
 
 /** What a role's thread can hold before its agent was ever launched: the handoff to it, and messages for it. */
-const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message', 'paused', 'resumed'])
+const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message', 'paused', 'resumed', 'setup'])
 
 /** The message a role gets when a later role hands a problem back to it. */
 function problemText(from: LineupRole, details: string): string {

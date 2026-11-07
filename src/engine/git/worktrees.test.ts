@@ -46,7 +46,7 @@ beforeEach(async () => {
   closeDb = testDb.cleanup
   cleanups = createCleanupRepo(testDb.db, () => FIXED_NOW)
   manager = new WorktreeManager(runGit, paths, cleanups)
-  ws = { id: 'ws-1', name: 'My repo', repoPath, baseBranch: 'main', slug: 'my-repo', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations' }
+  ws = { id: 'ws-1', name: 'My repo', repoPath, baseBranch: 'main', slug: 'my-repo', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15 }
 })
 
 afterEach(async () => {
@@ -70,7 +70,8 @@ describe('WorktreeManager', () => {
 
     const second = await manager.ensure(ws, ticket)
 
-    expect(second).toEqual(first)
+    expect(first.created).toBe(true)
+    expect(second).toEqual({ ...first, created: false })
     expect(await exists(path.join(first.path, 'work.txt'))).toBe(true)
   })
 
@@ -81,7 +82,7 @@ describe('WorktreeManager', () => {
 
     const again = await manager.ensure(ws, ticket)
 
-    expect(again).toEqual(first)
+    expect(again).toEqual({ ...first, created: true })
     expect(await git(['log', '--format=%s', '-1'], again.path)).toContain('work')
   })
 
@@ -90,12 +91,12 @@ describe('WorktreeManager', () => {
     await fs.writeFile(path.join(first.path, 'work.txt'), 'in progress\n')
     const renamed = { ...ticket, title: 'Throttle sign-in', branch: first.branch, worktreePath: first.path }
 
-    expect(await manager.ensure(ws, renamed)).toEqual(first)
+    expect(await manager.ensure(ws, renamed)).toEqual({ ...first, created: false })
     expect(await exists(path.join(first.path, 'work.txt'))).toBe(true)
 
     // The folder went away: the stored branch is re-attached at the stored path, not a new one from the title.
     await fs.rm(first.path, { recursive: true, force: true, maxRetries: 5 })
-    expect(await manager.ensure(ws, renamed)).toEqual(first)
+    expect(await manager.ensure(ws, renamed)).toEqual({ ...first, created: true })
     expect(await git(['branch', '--list', 'mainbus/14-throttle-sign-in'])).toBe('')
   })
 
@@ -179,7 +180,7 @@ describe('WorktreeManager', () => {
       const first = await manager.ensure(ws, ticket)
       await fs.rm(first.scratch, { recursive: true, force: true })
 
-      expect(await manager.ensure(ws, { ...ticket, branch: first.branch, worktreePath: first.path })).toEqual(first)
+      expect(await manager.ensure(ws, { ...ticket, branch: first.branch, worktreePath: first.path })).toEqual({ ...first, created: false })
       expect(await exists(first.scratch)).toBe(true)
     })
 

@@ -18,6 +18,10 @@ export const workspaces = sqliteTable(
     saveReports: integer('save_reports', { mode: 'boolean' }).notNull().default(true),
     /** The folder, relative to the repo, that investigation reports are saved in. */
     reportsFolder: text('reports_folder').notNull().default('docs/investigations'),
+    /** The command Mainbus runs in each new ticket folder before the first role starts; empty for none. */
+    setupCommand: text('setup_command').notNull().default(''),
+    /** How long the setup command may run, in minutes. */
+    setupTimeoutMinutes: integer('setup_timeout_minutes').notNull().default(15),
     /** Unattended mode is on for this workspace; remembered across a restart. */
     unattendedOn: integer('unattended_on', { mode: 'boolean' }).notNull().default(false),
     /** Set when the workspace was removed from Mainbus. The row stays so its tickets, history and proposal cards remain intact. */
@@ -84,6 +88,8 @@ export const tickets = sqliteTable(
     startWhenReady: integer('start_when_ready', { mode: 'boolean' }).notNull().default(false),
     /** The run settings the user saved for the ticket's next start (JSON of RunSettings); null means the lineup's defaults. */
     runSettings: text('run_settings'),
+    /** The state of the workspace's setup command in this ticket's folder (JSON of TicketSetup); null when none applies. */
+    setup: text('setup'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },

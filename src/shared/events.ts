@@ -60,6 +60,20 @@ export type ThreadEvent =
   | { kind: 'wake'; items: string[] }
   /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
+  /**
+   * Mainbus ran the workspace's setup command in the ticket's folder. `tail` is the last 50 lines of its output and `log`
+   * the file in the scratch folder that has all of it; `again` when the user asked for it with Run setup again.
+   */
+  | {
+      kind: 'setup'
+      command: string
+      outcome: 'succeeded' | 'failed' | 'timed_out' | 'stopped'
+      exitCode: number | null
+      durationMs: number
+      tail: string[]
+      log: string
+      again?: true
+    }
   /** The run's role submitted its report (Investigate tickets); the ticket view shows it where the final message would be. */
   | { kind: 'report'; markdown: string }
   /** Mainbus saved the report as a file in the repo (`path`, relative to it) and committed it on `branch`. */

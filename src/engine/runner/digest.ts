@@ -51,6 +51,8 @@ function describe(event: ThreadEvent, decisions: Map<string, Decision>, roleName
       return `${event.from} handed the ticket back to ${event.to}`
     case 'criterion_checked':
       return `${roleName} checked: ${event.text}`
+    case 'setup':
+      return `Mainbus ran the setup command (${event.command}): ${event.outcome === 'timed_out' ? 'timed out' : event.outcome === 'stopped' ? 'stopped' : `exited ${event.exitCode ?? 'with no code'}`}`
     case 'error':
       return `Error: ${event.message}`
     case 'turn_end':

@@ -24,6 +24,7 @@ const ticket: Ticket = {
   reportFileError: null,
   promotedFrom: null,
   runSettings: null,
+  setup: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z'
 }
@@ -309,5 +310,15 @@ const cases: Array<{ name: string; input: StateInput; expected: Omit<TicketState
 describe('currentState', () => {
   test.each(cases)('$name', ({ input, expected }) => {
     expect(currentState(input)).toEqual({ pausedByUser: false, deferredUntil: null, ...expected })
+  })
+})
+
+describe('currentState while the setup command runs', () => {
+  test('adds settingUp to whatever the state is, and nothing otherwise', () => {
+    const running = currentState({ ...base, run: { endReason: null, events: [] }, processAlive: true, settingUp: true })
+    expect(running).toMatchObject({ column: 'in_progress', agentStatus: 'working', settingUp: true })
+    const ended = currentState({ ...base, run: { endReason: 'stopped', events: [] }, settingUp: true })
+    expect(ended).toMatchObject({ column: 'backlog', agentStatus: null, settingUp: true })
+    expect(currentState({ ...base, run: { endReason: null, events: [] }, processAlive: true })).not.toHaveProperty('settingUp')
   })
 })
