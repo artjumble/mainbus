@@ -29,6 +29,8 @@ export function BlockedByPicker({ value, onChange, ticketId, disabled }: Props):
       clearable
       nothingFoundMessage="No other tickets"
       disabled={disabled}
+      // The search field is the click target: 44 px tall, like every control.
+      styles={{ inputField: { minHeight: 44 } }}
       comboboxProps={{ withinPortal: true }}
       data-blocked-by-picker
     />
