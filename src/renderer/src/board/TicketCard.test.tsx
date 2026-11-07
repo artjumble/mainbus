@@ -280,3 +280,14 @@ test('the handle shares the number\'s row, and the title keeps a gutter clear of
   await userEvent.click(title)
   expect(onOpen).toHaveBeenCalledWith(ticket.id)
 })
+
+test('a ticket whose folder is being set up shows a Setting up… chip beside the phase; others show none', () => {
+  const setting = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'working', settingUp: true })
+  const { unmount } = renderWithMantine(<TicketCard ticket={setting} onOpen={() => {}} />)
+  expect(screen.getByText('Implementing')).toBeInTheDocument()
+  expect(screen.getByText('Setting up…')).toBeInTheDocument()
+  unmount()
+  const working = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'working' })
+  renderWithMantine(<TicketCard ticket={working} onOpen={() => {}} />)
+  expect(screen.queryByText('Setting up…')).not.toBeInTheDocument()
+})

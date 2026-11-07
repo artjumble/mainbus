@@ -19,6 +19,8 @@ export interface StateInput {
   /** The usage limit paused the run (it is not queued or alive); `reason` is what the card says. */
   limitPaused?: { reason: string } | null
   activePhase: Phase
+  /** Mainbus is running the workspace's setup command in the ticket's folder; the state says so, whatever else it shows. */
+  settingUp?: boolean
 }
 
 /**
@@ -27,6 +29,11 @@ export interface StateInput {
  * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, queued, paused by the usage limit, paused, working.
  */
 export function currentState(input: StateInput): TicketState {
+  const state = stateWithoutSetup(input)
+  return input.settingUp ? { ...state, settingUp: true } : state
+}
+
+function stateWithoutSetup(input: StateInput): TicketState {
   const { ticket, run, pendingDecisions, processAlive, activePhase } = input
   const deferredDecisions = input.deferredDecisions ?? []
   const none = { summary: null, canContinue: false, pausedByUser: false, deferredUntil: null }

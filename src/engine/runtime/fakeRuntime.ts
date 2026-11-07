@@ -36,6 +36,11 @@ export type FakeStep =
   | { waitForSend: true }
   /** Fails the script, with an error event and the run closed, unless the run's launch prompt contains this text. */
   | { expectPrompt: string }
+  /**
+   * Fails the script, with an error event and the run closed, unless this file exists in the run's folder (a path
+   * relative to it) when the step is reached: put it first to prove something happened before the run's first event.
+   */
+  | { expectFile: string }
   /** Fails the script, with an error event and the run closed, unless the run was launched with this model and effort. */
   | { expectModel: { model: string; effort: Effort } }
   /**
@@ -364,6 +369,8 @@ export class FakeRuntime implements AgentRuntime {
           run.queue.push({ kind: 'message', text: `I see ${count} ${count === 1 ? 'image' : 'images'} (${images.map((i) => i.mime).join(', ')}).`, partial: false })
         } else if ('expectPrompt' in step) {
           if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
+        } else if ('expectFile' in step) {
+          if (!fs.existsSync(path.resolve(spec.cwd, step.expectFile))) throw new Error(`The run's folder lacks "${step.expectFile}"`)
         } else if ('expectModel' in step) {
           const launched = spec.kind === 'orchestrator' ? {} : { model: spec.model, effort: spec.effort }
           if (launched.model !== step.expectModel.model || launched.effort !== step.expectModel.effort) {

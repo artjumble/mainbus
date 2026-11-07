@@ -17,6 +17,7 @@ import type {
   LineupRoleInput,
   NewTicketInput,
   ReportSettingsInput,
+  SetupSettingsInput,
   RunSettingsInput,
   StartOptions,
   StripRole,
@@ -137,6 +138,12 @@ export interface EngineCommands {
    * repo is refused with the reason. Like the switch above, only the renderer can reach it.
    */
   'workspace.setReportSettings'(settings: ReportSettingsInput, workspaceId?: string): Workspace
+  /**
+   * The setup command Mainbus runs in each new ticket folder, and its timeout in minutes; what is left out stays as it is.
+   * A command with a line break, or a timeout outside 1 to 60, is refused with the reason. The command runs outside the
+   * agents' permissions, so only the renderer can reach this.
+   */
+  'workspace.setSetupSettings'(settings: SetupSettingsInput, workspaceId?: string): Workspace
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
   'github.check'(workspaceId?: string): GhStatus
   /** The tickets of the workspace (the focused one unless given). */
@@ -198,6 +205,11 @@ export interface EngineCommands {
    * pushes and opens its PR when the workspace asks for that. Only the renderer can reach it.
    */
   'ticket.saveReport'(id: string): void
+  /**
+   * "Run setup again": runs the workspace's setup command in the ticket's folder, while no role is working. The result
+   * lands in the ticket's thread. Only the renderer can reach it.
+   */
+  'ticket.runSetup'(id: string): void
   /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */
   'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[]; runs: ThreadRun[] }
   /**

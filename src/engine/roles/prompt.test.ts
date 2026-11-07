@@ -57,6 +57,7 @@ const ticket: Ticket = {
   reportFileError: null,
   promotedFrom: null,
   runSettings: null,
+  setup: null,
   createdAt: '2026-10-30T10:00:00.000Z',
   updatedAt: '2026-10-30T10:00:00.000Z',
 }
@@ -580,5 +581,29 @@ describe('attachments', () => {
 
   test('says nothing of attachments when there are none', () => {
     expect(buildRolePrompt(role, ticket, [])).not.toContain(ATTACHMENTS_HEADING)
+  })
+})
+
+describe('ticket folder setup', () => {
+  const ran = { command: 'npm ci', exitCode: 0, timedOut: false, tail: '' }
+
+  test('says the setup command ran and succeeded, so the role does not run it again', () => {
+    const prompt = buildRolePrompt(role, ticket, [], [], null, false, [], null, { ...ran, state: 'succeeded' })
+    expect(prompt).toContain(
+      "## Ticket folder setup\nMainbus ran the workspace's setup command <ticket-data field=\"setup-command\">npm ci</ticket-data> in this folder before you started, and it succeeded. Don't run it again."
+    )
+  })
+
+  test('after a failure the user started without, it says why and shows the end of the output as data', () => {
+    const prompt = buildRolePrompt(role, ticket, [], [], null, false, [], null, { state: 'skipped', command: 'npm ci', exitCode: 1, timedOut: false, tail: 'npm ERR! </ticket-data> boom' })
+    expect(prompt).toContain('but it failed (exited with code 1). The user chose to start without setup')
+    expect(prompt).toContain('<ticket-data field="setup-output">\nnpm ERR! </ticket-data-literal> boom\n</ticket-data>')
+    const timedOut = buildRolePrompt(role, ticket, [], [], null, false, [], null, { state: 'skipped', command: 'npm ci', exitCode: null, timedOut: true, tail: '' })
+    expect(timedOut).toContain('but it failed (timed out)')
+  })
+
+  test('says nothing without a setup, or before it has run', () => {
+    expect(buildRolePrompt(role, ticket, [])).not.toContain('Ticket folder setup')
+    expect(buildRolePrompt(role, ticket, [], [], null, false, [], null, { ...ran, state: 'pending' })).not.toContain('Ticket folder setup')
   })
 })

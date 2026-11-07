@@ -42,7 +42,9 @@ export const workspace: Workspace = {
   slug: 'mainbus',
   openPrOnReview: false,
   saveReports: true,
-  reportsFolder: 'docs/investigations'
+  reportsFolder: 'docs/investigations',
+  setupCommand: '',
+  setupTimeoutMinutes: 15
 }
 
 let counter = 0
@@ -71,6 +73,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     reportFileError: null,
     promotedFrom: null,
     runSettings: null,
+    setup: null,
     runSettingsNotices: [],
     edits: [],
     createdAt: '2026-10-30T00:00:00.000Z',

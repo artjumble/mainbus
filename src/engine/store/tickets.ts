@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketPatch } from '../../shared/domain'
+import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketPatch, TicketSetup } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
 
@@ -39,6 +39,8 @@ export interface TicketRepo {
   createPromoted(original: Ticket, fields: { title: string; spec: string }): Promise<Ticket>
   /** The ticket promoted from this one, or null. */
   promotedTo(id: string): Promise<Ticket | null>
+  /** Saves the state of the workspace's setup command in the ticket's folder; null when none applies. */
+  setSetup(id: string, setup: TicketSetup | null): Promise<Ticket>
   /** Saves the report an Investigate ticket's last role submitted. */
   setReport(id: string, markdown: string): Promise<Ticket>
   /** Records the latest save of the report to the repo: the file's path, and the commit or why it failed. */
@@ -74,6 +76,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     reportFileError: row.reportFileError,
     promotedFrom: row.promotedFrom,
     runSettings: row.runSettings === null ? null : (JSON.parse(row.runSettings) as RunSettings),
+    setup: row.setup === null ? null : (JSON.parse(row.setup) as TicketSetup),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -295,6 +298,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
 
     async setRunSettings(id, settings) {
       await patchRow(id, { runSettings: settings === null ? null : JSON.stringify(settings) })
+      return get(id)
+    },
+
+    async setSetup(id, setup) {
+      await patchRow(id, { setup: setup === null ? null : JSON.stringify(setup) })
       return get(id)
     },
 

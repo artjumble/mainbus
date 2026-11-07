@@ -500,3 +500,49 @@ describe('reflow', () => {
     expect(el.scrollTop).toBe(100)
   })
 })
+
+describe('the setup entry', () => {
+  const setupEvent = (extra: Partial<Extract<ThreadEvent, { kind: 'setup' }>> = {}): ThreadEvent => ({
+    kind: 'setup',
+    command: 'npm ci',
+    outcome: 'succeeded',
+    exitCode: 0,
+    durationMs: 42_000,
+    tail: ['added 120 packages', 'done'],
+    log: 'C:/scratch/repo/5-x/setup-1.log',
+    ...extra
+  })
+
+  test('starts collapsed on one line and expands to the end of the output and the log path', async () => {
+    const { container } = renderWithMantine(<Thread events={[ev(setupEvent())]} decisions={[]} />)
+    const entry = container.querySelector('[data-event="setup"]')!
+    expect(entry).toHaveTextContent('Setup · npm ci exited 0 in 42 s')
+    expect(screen.queryByText(/added 120 packages/)).not.toBeInTheDocument()
+
+    const toggle = screen.getByRole('button', { name: 'Show output' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(entry).toHaveTextContent('added 120 packages')
+    expect(entry).toHaveTextContent('The full log: C:/scratch/repo/5-x/setup-1.log')
+  })
+
+  test('says when it failed, timed out, was stopped, or was run again', () => {
+    const { container } = renderWithMantine(
+      <Thread
+        events={[
+          ev(setupEvent({ outcome: 'failed', exitCode: 1, durationMs: 3_000 })),
+          ev(setupEvent({ outcome: 'timed_out', exitCode: null, durationMs: 900_000 })),
+          ev(setupEvent({ outcome: 'stopped', exitCode: null, durationMs: 500 })),
+          ev(setupEvent({ again: true }))
+        ]}
+        decisions={[]}
+      />
+    )
+    const rows = container.querySelectorAll('[data-event="setup"]')
+    expect(rows[0]).toHaveTextContent('Setup · npm ci exited 1 in 3 s')
+    expect(rows[1]).toHaveTextContent('Setup · npm ci timed out after 15 min')
+    expect(rows[2]).toHaveTextContent('Setup · npm ci stopped after under 1 s')
+    expect(rows[3]).toHaveTextContent('Setup again · npm ci exited 0 in 42 s')
+  })
+})

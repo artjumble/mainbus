@@ -28,7 +28,9 @@ describe('workspace repo', () => {
       slug: 'my-app',
       openPrOnReview: false,
       saveReports: true,
-      reportsFolder: 'docs/investigations'
+      reportsFolder: 'docs/investigations',
+      setupCommand: '',
+      setupTimeoutMinutes: 15
     })
     expect(await repo.get(created.id)).toEqual(created)
   })
@@ -45,6 +47,22 @@ describe('workspace repo', () => {
     }
     // A refused folder saves nothing, not even the switch beside it.
     expect(await repo.get(ws.id)).toMatchObject({ saveReports: false, reportsFolder: 'notes/reports' })
+  })
+
+  it('saves the setup settings: empty and 15 minutes by default, a one-line command, a timeout of 1 to 60 whole minutes', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const ws = await repo.create('/r', 'main', 'r', 'r')
+    expect(ws).toMatchObject({ setupCommand: '', setupTimeoutMinutes: 15 })
+    expect(await repo.setSetupSettings(ws.id, { command: '  npm ci  ' })).toMatchObject({ setupCommand: 'npm ci', setupTimeoutMinutes: 15 })
+    expect(await repo.setSetupSettings(ws.id, { timeoutMinutes: 60 })).toMatchObject({ setupCommand: 'npm ci', setupTimeoutMinutes: 60 })
+    for (const timeoutMinutes of [0, 61, 1.5, -1, Number.NaN]) {
+      await expect(repo.setSetupSettings(ws.id, { command: 'x', timeoutMinutes })).rejects.toThrow(/whole number/)
+    }
+    await expect(repo.setSetupSettings(ws.id, { command: 'npm ci\nrm -rf x' })).rejects.toThrow(/one line/)
+    await expect(repo.setSetupSettings(ws.id, { command: 'x'.repeat(1001) })).rejects.toThrow(/at most/)
+    // A refused value saves nothing, not even the one beside it.
+    expect(await repo.get(ws.id)).toMatchObject({ setupCommand: 'npm ci', setupTimeoutMinutes: 60 })
+    expect(await repo.setSetupSettings(ws.id, { command: '' })).toMatchObject({ setupCommand: '' })
   })
 
   it('switches opening a PR on Review on and off', async () => {

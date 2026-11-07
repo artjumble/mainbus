@@ -76,6 +76,16 @@ describe('ticket repo', () => {
     expect(await repo.get(t.id)).toMatchObject({ report: '# Findings' })
   })
 
+  it('keeps the setup state of the ticket folder, and null when none applies', async () => {
+    const repo = createTicketRepo(db, now)
+    const t = await repo.create(input())
+    expect(t.setup).toBeNull()
+    const failed = { state: 'failed' as const, command: 'npm ci', exitCode: 1, timedOut: false, tail: 'npm ERR!' }
+    expect((await repo.setSetup(t.id, failed)).setup).toEqual(failed)
+    expect((await repo.get(t.id)).setup).toEqual(failed)
+    expect((await repo.setSetup(t.id, null)).setup).toBeNull()
+  })
+
   it("records the report's file: its path, then the commit or why the save failed", async () => {
     const repo = createTicketRepo(db, now)
     const t = await repo.create({ ...input(), kind: 'investigate' })
@@ -116,6 +126,7 @@ describe('ticket repo', () => {
       reportFileError: null,
       promotedFrom: null,
       runSettings: null,
+      setup: null,
       createdAt: FIXED_NOW.toISOString(),
       updatedAt: FIXED_NOW.toISOString()
     })

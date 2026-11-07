@@ -1,4 +1,4 @@
-import type { Decision, DecisionAnswer, LineupRole, Ticket } from '../../shared/domain'
+import type { Decision, DecisionAnswer, LineupRole, Ticket, TicketSetup } from '../../shared/domain'
 import { TRUST_STATEMENT } from './hardening'
 
 export const ROLE_PROTOCOL = `## How you work with Mainbus
@@ -163,6 +163,22 @@ The user attached these images to the ticket. Open them with the Read tool when 
 ${lines.join('\n')}`
 }
 
+/** Tells the role the workspace's setup command ran, so it doesn't run it again; after a failure, why and the output's end. */
+function setupSection(setup: TicketSetup | null): string {
+  if (setup === null || setup.state === 'pending') return ''
+  const command = data('setup-command', oneLine(setup.command), true)
+  if (setup.state === 'succeeded') {
+    return `## Ticket folder setup
+Mainbus ran the workspace's setup command ${command} in this folder before you started, and it succeeded. Don't run it again.`
+  }
+  if (setup.state === 'failed') return ''
+  const why = setup.timedOut ? 'timed out' : `exited with code ${setup.exitCode ?? 'unknown'}`
+  const output = setup.tail ? `
+${data('setup-output', setup.tail)}` : ''
+  return `## Ticket folder setup
+Mainbus ran the workspace's setup command ${command} in this folder before you started, but it failed (${why}). The user chose to start without setup, so the folder may not be ready; the last lines of its output:${output}`
+}
+
 /** `extraInstructions` are the ones given when this ticket run was started, for every role in it. */
 export function buildRolePrompt(
   role: LineupRole,
@@ -175,7 +191,9 @@ export function buildRolePrompt(
   /** The ticket's images, copied into its scratch folder. */
   attachments: PromptAttachment[] = [],
   /** Where Mainbus saves the report as a file (a path, or a folder ending in "/"); null when it doesn't. */
-  reportSavedAt: string | null = null
+  reportSavedAt: string | null = null,
+  /** What the workspace's setup command did in the ticket's folder; null when none applies. */
+  setup: TicketSetup | null = null
 ): string {
   // Numbered by position, from 0, as check_criterion takes them.
   const criteria = ticket.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
@@ -200,6 +218,7 @@ export function buildRolePrompt(
       : '',
     ticket.labels.length ? `## Labels\n${data('labels', ticket.labels.join(', '))}` : '',
     attachmentsSection(attachments),
+    setupSection(setup),
     extraInstructions ? `${EXTRA_INSTRUCTIONS_HEADING}\n${data('extra-instructions', extraInstructions)}` : '',
     decisions ? `## Decisions so far\n${data('decisions', decisions)}` : '',
     handoffSection(handoffs)

@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
 import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeStep } from './fakeRuntime'
@@ -344,6 +347,30 @@ describe('expectPrompt', () => {
   test('fails the run with an error when it lacks the text', async () => {
     const script: FakeStep[] = [{ expectPrompt: 'the summary' }, { emit: { kind: 'message', text: 'ok' } }]
     expect(await play(script, 'start')).toEqual([{ kind: 'error', message: 'The launch prompt lacks "the summary"' }])
+  })
+})
+
+describe('expectFile', () => {
+  async function play(file: string, make: (cwd: string) => void): Promise<AgentEvent[]> {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-expectfile-'))
+    try {
+      make(cwd)
+      const rt = new FakeRuntime([{ expectFile: file }, { emit: { kind: 'message', text: 'ok' } }, { exit: 0 }])
+      const handle = await rt.start({ ...makeSpec().spec, cwd })
+      const events: AgentEvent[] = []
+      for await (const e of rt.events(handle)) events.push(e)
+      return events
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  }
+
+  test('passes when the file is in the run folder', async () => {
+    expect(await play('marker.txt', (cwd) => fs.writeFileSync(path.join(cwd, 'marker.txt'), 'x'))).toEqual([{ kind: 'message', text: 'ok' }])
+  })
+
+  test('fails the run with an error, before any event, when the file is missing', async () => {
+    expect(await play('marker.txt', () => {})).toEqual([{ kind: 'error', message: 'The run\'s folder lacks "marker.txt"' }])
   })
 })
 

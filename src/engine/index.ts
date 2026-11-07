@@ -48,6 +48,7 @@ import type { OpenDecision, WakeItem } from './orchestrator/wakeDigest'
 import type { Wake, WakeKind } from './store/wakes'
 import { createProposalService, type ProposalService } from './proposals/service'
 import { ProcessSweeper } from './processes/sweep'
+import { createSetupCommandRunner, type SetupCommandRunner } from './setup/setupCommand'
 import { railCounts } from './state/railCounts'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
 import { newestChange } from './stuck/files'
@@ -82,6 +83,8 @@ export interface EngineConfig {
   commands?: CommandRunner
   /** Finds and ends the processes an agent leaves running; tests pass one with a fake process table. */
   processes?: ProcessSweeper
+  /** Runs the workspace's setup command in a new ticket folder; tests pass a fake. By default the real thing, ending its processes with the sweeper above. */
+  setupCommands?: SetupCommandRunner
   /** Shown in the Connect agents settings. */
   launcher?: AgentLauncher | null
   /** Why the intake pipe couldn't be opened, if it couldn't; shown in the Connect agents settings. */
@@ -224,6 +227,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         kickQueue: () => runner.kickQueue()
       }
     }))
+    const sweeper = cfg.processes ?? new ProcessSweeper()
     const runner: TicketRunner = new TicketRunner({
       repos,
       worktrees,
@@ -234,7 +238,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       usage: usageHooks(gate),
       pullRequests,
       reportFiles: new ReportFileSaver(cfg.commands ?? runCommand),
-      processes: cfg.processes ?? new ProcessSweeper(),
+      processes: sweeper,
+      setup: cfg.setupCommands ?? createSetupCommandRunner(sweeper),
       onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId),
       attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) }
     })
@@ -988,6 +993,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
       },
+      // Renderer-only: this command runs outside the permission guard, so no agent can set it.
+      'workspace.setSetupSettings': async (settings, workspaceId) => {
+        const input = z
+          .strictObject({ command: z.string().max(2000).optional(), timeoutMinutes: z.number().optional() })
+          .parse(settings)
+        const ws = await repos.workspaces.setSetupSettings((await requireWorkspace(workspaceId)).id, input)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return ws
+      },
       'github.check': async (workspaceId) => pullRequests.checkGh((await requireWorkspace(workspaceId)).repoPath),
 
       'board.get': async (workspaceId) => {
@@ -1061,6 +1075,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.setRunSettings': (id, settings) => setRunSettings(id, settings),
       'ticket.openPr': (id) => runner.openPr(id),
       'ticket.saveReport': (id) => runner.saveReport(id),
+      'ticket.runSetup': (id) => runner.runSetupAgain(id),
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.
       'thread.get': async (ticketId) => {

@@ -28,6 +28,7 @@ function ticket(overrides: Partial<Ticket> = {}): Ticket {
     reportFileError: null,
     promotedFrom: null,
     runSettings: null,
+    setup: null,
     createdAt: '2026-11-01T00:00:00.000Z',
     updatedAt: '2026-11-01T00:00:00.000Z',
     ...overrides
