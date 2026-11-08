@@ -962,6 +962,71 @@ describe('TicketRunner', () => {
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'done', phase: 'done' })
   })
 
+  describe("a ticket's folder that git no longer lists", () => {
+    const handoff = () =>
+      new FakeRuntime([
+        { callTool: 'handoff', args: { summary: 'Added the limiter', notesForNext: '' } },
+        { emit: { kind: 'turn_end', ok: true } }
+      ])
+
+    /** The ticket in Review, its folder unregistered with files in it, as an interrupted removal leaves it. */
+    async function leftover(runtime: FakeRuntime, moved: string[] = []) {
+      const runner = new TicketRunner({
+        repos,
+        worktrees,
+        runtime,
+        now: () => FIXED_NOW,
+        emit: (e) => emitted.push(e),
+        onMovedToDone: async (id) => void moved.push(id)
+      })
+      runners.push(runner)
+      await runner.start(ticket.id)
+      await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
+      const { worktreePath, branch } = await repos.tickets.get(ticket.id)
+      const wt = worktreePath as string
+      await git(['worktree', 'remove', '--force', wt])
+      await fs.mkdir(path.join(wt, 'node_modules', 'a'), { recursive: true })
+      await fs.writeFile(path.join(wt, 'node_modules', 'a', 'one.js'), 'x')
+      await fs.writeFile(path.join(wt, 'package.json'), '{}')
+      return { runner, wt, branch: branch as string }
+    }
+
+    it('asks instead of refusing, reuses the question, and Delete finishes the move to Done', async () => {
+      const moved: string[] = []
+      const { runner, wt, branch } = await leftover(handoff(), moved)
+
+      expect(await runner.moveToDone(ticket.id)).toBe('asked')
+      const [decision] = await repos.decisions.pending(ticket.id)
+      expect(decision!.question).toContain('still holds 2 files')
+      expect(decision!.question).toContain('node_modules (1 file)')
+      expect(decision!.question).toContain('package.json (1 file)')
+      expect(decision!.question).toContain(`the branch ${branch}, which still exists`)
+      expect(decision!.options).toEqual(['Delete the folder and move to Done', 'Keep it'])
+      expect(await repos.tickets.get(ticket.id)).toMatchObject({ manualColumn: 'ready', worktreePath: wt })
+      expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' })
+
+      expect(await runner.moveToDone(ticket.id)).toBe('asked')
+      expect(await repos.decisions.pending(ticket.id)).toHaveLength(1)
+
+      await runner.answer(decision!.id, { kind: 'option', index: 0 }, 'thread')
+      expect(await exists(wt)).toBe(false)
+      expect(await repos.tickets.get(ticket.id)).toMatchObject({ manualColumn: 'done', worktreePath: null, branch })
+      expect(await git(['branch', '--list', branch])).toContain(branch)
+      expect(moved).toEqual([ticket.id])
+    })
+
+    it('Keep it leaves the folder and the column alone', async () => {
+      const { runner, wt } = await leftover(handoff())
+      expect(await runner.moveToDone(ticket.id)).toBe('asked')
+      const [decision] = await repos.decisions.pending(ticket.id)
+
+      await runner.answer(decision!.id, { kind: 'option', index: 1 }, 'thread')
+
+      expect(await exists(path.join(wt, 'package.json'))).toBe(true)
+      expect(await repos.tickets.get(ticket.id)).toMatchObject({ manualColumn: 'ready', worktreePath: wt })
+    })
+  })
+
   it('stateOf a Done ticket does not load its runs or their events', async () => {
     const runtime = new FakeRuntime([
       { callTool: 'handoff', args: { summary: 'Added the limiter', notesForNext: '' } },

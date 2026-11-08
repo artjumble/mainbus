@@ -31,7 +31,7 @@ import {
   type SaveReportInput,
   type SaveReportResult
 } from '../git/reportFiles'
-import type { WorktreeManager } from '../git/worktrees'
+import type { LeftoverFolder, WorktreeManager } from '../git/worktrees'
 import { endedNotice, type ProcessRef, type ProcessSweeper } from '../processes/sweep'
 import { credentialReason } from '../permissions/credentials'
 import { guardReason } from '../permissions/guard'
@@ -100,6 +100,8 @@ export interface RunnerDeps {
    * Mainbus runs it itself, after the handoff: it never goes through the agent's permissions.
    */
   pullRequests?: { publish(input: PublishInput): Promise<PublishResult> }
+  /** Called after a ticket reached Done (`wasDone`: it already was there): what waited on it being open can move on. */
+  onMovedToDone?: (ticketId: string, wasDone: boolean) => Promise<void>
   /** Called after a ticket's last role handed off and its push was tried: the branch may now differ from the newest base. */
   branchMoved?: (workspaceId: string) => void
   /**
@@ -193,6 +195,29 @@ export interface ReplaceRequest {
 export interface RunExpectation {
   agentRunId: string
 }
+const LEFTOVER_OPTIONS = ['Delete the folder and move to Done', 'Keep it']
+
+const LEFTOVER_LISTED = 10
+
+/** The question about a ticket folder that git no longer lists: what is in it and whether its commits are safe. */
+function leftoverQuestion(folder: string, branch: string, found: LeftoverFolder): string {
+  const count = (n: number) => `${n.toLocaleString('en-US')} file${n === 1 ? '' : 's'}`
+  const top = found.entries[0]
+  const mostly = top && found.files > 0 && top.files * 2 > found.files ? `, mostly in ${top.name}` : ''
+  const listed = found.entries.slice(0, LEFTOVER_LISTED).map((e) => `${e.name} (${count(e.files)})`)
+  const more = found.entries.length - LEFTOVER_LISTED
+  const commits =
+    found.commits === 'kept'
+      ? `Its commits are kept: they are on the branch ${branch}, which still exists.`
+      : `Mainbus can't tell whether its commits are kept: the branch ${branch} no longer exists.`
+  return [
+    `This ticket's folder is no longer a git worktree (a removal was interrupted) and still holds ${count(found.files)}${mostly}.`,
+    folder,
+    `It holds: ${listed.join(', ')}${more > 0 ? `, and ${more} more` : ''}.`,
+    commits
+  ].join('\n')
+}
+
 const ENDED_RUN_MOVE = 'Start again or move to Done'
 const SILENT_FAILURE = 'Ended two turns in a row without asking the user or handing off'
 const PERMISSION_OPTIONS = ['Allow once', 'Always allow in this workspace', 'Deny']
@@ -698,7 +723,7 @@ export class TicketRunner {
     return this.serial(ticketId, () => this.saveReportNow(ticketId, true))
   }
 
-  moveToDone(ticketId: string): Promise<'done' | 'dirty'> {
+  moveToDone(ticketId: string): Promise<'done' | 'dirty' | 'asked'> {
     return this.serial(ticketId, () => this.moveToDoneNow(ticketId))
   }
 
@@ -1056,6 +1081,7 @@ export class TicketRunner {
     const chosen = decision.options[a.index]
     if (action.kind === 'missing_worktree') return this.answerMissingFolder(decision, a.index)
     if (action.kind === 'setup_failed') return this.answerSetupFailed(decision, a.index)
+    if (action.kind === 'leftover_folder') return this.answerLeftover(decision, action, a.index)
     if (action.kind === 'round_trip' && chosen === TAKE_OVER) {
       await this.stopNow(decision.ticketId)
       return true
@@ -1424,8 +1450,9 @@ export class TicketRunner {
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
   }
 
-  private async moveToDoneNow(ticketId: string): Promise<'done' | 'dirty'> {
+  private async moveToDoneNow(ticketId: string, opts: { deleteLeftover?: boolean } = {}): Promise<'done' | 'dirty' | 'asked'> {
     const ticket = await this.repos.tickets.get(ticketId)
+    const wasDone = ticket.manualColumn === 'done'
     const where = { ticketId, workspaceId: ticket.workspaceId }
     const run = await this.repos.runs.latest(ticketId)
     const live = run ? this.live.get(run.id) : undefined
@@ -1441,9 +1468,11 @@ export class TicketRunner {
     if (ticket.worktreePath !== null && ticket.branch !== null) {
       const workspace = await this.workspaceOf(ticket)
       const outcome = await this.deps.worktrees.remove(ticket.id, workspace.repoPath, ticket.worktreePath, ticket.branch, {
-        discard: false
+        discard: false,
+        leftover: { workspaceSlug: workspace.slug, delete: opts.deleteLeftover ?? false }
       })
       if (outcome === 'dirty') return 'dirty'
+      if (outcome === 'leftover') return this.askAboutLeftover(ticket, workspace, run)
       await this.repos.tickets.setWorktree(ticket.id, ticket.branch, null)
     }
     if (run && run.endReason === null) {
@@ -1454,7 +1483,56 @@ export class TicketRunner {
     await this.expirePending(where, () => true)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
     this.kickQueue()
+    await this.deps.onMovedToDone?.(ticket.id, wasDone)
     return 'done'
+  }
+
+  /**
+   * The ticket's own folder is no longer a git worktree but holds files, so Mainbus asks before deleting it. It
+   * does not use `ask`: that refuses a run that has ended, and a ticket in Review has an ended run. The ticket
+   * stays where it was.
+   */
+  private async askAboutLeftover(ticket: Ticket, workspace: Workspace, run: AgentRunRow | null): Promise<'asked'> {
+    const folder = ticket.worktreePath!
+    const branch = ticket.branch!
+    if (!run) throw new Error(`${folder} is no longer a git worktree but still holds files, so Mainbus left it alone. It needs looking at: check what is in it, then delete it or move the files out.`)
+    const existing = await this.openActionDecision(ticket.id, run.id, 'leftover_folder')
+    if (existing) {
+      this.announceDecision(existing, ticket.workspaceId)
+      return 'asked'
+    }
+    const found = await this.deps.worktrees.describeLeftover(workspace.repoPath, folder, branch)
+    const decision = await this.repos.decisions.open(
+      {
+        ticketId: ticket.id,
+        agentRunId: run.id,
+        kind: 'question',
+        question: leftoverQuestion(folder, branch, found),
+        options: LEFTOVER_OPTIONS,
+        recommended: null,
+        allowAlways: false
+      },
+      { kind: 'leftover_folder', path: folder }
+    )
+    await this.record(this.target(run, ticket), { kind: 'decision', decisionId: decision.id })
+    this.announceDecision(decision, ticket.workspaceId)
+    return 'asked'
+  }
+
+  /** Delete (option 0): the folder is deleted and the ticket moves to Done. Keep it leaves everything as it was. */
+  private async answerLeftover(decision: Decision, action: { path: string }, index: number): Promise<boolean> {
+    if (index !== 0) return true
+    const ticket = await this.repos.tickets.get(decision.ticketId)
+    // Only the folder that was asked about; the ticket may have moved on since.
+    if (ticket.manualColumn === 'done' || ticket.worktreePath !== action.path) return true
+    try {
+      await this.moveToDoneNow(ticket.id, { deleteLeftover: true })
+    } catch (err) {
+      const run = await this.repos.runs.latest(ticket.id)
+      if (run) await this.record(this.target(run, ticket), { kind: 'notice', text: `The folder could not be deleted: ${errorText(err)}` })
+      throw err
+    }
+    return true
   }
 
   /**
