@@ -37,3 +37,12 @@ export function trayTestHookFromEnv(env: NodeJS.ProcessEnv): boolean {
   const fake = env['MAINBUS_RUNTIME']?.startsWith('fake:') ?? false
   return Boolean(env['MAINBUS_HOME']) && fake
 }
+
+/**
+ * Whether the main window opens maximized. It always does, except in a scripted test run (MAINBUS_HOME set and a
+ * fake runtime), which keeps the fixed 1280×800 window its layouts are written for unless `MAINBUS_TEST_MAXIMIZED=1`
+ * asks for the normal launch.
+ */
+export function launchMaximizedFromEnv(env: NodeJS.ProcessEnv): boolean {
+  return !trayTestHookFromEnv(env) || env['MAINBUS_TEST_MAXIMIZED'] === '1'
+}
