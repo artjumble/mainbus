@@ -25,7 +25,7 @@ The name comes from the "main bus" pattern in Factorio: one central line that fe
   - the same command failing 5 times in a row;
   - 15 minutes without a file change, a new kind of tool or a finished command that differs from the last few;
   - 10 minutes without a single event;
-  - one turn running over an hour;
+  - 30 minutes in one turn without a commit, a ticked criterion or a message from the agent, and any turn over 3 hours;
   - an agent process that has ended.
 
   An agent that is still changing files, has declared a wait, or has a command still running within its timeout doesn't trip the no-progress or silence checks. Each stuck episode raises one alert rather than a stream of them. Recovery goes up a ladder:

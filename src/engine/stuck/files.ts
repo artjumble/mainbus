@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import type { GitRunner } from '../git/git'
 import { IGNORED_FOLDERS } from './config'
 
 /** The walk stops after this many entries, so a huge worktree never makes a check slow. */
@@ -28,4 +29,14 @@ export async function newestChange(root: string, ignored: ReadonlySet<string> = 
     }
   }
   return newest
+}
+
+/** The commit the worktree's branch is at, or null when it can't be read. */
+export async function headCommit(git: GitRunner, worktreePath: string): Promise<string | null> {
+  try {
+    const r = await git(['rev-parse', 'HEAD'], worktreePath)
+    return r.code === 0 ? r.stdout.trim() || null : null
+  } catch {
+    return null
+  }
 }

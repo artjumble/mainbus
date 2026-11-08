@@ -326,8 +326,8 @@ One decision record drives the board card (Needs you column with the question su
   - The same failing command (normalized) N times; default 5.
   - No file changes in the worktree (by file modification times), no new tool kinds and no shell command finishing that differs from the last 5 finished in M minutes, unless a command is still running within its timeout; default 15.
   - No events at all in K minutes while Working; default 10.
-  - A single turn running longer than 60 minutes.
-- **Not stuck:** silence is expected while a declared wait (`report_waiting`) is in force, while the ticket is held, while a decision is open, or while files in the worktree are still changing. A low context reading is not a sign of being stuck.
+  - A turn 30 minutes past its last milestone (a commit on the branch, a ticked criterion, a message from the agent or a declared wait; the turn's start counts if none yet), and any single turn longer than 3 hours.
+- **Not stuck:** silence is expected while a declared wait (`report_waiting`) is in force, while the ticket is held, while a decision is open, or while files in the worktree are still changing (the milestone rule and the 3-hour ceiling ignore changing files). A low context reading is not a sign of being stuck.
 - **No alert storms:** a dead process is reported once, not on every check. Repeat hits on the same agent increase an escalation count rather than producing new alerts. At the third hit the evidence card asks for a closer look.
 - **Recovery ladder:** the orchestrator works up these steps, one at a time.
   1. **Redirect:** `propose_redirect` shows the evidence and one corrective message, for example "Timeouts are ruled out; check the shared fixtures instead." On Confirm, the engine interrupts the agent and sends the message. This step happens once per stuck episode.

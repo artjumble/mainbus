@@ -281,3 +281,24 @@ describe('the orchestrator hears of stuck agents', () => {
     expect(status).toContain('<ticket-data field="stuck-evidence">No events from the agent for 10 minutes</ticket-data>')
   })
 })
+
+describe('the milestone rule', () => {
+  test('an agent that keeps changing files is flagged 30 minutes after its last commit in the ticket\'s worktree, and not before', async () => {
+    const runtime = new FakeRuntime(QUIET)
+    const { engine, ticket } = await started(runtime)
+    const cwd = runtime.specs[0]!.cwd
+    const churn = async (minutes: number): Promise<void> => {
+      for (let m = 0; m < minutes; m++) {
+        changed = clock.now().getTime() + MIN - 1
+        await clock.advance(MIN)
+      }
+    }
+
+    await churn(20)
+    await runGit(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-m', 'Work so far'], cwd)
+    await churn(29)
+    expect((await ticketOf(engine, ticket.id)).stuck).toBeNull()
+    await churn(2)
+    expect((await ticketOf(engine, ticket.id)).stuck).toMatchObject({ rule: 'no_milestone' })
+  })
+})

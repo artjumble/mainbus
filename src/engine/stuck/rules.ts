@@ -22,6 +22,8 @@ export interface RuleInput {
   waitEndedAt: number | null
   /** The newest file change in the worktree, or null when there is none or it isn't known. */
   filesChangedAt: number | null
+  /** When the branch's head was last seen to move to a new commit, or null when it hasn't been seen to. */
+  committedAt: number | null
 }
 
 const EVIDENCE_MAX = 200
@@ -143,13 +145,43 @@ export function silence(i: RuleInput): StuckHit | null {
   return { rule: 'silence', evidence: [`No events from the agent for ${minutes(i.now - since)} minutes`] }
 }
 
-/** One turn running for longer than `longTurnMs`. */
+/**
+ * When the turn last made a milestone (ms since the epoch): its start, a commit, a message from the agent, a ticked
+ * criterion, a declared wait (at the moment it was declared) or the end of one. Tool calls and thinking are not.
+ */
+export function lastMilestoneAt(i: RuleInput): number {
+  let last = Math.max(i.turnStartedAt, i.committedAt ?? 0, i.waitEndedAt ?? 0)
+  for (const { at, event } of i.events) {
+    const t = Date.parse(at)
+    if (t <= last) continue
+    if ((event.kind === 'message' && event.text.trim() !== '') || event.kind === 'criterion_checked' || event.kind === 'waiting') last = t
+  }
+  return last
+}
+
+/** The turn under way has gone `noMilestoneMs` since its last milestone. */
+export function noMilestone(i: RuleInput): StuckHit | null {
+  if (!i.inTurn) return null
+  const since = lastMilestoneAt(i)
+  if (i.now - since < STUCK.noMilestoneMs) return null
+  return {
+    rule: 'no_milestone',
+    evidence: [`No commit, ticked criterion or message for ${minutes(i.now - since)} minutes in a turn that has run ${minutes(i.now - i.turnStartedAt)} minutes`]
+  }
+}
+
+/** One turn running for longer than `maxTurnMs`, whatever its milestones. */
 export function longTurn(i: RuleInput): StuckHit | null {
-  if (!i.inTurn || i.now - i.turnStartedAt < STUCK.longTurnMs) return null
+  if (!i.inTurn || i.now - i.turnStartedAt < STUCK.maxTurnMs) return null
   return { rule: 'long_turn', evidence: [`The current turn has been running for ${minutes(i.now - i.turnStartedAt)} minutes`] }
+}
+
+/** The rules about the length of a turn; they apply even while files are still changing. */
+export function turnRules(i: RuleInput): StuckHit | null {
+  return noMilestone(i) ?? longTurn(i)
 }
 
 /** The first rule that fires, or null. */
 export function evaluate(i: RuleInput): StuckHit | null {
-  return repeatedFailure(i.events) ?? noProgress(i) ?? silence(i) ?? longTurn(i)
+  return repeatedFailure(i.events) ?? noProgress(i) ?? silence(i) ?? turnRules(i)
 }

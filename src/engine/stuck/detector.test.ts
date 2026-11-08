@@ -26,6 +26,8 @@ let detector: StuckDetector
 /** What the fake runner reports, and the newest file change the fake probe finds. */
 let scene: () => Partial<RunObservation>
 let files: number | null
+/** The commit the fake probe finds in the worktree. */
+let head: string | null
 
 const now = (): number => clock.now().getTime()
 const ago = (minutes: number): number => now() - minutes * MIN
@@ -62,14 +64,16 @@ function live(over: { activity?: number; started?: number; turn?: number; inTurn
   }
 }
 
-type Rule = 'repeated_failure' | 'no_progress' | 'silence' | 'long_turn'
+type Rule = 'repeated_failure' | 'no_progress' | 'silence' | 'no_milestone' | 'long_turn'
 
 /** A run in which exactly one rule fires. */
 const SCENARIOS: Record<Rule, () => { observation: Partial<RunObservation>; files: number | null }> = {
   repeated_failure: () => ({ observation: { events: fiveFailures(), live: live() }, files: null }),
   no_progress: () => ({ observation: { live: live({ started: 16 }) }, files: null }),
   silence: () => ({ observation: { live: live({ activity: 11, started: 11 }) }, files: null }),
-  long_turn: () => ({ observation: { live: live({ started: 61 }) }, files: before(3) })
+  no_milestone: () => ({ observation: { live: live({ started: 31 }) }, files: before(3) }),
+  // A message a minute ago, so only the ceiling is left to fire.
+  long_turn: () => ({ observation: { live: live({ started: 181 }), events: [stored(ago(1), { kind: 'message', text: 'Still on it' })] }, files: before(3) })
 }
 
 function useScenario(rule: Rule): void {
@@ -93,6 +97,7 @@ beforeEach(async () => {
   exhausted = false
   scene = () => ({ live: live() })
   files = null
+  head = 'aaa'
   detector = new StuckDetector({
     repos,
     now: () => clock.now(),
@@ -115,7 +120,8 @@ beforeEach(async () => {
     failIfExhausted: async () => exhausted,
     noteStuck: async (_t, _r, note) => void notes.push(note),
     onStuck: async (workspaceId, e) => void wakes.push({ workspaceId, episodeId: e.id }),
-    newestChange: async () => files
+    newestChange: async () => files,
+    headCommit: async () => head
   })
 })
 
@@ -126,8 +132,8 @@ afterEach(() => {
 
 const episode = () => repos.stuck.open(runId)
 
-describe('the four rules, through the detector', () => {
-  test.each(['repeated_failure', 'no_progress', 'silence', 'long_turn'] as const)('%s opens an episode of its own rule', async (rule) => {
+describe('the rules, through the detector', () => {
+  test.each(['repeated_failure', 'no_progress', 'silence', 'no_milestone', 'long_turn'] as const)('%s opens an episode of its own rule', async (rule) => {
     useScenario(rule)
     await detector.check()
     expect(await episode()).toMatchObject({ rule, hitCount: 1, needsCloserLook: false })
@@ -173,9 +179,6 @@ describe('not stuck', () => {
       const before = scene
       scene = () => ({ ...before(), state: { ...WORKING, column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' } })
     },
-    'files are still changing': () => {
-      files = ago(1)
-    },
     'the agent is paused': () => {
       const before = scene
       scene = () => ({ ...before(), live: null, state: { ...WORKING, agentStatus: 'paused', pausedByUser: true } })
@@ -195,13 +198,27 @@ describe('not stuck', () => {
   }
 
   for (const [name, apply] of Object.entries(CONDITIONS)) {
-    test.each(['repeated_failure', 'no_progress', 'silence', 'long_turn'] as const)(`no ${name}: %s does not fire`, async (rule) => {
+    test.each(['repeated_failure', 'no_progress', 'silence', 'no_milestone', 'long_turn'] as const)(`no ${name}: %s does not fire`, async (rule) => {
       useScenario(rule)
       await apply()
       await detector.check()
       expect(await episode()).toBeNull()
     })
   }
+
+  test.each(['repeated_failure', 'no_progress', 'silence'] as const)('files still changing: %s does not fire', async (rule) => {
+    useScenario(rule)
+    files = ago(1)
+    await detector.check()
+    expect(await episode()).toBeNull()
+  })
+
+  test.each(['no_milestone', 'long_turn'] as const)('files still changing do not stop %s', async (rule) => {
+    useScenario(rule)
+    files = ago(1)
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule })
+  })
 
   test('a declared wait that has passed no longer protects the agent, and its silence counts from where the wait ended', async () => {
     const until = now() + 5 * MIN
@@ -356,7 +373,7 @@ describe('no alert storms', () => {
     expect(await episode()).toBeNull()
   })
 
-  test('a silence episode closes when events come again, and a long turn when the turn ends', async () => {
+  test('a silence episode closes when events come again, and a long turn when the turn ends, a message does not', async () => {
     useScenario('silence')
     await detector.check()
     await clock.advance(MIN)
@@ -368,7 +385,10 @@ describe('no alert storms', () => {
     await clock.advance(MIN)
     await detector.check()
     expect(await episode()).toMatchObject({ rule: 'long_turn' })
-    scene = () => ({ live: live({ started: 62, inTurn: false }) })
+    scene = () => ({ live: live({ started: 182 }), events: [stored(ago(0), { kind: 'message', text: 'Hello' })] })
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule: 'long_turn' })
+    scene = () => ({ live: live({ started: 182, inTurn: false }) })
     await detector.check()
     expect(await episode()).toBeNull()
   })
@@ -455,6 +475,68 @@ describe('a dead process', () => {
     }
     await repos.holds.place('ticket', ticketId, {})
     scene = dead
+    await detector.check()
+    expect(await episode()).toBeNull()
+  })
+})
+
+describe('the milestone rule', () => {
+  test('a head seen for the first time is not a milestone; a head that moves restarts the count', async () => {
+    const started = now()
+    // Files keep changing, so only the turn rules can fire.
+    scene = () => {
+      files = now()
+      return { live: { lastActivityAt: now(), startedAt: started, turnStartedAt: started, inTurn: true } }
+    }
+    detector.start()
+    await clock.advance(5 * MIN)
+    head = 'bbb'
+    await clock.advance(29 * MIN)
+    expect(await episode()).toBeNull()
+    await clock.advance(MIN)
+    expect(await episode()).toBeNull()
+    await clock.advance(5 * MIN)
+    expect(await episode()).toMatchObject({ rule: 'no_milestone' })
+  })
+
+  test('churn: files changing every minute with no milestone opens one episode at 30 minutes, and file changes do not close it', async () => {
+    const started = now()
+    scene = () => ({ live: { lastActivityAt: now(), startedAt: started, turnStartedAt: started, inTurn: true } })
+    detector.start()
+    for (let m = 1; m <= 34; m++) {
+      files = now() + MIN - 1
+      await clock.advance(MIN)
+      if (m < 30) expect(await episode()).toBeNull()
+    }
+    expect(await episode()).toMatchObject({ rule: 'no_milestone' })
+    expect(notes.map((n) => n.change)).toEqual(['opened'])
+    expect(wakes).toHaveLength(1)
+  })
+
+  test('an episode closes on a message, a ticked criterion or a commit after the hit, and when the turn ends', async () => {
+    useScenario('no_milestone')
+    const base = SCENARIOS.no_milestone().observation
+    const closing: [string, () => Partial<RunObservation>][] = [
+      ['a message', () => ({ ...base, events: [stored(now(), { kind: 'message', text: 'Done with the parser' })] })],
+      ['a tick', () => ({ ...base, events: [stored(now(), { kind: 'criterion_checked', index: 0, text: 'x' })] })],
+      ['the turn ending', () => ({ live: live({ started: 31, inTurn: false }) })]
+    ]
+    for (const [, next] of closing) {
+      scene = () => base
+      await detector.check()
+      expect(await episode()).toMatchObject({ rule: 'no_milestone' })
+      await clock.advance(MIN)
+      scene = next
+      await detector.check()
+      expect(await episode()).toBeNull()
+    }
+    // A commit: the head moves after the hit.
+    scene = () => base
+    await clock.advance(MIN)
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule: 'no_milestone' })
+    head = 'ccc'
+    await clock.advance(MIN)
     await detector.check()
     expect(await episode()).toBeNull()
   })
