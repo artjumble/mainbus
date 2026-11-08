@@ -209,7 +209,7 @@ export const stuckEpisodes = sqliteTable(
       .notNull()
       .references(() => agentRuns.id, { onDelete: 'cascade' }),
     /** The rule of the latest hit. */
-    rule: text('rule', { enum: ['repeated_failure', 'no_progress', 'silence', 'long_turn', 'dead_process'] }).notNull(),
+    rule: text('rule', { enum: ['repeated_failure', 'no_progress', 'silence', 'no_milestone', 'long_turn', 'dead_process'] }).notNull(),
     evidence: text('evidence').notNull(), // JSON: string[], from the latest hit
     hitCount: integer('hit_count').notNull(),
     openedAt: text('opened_at').notNull(),

@@ -604,7 +604,7 @@ export interface BranchFreshness {
 }
 
 /** What the stuck detector looks for. */
-export type StuckRule = 'repeated_failure' | 'no_progress' | 'silence' | 'long_turn' | 'dead_process'
+export type StuckRule = 'repeated_failure' | 'no_progress' | 'silence' | 'no_milestone' | 'long_turn' | 'dead_process'
 
 /** A stuck episode as the board and the ticket view show it. */
 export interface StuckEpisode {

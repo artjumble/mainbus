@@ -7,6 +7,7 @@ export const STUCK_RULE_TEXT: Record<StuckRule, string> = {
   repeated_failure: 'the same command failing again and again',
   no_progress: 'no file changes, new kinds of tool or new commands for a while',
   silence: 'no events for a while',
+  no_milestone: 'no commit, ticked criterion or message for a long while in one turn',
   long_turn: 'one turn running very long',
   dead_process: 'the agent process ended'
 }
@@ -23,8 +24,10 @@ export const STUCK = {
   recentCommands: 5,
   /** No events at all for this long while the agent is working. */
   silenceMs: 10 * MINUTE,
-  /** A single turn running longer than this. */
-  longTurnMs: 60 * MINUTE,
+  /** A turn this long since its last milestone (a commit, a ticked criterion, a message from the agent or a declared wait, or the turn's start). */
+  noMilestoneMs: 30 * MINUTE,
+  /** A single turn running longer than this fires whatever its milestones: a last-resort check. */
+  maxTurnMs: 180 * MINUTE,
   /** A file changed this recently counts as "files are still changing": no rule fires. */
   filesChangingMs: 2 * MINUTE,
   /** A repeat hit counts on an open episode only when this long has passed since its last hit, so escalation is not a few minutes' work. */
