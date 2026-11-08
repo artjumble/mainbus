@@ -17,7 +17,7 @@ import { PermissionCard } from './PermissionCard'
 import { SetupEntry } from './SetupEntry'
 import { ThinkingBlock } from './ThinkingBlock'
 import classes from './Thread.module.css'
-import { ROW_BADGE } from './rowBadgeStyles'
+import { ROW_BADGE } from '../rowBadgeStyles'
 import { ToolRow } from './ToolRow'
 import { summariseTools } from './toolSummary'
 

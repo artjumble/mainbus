@@ -1,7 +1,7 @@
 import { Badge, Collapse, Group, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
 import { CodeBlock } from '../code/CodeBlock'
-import { ROW_BADGE } from './rowBadgeStyles'
+import { ROW_BADGE } from '../rowBadgeStyles'
 
 interface Props {
   name: string

@@ -92,7 +92,7 @@ test('in a narrow row with a very long command, the Failed tag and the name tag 
       <ToolRow name="Bash" input={{ command }} result={{ ok: false, summary: 'exit 1: a long failure message' }} />
     </div>
   )
-  // jsdom has no layout, so these are the styles that keep the tags whole; the measured check is in the artboard e2e test.
+  // jsdom has no layout, so these are the styles that keep the tags whole (the artboard e2e test measures the name tag only).
   for (const [selector, text] of [['[data-failed-tag]', 'Failed'], ['[data-tool-tag]', 'Bash']] as const) {
     const tag = document.querySelector<HTMLElement>(selector)!
     expect(tag).toHaveTextContent(new RegExp(`^${text}$`))
