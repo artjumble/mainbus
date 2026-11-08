@@ -53,7 +53,7 @@ export function ConnectAgents({ opened }: { opened: boolean }): ReactElement {
             <Alert color="yellow" variant="light" title="The launcher isn't there yet">
               {launcher.kind === 'stable'
                 ? 'Run scripts\\build-stable.ps1 from your own terminal to write '
-                : 'Run npm run build to write '}
+                : 'Run pnpm build to write '}
               <Code>{launcher.program[launcher.program.length - 1]}</Code>.
             </Alert>
           )}

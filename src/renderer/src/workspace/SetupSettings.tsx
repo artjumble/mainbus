@@ -60,7 +60,7 @@ export function SetupSettings({ opened }: { opened: boolean }): ReactElement {
         <Stack gap="xs">
           <TextInput
             label="Setup command for new ticket folders"
-            placeholder="npm ci"
+            placeholder="e.g. pnpm install --frozen-lockfile"
             value={command}
             onChange={(e) => setCommand(e.currentTarget.value)}
             error={workspace !== null && !checkedCommand.ok ? checkedCommand.reason : undefined}

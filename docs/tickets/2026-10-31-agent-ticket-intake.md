@@ -85,7 +85,7 @@ The CLI and the MCP server never touch the database. Every request goes through 
 
 ### Running it
 
-- **Dev:** `npm run mainbus -- <args>` runs the bundled file with Node against the dev home (or `MAINBUS_HOME`).
+- **Dev:** `pnpm mainbus <args>` runs the bundled file with Node against the dev home (or `MAINBUS_HOME`).
 - **Stable build:**
   - Ship the bundle outside the asar via `extraResources` in `electron-builder.yml`, the way `migrations` is shipped.
   - `scripts/build-stable.ps1` writes `%LOCALAPPDATA%\Mainbus\bin\mainbus.cmd`. The launcher reads `app\current.txt` and runs `app\<build>\Mainbus.exe` with `ELECTRON_RUN_AS_NODE=1` on `resources\cli\<bundle>`, so no separate Node install is needed. It stays valid across rebuilds and rollbacks.

@@ -190,7 +190,7 @@ async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: Ex
 }
 
 // The data home comes first: the lock lives in userData, so stable, dev and test runs each get their own.
-// A relative MAINBUS_HOME is taken from where `npm run dev` was typed, as the CLI does for `npm run mainbus`.
+// A relative MAINBUS_HOME is taken from where `pnpm dev` was typed, as the CLI does for `pnpm mainbus`.
 const home = resolveHome(
   process.env,
   app.isPackaged ? 'stable' : 'dev',
