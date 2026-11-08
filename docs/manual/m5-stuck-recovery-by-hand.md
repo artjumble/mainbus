@@ -18,7 +18,7 @@ The automated version is `e2e/m5Exit.spec.ts` (a FakeRuntime script and a fake c
 
    ```powershell
    $env:MAINBUS_HOME = "$env:TEMP\mainbus-m5-manual"
-   npm run dev
+   pnpm dev
    ```
 
 3. On the welcome screen, choose **+ Add workspace** and pick `$repo`. (With a workspace already open, use the rail's **+ Add workspace**.)

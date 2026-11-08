@@ -123,7 +123,7 @@ test('agents file tickets through the CLI and the MCP server, and the board show
       [2, 'e2e-agent']
     ])
 
-    // `npm run mainbus` runs in the package root; the folder it was typed in is the one recorded and the base
+    // `pnpm mainbus` runs in the package root; the folder it was typed in is the one recorded and the base
     // of relative paths.
     fs.writeFileSync(path.join(repo, 'intent.txt'), 'Read from the folder it was typed in.')
     const viaNpm = spawnSync(
