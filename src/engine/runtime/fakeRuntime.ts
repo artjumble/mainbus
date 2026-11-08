@@ -30,9 +30,11 @@ export type FakeStep =
   | { callTool: keyof RoleToolHandlers | keyof OrchestratorToolHandlers; args: unknown }
   /**
    * Calls a read tool and keeps what the first group of `pattern` matches in its text as `as`; a later step's args
-   * use it wherever a string is exactly `$as`. For ids a script can't know in advance.
+   * use it wherever a string is exactly `$as`. For ids a script can't know in advance. With `fromMessage` instead of
+   * `tool`, the pattern is matched in the user message the script has reached (its header included).
    */
   | { capture: { tool: keyof OrchestratorToolHandlers; args?: unknown; pattern: string; as: string } }
+  | { capture: { fromMessage: true; pattern: string; as: string } }
   | { requestPermission: Omit<PermissionRequest, 'signal'> }
   | { waitForSend: true }
   /** Fails the script, with an error event and the run closed, unless the run's launch prompt contains this text. */
@@ -358,11 +360,15 @@ export class FakeRuntime implements AgentRuntime {
           await (tool as (args: unknown) => Promise<string>).call(tools, fill(step.args, captured))
         } else if ('capture' in step) {
           const c = step.capture
-          const tool = (spec.kind === 'orchestrator' ? (spec.tools as unknown as Record<string, unknown>) : {})[c.tool]
-          if (typeof tool !== 'function') throw new Error(`No tool ${c.tool} in this run`)
-          const out = await (tool as (args: unknown) => Promise<string>).call(spec.kind === 'orchestrator' ? spec.tools : {}, c.args ?? {})
+          let out: string
+          if ('fromMessage' in c) out = run.received[run.reached]!.text
+          else {
+            const tool = (spec.kind === 'orchestrator' ? (spec.tools as unknown as Record<string, unknown>) : {})[c.tool]
+            if (typeof tool !== 'function') throw new Error(`No tool ${c.tool} in this run`)
+            out = await (tool as (args: unknown) => Promise<string>).call(spec.kind === 'orchestrator' ? spec.tools : {}, c.args ?? {})
+          }
           const m = new RegExp(c.pattern).exec(out)
-          if (!m?.[1]) throw new Error(`capture ${c.as}: ${c.pattern} did not match the tool's text`)
+          if (!m?.[1]) throw new Error(`capture ${c.as}: ${c.pattern} did not match ${'fromMessage' in c ? "the user's message" : "the tool's text"}`)
           captured[c.as] = m[1]
         } else if ('requestPermission' in step) {
           await spec.onPermission({ ...step.requestPermission, signal: run.abort.signal })

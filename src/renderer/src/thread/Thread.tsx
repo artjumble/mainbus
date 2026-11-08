@@ -18,6 +18,7 @@ import { SetupEntry } from './SetupEntry'
 import { ThinkingBlock } from './ThinkingBlock'
 import classes from './Thread.module.css'
 import { ROW_BADGE } from '../rowBadgeStyles'
+import { MentionText } from './MentionText'
 import { ToolRow } from './ToolRow'
 import { summariseTools } from './toolSummary'
 
@@ -311,7 +312,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
               <SentImages images={event.images} />
             </Box>
           )}
-          {event.text !== '' && <Text size="sm">{event.text}</Text>}
+          {event.text !== '' && <MentionText text={event.text} mentions={event.mentions} />}
         </Paper>
       )
     case 'redirected':

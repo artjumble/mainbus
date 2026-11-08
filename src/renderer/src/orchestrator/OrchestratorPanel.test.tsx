@@ -595,3 +595,20 @@ describe('Permission cards in the panel', () => {
     expect(within(deferredGroup).getByText('Because')).toBeInTheDocument()
   })
 })
+
+test('a workspace picked with @ is sent with the message, as an id', async () => {
+  history()
+  useMainbus.setState({
+    workspaces: [
+      { id: 'w1', name: 'mainbus', repoPath: 'C:\repos\mainbus' },
+      { id: 'w2', name: 'hunter', repoPath: 'C:\repos\hunter' }
+    ] as never
+  })
+  renderWithMantine(<Panel />)
+  await screen.findByText(EMPTY_TEXT)
+  const box = screen.getByRole('textbox', { name: 'Message the orchestrator' })
+  await userEvent.type(box, 'ticket in @hu')
+  await userEvent.click(await screen.findByRole('option', { name: /hunter/ }))
+  await userEvent.type(box, 'for X{Enter}')
+  expect(mockInvoke).toHaveBeenCalledWith('orchestrator.send', 'ticket in @hunter for X', undefined, ['w2'])
+})

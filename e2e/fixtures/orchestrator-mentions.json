@@ -1,0 +1,26 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-mentions" } },
+    { "expectPrompt": "[Mainbus] Mentioned workspaces: hunter (id " },
+    { "capture": { "fromMessage": true, "pattern": "Mentioned workspaces: hunter [(]id ([^,]+),", "as": "hunter" } },
+    { "emit": { "kind": "tool_call", "id": "c1", "name": "mcp__mainbus__create_tickets", "input": {} } },
+    {
+      "callTool": "createTickets",
+      "args": {
+        "workspace": "$hunter",
+        "request_messages_back": 0,
+        "tickets": [
+          {
+            "title": "Do X in hunter",
+            "spec": "Drafted by the orchestrator: do X."
+          }
+        ]
+      }
+    },
+    { "emit": { "kind": "tool_result", "id": "c1", "ok": true, "summary": "Created" } },
+    { "emit": { "kind": "message", "text": "Created #1 in hunter's Backlog." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

@@ -1,5 +1,6 @@
 // Shared by the engine and the renderer: types only, no Node imports.
 import type { ImageRef } from './attachments'
+import type { MentionRef } from './mentions'
 import type { AgentStatus, StuckRule, TicketEdit } from './domain'
 import type { Proposal } from './proposals'
 
@@ -48,8 +49,11 @@ export type AgentEvent =
 /** Everything that can appear in a run's stored thread. */
 export type ThreadEvent =
   | AgentEvent
-  /** `images`: the ones the user sent the orchestrator with it, by id and name; only the orchestrator's thread has them. */
-  | { kind: 'user_message'; text: string; images?: ImageRef[] }
+  /**
+   * `images`: the ones the user sent the orchestrator with it, by id and name; only the orchestrator's thread has them.
+   * `mentions`: the workspaces the text mentions with @, as they were when it was sent.
+   */
+  | { kind: 'user_message'; text: string; images?: ImageRef[]; mentions?: MentionRef[] }
   | { kind: 'decision'; decisionId: string }
   | { kind: 'nudge'; text: string }
   | { kind: 'process_exit'; code: number | null }

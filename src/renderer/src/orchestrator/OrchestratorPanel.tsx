@@ -50,6 +50,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const needsYou = useMainbus((s) => s.workspaces.reduce((total, w) => total + w.needsYou, 0))
   const workspaceName = useMainbus((s) => s.workspace?.name ?? 'no workspace')
   const workspaces = useMainbus((s) => s.workspaces)
+  const focusedId = useMainbus((s) => s.workspace?.id)
   const fleet = fleetCounts(workspaces)
   // The images of the message being written; kept while the panel is collapsed.
   const [images, setImages] = useState<NewAttachment[]>([])
@@ -75,9 +76,14 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
     )
   }
 
-  async function send(text: string): Promise<void> {
+  async function send(text: string, mentions: string[] = []): Promise<void> {
     try {
-      await (images.length > 0 ? invoke('orchestrator.send', text, images) : invoke('orchestrator.send', text))
+      const withImages = images.length > 0 ? images : undefined
+      await (mentions.length > 0
+        ? invoke('orchestrator.send', text, withImages, mentions)
+        : withImages
+          ? invoke('orchestrator.send', text, withImages)
+          : invoke('orchestrator.send', text))
       setImages([])
     } catch (err) {
       showError(err, 'Could not send')
@@ -160,6 +166,10 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           working={working}
           onStop={stop}
           onSend={send}
+          mentions={{
+            label: 'Workspaces',
+            options: workspaces.map((w) => ({ id: w.id, name: w.name, detail: w.repoPath, current: w.id === focusedId }))
+          }}
           prefill={prefill}
           onPrefilled={clearPrefill}
           onAttach={(files) => void attach(files)}

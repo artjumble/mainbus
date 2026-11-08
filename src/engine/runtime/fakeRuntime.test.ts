@@ -288,6 +288,19 @@ describe('FakeRuntime: the orchestrator', () => {
     expect(spec.tools.proposeAnswer).toHaveBeenCalledWith({ decision: 'abc123', nested: ['abc123', '$other'] })
   })
 
+  test('a value captured from the user message fills a later step', async () => {
+    const rt = new FakeRuntime([], {
+      orchestrator: [
+        { capture: { fromMessage: true, pattern: 'id (w[0-9]+)', as: 'ws' } },
+        { callTool: 'proposeAnswer', args: { decision: '$ws' } },
+        { exit: 0 }
+      ]
+    })
+    const spec = { ...orchestratorSpec(), prompt: 'Mentioned workspaces: hunter (id w2, /repos/hunter)' }
+    await collect(rt.events(await rt.start(spec)))
+    expect(spec.tools.proposeAnswer).toHaveBeenCalledWith({ decision: 'w2' })
+  })
+
   test('without a script it stays open and silent; a role tool is not one of its tools', async () => {
     const quiet = new FakeRuntime([{ exit: 0 }])
     const run = await quiet.start(orchestratorSpec())

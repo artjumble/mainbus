@@ -16,6 +16,7 @@ export function messageHeader(ws: Pick<Workspace, 'name' | 'repoPath'>, now: Dat
   return `[Mainbus] Focused workspace: ${oneLine(ws.name)} (${oneLine(ws.repoPath)}) · Local time: ${localTime(now)}`
 }
 
-export function withHeader(ws: Pick<Workspace, 'name' | 'repoPath'>, now: Date, text: string): string {
-  return `${messageHeader(ws, now)}\n\n${text}`
+/** `mentions` is the line naming the workspaces the user mentioned (see mentionsLine); it follows the focused-workspace line. */
+export function withHeader(ws: Pick<Workspace, 'name' | 'repoPath'>, now: Date, text: string, mentions?: string | null): string {
+  return `${messageHeader(ws, now)}\n${mentions ? `${mentions}\n` : ''}\n${text}`
 }

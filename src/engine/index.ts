@@ -1415,9 +1415,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       // Reached only through `invoke` (the renderer's IPC). Like Stop, stopping and reading need no runtime.
       'orchestrator.get': () => orchestrator.get(),
-      'orchestrator.send': (text, images) => {
+      'orchestrator.send': (text, images, mentions) => {
         requireRuntime()
-        return orchestrator.send(text, images)
+        return orchestrator.send(text, images, mentions)
       },
       'orchestrator.image': (id) => orchestratorImages.dataUrl(id),
       'orchestrator.stop': () => orchestrator.stop(),
