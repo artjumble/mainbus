@@ -1,0 +1,15 @@
+{
+  "Planner": [
+    { "emit": { "kind": "error", "message": "The Planner ran, but the Docs preset left it out." } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "expectModel": { "model": "sonnet", "effort": "medium" } },
+    { "emit": { "kind": "message", "text": "Implementer on Sonnet, medium." } },
+    { "callTool": "handoff", "args": { "summary": "Documented hello.txt", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "error", "message": "The Reviewer ran, but the Docs preset left it out." } }
+  ]
+}
