@@ -32,6 +32,9 @@ import type { OrchestratorRepo } from '../store/orchestrator'
 import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
 import { withHeader } from './header'
+import { oneLine } from '../roles/prompt'
+import { mentionsLine, resolveMentions } from './mentions'
+import { MAX_MENTIONS } from '../../shared/mentions'
 import { imageListText, type OrchestratorImages } from './images'
 import { orchestratorVerdict } from './permissions'
 import { resolveTargetWorkspace, resolveWorkspaceRef } from './workspaceRef'
@@ -231,11 +234,16 @@ export class OrchestratorSession {
   }
 
   /** A message of the user: text, images (at most 5, checked like attachments) or both. */
-  async send(text: string, images?: unknown): Promise<void> {
+  async send(text: string, images?: unknown, mentions?: unknown): Promise<void> {
+    if (
+      mentions != null &&
+      !(Array.isArray(mentions) && mentions.length <= MAX_MENTIONS && mentions.every((m) => typeof m === 'string'))
+    )
+      throw new Error('Mentions must be a list of workspace ids')
     const checked = this.deps.images.check(images)
     if (!checked.ok) throw new Error(checked.error)
     if (typeof text !== 'string' || (text.trim() === '' && checked.files.length === 0)) throw new Error(EMPTY_MESSAGE)
-    return this.serial(() => this.sendNow(text, checked.files))
+    return this.serial(() => this.sendNow(text, checked.files, (mentions as string[] | null | undefined) ?? []))
   }
 
   /** True while a turn is running or a wake turn is being started. */
@@ -276,7 +284,7 @@ export class OrchestratorSession {
     return result
   }
 
-  private async sendNow(text: string, files: { name: string; bytes: Uint8Array }[]): Promise<void> {
+  private async sendNow(text: string, files: { name: string; bytes: Uint8Array }[], picked: string[]): Promise<void> {
     if (this.shuttingDown) throw new Error('Mainbus is shutting down')
     // A message sent mid-turn would join the turn under way (at its next tool boundary), so the turn's one
     // message would no longer be the user's only one; a proposal's intent must be the words of its own turn.
@@ -300,11 +308,18 @@ export class OrchestratorSession {
     const refs = stored.map((i) => ({ id: i.id, filename: i.filename }))
     // The images go in as image blocks, seen in this turn; their names and paths follow the user's words.
     const words = stored.length === 0 ? text : `${text === '' ? '' : `${text}\n\n`}${imageListText(stored)}`
-    const prompt = withHeader(ws, this.deps.now(), words)
+    const mentioned = resolveMentions(text, picked, await this.deps.workspaces())
+    const prompt = withHeader(ws, this.deps.now(), words, mentionsLine(mentioned))
+    const mentions = mentioned.resolved.map((r) => ({ token: r.token, workspaceId: r.ws.id, name: r.ws.name }))
     const promptImages = stored.map((i, n) => ({ mime: i.mime, base64: Buffer.from(files[n]!.bytes).toString('base64') }))
     await this.beginTurn(
       ws,
-      { kind: 'user_message', text, ...(refs.length > 0 ? { images: refs } : {}) },
+      {
+        kind: 'user_message',
+        text,
+        ...(refs.length > 0 ? { images: refs } : {}),
+        ...(mentions.length > 0 ? { mentions } : {})
+      },
       { kind: 'user', message: text, images: refs },
       prompt,
       opened,
@@ -633,8 +648,16 @@ export class OrchestratorSession {
   /** The user messages among `events` with their images' names and paths before their words, for a digest. */
   private withImagePaths(events: StoredEvent[]): StoredEvent[] {
     return events.map((e) => {
-      if (e.event.kind !== 'user_message' || !e.event.images?.length) return e
-      const note = digestImagesNote(e.event.images.map((i) => ({ filename: i.filename, path: this.deps.images.pathOf(i) })))
+      if (e.event.kind !== 'user_message' || (!e.event.images?.length && !e.event.mentions?.length)) return e
+      const notes = [
+        ...(e.event.images?.length
+          ? [digestImagesNote(e.event.images.map((i) => ({ filename: i.filename, path: this.deps.images.pathOf(i) })))]
+          : []),
+        ...(e.event.mentions?.length
+          ? [`[Mentioned workspaces: ${e.event.mentions.map((m) => `${oneLine(m.name)} (id ${m.workspaceId})`).join('; ')}]`]
+          : [])
+      ]
+      const note = notes.join(' ')
       return { ...e, event: { ...e.event, text: e.event.text === '' ? note : `${note} ${e.event.text}` } }
     })
   }

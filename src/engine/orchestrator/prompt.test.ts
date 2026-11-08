@@ -171,3 +171,12 @@ describe('turns Mainbus starts', () => {
     expect(prompt).toContain('Tickets cannot be drafted, created or edited in such a turn')
   })
 })
+
+describe('mentioned workspaces', () => {
+  test('a mention is the explicit choice of workspace, and two are used where the message says', () => {
+    expect(prompt).toContain('A mentioned workspace is the user\'s explicit choice')
+    expect(prompt).toContain('rather than the focused workspace or a guess')
+    expect(prompt).toContain('With two different workspaces mentioned, use each where the message says')
+    expect(prompt).toContain('"not a workspace"')
+  })
+})

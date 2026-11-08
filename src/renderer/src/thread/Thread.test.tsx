@@ -226,9 +226,9 @@ test('a notice from Mainbus is shown in the thread', () => {
 test('a push says whether it opened the PR, and links to it', () => {
   const pr = { branch: 'mainbus/5-x', number: 5, url: 'https://github.com/o/r/pull/5' }
   const { container } = renderWithMantine(
-    <Thread
+    <Thread decisions={[]}
       events={[ev({ kind: 'pull_request', ...pr, opened: true }), ev({ kind: 'pull_request', ...pr, opened: false })]}
-      decisions={[]}
+     
     />
   )
   const rows = container.querySelectorAll('[data-event="pull_request"]')
@@ -243,12 +243,12 @@ test('a push says whether it opened the PR, and links to it', () => {
 test("the report's file in the repo shows under the report, with its commit", () => {
   const commit = 'abcdef0123456789abcdef0123456789abcdef01'
   const { container } = renderWithMantine(
-    <Thread
+    <Thread decisions={[]}
       events={[
         ev({ kind: 'report', markdown: '# Findings' }),
         ev({ kind: 'report_file', path: 'docs/investigations/2026-11-06-4-why.md', commit, branch: 'mainbus/4-why' })
       ]}
-      decisions={[]}
+     
     />
   )
   const rows = [...container.querySelectorAll('[data-event]')].map((el) => el.getAttribute('data-event'))
@@ -545,4 +545,23 @@ describe('the setup entry', () => {
     expect(rows[2]).toHaveTextContent('Setup · npm ci stopped after under 1 s')
     expect(rows[3]).toHaveTextContent('Setup again · npm ci exited 0 in 42 s')
   })
+})
+
+test('a sent message shows the workspaces it mentions as chips with their stored names; other @words stay text', () => {
+  renderWithMantine(
+    <Thread decisions={[]}
+      events={[
+        ev({
+          kind: 'user_message',
+          text: 'create it in @hunter, not @foo',
+          mentions: [{ token: '@hunter', workspaceId: 'w2', name: 'Hunter' }]
+        })
+      ]}
+    />
+  )
+  const message = document.querySelector('[data-event="user_message"]') as HTMLElement
+  const chip = message.querySelector('[data-mention="w2"]') as HTMLElement
+  expect(chip).toHaveTextContent('Hunter')
+  expect(message).toHaveTextContent('create it in Hunter, not @foo')
+  expect(message.querySelectorAll('[data-mention]')).toHaveLength(1)
 })

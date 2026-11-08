@@ -310,9 +310,10 @@ export interface EngineCommands {
   'orchestrator.get'(): OrchestratorThread
   /**
    * Starts the conversation on the first message, or resumes it after a restart. `images` go with it (at most 5,
-   * checked like attachments); a message with neither text nor images is rejected.
+   * checked like attachments); a message with neither text nor images is rejected. `mentions` are the ids of
+   * the workspaces the user picked from the @ list; `@name` typed by hand is resolved by the engine.
    */
-  'orchestrator.send'(text: string, images?: NewAttachment[]): void
+  'orchestrator.send'(text: string, images?: NewAttachment[], mentions?: string[]): void
   /** An image sent to the orchestrator, as a data URL: the renderer's only way to its file. */
   'orchestrator.image'(id: string): string
   /** Interrupts the turn under way; the conversation goes on with the next message. */

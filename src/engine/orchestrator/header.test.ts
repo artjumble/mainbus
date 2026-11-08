@@ -21,4 +21,11 @@ describe('messageHeader', () => {
       '[Mainbus] Focused workspace: mainbus (C:\\code\\mainbus) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?'
     )
   })
+
+  test('a mentions line follows the header line, before the blank line', () => {
+    const line = '[Mainbus] Mentioned workspaces: hunter (id w2)'
+    const out = withHeader(ws, new Date(2026, 10, 1, 14, 5), 'Go', line).split('\n')
+    expect(out[1]).toBe(line)
+    expect(out.slice(2)).toEqual(['', 'Go'])
+  })
 })
