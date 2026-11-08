@@ -173,9 +173,10 @@ export class StuckDetector {
 
   /** When the run's branch head was last seen to move (stamped with the detector's clock); null until it has been. */
   private async committedAt(obs: RunObservation, now: number): Promise<number | null> {
-    if (obs.worktreePath === null) return this.heads.get(obs.runId)?.movedAt ?? null
-    const sha = await this.deps.headCommit(obs.worktreePath).catch(() => null)
     const seen = this.heads.get(obs.runId)
+    // Git is only asked while a turn is being judged; a head first seen later is no earlier than that turn's start.
+    if (obs.worktreePath === null || obs.state.agentStatus !== 'working' || !obs.live?.inTurn) return seen?.movedAt ?? null
+    const sha = await this.deps.headCommit(obs.worktreePath).catch(() => null)
     if (sha === null) return seen?.movedAt ?? null
     if (!seen) this.heads.set(obs.runId, { sha, movedAt: null })
     else if (seen.sha !== sha) this.heads.set(obs.runId, { sha, movedAt: now })

@@ -28,6 +28,7 @@ let scene: () => Partial<RunObservation>
 let files: number | null
 /** The commit the fake probe finds in the worktree. */
 let head: string | null
+let headReads: number
 
 const now = (): number => clock.now().getTime()
 const ago = (minutes: number): number => now() - minutes * MIN
@@ -98,6 +99,7 @@ beforeEach(async () => {
   scene = () => ({ live: live() })
   files = null
   head = 'aaa'
+  headReads = 0
   detector = new StuckDetector({
     repos,
     now: () => clock.now(),
@@ -121,7 +123,10 @@ beforeEach(async () => {
     noteStuck: async (_t, _r, note) => void notes.push(note),
     onStuck: async (workspaceId, e) => void wakes.push({ workspaceId, episodeId: e.id }),
     newestChange: async () => files,
-    headCommit: async () => head
+    headCommit: async () => {
+      headReads++
+      return head
+    }
   })
 })
 
@@ -481,6 +486,17 @@ describe('a dead process', () => {
 })
 
 describe('the milestone rule', () => {
+  test('git is not asked for the head of a run that is not working, or between turns', async () => {
+    scene = () => ({ state: { ...WORKING, column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' } })
+    await detector.check()
+    scene = () => ({ live: live({ inTurn: false }) })
+    await detector.check()
+    expect(headReads).toBe(0)
+    scene = () => ({ live: live() })
+    await detector.check()
+    expect(headReads).toBe(1)
+  })
+
   test('a head seen for the first time is not a milestone; a head that moves restarts the count', async () => {
     const started = now()
     // Files keep changing, so only the turn rules can fire.
