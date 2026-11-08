@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { asc, eq, and, isNull } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { EditedField, EditedValues, IntentEntry, TicketEdit, TicketPatch } from '../../shared/domain'
+import type { EditedField, EditedValues, IntentEntry, RunSettings, TicketEdit, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { ticketEdits, tickets } from '../db/schema'
 import { replaceDependencyStatements } from './dependencies'
@@ -20,6 +20,8 @@ export interface NewTicketEdit {
   userWords: string[]
   /** The new blockers (ticket ids), already checked, when the edit changes them. */
   blockedBy?: string[]
+  /** The ticket's new run settings; the key present (even null) means they change. */
+  runSettings?: RunSettings | null
 }
 
 /** Why an Undo found the ticket changed: the engine words the refusal from the ticket's number. */
@@ -74,6 +76,10 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
     return toEdit(row.edit, row.number)
   }
 
+  /** Sets the ticket's run settings and stamps updatedAt, which Undo checks even when nothing else changed. */
+  const runSettingsStatement = (ticketId: string, settings: RunSettings | null, at: string): BatchItem<'sqlite'> =>
+    db.update(tickets).set({ runSettings: settings === null ? null : JSON.stringify(settings), updatedAt: at }).where(eq(tickets.id, ticketId))
+
   return {
     get,
 
@@ -85,6 +91,7 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
       const statements: BatchItem<'sqlite'>[] = [
         ...patchStatements(db, input.ticketId, input.patch, at),
         ...(input.blockedBy ? replaceDependencyStatements(db, input.ticketId, input.blockedBy, at) : []),
+        ...(input.runSettings !== undefined ? [runSettingsStatement(input.ticketId, input.runSettings, at)] : []),
         ...intentAdded.map((entry) => appendIntentStatement(db, input.ticketId, entry)),
         db.insert(ticketEdits).values({
           id,
@@ -124,6 +131,8 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
       const statements: BatchItem<'sqlite'>[] = [
         ...patchStatements(db, edit.ticketId, patch, at),
         ...(blockedBy ? replaceDependencyStatements(db, edit.ticketId, blockedBy, at) : []),
+        // null is a value here: the ticket had no saved settings.
+        ...('runSettings' in edit.before ? [runSettingsStatement(edit.ticketId, edit.before.runSettings ?? null, at)] : []),
         // Exactly the entries this edit appended: the check above found them at the end.
         ...(added.length > 0
           ? [db.update(tickets).set({ intent: JSON.stringify(ticket.intent.slice(0, ticket.intent.length - added.length)) }).where(eq(tickets.id, edit.ticketId))]

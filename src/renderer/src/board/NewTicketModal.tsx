@@ -1,7 +1,8 @@
-import { Badge, Button, Checkbox, Group, Modal, NativeSelect, Radio, Stack, Textarea, TextInput } from '@mantine/core'
-import { useState, type ClipboardEvent, type FormEvent, type ReactElement } from 'react'
+import { Alert, Badge, Button, Checkbox, Group, Modal, NativeSelect, Radio, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { useEffect, useState, type ClipboardEvent, type FormEvent, type ReactElement } from 'react'
 import type { NewAttachment } from '../../../shared/api'
-import type { TicketKind } from '../../../shared/domain'
+import type { LineupPreset, LineupRole, TicketKind } from '../../../shared/domain'
+import { findPreset, presetRunSettings } from '../../../shared/runSettings'
 import { invoke } from '../api'
 import { PendingImages } from '../attachments/Attachments'
 import { filesOf, readImages } from '../attachments/files'
@@ -44,6 +45,30 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
   const [images, setImages] = useState<NewAttachment[]>([])
   const [blockedBy, setBlockedBy] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [presets, setPresets] = useState<LineupPreset[]>([])
+  const [changeLineup, setChangeLineup] = useState<LineupRole[]>([])
+  /** The chosen preset's name; '' means the lineup's defaults. */
+  const [preset, setPreset] = useState('')
+
+  // Read on every opening, so presets edited in the settings show up. Without them the dialog works as before.
+  useEffect(() => {
+    if (!opened) return
+    let cancelled = false
+    Promise.all([invoke('preset.list'), invoke('lineup.get', 'change')]).then(
+      ([listed, lineup]) => {
+        if (cancelled) return
+        setPresets(listed)
+        setChangeLineup(lineup)
+      },
+      () => undefined
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [opened])
+
+  const chosenPreset = kind === 'change' && preset !== '' ? findPreset(presets, preset) : undefined
+  const presetNotices = chosenPreset ? presetRunSettings(chosenPreset, changeLineup).notices : []
 
   const canCreate = title.trim() !== '' && intent.trim() !== ''
 
@@ -75,6 +100,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
         column,
         kind,
         ...(startWhenReady ? { startWhenReady } : {}),
+        ...(chosenPreset ? { preset: chosenPreset.name } : {}),
         ...(blockedBy.length > 0 ? { blockedBy } : {}),
         ...(images.length > 0 ? { attachments: images } : {})
       })
@@ -86,6 +112,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
       setColumn('backlog')
       setStartWhenReady(false)
       setKind('change')
+      setPreset('')
       setImages([])
       setBlockedBy([])
       onClose()
@@ -147,6 +174,26 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             value={labels}
             onChange={(e) => setLabels(e.currentTarget.value)}
           />
+          {kind === 'change' && presets.length > 0 && (
+            <NativeSelect
+              label="Preset"
+              description="Which roles run, and with which models."
+              data={[{ value: '', label: 'Lineup defaults' }, ...presets.map((p) => ({ value: p.name, label: p.name }))]}
+              value={preset}
+              onChange={(e) => setPreset(e.currentTarget.value)}
+            />
+          )}
+          {presetNotices.length > 0 && (
+            <Alert color="needs" variant="light" p="xs" title="Part of this preset doesn't fit the lineup">
+              <Stack gap={2}>
+                {presetNotices.map((n) => (
+                  <Text key={n} size="sm">
+                    {n}
+                  </Text>
+                ))}
+              </Stack>
+            </Alert>
+          )}
           <BlockedByPicker value={blockedBy} onChange={setBlockedBy} />
           <PendingImages
             images={images}

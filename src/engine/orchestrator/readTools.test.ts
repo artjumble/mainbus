@@ -106,7 +106,7 @@ async function append(runId: string, ...events: ThreadEvent[]): Promise<void> {
 describe('list_workspaces', () => {
   test('gives the open workspace as a one-item list', async () => {
     expect(await tools.listWorkspaces()).toBe(
-      `Workspaces (1):\n- shop (id ${ws.id}): repo C:\\code\\shop, base branch main · Needs you: 0 · focused (the one the user is looking at)`
+      `Workspaces (1):\n- shop (id ${ws.id}): repo C:\\code\\shop, base branch main · Needs you: 0 · focused (the one the user is looking at) · presets: Full, Quick fix, Docs`
     )
   })
 

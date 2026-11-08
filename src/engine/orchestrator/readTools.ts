@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
 import { openBlockers } from '../../shared/dependencies'
-import type { Column, Decision, LineupRole, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
+import type { Column, Decision, LineupPreset, LineupRole, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { ordinal } from '../../shared/queue'
-import { applyRunSettings } from '../../shared/runSettings'
+import { applyRunSettings, runSettingsSummary } from '../../shared/runSettings'
 import { usageBannerText } from '../../shared/usage'
 import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
@@ -15,7 +15,7 @@ import { STUCK_RULE_TEXT } from '../stuck/config'
 import { firedAgainAfterRedirect } from '../stuck/ladder'
 
 export interface ReadToolDeps {
-  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck' | 'lineups'>
+  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck' | 'lineups' | 'presets'>
   /** The focused workspace, or null. */
   focused(): Promise<Workspace | null>
   /** Every open workspace, oldest first. */
@@ -146,6 +146,17 @@ function runSettingsText(t: BoardTicket, lineup: LineupRole[]): string {
     ...t.runSettingsNotices.map((n) => `Notice: ${n}`)
   ]
   return lines.join('\n')
+}
+
+/** The workspace's presets, one line each: the name and what it comes to for the lineup. */
+function presetLines(presets: LineupPreset[], lineup: LineupRole[]): string {
+  if (presets.length === 0) return 'None.'
+  return presets
+    .map((p) => {
+      const { options, notices } = applyRunSettings(p.settings, lineup)
+      return `- ${oneLine(p.name)}: ${runSettingsSummary(options, lineup)}${notices.map((n) => ` (${oneLine(n)})`).join('')}`
+    })
+    .join('\n')
 }
 
 function activeRole(t: BoardTicket): string {
@@ -347,7 +358,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         all.map(async (ws) => {
           const needsYou = (await deps.board(ws)).filter((t) => t.state.column === 'needs_you').length
           const mark = ws.id === focused?.id ? ' · focused (the one the user is looking at)' : ''
-          return `- ${oneLine(ws.name)} (id ${ws.id}): repo ${oneLine(ws.repoPath)}, base branch ${oneLine(ws.baseBranch)} · Needs you: ${needsYou}${mark}`
+          const presets = (await deps.repos.presets.list(ws.id)).map((p) => oneLine(p.name))
+          return `- ${oneLine(ws.name)} (id ${ws.id}): repo ${oneLine(ws.repoPath)}, base branch ${oneLine(ws.baseBranch)} · Needs you: ${needsYou}${mark} · presets: ${presets.length === 0 ? 'none' : presets.join(', ')}`
         })
       )
       return `Workspaces (${all.length}):\n${lines.join('\n')}`
@@ -414,6 +426,9 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
         `## Latest run\n${roles}`,
         `## Run settings (the user's)\n${runSettingsText(t, await deps.repos.lineups.get(found.ws.id, t.kind))}`,
+        ...(t.kind === 'change'
+          ? [`## Presets (the workspace's; set one with a preset argument)\n${presetLines(await deps.repos.presets.list(found.ws.id), await deps.repos.lineups.get(found.ws.id, t.kind))}`]
+          : []),
         ...(t.kind === 'investigate' ? [`## Report\n${t.report ? data('report', t.report) : 'None yet.'}`] : []),
         ...(t.kind === 'investigate' && (t.reportFile !== null || t.reportFileError !== null) ? [`## Report file\n${reportFileText(t)}`] : []),
         ...(t.kind === 'change' && t.report ? [`## Investigation report\n${data('report', t.report)}`] : [])

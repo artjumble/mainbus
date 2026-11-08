@@ -1,7 +1,7 @@
-import { Alert, Button, Center, Group, Loader, Modal, Stack, Text } from '@mantine/core'
+import { Alert, Button, Center, Group, Loader, Modal, NativeSelect, Stack, Text } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import type { LineupRole, TicketState } from '../../../shared/domain'
-import { choicesFromSettings, inputFromChoices } from '../../../shared/runSettings'
+import type { LineupPreset, LineupRole, TicketState } from '../../../shared/domain'
+import { choicesFromSettings, inputFromChoices, presetRunSettings } from '../../../shared/runSettings'
 import { invoke } from '../api'
 import { asOwnChange } from '../board/ownChanges'
 import { showError } from '../notify'
@@ -40,12 +40,18 @@ function Editor({ onClose, ticket, editable }: Omit<Props, 'opened'>): ReactElem
   const [lineup, setLineup] = useState<LineupRole[] | null>(null)
   const [draft, setDraft] = useState<{ roles: RoleChoice[]; extra: string } | null>(null)
   const [saving, setSaving] = useState<'save' | 'reset' | null>(null)
+  const [presets, setPresets] = useState<LineupPreset[]>([])
+  /** The preset last chosen, and what it dropped because the lineup changed. */
+  const [chosen, setChosen] = useState<{ id: string; notices: string[] } | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    invoke('lineup.get', ticket.kind).then(
-      (read) => {
+    // Presets are for Change tickets; without them the dialog works as before.
+    const read = ticket.kind === 'change' ? invoke('preset.list').catch(() => [] as LineupPreset[]) : Promise.resolve([] as LineupPreset[])
+    Promise.all([invoke('lineup.get', ticket.kind), read]).then(
+      ([read, listed]) => {
         if (cancelled) return
+        setPresets(listed)
         setLineup(read)
         setDraft({ roles: choicesFromSettings(read, ticket.runSettings), extra: ticket.runSettings?.extraInstructions ?? '' })
       },
@@ -72,6 +78,15 @@ function Editor({ onClose, ticket, editable }: Omit<Props, 'opened'>): ReactElem
   // Read-only shows what is saved, so a draft is dropped if a run starts while the dialog is open.
   const shown = editable ? draft : { roles: choicesFromSettings(lineup, ticket.runSettings), extra: ticket.runSettings?.extraInstructions ?? '' }
 
+  /** Fills the form from the preset; Save then stores these settings as the ticket's own. */
+  function choosePreset(id: string): void {
+    const preset = presets.find((p) => p.id === id)
+    if (!preset || !lineup || !draft) return
+    const { notices } = presetRunSettings(preset, lineup)
+    setChosen({ id, notices })
+    setDraft({ roles: choicesFromSettings(lineup, preset.settings), extra: preset.settings.extraInstructions ?? '' })
+  }
+
   async function save(reset: boolean): Promise<void> {
     if (!lineup || !draft || saving) return
     setSaving(reset ? 'reset' : 'save')
@@ -91,6 +106,27 @@ function Editor({ onClose, ticket, editable }: Omit<Props, 'opened'>): ReactElem
         <Alert color="needs" variant="light" p="xs" title="The lineup changed since these were saved">
           <Stack gap={2}>
             {ticket.runSettingsNotices.map((n) => (
+              <Text key={n} size="sm">
+                {n}
+              </Text>
+            ))}
+          </Stack>
+        </Alert>
+      )}
+      {presets.length > 0 && (
+        <NativeSelect
+          label="Preset"
+          description="Fills the form below; the ticket keeps the settings you save, not the preset."
+          data={[{ value: '', label: 'Choose a preset…' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]}
+          value={chosen?.id ?? ''}
+          disabled={!editable}
+          onChange={(e) => choosePreset(e.currentTarget.value)}
+        />
+      )}
+      {chosen && chosen.notices.length > 0 && (
+        <Alert color="needs" variant="light" p="xs" title="Part of this preset doesn't fit the lineup">
+          <Stack gap={2}>
+            {chosen.notices.map((n) => (
               <Text key={n} size="sm">
                 {n}
               </Text>

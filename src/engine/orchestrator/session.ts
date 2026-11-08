@@ -15,7 +15,7 @@ import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
 import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
 import { attachmentFoldersFor, orchestratorFolder, ticketFoldersFor, type HomePaths } from '../home'
-import { createInBacklog, imagesAttached, listJoin } from '../proposals/createTickets'
+import { createInBacklog, imagesAttached, listJoin, type PresetSource } from '../proposals/createTickets'
 import { ProposalInvalid, type TicketToCreate } from '../proposals/kind'
 import type { ProposalService } from '../proposals/service'
 import { conversationDigest } from '../runner/digest'
@@ -67,9 +67,15 @@ export function editedText(workspace: string, number: number, title: string, fie
 export const MAX_MESSAGES_BACK = 5
 
 /** What create_tickets answers once the tickets exist. */
-export function createdText(workspace: string, tickets: { number: number; title: string }[], images?: number): string {
-  const list = listJoin(tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}`))
-  return `Created ${list} in ${workspace}'s Backlog${imagesAttached(images)}. Tell the user which workspace they went into.`
+export function createdText(
+  workspace: string,
+  tickets: { number: number; title: string; preset?: string }[],
+  images?: number,
+  notices: string[] = []
+): string {
+  const list = listJoin(tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}${t.preset ? ` (${t.preset} preset)` : ''}`))
+  const dropped = notices.map((n) => ` ${n}`).join('')
+  return `Created ${list} in ${workspace}'s Backlog${imagesAttached(images)}.${dropped} Tell the user which workspace they went into${tickets.some((t) => t.preset) ? ' and which preset each ticket got' : ''}.`
 }
 
 /** What a user message's images are in the digest a fresh session starts from: their names and paths, not the images. */
@@ -119,6 +125,8 @@ export interface OrchestratorDeps {
   edits: () => Promise<TicketEdit[]>
   /** The ticket with this number in the workspace, or null; checks the blockers a draft names. */
   ticketByNumber?: (workspaceId: string, number: number) => Promise<Ticket | null>
+  /** The workspace's presets and Change lineup, to resolve a draft's or an edit's `preset`; without it a preset is refused. */
+  presetSource?: PresetSource
   /** The decisions the user answered since `since` in any workspace, for the start of a message. */
   answeredSince: (since: string | null) => Promise<AnsweredDecision[]>
   /** The tickets whose hold was released since `since` in any workspace, by hand, by a start or by their date. */
@@ -533,7 +541,7 @@ export class OrchestratorSession {
     if (!req.ok) return `Invalid: ${req.error}. Nothing was created; fix it and try again.`
     let made: Awaited<ReturnType<typeof createInBacklog>>
     try {
-      made = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder, this.deps.ticketByNumber ? (n) => this.deps.ticketByNumber!(target.ws.id, n) : undefined)
+      made = await createInBacklog(drafts, req, target.ws, this.deps.createTickets, this.folder, this.deps.ticketByNumber ? (n) => this.deps.ticketByNumber!(target.ws.id, n) : undefined, this.deps.presetSource)
     } catch (err) {
       if (err instanceof ProposalInvalid) return `Invalid: ${err.message}. Nothing was created; fix it and try again.`
       // An image that can't be attached any more (its file gone or changed): still nothing was created.
@@ -548,7 +556,7 @@ export class OrchestratorSession {
       ...(made.withContext ? { context: true as const } : {}),
       ...(made.images ? { images: made.images } : {})
     })
-    return createdText(target.ws.name, tickets, made.images)
+    return createdText(target.ws.name, tickets.map((t, i) => ({ ...t, preset: made.presets[i] })), made.images, made.notices)
   }
 
   /**

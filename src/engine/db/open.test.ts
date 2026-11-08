@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHome, type HomePaths } from '../home'
 import { openDb } from './open'
 import { createDecisionRepo } from '../store/decisions'
-import { createLineupRepo, defaultInvestigateLineup, defaultLineup } from '../store/lineups'
+import { createLineupRepo, defaultInvestigateLineup, defaultLineup, insertDefaultLineup } from '../store/lineups'
+import { createPresetRepo, defaultPresets } from '../store/presets'
 import { createRunRepo } from '../store/runs'
 import { createHoldRepo } from '../store/holds'
 import { criteria, lineupRoles, tickets, workspaces } from './schema'
@@ -223,6 +224,52 @@ describe('openDb', () => {
     expect(backupFiles()).toHaveLength(1)
     const [ticket] = await db.select().from(tickets)
     expect(ticket).toMatchObject({ id: 't1', runSettings: null })
+  })
+
+  it('seeds the built-in presets for every existing workspace, as the code seeds them for a new one, after a backup', async () => {
+    // The migrations as they were before presets.
+    const first = await open(firstMigrations(31))
+    for (const id of ['w1', 'w2']) {
+      await first.db.run(
+        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+            values (${id}, 'W', 'repo-path', 'main', ${id}, '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    await insertDefaultLineup(first.db, 'w1')
+    // w2 has a lineup with no Planner or Implementer.
+    await first.db.insert(lineupRoles).values(
+      ['Architect', 'Checker'].map((name, i) => ({
+        id: `w2-${i}`,
+        workspaceId: 'w2',
+        lineup: 'change',
+        position: i + 1,
+        name,
+        instructions: '',
+        activePhase: 'implementing',
+        onProblem: 'ask_me',
+        handBackTo: null,
+        model: null,
+        effort: null,
+        toolProfile: 'edit'
+      }))
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open(realMigrations, () => new Date(2026, 10, 7, 9, 0, 0))
+    expect(backupFiles()).toHaveLength(1)
+    const presets = createPresetRepo(db, () => new Date())
+    const lineups = createLineupRepo(db)
+    for (const workspaceId of ['w1', 'w2']) {
+      const lineup = await lineups.get(workspaceId)
+      const seeded = await presets.list(workspaceId)
+      // The migration's SQL and insertDefaultPresets agree.
+      expect(seeded.map((p) => ({ name: p.name, settings: p.settings }))).toEqual(defaultPresets(lineup))
+      expect(seeded.map((p) => p.id).every((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))).toBe(true)
+    }
+    const w2 = await presets.list('w2')
+    expect(w2[1]!.settings.excludedRoleIds).toEqual(['planner'])
+    expect(w2[2]!.settings.roles).toEqual({ implementer: { model: 'sonnet', effort: 'medium' } })
   })
 
   it('gives every existing agent run its own one-role ticket run, keeping its thread and decisions', async () => {

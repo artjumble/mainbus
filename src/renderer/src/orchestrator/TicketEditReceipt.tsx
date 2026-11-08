@@ -10,7 +10,7 @@ import { lineDiff } from './lineDiff'
 
 type Edited = Extract<ThreadEvent, { kind: 'ticket_edited' }>
 
-const FIELD_LABEL: Record<EditedField, string> = { title: 'Title', spec: 'Spec', criteria: 'Criteria', labels: 'Labels', blockedBy: 'Blocked by' }
+const FIELD_LABEL: Record<EditedField, string> = { title: 'Title', spec: 'Spec', criteria: 'Criteria', labels: 'Labels', blockedBy: 'Blocked by', runSettings: 'Run settings' }
 
 const criteriaText = (list: Criterion[]): string => (list.length === 0 ? '(none)' : list.map((c) => `${c.checked ? '[x]' : '[ ]'} ${c.text}`).join('\n'))
 const blockersText = (list: number[]): string => (list.length === 0 ? '(none)' : list.map((n) => `#${n}`).join(', '))
@@ -86,6 +86,12 @@ function Changes({ edit }: { edit: TicketEdit }): ReactElement {
             return (
               <Block key={field} label={FIELD_LABEL.blockedBy}>
                 <Before old={blockersText(before.blockedBy ?? [])} next={blockersText(after.blockedBy ?? [])} />
+              </Block>
+            )
+          case 'runSettings':
+            return (
+              <Block key={field} label={FIELD_LABEL.runSettings}>
+                <Before old={before.runSettings ? 'Custom run settings' : 'Lineup defaults'} next={after.preset ? `${after.preset} preset` : 'Lineup defaults'} />
               </Block>
             )
         }

@@ -14,12 +14,13 @@ import type { Db } from '../db/open'
 import { appSettings, workspaces } from '../db/schema'
 import { slugify } from '../git/slug'
 import { insertDefaultLineup } from './lineups'
+import { insertDefaultPresets } from './presets'
 
 const FOCUSED = 'focused_workspace'
 
 export interface WorkspaceRepo {
   /**
-   * Creates the workspace and its default lineup. `name` is basename(repoPath); the slug starts from slugify(name) (or
+   * Creates the workspace with its default lineup and presets. `name` is basename(repoPath); the slug starts from slugify(name) (or
    * `slug`) and gets a numeric suffix when another workspace, removed ones included, already uses it.
    */
   create(repoPath: string, baseBranch: string, name: string, slug?: string): Promise<Workspace>
@@ -97,6 +98,7 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
       }
       await db.insert(workspaces).values({ ...workspace, createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
+      await insertDefaultPresets(db, workspace.id, now)
       return workspace
     },
 

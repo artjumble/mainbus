@@ -13,7 +13,11 @@ const initial = useMainbus.getState()
 beforeEach(() => {
   useMainbus.setState(initial, true)
   mockInvoke.mockReset()
-  mockInvoke.mockImplementation(async (command: string) => (command === 'board.get' ? { tickets: [] } : {}))
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'board.get') return { tickets: [] }
+    if (command === 'preset.list' || command === 'lineup.get') return []
+    return {}
+  })
 })
 
 const create = (): HTMLElement => screen.getByRole('button', { name: 'Create ticket' })

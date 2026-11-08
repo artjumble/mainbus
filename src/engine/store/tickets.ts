@@ -162,6 +162,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       labels: JSON.stringify(input.labels),
       manualColumn: input.column,
       startWhenReady: input.startWhenReady === true,
+      runSettings: input.runSettings ? JSON.stringify(input.runSettings) : null,
       createdAt: at,
       updatedAt: at
     })

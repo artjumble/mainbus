@@ -47,6 +47,8 @@ export interface TicketDraft {
   images?: ImageRef[]
   /** What blocks it: an existing ticket's number, or `{ draft }`, the index of an earlier draft of the same proposal. */
   blocked_by?: (number | { draft: number })[]
+  /** The name of one of the workspace's presets: the ticket starts with its run settings. Change tickets only. */
+  preset?: string
 }
 
 /** A draft as the user's Override sends it: the images it keeps, by id. */
@@ -74,8 +76,10 @@ export interface CreateTicketsOverride {
 }
 
 export interface CreateTicketsResult {
-  tickets: { id: string; number: number; title: string }[]
+  tickets: { id: string; number: number; title: string; preset?: string }[]
   column: DraftColumn
+  /** What a preset dropped because the workspace's lineup lacks the role, one sentence each; absent when nothing was. */
+  notices?: string[]
   /** How many images were attached, in all; absent when none were. */
   images?: number
 }
@@ -100,6 +104,8 @@ export interface StartLineupPayload {
   extraInstructions: string | null
   /** Set when the user asked for the start (a drag, or start-when-ready) while these blockers weren't Done: confirming starts it anyway. */
   blockedBy?: { number: number; title: string }[]
+  /** Set when the orchestrator chose a preset for this start: its name, and what it dropped because the lineup changed. */
+  preset?: { name: string; notices: string[] }
 }
 
 /** What the user's Override sends for start_lineup: the roles they kept, each one's model and effort. */

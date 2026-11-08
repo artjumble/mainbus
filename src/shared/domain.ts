@@ -433,6 +433,8 @@ export type NewTicketInput = {
   startWhenReady?: boolean
   /** Tickets (by id) that block it; checked by the engine, which refuses a cycle. */
   blockedBy?: string[]
+  /** Run settings the ticket starts with (from a preset); absent or null means the lineup's defaults. */
+  runSettings?: RunSettings | null
 }
 
 /** Never includes intent: intent is append-only. */
@@ -444,10 +446,10 @@ export type TicketPatch = Partial<{
 }>
 
 /** The fields the orchestrator can edit, in the order they are listed. */
-export type EditedField = 'title' | 'spec' | 'criteria' | 'labels' | 'blockedBy'
+export type EditedField = 'title' | 'spec' | 'criteria' | 'labels' | 'blockedBy' | 'runSettings'
 
 /** The values of the edited fields, before or after an edit; only the changed ones are present. */
-export type EditedValues = Partial<{ title: string; spec: string; criteria: Criterion[]; labels: string[]; blockedBy: number[] }>
+export type EditedValues = Partial<{ title: string; spec: string; criteria: Criterion[]; labels: string[]; blockedBy: number[]; runSettings: RunSettings | null; preset: string }>
 
 /**
  * One edit the orchestrator made to a ticket at the user's request, kept so the panel can show it and Undo it.
@@ -630,4 +632,22 @@ export interface DeclaredWait {
   reason: string
   /** ISO date-time. */
   until: string
+}
+
+/** The longest a preset's name may be. */
+export const PRESET_NAME_MAX = 60
+
+/** A named run settings template for a workspace's Change lineup. A ticket that uses one stores a copy of its settings. */
+export interface LineupPreset {
+  id: string
+  workspaceId: string
+  name: string
+  settings: RunSettings
+}
+
+/** A preset as the settings form saves it: no id for a new one. */
+export interface LineupPresetInput {
+  id?: string
+  name: string
+  settings: RunSettingsInput
 }

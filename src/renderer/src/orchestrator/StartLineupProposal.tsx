@@ -26,6 +26,11 @@ function Body({ payload }: { payload: StartLineupPayload }): ReactElement {
           {`${notDoneYetText(payload.blockedBy)}. Confirming starts it anyway.`}
         </Text>
       )}
+      {payload.preset && (
+        <Text size="xs" c="dimmed" data-preset>
+          {[`Preset: ${payload.preset.name}`, ...payload.preset.notices].join('. ')}
+        </Text>
+      )}
       {payload.extraInstructions !== null && (
         <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }} data-extra-instructions>
           {`Extra instructions: ${payload.extraInstructions}`}

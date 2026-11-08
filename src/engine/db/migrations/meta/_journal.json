@@ -225,6 +225,13 @@
       "when": 1794120070813,
       "tag": "0031_permission_request",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1794120721080,
+      "tag": "0032_lineup_presets",
+      "breakpoints": true
     }
   ]
 }

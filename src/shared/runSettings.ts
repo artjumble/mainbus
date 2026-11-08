@@ -162,3 +162,39 @@ export function checkRunSettings(input: RunSettingsInput, lineup: Role[]): RunSe
     roleNames: Object.fromEntries(lineup.filter((r) => named.has(r.id)).map((r) => [r.id, r.name]))
   }
 }
+
+/** The preset of that name (any case, spaces around it ignored), if the workspace has one. */
+export function findPreset<P extends { name: string }>(presets: P[], name: string): P | undefined {
+  const wanted = name.trim().toLowerCase()
+  return presets.find((p) => p.name.trim().toLowerCase() === wanted)
+}
+
+/** The presets' names for a message: "Full, Quick fix, Docs", or "none". */
+export function presetNames(presets: Array<{ name: string }>): string {
+  return presets.length === 0 ? 'none' : presets.map((p) => p.name).join(', ')
+}
+
+/**
+ * The run settings a ticket gets from a preset: the preset's settings against the lineup, with what the lineup lacks
+ * dropped (one notice each, naming the preset). Null when they come to the lineup's defaults, so the ticket stores
+ * nothing and shows no custom run.
+ */
+export function presetRunSettings(
+  preset: { name: string; settings: RunSettings },
+  lineup: Role[]
+): { settings: RunSettings | null; notices: string[] } {
+  const { effective, notices } = applyRunSettings(preset.settings, lineup)
+  if (effective === null) return { settings: null, notices: [] }
+  const kept = new Set([...effective.excludedRoleIds, ...Object.keys(effective.roles)])
+  const settings: RunSettings = {
+    ...effective,
+    roleNames: Object.fromEntries(Object.entries(effective.roleNames).filter(([id]) => kept.has(id)))
+  }
+  const isDefault = settings.excludedRoleIds.length === 0 && Object.keys(settings.roles).length === 0 && settings.extraInstructions === null
+  return {
+    settings: isDefault ? null : settings,
+    notices: notices.map((n) =>
+      n.replace(' is no longer in the lineup, so its saved setting was dropped.', ` isn't in this lineup, so the ${preset.name} preset's setting for it was dropped.`)
+    )
+  }
+}

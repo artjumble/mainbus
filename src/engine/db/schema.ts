@@ -54,6 +54,22 @@ export const lineupRoles = sqliteTable(
   (t) => [uniqueIndex('lineup_roles_position_uq').on(t.workspaceId, t.lineup, t.position)]
 )
 
+export const lineupPresets = sqliteTable(
+  'lineup_presets',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    name: text('name').notNull(),
+    /** JSON: the preset's RunSettings. */
+    settings: text('settings').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (t) => [index('lineup_presets_workspace_idx').on(t.workspaceId)]
+)
+
 export const tickets = sqliteTable(
   'tickets',
   {

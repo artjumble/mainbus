@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 import type { ImageRef } from '../../shared/attachments'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
-import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupPreset, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -33,6 +33,8 @@ export interface ExecContext {
   ): Promise<Ticket[]>
   /** The workspace's lineup of that kind (the one a ticket of that kind runs), in order. */
   lineup(workspaceId: string, lineup: Lineup): Promise<LineupRole[]>
+  /** The workspace's presets of run settings; absent in a context that has none. */
+  presets?(workspaceId: string): Promise<LineupPreset[]>
   ticketByNumber(workspaceId: string, number: number): Promise<Ticket | null>
   /** The ticket's blockers that aren't Done yet, in number order. */
   openBlockers?(ticket: Ticket): Promise<Blocker[]>

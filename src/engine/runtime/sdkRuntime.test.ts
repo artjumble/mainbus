@@ -831,14 +831,14 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const updateArgs = { workspace: 'app', ticket: 7, spec: 'Smaller', criteria: ['one'], add_user_words: true, request_messages_back: 1 }
     expect(await update.handler(updateArgs, {})).toEqual({ content: [{ type: 'text', text: 'Updated #1.' }] })
     expect(spec.tools.updateTicket).toHaveBeenCalledWith(updateArgs)
-    expect(Object.keys(update.shape)).toEqual(['workspace', 'ticket', 'title', 'spec', 'criteria', 'labels', 'blocked_by', 'add_user_words', 'request_messages_back'])
+    expect(Object.keys(update.shape)).toEqual(['workspace', 'ticket', 'title', 'spec', 'criteria', 'labels', 'blocked_by', 'preset', 'add_user_words', 'request_messages_back'])
     expect((update.shape.add_user_words as z.ZodType).safeParse('The user said so').success).toBe(false)
 
     const start = byName.get('propose_start')!
     const startArgs = { ticket: 4, roles: [{ role: 'Implementer', model: 'opus', effort: 'high' }], reason: 'It is ready' }
     expect(await start.handler(startArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p2.' }] })
     expect(spec.tools.proposeStart).toHaveBeenCalledWith(startArgs)
-    expect(Object.keys(start.shape)).toEqual(['ticket', 'workspace', 'roles', 'extraInstructions', 'reason'])
+    expect(Object.keys(start.shape)).toEqual(['ticket', 'workspace', 'roles', 'extraInstructions', 'preset', 'reason'])
 
     for (const [name, handler, text] of [['propose_pause', 'proposePause', 'p3'], ['propose_stop', 'proposeStop', 'p4'], ['propose_skip', 'proposeSkip', 'p5']] as const) {
       const tool = byName.get(name)!

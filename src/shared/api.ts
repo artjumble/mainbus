@@ -15,6 +15,8 @@ import type {
   Hold,
   HoldOptions,
   Lineup,
+  LineupPreset,
+  LineupPresetInput,
   LineupRole,
   LineupRoleInput,
   NewTicketInput,
@@ -162,7 +164,11 @@ export interface EngineCommands {
    * checked before the ticket is created: one that can't be attached creates nothing.
    */
   'ticket.create'(
-    i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded' | 'agentContext'> & { attachments?: NewAttachment[] },
+    i: Omit<NewTicketInput, 'workspaceId' | 'source' | 'via' | 'intentAdded' | 'agentContext' | 'runSettings'> & {
+      attachments?: NewAttachment[]
+      /** The name of one of the workspace's presets: the ticket starts with its run settings. Refused for an unknown name or an Investigate ticket. */
+      preset?: string
+    },
     workspaceId?: string
   ): Ticket
   /**
@@ -261,6 +267,15 @@ export interface EngineCommands {
    * roles, an empty or duplicate name, or a hand-back to a role that isn't earlier in the lineup.
    */
   'lineup.save'(roles: LineupRoleInput[], lineup?: Lineup, workspaceId?: string): LineupRole[]
+  /** The workspace's presets of run settings for the Change lineup, first first. */
+  'preset.list'(workspaceId?: string): LineupPreset[]
+  /**
+   * Adds a preset (no id) or replaces the one with that id, renaming it if the name changed. The settings are checked against the
+   * Change lineup. Rejects a blank, long or taken name, and settings that don't fit the lineup, with a message for the settings screen.
+   */
+  'preset.save'(preset: LineupPresetInput, workspaceId?: string): LineupPreset
+  /** Removes the preset. Tickets that used it keep their settings. */
+  'preset.remove'(id: string): void
   'allowRules.list'(workspaceId?: string): AllowRule[]
   'allowRules.remove'(id: string): void
   /** How agents run the mainbus CLI and MCP server of this app; null when not known (tests). */
