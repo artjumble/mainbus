@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -25,6 +26,12 @@ import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenu
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
 import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
 import { WindowTheme } from './windowTheme'
+
+// Electron's fs treats a .asar file as a folder, so deleting a ticket's scratch folder that holds an agent's
+// node_modules\electron (its dist\resources\default_app.asar) never finished, and the window never opened.
+// original-fs is Node's fs without that. Loaded with require: it is an Electron built-in the bundler doesn't know.
+const originalFs = createRequire(import.meta.url)('original-fs') as typeof fs
+const removeDir = (dir: string): Promise<void> => originalFs.promises.rm(dir, { recursive: true, force: true, maxRetries: 3 })
 
 let mainWindow: BrowserWindow | null = null
 let engine: Engine | null = null
@@ -226,6 +233,7 @@ if (!app.requestSingleInstanceLock()) {
         git: runGit,
         exec,
         commands,
+        removeDir,
         launcher: agentLauncher({
           packaged: app.isPackaged,
           execPath: process.execPath,

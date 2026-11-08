@@ -34,7 +34,7 @@ import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
 import { BranchFreshnessChecker } from './git/freshness'
-import { WorktreeManager } from './git/worktrees'
+import { WorktreeManager, type RemoveDir } from './git/worktrees'
 import { FreshnessMonitor, type FreshnessMonitorDeps } from './freshness/monitor'
 import { LOCKFILES, updateInstructions, updateRoleOf } from './freshness/update'
 import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
@@ -93,6 +93,12 @@ export interface EngineConfig {
   commands?: CommandRunner
   /** Finds and ends the processes an agent leaves running; tests pass one with a fake process table. */
   processes?: ProcessSweeper
+  /**
+   * Deletes a folder and everything in it (ticket scratch folders). The app passes one built on Electron's
+   * original-fs: Electron's own fs treats a .asar file as a folder, and deleting an agent's node_modules\electron
+   * through it never finishes. By default fs.rm, which is right outside Electron (the CLI, tests).
+   */
+  removeDir?: RemoveDir
   /** Runs the workspace's setup command in a new ticket folder; tests pass a fake. By default the real thing, ending its processes with the sweeper above. */
   setupCommands?: SetupCommandRunner
   /** Shown in the Connect agents settings. */
@@ -218,7 +224,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     // New branches start from the newest base; the monitor (below) measures open branches against it.
     const freshnessChecker = new BranchFreshnessChecker(cfg.git, cfg.commands ?? runCommand)
-    const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups, undefined, undefined, async (ws) => {
+    const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups, undefined, cfg.removeDir, async (ws) => {
       const base = await freshnessChecker.newestBase(ws, { fetch: true })
       // The fetch may have moved origin/<base>: the other open tickets are measured against it now (freshness exists by the time a ticket starts).
       void freshness.refresh(ws.id, { fetch: false }).catch(() => {})

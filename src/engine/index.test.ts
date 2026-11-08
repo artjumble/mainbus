@@ -7,7 +7,7 @@ import { openDb } from './db/open'
 import { runCommand } from './git/command'
 import { FakeGh } from './git/fakeGh'
 import { runGit } from './git/git'
-import { resolveHome, type HomePaths } from './home'
+import { resolveHome, scratchPathFor, type HomePaths } from './home'
 import { createEngine, SetupRequiredError, type Engine } from './index'
 import { FakeRuntime, scriptFromFile } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
@@ -483,6 +483,29 @@ describe('lifecycle', () => {
 
     await makeEngine(new FakeRuntime([]))
     await expect(fs.access(worktreePath!)).rejects.toThrow()
+  })
+
+  it('removes the scratch folders of interrupted removals with the removeDir it is given', async () => {
+    const first = await makeEngine(new FakeRuntime([{ waitForSend: true }]))
+    await first.invoke('workspace.open', repoPath)
+    const t = await first.invoke('ticket.create', newTicket)
+    await first.invoke('agent.start', t.id)
+    await first.invoke('agent.stop', t.id)
+    const { worktreePath, branch } = (await first.invoke('board.get')).tickets[0]!
+    await first.dispose()
+
+    const handle = await openDb(paths, migrationsDir)
+    await createRepos(handle.db, () => new Date()).cleanups.add(t.id, repoPath, worktreePath!, branch!)
+    handle.close()
+
+    // The app passes one that sees .asar files as files (Electron's own fs treats them as folders and can loop on them).
+    const removed: string[] = []
+    const removeDir = async (dir: string): Promise<void> => {
+      removed.push(dir)
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+    engines.push(await createEngine({ paths, migrationsDir, runtime: new FakeRuntime([]), git: runGit, exec, removeDir }))
+    expect(removed).toEqual([scratchPathFor(paths, worktreePath!)])
   })
 })
 
