@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { ToolRow, toolTarget } from './ToolRow'
@@ -11,10 +11,10 @@ test('a ToolRow starts collapsed, showing the tool name and the result summary',
 })
 
 test('expanding a ToolRow shows the tool input', async () => {
-  renderWithMantine(<ToolRow name="Edit" input={{ file_path: 'a.ts' }} result={{ ok: true, summary: 'done' }} />)
+  const { container } = renderWithMantine(<ToolRow name="Edit" input={{ file_path: 'a.ts' }} result={{ ok: true, summary: 'done' }} />)
   await userEvent.click(screen.getByRole('button', { name: /Edit/ }))
   expect(screen.getByRole('button', { name: /Edit/ })).toHaveAttribute('aria-expanded', 'true')
-  expect(await screen.findByText(/"file_path": "a.ts"/)).toBeVisible()
+  await waitFor(() => expect(container.querySelector('pre code')).toHaveTextContent('"file_path": "a.ts"'))
 })
 
 test('a ToolRow without a result yet says it is running; a failed result is marked', () => {
@@ -77,10 +77,10 @@ test('the input is a JSON block, and a shell command is a shell block above the 
     </>
   )
   for (const button of screen.getAllByRole('button', { name: /Read|Bash/ })) await userEvent.click(button)
-  expect(await screen.findAllByText('json')).toHaveLength(2)
+  await waitFor(() => expect(screen.getAllByText('json')).toHaveLength(2))
   expect(screen.getByRole('button', { name: 'Copy command' })).toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: 'Copy input' })).toHaveLength(2)
-  const blocks = Array.from(container.querySelectorAll('pre code')).map((c) => c.textContent)
-  expect(blocks).toEqual(['{\n  "file_path": "a.ts"\n}', 'ls -la', '{\n  "description": "List"\n}'])
+  const blocks = (): (string | null)[] => Array.from(container.querySelectorAll('pre code')).map((c) => c.textContent)
+  await waitFor(() => expect(blocks()).toEqual(['{\n  "file_path": "a.ts"\n}', 'ls -la', '{\n  "description": "List"\n}']))
   await expectNoAxeViolations()
 })
