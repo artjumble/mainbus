@@ -1,0 +1,24 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner" } },
+    { "waitForSend": true },
+    {
+      "requestPermission": {
+        "toolName": "Bash",
+        "input": {
+          "command": "cat > src/limiter.ts <<'EOF'\nexport interface Limiter {\n  take(key: string): boolean\n}\n\nexport function createLimiter(max: number): Limiter {\n  const seen = new Map<string, number>()\n  return {\n    take(key) {\n      const n = (seen.get(key) ?? 0) + 1\n      seen.set(key, n)\n      return n <= max\n    }\n  }\n}\n\nexport const DEFAULT_MAX = 5\nEOF"
+        },
+        "reason": "Writes a file with a heredoc",
+        "toolUseId": "e2e-code-1"
+      }
+    },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-code-o" } },
+    { "emit": { "kind": "message", "text": "Here is the check:\n\n```ts\nconst limit: number = 5 // per minute\n```\n\nRun `npm test` after." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

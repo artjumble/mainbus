@@ -252,6 +252,8 @@ export const decisions = sqliteTable(
       .references(() => agentRuns.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(),
     question: text('question').notNull(),
+    /** JSON: PermissionRequestParts | null. The parts of a permission request, for showing the command as code. */
+    request: text('request'),
     options: text('options').notNull(), // JSON: string[]
     recommended: integer('recommended'),
     status: text('status').notNull(),

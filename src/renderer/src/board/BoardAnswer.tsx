@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import type { Decision } from '../../../shared/domain'
 import { QuestionForm } from '../thread/DecisionCard'
 import { PermissionChoices } from '../thread/PermissionCard'
+import { PermissionAsk } from '../thread/PermissionAsk'
 
 interface Props {
   /** The ticket's open decisions, oldest first; the oldest is the one shown. */
@@ -44,9 +45,7 @@ export function BoardAnswer({ decisions }: Props): ReactElement | null {
               1 of {decisions.length}
             </Text>
           )}
-          <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
-            {decision.question}
-          </Text>
+          <PermissionAsk decision={decision} />
           {/* Keyed by decision, so the next one starts without the last one's choice and note. */}
           {decision.kind === 'permission' ? (
             <Group key={decision.id}>

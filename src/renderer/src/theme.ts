@@ -70,8 +70,22 @@ export interface Adjusted {
   adjusted: string
 }
 
+/** Syntax colours of a code block; each is 4.5:1 on the block's ground (gray-0 in light themes, dark-8 in dark ones). */
+export interface CodeTokens {
+  keyword: string
+  string: string
+  number: string
+  function: string
+  comment: string
+  type: string
+  variable: string
+  addition: string
+  deletion: string
+}
+
 export interface ThemeDef {
   palette: Palette
+  code: CodeTokens
   colors: Record<NamedColor, MantineColorsTuple>
   /** Mantine's own neutral ramp (`dark-0` to `dark-9`), which its components use in the dark scheme. Dark themes only. */
   neutral?: MantineColorsTuple
@@ -165,6 +179,7 @@ const light: ThemeDef = {
     error: redLight[6]
   },
   // Nothing in the app draws green; Light and Dark keep Mantine's.
+  code: { keyword: '#CF222E', string: '#0A3069', number: '#0550AE', function: '#8250DF', comment: '#57606A', type: '#953800', variable: '#116329', addition: '#116329', deletion: '#82071E' },
   colors: { needs: needsLight, working: workingLight, gray: grayLight, red: redLight, yellow: yellowLight, green: DEFAULT_THEME.colors.green }
 }
 
@@ -268,6 +283,7 @@ const dark: ThemeDef = {
     anchor: workingDark[7],
     error: redDark[7]
   },
+  code: { keyword: '#FF7B72', string: '#A5D6FF', number: '#79C0FF', function: '#D2A8FF', comment: '#8B949E', type: '#FFA657', variable: '#7EE787', addition: '#7EE787', deletion: '#FFA198' },
   colors: { needs: needsDark, working: workingDark, gray: grayDark, red: redDark, yellow: yellowDark, green: DEFAULT_THEME.colors.green },
   neutral: neutralDark
 }
@@ -275,7 +291,7 @@ const dark: ThemeDef = {
 // ---------------------------------------------------------------------------------------------------------------------
 // Night Owl and Light Owl: theme colours by Sarah Drasner (MIT), from sdras/night-owl-vscode-theme. Each keeps its
 // source's hues; where a colour of the source misses its contrast it is lighter (Night Owl) or darker (Light Owl), and
-// is listed in `adjusted` with its original. The Owls' syntax colours are not used: nothing in the app is highlighted.
+// is listed in `adjusted` with its original. The Owls' syntax colours colour the code blocks (`code`).
 
 /*
  * Night Owl's colours that were changed (`adjusted` below):
@@ -300,6 +316,7 @@ const nightOwl: ThemeDef = {
     anchor: '#82AAFF',
     error: '#F26B68'
   },
+  code: { keyword: '#C792EA', string: '#ECC48D', number: '#F78C6C', function: '#82AAFF', comment: '#7F9999', type: '#FFCB8B', variable: '#7FDBCA', addition: '#ADDB67', deletion: '#EF5350' },
   colors: {
     working: ['#0E253D', '#122A44','#233C5F', '#2F4B75', '#426093', '#5C8EFF', '#246AFF', '#82AAFF', '#0F5BFF', '#C9D9FF'],
     needs: ['#1A222E', '#2D2B33', '#413539', '#5A4040', '#7C514A', '#F57A55', '#DA3B0C', '#F78C6C', '#C7360B', '#FDD3C4'],
@@ -315,7 +332,8 @@ const nightOwl: ThemeDef = {
     { use: 'Working fill under white text', original: '#82AAFF', adjusted: '#246AFF' },
     { use: 'Needs you fill under white text', original: '#F78C6C', adjusted: '#DA3B0C' },
     { use: 'red fill under white text', original: '#EF5350', adjusted: '#D51713' },
-    { use: 'gray fill under white text', original: '#5f7e97', adjusted: '#5B7890' }
+    { use: 'gray fill under white text', original: '#5f7e97', adjusted: '#5B7890' },
+    { use: 'code comments', original: '#637777', adjusted: '#7F9999' }
   ]
 }
 
@@ -343,6 +361,7 @@ const lightOwl: ThemeDef = {
     anchor: '#2D5EC7',
     error: '#C12321'
   },
+  code: { keyword: '#994CC3', string: '#B04A48', number: '#AA0982', function: '#2D5EC7', comment: '#5F6676', type: '#111111', variable: '#087478', addition: '#06704F', deletion: '#C12321' },
   colors: {
     working: ['#EAF0FC', '#DCE5F8', '#C6D5F3', '#A3BBEC', '#7E9EE2', '#4876D6', '#2D5EC7', '#244FAB', '#1D418D', '#183670'],
     needs: ['#FEF3EE', '#FCE3D9', '#F9CDBB', '#F5AE93', '#F18E6B', '#E06A44', '#B9320A', '#9C2A08', '#7F2307', '#651B05'],
@@ -357,7 +376,11 @@ const lightOwl: ThemeDef = {
     { use: 'Needs you (from Night Owl)', original: '#F78C6C', adjusted: '#B9320A' },
     { use: 'red', original: '#DE3D3B', adjusted: '#C12321' },
     { use: 'yellow text', original: '#E0AF02', adjusted: '#866901' },
-    { use: 'gray fill under white text', original: '#90A7B2', adjusted: '#495F6A' }
+    { use: 'gray fill under white text', original: '#90A7B2', adjusted: '#495F6A' },
+    { use: 'code string', original: '#C96765', adjusted: '#B04A48' },
+    { use: 'code comment', original: '#989FB1', adjusted: '#5F6676' },
+    { use: 'code variable', original: '#0C969B', adjusted: '#087478' },
+    { use: 'code addition', original: '#08916A', adjusted: '#06704F' }
   ]
 }
 
@@ -444,6 +467,7 @@ function cssVariablesResolverOf(def: ThemeDef, scheme: ThemeScheme): CSSVariable
       '--mainbus-color-strong-border': p.strongBorder,
       '--mainbus-color-lane': p.lane,
       '--mainbus-color-card-border': p.cardBorder,
+      ...Object.fromEntries(Object.entries(def.code).map(([token, color]) => [`--mainbus-code-${token}`, color])),
       // What Mantine gives a colour with autoContrast; unused while that is off, and kept as it was before themes.
       ...Object.fromEntries(
         NAMED_COLORS.filter((n) => n !== 'green').map((n) => [

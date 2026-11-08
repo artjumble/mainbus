@@ -45,12 +45,23 @@ const question = () =>
   }) as const
 
 describe('decision repo', () => {
+  it('keeps the parts of a permission request, and has none for a question', async () => {
+    const repo = createDecisionRepo(db, now)
+    const request = { role: 'Implementer', tool: 'Bash', command: 'ls\n# a — b', path: null, input: null, reason: 'why' }
+    const asked = await repo.open({ ...question(), kind: 'permission', options: [], request })
+    expect(asked.request).toEqual(request)
+    expect((await repo.get(asked.id)).request).toEqual(request)
+    expect((await repo.open({ ...question(), options: [] })).request).toBeNull()
+  })
+
+
   it('opens a pending decision', async () => {
     const repo = createDecisionRepo(db, now)
     const d = await repo.open({ ...question(), options: [...question().options] })
     expect(d).toEqual({
       id: expect.any(String),
       ...question(),
+      request: null,
       options: ['SQLite', 'Postgres'],
       status: 'pending',
       deferredUntil: null,

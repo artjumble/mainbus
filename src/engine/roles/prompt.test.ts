@@ -69,6 +69,7 @@ const decision = (over: Partial<Decision>): Decision => ({
   agentRunId: 'r1',
   kind: 'question',
   question: 'Which store?',
+  request: null,
   options: ['Redis', 'In memory'],
   recommended: null,
   allowAlways: true,

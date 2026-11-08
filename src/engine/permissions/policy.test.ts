@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { AllowRule } from '../../shared/domain'
-import { BACKGROUND_DENIED, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, rulesFromRequest } from './policy'
+import { BACKGROUND_DENIED, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, requestParts, rulesFromRequest } from './policy'
 
 const rule = (toolName: string, pattern: string | null): AllowRule => ({
   id: 'r1',
@@ -87,6 +87,37 @@ describe('isAllowed', () => {
 
   test('a shell input without a command string is not allowed by a pattern rule', () => {
     expect(isAllowed([rule('Bash', 'ls *')], { toolName: 'Bash', input: {} })).toBe(false)
+  })
+})
+
+describe('requestParts', () => {
+  const none = { command: null, path: null, input: null }
+
+  test('Bash and PowerShell keep the command', () => {
+    expect(requestParts(bash('ls\npwd'), 'Implementer', 'why')).toEqual({ ...none, role: 'Implementer', tool: 'Bash', command: 'ls\npwd', reason: 'why' })
+    expect(requestParts({ toolName: 'PowerShell', input: { command: 'Get-Date' } }, 'Reviewer', undefined)).toEqual({
+      ...none,
+      role: 'Reviewer',
+      tool: 'PowerShell',
+      command: 'Get-Date',
+      reason: null
+    })
+  })
+
+  test('file tools keep the path and the input', () => {
+    const input = { file_path: 'C:/w/a.ts', content: 'x' }
+    expect(requestParts({ toolName: 'Write', input }, 'Implementer', undefined)).toEqual({ ...none, role: 'Implementer', tool: 'Write', path: 'C:/w/a.ts', input, reason: null })
+    expect(requestParts({ toolName: 'NotebookEdit', input: { notebook_path: 'n.ipynb' } }, 'Implementer', undefined).path).toBe('n.ipynb')
+  })
+
+  test('other tools keep the input', () => {
+    expect(requestParts({ toolName: 'WebFetch', input: { url: 'https://x.dev' } }, 'Planner', undefined)).toEqual({
+      ...none,
+      role: 'Planner',
+      tool: 'WebFetch',
+      input: { url: 'https://x.dev' },
+      reason: null
+    })
   })
 })
 

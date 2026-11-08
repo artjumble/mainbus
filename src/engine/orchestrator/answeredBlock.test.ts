@@ -9,6 +9,7 @@ const base: Decision = {
   agentRunId: 'r',
   kind: 'question',
   question: 'Which db?',
+  request: null,
   options: ['sqlite', 'postgres'],
   recommended: null,
   allowAlways: true,

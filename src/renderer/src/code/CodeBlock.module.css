@@ -1,0 +1,111 @@
+.root {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  overflow: hidden;
+  /* The ground the token colours are checked on. */
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+  /* The buttons' 44 px hit areas stay inside the header, clear of what is above and below it. */
+  min-height: 44px;
+  padding: 0 var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.label {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.actions {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+  margin-inline-start: auto;
+}
+
+/* Mantine's Typography styles a nested pre and code (padding, a ground); the block draws its own. */
+.root pre {
+  margin: 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  background: transparent;
+  border-radius: 0;
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.7;
+  white-space: pre;
+}
+
+.root code {
+  padding: 0;
+  background: transparent;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: inherit;
+  color: var(--mantine-color-text);
+}
+
+.root :global(.hljs-keyword),
+.root :global(.hljs-selector-tag),
+.root :global(.hljs-doctag),
+.root :global(.hljs-bullet) {
+  color: var(--mainbus-code-keyword);
+}
+
+.root :global(.hljs-string),
+.root :global(.hljs-regexp),
+.root :global(.hljs-symbol),
+.root :global(.hljs-link),
+.root :global(.hljs-code) {
+  color: var(--mainbus-code-string);
+}
+
+.root :global(.hljs-number),
+.root :global(.hljs-literal) {
+  color: var(--mainbus-code-number);
+}
+
+.root :global(.hljs-title),
+.root :global(.hljs-section) {
+  color: var(--mainbus-code-function);
+}
+
+.root :global(.hljs-comment),
+.root :global(.hljs-quote),
+.root :global(.hljs-meta) {
+  color: var(--mainbus-code-comment);
+}
+
+.root :global(.hljs-type),
+.root :global(.hljs-title.class_),
+.root :global(.hljs-built_in),
+.root :global(.hljs-attr),
+.root :global(.hljs-attribute) {
+  color: var(--mainbus-code-type);
+}
+
+.root :global(.hljs-variable),
+.root :global(.hljs-template-variable),
+.root :global(.hljs-params),
+.root :global(.hljs-subst) {
+  color: var(--mainbus-code-variable);
+}
+
+.root :global(.hljs-addition) {
+  color: var(--mainbus-code-addition);
+}
+
+.root :global(.hljs-deletion) {
+  color: var(--mainbus-code-deletion);
+}
+
+.root :global(.hljs-emphasis) {
+  font-style: italic;
+}
+
+.root :global(.hljs-strong) {
+  font-weight: 700;
+}
