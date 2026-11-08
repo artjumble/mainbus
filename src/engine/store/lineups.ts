@@ -22,7 +22,7 @@ export interface LineupRepo {
 }
 
 // The ids here only link the defaults to each other; saving gives every role a fresh one.
-// Migrations 0002, 0012 and 0020 have their own copies of these texts, as they were when each was written.
+// Migrations 0002, 0012, 0020 and 0033 have their own copies of these texts, as they were when each was written.
 /** The lineup every new workspace starts with: Planner → Implementer → Reviewer. */
 export function defaultLineup(): LineupRoleInput[] {
   return [
@@ -62,7 +62,12 @@ export function defaultLineup(): LineupRoleInput[] {
       instructions:
         "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against " +
         'the base branch, run the full test suite, every kind the project has (end-to-end tests included), and ' +
-        'check each criterion. If something is wrong or missing, report it as ' +
+        'check each criterion. You may skip the tests only when the branch changes no code: every changed file is ' +
+        'documentation or other text that nothing in the build, the tests or the app reads (check that no code or ' +
+        'test refers to it). Then say in your handoff that you skipped them and why, and check the documentation ' +
+        'itself instead: that its links and the commands and paths it names exist. If an acceptance criterion ' +
+        "requires the tests to pass, run them anyway; never tick a criterion about tests you didn't run. If " +
+        'something is wrong or missing, report it as ' +
         "a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change " +
         "any files. When it's right, hand off with a short review summary.",
       activePhase: 'reviewing',

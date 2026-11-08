@@ -60,8 +60,9 @@ test("an Investigate ticket's report is promoted into a Change ticket in Ready w
 
     await page.getByRole('button', { name: 'Promote', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Promote to a Change ticket' })
-    // The fake runtime's summary stands in for the drafted spec.
-    await expect(dialog.getByLabel('Spec')).toHaveValue('A summary the fake runtime wrote.')
+    // The fake runtime's summary stands in for the drafted spec. The line saying where the report is saved in the repo
+    // follows it once that commit has landed, which can be before or after the dialog opens.
+    await expect(dialog.getByLabel('Spec')).toHaveValue(/^A summary the fake runtime wrote\.(\n\nThe investigation's report is saved in the repo as .+)?$/)
     await dialog.getByLabel('Title').fill('Speed up login')
     await dialog.getByRole('button', { name: 'Promote', exact: true }).click()
     await expect(dialog).toBeHidden()

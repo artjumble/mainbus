@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Ticket, Workspace } from '../../shared/domain'
 import { scratchPathFor, ticketFoldersFor, type HomePaths } from '../home'
 import type { PendingCleanupRepo } from '../store/cleanups'
+import { branchChanges, type BranchChanges } from './changedFiles'
 import type { GitRunner } from './git'
 import { branchName, slugify } from './slug'
 
@@ -97,6 +98,11 @@ export class WorktreeManager {
     await this.run(['worktree', 'prune'], ws.repoPath)
     await this.run(['worktree', 'add', t.worktreePath, t.branch], ws.repoPath)
     await fs.mkdir(scratchPathFor(this.paths, t.worktreePath), { recursive: true })
+  }
+
+  /** The files the branch changes against `baseRef`, committed or not; null when that can't be worked out. */
+  changedFiles(wtPath: string, baseRef: string): Promise<BranchChanges | null> {
+    return branchChanges(this.git, wtPath, baseRef)
   }
 
   /** Untracked files count; the flag keeps a user's status.showUntrackedFiles=no from hiding them. */

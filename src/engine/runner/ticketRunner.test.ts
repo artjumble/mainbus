@@ -11,7 +11,7 @@ import { WorktreeManager } from '../git/worktrees'
 import { resolveHome, scratchPathFor, type HomePaths } from '../home'
 import { describeRequest } from '../permissions/policy'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
-import { EXTRA_INSTRUCTIONS_HEADING, firstMessage, HANDOFFS_HEADING } from '../roles/prompt'
+import { CHANGED_FILES_HEADING, EXTRA_INSTRUCTIONS_HEADING, firstMessage, HANDOFFS_HEADING } from '../roles/prompt'
 import type { Db } from '../db/open'
 import { agentRuns } from '../db/schema'
 import type { PublishInput } from '../git/pullRequests'
@@ -1600,6 +1600,39 @@ describe('TicketRunner through a lineup', () => {
     `${HANDOFFS_HEADING}\nFrom <ticket-data field="role">Planner</ticket-data>:\n` +
     '<ticket-data field="handoff-summary">\nPlanner summary\n</ticket-data>\n' +
     '<ticket-data field="notes-for-next">\nPlanner notes\n</ticket-data>'
+
+  it('tells every role which files the branch changes, and the Reviewer the skip-the-tests rule', async () => {
+    await repos.lineups.save(ticket.workspaceId, defaultLineup())
+    const runtime = new FakeRuntime((spec) => {
+      const role = /## Your role: (.+)/.exec(spec.appendSystemPrompt)![1]!
+      const work: FakeStep[] =
+        role === 'Implementer'
+          ? [
+              { writeFile: { path: 'docs/guide.md', content: 'A guide\n' } },
+              { git: ['add', '-A'] },
+              { git: ['commit', '-m', 'Add the guide'] }
+            ]
+          : []
+      return [
+        { emit: { kind: 'session', sessionId: `session-${role}` } },
+        { waitForSend: true },
+        ...work,
+        { callTool: 'handoff', args: { summary: 's', notesForNext: 'n' } },
+        { emit: { kind: 'turn_end', ok: true } }
+      ]
+    })
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const planner = await active(runner, runtime, 0)
+    expect(planner.appendSystemPrompt).toContain(CHANGED_FILES_HEADING)
+    expect(planner.appendSystemPrompt).toContain('The branch changes no files against')
+    await runner.send(ticket.id, 'go')
+    await active(runner, runtime, 1)
+    await runner.send(ticket.id, 'go')
+    const reviewer = await active(runner, runtime, 2)
+    expect(reviewer.appendSystemPrompt).toContain(defaultLineup()[2]!.instructions)
+    expect(reviewer.appendSystemPrompt).toContain('- added: docs/guide.md')
+  })
 
   it('runs every role in order, each in a fresh session with its own model, effort and tools, then reaches Review', async () => {
     const lineup = await threeRoles()

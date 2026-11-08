@@ -260,6 +260,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       now,
       emit,
       unattended: (workspaceId) => modes.get(workspaceId)?.isOn() ?? false,
+      baseRef: (ws) => freshnessChecker.newestBase(ws, { fetch: false }).then((b) => b.ref),
       usage: usageHooks(gate),
       pullRequests,
       reportFiles: new ReportFileSaver(cfg.commands ?? runCommand),
