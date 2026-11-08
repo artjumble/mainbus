@@ -176,6 +176,10 @@ Work continues as tickets on Mainbus's own board.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) on your PATH and signed in. Mainbus checks this at startup and never runs the login itself.
 - Optional: the [GitHub CLI](https://cli.github.com/), signed in, to open pull requests at Review.
 
+### Windows path lengths
+
+The repo's `.npmrc` shortens pnpm's store folder names (`virtual-store-dir-max-length=40`) so ticket folders stay under Windows' 260-character path limit. If you pulled this change into an existing checkout, run `pnpm install` again so `node_modules` uses the shorter layout. Turning on `git config --global core.longpaths true` is also recommended.
+
 ### Run it
 
 ```bash
