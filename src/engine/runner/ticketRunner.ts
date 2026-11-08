@@ -96,6 +96,8 @@ export interface RunnerDeps {
    * Mainbus runs it itself, after the handoff: it never goes through the agent's permissions.
    */
   pullRequests?: { publish(input: PublishInput): Promise<PublishResult> }
+  /** Called after a ticket's last role handed off and its push was tried: the branch may now differ from the newest base. */
+  branchMoved?: (workspaceId: string) => void
   /**
    * Writes an Investigate ticket's report into its worktree and commits it on its branch, when the workspace asks for
    * that. Mainbus runs it itself, after submit_report; the agent stays read-only. Without it no report is saved as a file.
@@ -258,7 +260,17 @@ interface Prepared {
   ticket: Ticket
   workspace: Workspace
   /** `scratch` is the ticket's scratch folder: its agents' temp folder, writable like the worktree. */
-  worktree: { branch: string; path: string; scratch: string }
+  worktree: { branch: string; path: string; scratch: string; baseNotice: string | null }
+}
+
+/** What `updateFromMain` runs: the role to run alone, its extra instructions, what the thread says, and whether the setup command is due again. */
+export interface UpdateFromMainInput {
+  roleId: string
+  extraInstructions: string
+  notice: string
+  setupAgain: boolean
+  /** The model and effort the ticket's saved run settings give the role, if any. */
+  roles?: Record<string, { model?: string; effort?: Effort }>
 }
 
 interface Launch extends Prepared {
@@ -883,7 +895,7 @@ export class TicketRunner {
     return result
   }
 
-  private async startNow(ticketId: string, opts: StartOptions): Promise<void> {
+  private async startNow(ticketId: string, opts: StartOptions, notices: string[] = []): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
     if (this.stopRequested.has(ticketId)) return
     const latest = await this.repos.runs.latest(ticketId)
@@ -920,6 +932,10 @@ export class TicketRunner {
       // This step holds the ticket's queue and no agent of it is open, so the latest run is the one just created.
       const created = await this.repos.runs.latest(ticketId)
       if (!created || created.id !== runId) throw new Error(`Run ${runId} is not the ticket's latest`)
+      // Told before the role starts: that the branch began from the local base, and whatever the caller of this start wants said.
+      for (const text of [prepared.worktree.baseNotice, ...notices]) {
+        if (text) await this.record(this.target(created, prepared.ticket), { kind: 'notice', text })
+      }
       await this.launch(
         { ...prepared, role: roles[0]!, ticketRunId: created.ticketRunId, handoffs: [], extraInstructions },
         runId,
@@ -927,6 +943,34 @@ export class TicketRunner {
         answered
       )
     })
+  }
+
+  /**
+   * "Update from main": ends the ticket's open run, if any (it counts as stopped), then starts an Implementer-only run
+   * with `input`'s instructions. One step in the ticket's queue, so nothing else slips in between. With `expect` the
+   * open run must be that one; `null` means no run was open when the caller looked.
+   */
+  updateFromMain(ticketId: string, input: UpdateFromMainInput, expect?: RunExpectation | null): Promise<void> {
+    return this.serial(ticketId, () => this.updateFromMainNow(ticketId, input, expect))
+  }
+
+  private async updateFromMainNow(ticketId: string, input: UpdateFromMainInput, expect?: RunExpectation | null): Promise<void> {
+    if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    if (this.isLaunching(ticketId)) throw new Error('A role is starting on this ticket; try again in a moment')
+    const latest = await this.repos.runs.latest(ticketId)
+    const open = latest !== null && latest.endReason === null
+    if (expect === null && open) throw new Error(MOVED_ON)
+    if (expect && (!open || latest.id !== expect.agentRunId)) throw new Error(MOVED_ON)
+    if (open) await this.stopNow(ticketId, expect ?? undefined)
+    if (input.setupAgain) {
+      const ticket = await this.repos.tickets.get(ticketId)
+      await this.markSetupDue(ticket, await this.workspaceOf(ticket))
+    }
+    await this.startNow(
+      ticketId,
+      { roleIds: [input.roleId], extraInstructions: input.extraInstructions, ...(input.roles ? { roles: input.roles } : {}) },
+      [input.notice]
+    )
   }
 
   private async sendNow(ticketId: string, text: string): Promise<void> {
@@ -2034,7 +2078,9 @@ export class TicketRunner {
           void this.serial(target.ticketId, () => this.handOnNow(handedTo, prompt)).catch(() => {})
         } else {
           // The ticket is in Review now; the push and PR follow in its queue, without holding up this reply.
-          void this.serial(target.ticketId, () => this.publishNow(target.ticketId, false)).catch(() => {})
+          void this.serial(target.ticketId, () => this.publishNow(target.ticketId, false))
+            .catch(() => {})
+            .then(() => this.deps.branchMoved?.(target.workspaceId))
         }
         return HANDED_OFF
       },

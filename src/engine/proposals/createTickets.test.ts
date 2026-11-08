@@ -113,7 +113,10 @@ describe('create_tickets: execute and outcome', () => {
       whyNotPromotable: async () => null,
       draftPromotionSpec: async () => ({ spec: '', drafted: false }),
       promoteTicket: async () => { throw new Error('not expected') },
-      answerDecision: async () => {}
+      answerDecision: async () => {},
+      whyNotUpdatable: async () => null,
+      freshnessOf: () => null,
+      updateFromMain: async () => {}
     }
   }
 

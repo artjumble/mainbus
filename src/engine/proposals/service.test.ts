@@ -59,7 +59,10 @@ beforeEach(async () => {
     whyNotPromotable: async () => null,
     draftPromotionSpec: async () => ({ spec: '', drafted: false }),
     promoteTicket: async () => { throw new Error('not expected') },
-    answerDecision: async () => {}
+    answerDecision: async () => {},
+    whyNotUpdatable: async () => null,
+    freshnessOf: () => null,
+    updateFromMain: async () => {}
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })
 })

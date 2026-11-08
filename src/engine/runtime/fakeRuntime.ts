@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Effort } from '../../shared/domain'
@@ -55,6 +56,13 @@ export type FakeStep =
    * for) carried this many images, and its text contains each of `named`. Emits a message saying what it saw.
    */
   | { expectImages: { count: number; named?: string[] } }
+  /** Writes a file in the run's folder (a path inside it), as an agent editing would; the folder's parents are made. */
+  | { writeFile: { path: string; content: string } }
+  /**
+   * Runs real git in the run's folder, with a test identity, as an agent's shell would. A non-zero exit fails the script,
+   * with an error event and the run closed, unless `allowFail` (a merge that stops on conflicts, say).
+   */
+  | { git: string[]; allowFail?: boolean }
   | { exit: number | null }
 
 /**
@@ -367,6 +375,21 @@ export class FakeRuntime implements AgentRuntime {
           const missing = named.find((n) => !text.includes(n))
           if (missing !== undefined) throw new Error(`The message doesn't name the image ${missing}`)
           run.queue.push({ kind: 'message', text: `I see ${count} ${count === 1 ? 'image' : 'images'} (${images.map((i) => i.mime).join(', ')}).`, partial: false })
+        } else if ('writeFile' in step) {
+          const file = path.resolve(spec.cwd, step.writeFile.path)
+          if (!within(spec.cwd, file)) throw new Error(`writeFile: ${step.writeFile.path} is outside the run's folder`)
+          fs.mkdirSync(path.dirname(file), { recursive: true })
+          fs.writeFileSync(file, step.writeFile.content)
+        } else if ('git' in step) {
+          try {
+            execFileSync('git', ['-c', 'user.name=Fake Agent', '-c', 'user.email=fake@mainbus.test', ...step.git], {
+              cwd: spec.cwd,
+              windowsHide: true,
+              stdio: 'pipe'
+            })
+          } catch (err) {
+            if (!step.allowFail) throw new Error(`git ${step.git.join(' ')} failed: ${String((err as { stderr?: Buffer }).stderr ?? err)}`)
+          }
         } else if ('expectPrompt' in step) {
           if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
         } else if ('expectFile' in step) {

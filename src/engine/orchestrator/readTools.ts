@@ -90,6 +90,30 @@ function blockedText(t: BoardTicket): string {
   return ` · blocked by ${open.map((b) => `#${b.number}`).join(', ')} (not Done; don't propose starting it)`
 }
 
+/** " · behind main" or " · conflicts with main (propose_update_from_main)" for an open ticket whose branch lags the base, else nothing. */
+function freshnessSuffix(t: BoardTicket): string {
+  const f = t.freshness
+  if (!f || f.behind === 0) return ''
+  if (f.conflicts.length > 0) return ` · conflicts with ${f.baseBranch} (propose_update_from_main)`
+  return ` · behind ${f.baseBranch}`
+}
+
+/** How far the branch is behind the newest base, and the files a merge would conflict in (file names come from the repo, so data). */
+function freshnessSection(t: BoardTicket): string {
+  const f = t.freshness
+  if (!f) return t.branch === null ? 'No branch yet.' : 'Not checked.'
+  const fetched = f.fetchError
+    ? ` The newest ${f.baseBranch} could not be fetched (${data('fetch-error', clip(f.fetchError, MESSAGE_MAX), true)}), so this compares with ${f.base}.`
+    : ''
+  if (f.behind === 0) return `Up to date with ${f.base}.${fetched}`
+  const files = f.conflicts.map((c) => `- ${data('conflict-file', oneLine(c), true)}`).join('\n')
+  const conflicts =
+    f.conflicts.length > 0
+      ? ` Merging it would conflict in:\n${files}\nUpdate from main (propose_update_from_main) starts the Implementer on it, if no role is working.`
+      : ' It would merge cleanly.'
+  return `${f.behind} commit${f.behind === 1 ? '' : 's'} behind ${f.base}.${conflicts}${fetched}`
+}
+
 /** The ticket's blockers, each with whether it is Done. */
 function blockersSection(t: BoardTicket): string {
   if (t.blockedBy.length === 0) return 'None.'
@@ -346,6 +370,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           limitText(t, usage) +
           heldText(t) +
           blockedText(t) +
+          freshnessSuffix(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
       )
       return `Tickets${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${lines.join('\n')}`
@@ -383,6 +408,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,
         `## Labels\n${labels(t)}`,
         `## Blocked by\n${blockersSection(t)}`,
+        `## Branch and ${t.freshness?.baseBranch ?? 'main'}\n${freshnessSection(t)}`,
         `## Attachments\n${attached}`,
         `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
@@ -415,6 +441,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         `Active role: ${activeRole(t)}${queuedText(t)}${limitText(t, usage)}`,
         ...(usage.kind === 'ok' ? [] : [usageBannerText(usage)]),
         pending.length ? `Pending decisions:\n${pending.join('\n')}` : 'Pending decisions: none',
+        ...(t.freshness && t.freshness.behind > 0 ? [`Branch: ${freshnessSection(t)}`] : []),
         ...(stuck ? [stuckText(stuck)] : [])
       ].join('\n\n')
     },

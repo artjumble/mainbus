@@ -23,6 +23,7 @@ import type {
   RunSettingsInput,
   StartOptions,
   StripRole,
+  BranchFreshness,
   StuckEpisode,
   Ticket,
   TicketEdit,
@@ -80,6 +81,8 @@ export type BoardTicket = Ticket & {
   blockedBy: Blocker[]
   /** When it was unblocked, or started while blocked, oldest first (the ticket's Activity). */
   dependencyNotes: DependencyNote[]
+  /** How far its branch is behind the newest base, and whether merging it would conflict; null when not checked (no branch, or Done). */
+  freshness: BranchFreshness | null
 }
 
 /** An image to attach to a ticket being created: its name as given and its bytes. */
@@ -218,6 +221,11 @@ export interface EngineCommands {
    * lands in the ticket's thread. Only the renderer can reach it.
    */
   'ticket.runSetup'(id: string): void
+  /**
+   * "Update from main": ends the ticket's open run, if any, and starts an Implementer-only run that merges the newest base
+   * into the branch. Refused unless the branch is behind and no role is working. Only the renderer can reach it.
+   */
+  'ticket.updateFromMain'(id: string): void
   /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */
   'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[]; runs: ThreadRun[] }
   /**

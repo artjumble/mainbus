@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
-import type { Hold, StripRole, Ticket, TicketState, UsageState, Workspace } from '../../shared/domain'
+import type { BranchFreshness, Hold, StripRole, Ticket, TicketState, UsageState, Workspace } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import { applyRunSettings } from '../../shared/runSettings'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
@@ -18,6 +18,8 @@ let ws: Workspace
 let views: Map<string, { state: Partial<TicketState>; lineup: StripRole[] }>
 /** The holds on tickets, by ticket id. */
 let holds: Map<string, Hold>
+/** What the freshness monitor says of each ticket. */
+let freshness: Map<string, BranchFreshness>
 let tools: OrchestratorReadToolHandlers
 /** Where the app stands on the usage limit. */
 let usage: UsageState
@@ -37,7 +39,7 @@ const STATE: TicketState = {
 
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
-  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [], runSettingsNotices: [], edits: [], blockedBy: [], dependencyNotes: [] }
+  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [], runSettingsNotices: [], edits: [], blockedBy: [], dependencyNotes: [], freshness: freshness.get(t.id) ?? null }
 }
 
 beforeEach(async () => {
@@ -47,6 +49,7 @@ beforeEach(async () => {
   ws = await repos.workspaces.create('C:\\code\\shop', 'main', 'shop', 'shop')
   views = new Map()
   holds = new Map()
+  freshness = new Map()
   usage = { kind: 'ok' }
   let open: Workspace | null = ws
   tools = createReadTools({
@@ -510,5 +513,46 @@ describe('stuck agents and declared waits', () => {
     expect(await tools.getRecentEvents({ number: 1 })).toContain(
       'Implementer declared a wait (agent-written): <ticket-data field="wait-reason">the full test suite</ticket-data>, until 14:30'
     )
+  })
+})
+
+describe('behind and conflicting branches', () => {
+  const fresh = (over: Partial<BranchFreshness>): BranchFreshness => ({
+    baseBranch: 'main',
+    base: 'origin/main',
+    behind: 2,
+    conflicts: [],
+    checkedAt: '2026-11-07T10:00:00.000Z',
+    fetchError: null,
+    ...over
+  })
+
+  test('list_tickets says behind main, or conflicts with main with the tool to use', async () => {
+    const a = await ticket()
+    const b = await ticket()
+    freshness.set(a.id, fresh({}))
+    freshness.set(b.id, fresh({ conflicts: ['migrations/journal.txt'] }))
+    const out = await tools.listTickets({})
+    expect(out).toContain(' · behind main')
+    expect(out).toContain(' · conflicts with main (propose_update_from_main)')
+  })
+
+  test('says nothing for a branch that is up to date or not checked', async () => {
+    const t = await ticket()
+    freshness.set(t.id, fresh({ behind: 0 }))
+    expect(await tools.listTickets({})).not.toContain('main (propose')
+    expect(await tools.listTickets({})).not.toContain('behind main')
+  })
+
+  test('get_ticket lists how far behind and the conflicting files; get_run_status mentions it', async () => {
+    const t = await ticket()
+    await running(t)
+    freshness.set(t.id, fresh({ conflicts: ['migrations/journal.txt'] }))
+    const out = await tools.getTicket({ number: 1 })
+    expect(out).toContain('## Branch and main')
+    expect(out).toContain('2 commits behind origin/main.')
+    expect(out).toContain('migrations/journal.txt')
+    expect(out).toContain('propose_update_from_main')
+    expect(await tools.getRunStatus({ number: 1 })).toContain('Branch: 2 commits behind origin/main.')
   })
 })

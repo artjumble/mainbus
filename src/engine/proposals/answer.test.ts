@@ -56,7 +56,10 @@ function ctx(decision: Decision | null = QUESTION, over: { ticket?: Ticket } = {
     whyNotPromotable: async () => null,
     draftPromotionSpec: async () => ({ spec: '', drafted: false }),
     promoteTicket: async () => { throw new Error('not expected') },
-    answerDecision: vi.fn(async (_id: string, _a: DecisionAnswer) => {})
+    answerDecision: vi.fn(async (_id: string, _a: DecisionAnswer) => {}),
+    whyNotUpdatable: async () => null,
+    freshnessOf: () => null,
+    updateFromMain: async () => {}
   } satisfies ExecContext
 }
 

@@ -9,7 +9,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace' | 'promote'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace' | 'promote' | 'update_from_main'
 
 /**
  * Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress
@@ -179,6 +179,29 @@ export interface PromoteResult {
   title: string
   fromTicketId: string
   fromNumber: number
+}
+
+/** The payload of an update_from_main proposal: the ticket, how far behind it was, and the run that would end. */
+export interface UpdateFromMainPayload {
+  ticketId: string
+  number: number
+  title: string
+  /** The base branch's name. */
+  base: string
+  behind: number
+  conflicts: string[]
+  /** The open run (paused or waiting on the user) the update would end as stopped, or null when none is open. */
+  agentRunId: string | null
+  role: string | null
+}
+
+export interface UpdateFromMainResult {
+  ticketId: string
+  number: number
+  title: string
+  base: string
+  behind: number
+  conflicts: string[]
 }
 
 /** What an answer proposal picks: a question's option by index (from 0), or a permission's choice. */

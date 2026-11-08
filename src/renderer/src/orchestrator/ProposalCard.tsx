@@ -14,6 +14,7 @@ import { promoteView } from './PromoteProposal'
 import { redirectView } from './RedirectProposal'
 import { replaceView } from './ReplaceProposal'
 import { startLineupView } from './StartLineupProposal'
+import { updateFromMainView } from './UpdateFromMainProposal'
 
 /** The card's view of each kind of proposal. */
 const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
@@ -26,7 +27,8 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   answer: answerView,
   redirect: redirectView,
   replace: replaceView,
-  promote: promoteView
+  promote: promoteView,
+  update_from_main: updateFromMainView
 }
 
 interface Props {

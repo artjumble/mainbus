@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 import type { ImageRef } from '../../shared/attachments'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
-import type { Blocker, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -73,6 +73,15 @@ export interface ExecContext {
   draftPromotionSpec(ticket: Ticket): Promise<{ spec: string; drafted: boolean }>
   /** The same path as the ticket view's Promote: the new Change ticket in Ready; the original moves to Done. */
   promoteTicket(ticketId: string, fields: { title: string; spec: string }): Promise<Ticket>
+  /** Why the ticket can't be updated from main now (not behind, a role working, no Implementer, …), or null when it can. */
+  whyNotUpdatable(ticket: Ticket): Promise<string | null>
+  /** How far the ticket's branch is behind the newest base, or null when that isn't known. */
+  freshnessOf(ticket: Ticket): BranchFreshness | null
+  /**
+   * The same path as the ticket view's Update from main. `expect` is the open run the proposal saw (null: none);
+   * it fails, changing nothing, if the run has moved on.
+   */
+  updateFromMain(ticketId: string, expect: { agentRunId: string } | null): Promise<void>
   /** A decision and its ticket, or null when there is none. */
   decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>
   /** The shared answer path (the board's and the thread's too), from the orchestrator panel; refuses a decision already answered. */

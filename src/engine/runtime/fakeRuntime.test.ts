@@ -227,7 +227,8 @@ describe('FakeRuntime: the orchestrator', () => {
         proposeAnswer: vi.fn(async () => 'proposed'),
         proposeRedirect: vi.fn(async () => 'proposed'),
         proposeReplace: vi.fn(async () => 'proposed'),
-        proposePromote: vi.fn(async () => 'proposed')
+        proposePromote: vi.fn(async () => 'proposed'),
+        proposeUpdateFromMain: vi.fn(async () => 'proposed')
       },
       onPermission: async () => ({ allow: true }),
       ...over
@@ -455,5 +456,40 @@ describe('FakeRuntime: readFile', () => {
     } finally {
       await fsm.rm(tmp, { recursive: true, force: true })
     }
+  })
+})
+
+describe('writeFile and git', () => {
+  async function play(script: FakeStep[], make: (cwd: string) => void = () => {}): Promise<{ events: AgentEvent[]; cwd: string }> {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-writefile-'))
+    make(cwd)
+    const rt = new FakeRuntime(script)
+    const handle = await rt.start({ ...makeSpec().spec, cwd })
+    const events: AgentEvent[] = []
+    for await (const e of rt.events(handle)) events.push(e)
+    return { events, cwd }
+  }
+  const cleanup = (cwd: string) => fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5 })
+
+  test('writeFile writes inside the run folder, making its parents, and refuses a path outside it', async () => {
+    const written = await play([{ writeFile: { path: 'a/b.txt', content: 'hi' } }, { exit: 0 }])
+    expect(written.events).toEqual([])
+    expect(fs.readFileSync(path.join(written.cwd, 'a', 'b.txt'), 'utf8')).toBe('hi')
+    cleanup(written.cwd)
+
+    const refused = await play([{ writeFile: { path: '../escape.txt', content: 'x' } }, { exit: 0 }])
+    expect(refused.events).toEqual([{ kind: 'error', message: "writeFile: ../escape.txt is outside the run's folder" }])
+    cleanup(refused.cwd)
+  })
+
+  test('git runs real git in the run folder; a failure fails the script unless allowFail', async () => {
+    const ok = await play([{ git: ['init', '-b', 'main'] }, { git: ['merge', 'nothing'], allowFail: true }, { exit: 0 }])
+    expect(ok.events).toEqual([])
+    expect(fs.existsSync(path.join(ok.cwd, '.git'))).toBe(true)
+    cleanup(ok.cwd)
+
+    const failed = await play([{ git: ['rev-parse', '--verify', 'nope'] }, { exit: 0 }])
+    expect(failed.events).toEqual([{ kind: 'error', message: expect.stringMatching(/^git rev-parse --verify nope failed/) }])
+    cleanup(failed.cwd)
   })
 })
