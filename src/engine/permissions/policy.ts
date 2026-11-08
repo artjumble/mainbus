@@ -1,4 +1,4 @@
-import type { AllowRule } from '../../shared/domain'
+import type { AllowRule, PermissionRequestParts } from '../../shared/domain'
 import type { PermissionRequest } from '../runtime/types'
 import { credentialReason } from './credentials'
 import { type FolderContext, isCdInside } from './guard'
@@ -148,4 +148,15 @@ export function describeRequest(r: Req, role: string): string {
     return `${role} wants to edit \`${typeof p === 'string' ? p : ''}\``
   }
   return `${role} wants to use ${r.toolName}`
+}
+
+/** The request's parts, kept apart from `describeRequest`'s text so a card can show the command as code. */
+export function requestParts(r: Req, role: string, reason: string | undefined): PermissionRequestParts {
+  const base = { role, tool: r.toolName, reason: reason ?? null }
+  if (isShellTool(r.toolName)) return { ...base, command: commandOf(r.input) ?? '', path: null, input: null }
+  if (FILE_TOOLS.includes(r.toolName)) {
+    const p = r.input.file_path ?? r.input.notebook_path
+    return { ...base, command: null, path: typeof p === 'string' ? p : '', input: r.input }
+  }
+  return { ...base, command: null, path: null, input: r.input }
 }

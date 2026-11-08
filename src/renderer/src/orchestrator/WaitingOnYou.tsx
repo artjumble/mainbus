@@ -9,6 +9,7 @@ import { useMainbus, type BoardTicket } from '../store'
 import { QuestionForm } from '../thread/DecisionCard'
 import { showAgentError } from '../thread/agentError'
 import { PermissionChoices } from '../thread/PermissionCard'
+import { PermissionAsk } from '../thread/PermissionAsk'
 
 interface Waiting {
   ticket: BoardTicket
@@ -129,9 +130,7 @@ export function WaitingOnYou(): ReactElement | null {
                   <Text size="xs" c="dimmed">
                     {`#${ticket.number}${ticket.lineup.find((r) => r.active)?.name ? ` · ${ticket.lineup.find((r) => r.active)!.name}` : ''}`}
                   </Text>
-                  <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
-                    {decision.question}
-                  </Text>
+                  <PermissionAsk decision={decision} />
                   <Controls decision={decision} onAnswered={answered(ticket, decision)} />
                   <Button variant="subtle" size="compact-sm" w="fit-content" mt={10} onClick={() => openTicket(ticket.id)}>
                     Open ticket for full context
@@ -157,9 +156,7 @@ export function WaitingOnYou(): ReactElement | null {
                 <Paper key={decision.id} withBorder p="sm" radius="md" data-event="deferred-decision">
                   <Stack gap="xs">
                     <TicketLine ticket={ticket} openTicket={openTicket} />
-                    <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
-                      {decision.question}
-                    </Text>
+                    <PermissionAsk decision={decision} />
                     <Group justify="space-between" gap="xs">
                       <Text size="xs" c="dimmed">
                         {decision.deferredUntil ? `Until ${shortDay(decision.deferredUntil, new Date())}` : 'Deferred'}

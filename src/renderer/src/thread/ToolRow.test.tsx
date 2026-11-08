@@ -68,3 +68,19 @@ test('a ToolRow names what the tool acted on, from its input', () => {
   expect(toolTarget({})).toBeNull()
   expect(toolTarget('x')).toBeNull()
 })
+
+test('the input is a JSON block, and a shell command is a shell block above the rest', async () => {
+  const { container } = renderWithMantine(
+    <>
+      <ToolRow name="Read" input={{ file_path: 'a.ts' }} result={{ ok: true, summary: 'done' }} />
+      <ToolRow name="Bash" input={{ command: 'ls -la', description: 'List' }} result={{ ok: true, summary: 'done' }} />
+    </>
+  )
+  for (const button of screen.getAllByRole('button', { name: /Read|Bash/ })) await userEvent.click(button)
+  expect(await screen.findAllByText('json')).toHaveLength(2)
+  expect(screen.getByRole('button', { name: 'Copy command' })).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'Copy input' })).toHaveLength(2)
+  const blocks = Array.from(container.querySelectorAll('pre code')).map((c) => c.textContent)
+  expect(blocks).toEqual(['{\n  "file_path": "a.ts"\n}', 'ls -la', '{\n  "description": "List"\n}'])
+  await expectNoAxeViolations()
+})

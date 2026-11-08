@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import type { CardVia, Decision } from '../../../shared/domain'
 import { DeferredNote, sendAnswer } from './DecisionCard'
 import { LaterMenu } from './LaterMenu'
+import { PermissionAsk } from './PermissionAsk'
 
 interface Props {
   decision: Decision
@@ -56,9 +57,7 @@ export function PermissionCard({ decision }: Props): ReactElement {
   return (
     <Paper withBorder p="sm" radius="md" data-event="permission" bg="var(--mantine-color-needs-0)">
       <Stack gap="xs">
-        <Text size="sm" fw={600} style={{ whiteSpace: 'pre-wrap' }}>
-          {decision.question}
-        </Text>
+        <PermissionAsk decision={decision} />
         {decision.status === 'deferred' && <DeferredNote decision={decision} />}
         {decision.status === 'pending' || decision.status === 'deferred' ? (
           <PermissionChoices decision={decision} via="thread" />

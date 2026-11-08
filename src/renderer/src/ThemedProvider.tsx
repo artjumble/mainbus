@@ -1,8 +1,10 @@
+import { CodeHighlightAdapterProvider } from '@mantine/code-highlight'
 import { MantineProvider, type MantineProviderProps } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { resolveTheme, type ThemeSetting } from '../../shared/domain'
 import { onEngineEvent } from './api'
+import { highlightAdapter } from './code/highlighter'
 import { mantineThemes } from './theme'
 
 /**
@@ -37,7 +39,7 @@ export function ThemedProvider({
   return (
     // The default too, so Mantine's first, pre-paint pass already sets this scheme rather than light.
     <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme={scheme} forceColorScheme={scheme} env={env}>
-      {children}
+      <CodeHighlightAdapterProvider adapter={highlightAdapter}>{children}</CodeHighlightAdapterProvider>
     </MantineProvider>
   )
 }

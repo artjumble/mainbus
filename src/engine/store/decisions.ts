@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
-import { ANSWERED_VIA_PHRASES, type CardVia, type Decision, type DecisionAnswer } from '../../shared/domain'
+import { ANSWERED_VIA_PHRASES, type CardVia, type Decision, type DecisionAnswer, type PermissionRequestParts } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { decisions, holds, tickets } from '../db/schema'
 
@@ -20,7 +20,9 @@ export type DecisionAction =
   | { kind: 'setup_failed' }
 
 export interface DecisionRepo {
-  open(d: Omit<Decision, 'id' | 'status' | 'deferredUntil' | 'answer' | 'createdAt' | 'answeredAt' | 'answeredBy' | 'answeredVia'>, action?: DecisionAction): Promise<Decision>
+  open(
+    d: Omit<Decision, 'id' | 'status' | 'deferredUntil' | 'answer' | 'createdAt' | 'answeredAt' | 'answeredBy' | 'answeredVia' | 'request'> & { request?: PermissionRequestParts | null },
+    action?: DecisionAction): Promise<Decision>
   /** What Mainbus does with the decision's answer itself, or null when the answer goes to the agent as it is. */
   actionOf(id: string): Promise<DecisionAction | null>
   /** Throws unless the decision is still open (pending or deferred), and releases its hold; for one already answered, says where from ("Already answered from the board"). */
@@ -57,6 +59,7 @@ function toDecision(row: typeof decisions.$inferSelect, deferredUntil: string | 
     agentRunId: row.agentRunId,
     kind: row.kind as Decision['kind'],
     question: row.question,
+    request: row.request === null ? null : (JSON.parse(row.request) as PermissionRequestParts),
     options: JSON.parse(row.options) as string[],
     recommended: row.recommended,
     allowAlways: row.allowAlways,
@@ -156,6 +159,7 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
         agentRunId: d.agentRunId,
         kind: d.kind,
         question: d.question,
+        request: d.request ? JSON.stringify(d.request) : null,
         options: JSON.stringify(d.options),
         recommended: d.recommended,
         allowAlways: d.allowAlways,
