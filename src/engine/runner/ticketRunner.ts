@@ -38,6 +38,7 @@ import { guardReason } from '../permissions/guard'
 import { BACKGROUND_DENIED, commandOf, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, isShellTool, requestParts, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
+import type { BranchChanges } from '../git/changedFiles'
 import { buildRolePrompt, data, firstMessage, oneLine, type EarlierHandoff, type PromptAttachment } from '../roles/prompt'
 import {
   ResumeFailedError,
@@ -78,6 +79,9 @@ export interface UsageHooks {
   /** The number of paused agents changed. */
   changed(): void
 }
+
+/** How long a role's start waits for the list of changed files. */
+const CHANGED_FILES_TIMEOUT_MS = 3000
 
 export interface RunnerDeps {
   repos: Repos
@@ -1692,6 +1696,14 @@ export class TicketRunner {
     }
   }
 
+  private changedFiles(launch: Launch): Promise<BranchChanges | null> {
+    const lookup = Promise.resolve()
+      .then(async () => this.deps.worktrees.changedFiles(launch.worktree.path, await (this.deps.baseRef?.(launch.workspace) ?? launch.workspace.baseBranch)))
+      .catch(() => null)
+    const timeout = new Promise<null>((resolve) => setTimeout(resolve, CHANGED_FILES_TIMEOUT_MS, null).unref())
+    return Promise.race([lookup, timeout])
+  }
+
   private async launch(
     launch: Launch,
     runId: string,
@@ -1709,6 +1721,9 @@ export class TicketRunner {
       workspaceId: ticket.workspaceId,
       role: role.name
     }
+    // The files the branch changes, for the role's prompt. It runs alongside setup and the queue wait, never fetches,
+    // and gives up after a moment: a failure or a slow git is no reason not to start.
+    const changesLookup = this.changedFiles(launch)
     // The workspace's setup command runs before the agent starts, and before it takes a slot: setup never holds one.
     const gate = await this.setupGate(launch, target)
     if (gate === null) {
@@ -1729,10 +1744,7 @@ export class TicketRunner {
     const endsWithReport = await this.endsWithReport(ticket, role.id, launch.ticketRunId)
     // The user's images, copied fresh into the scratch folder at every launch. A failed copy is no reason not to start.
     const attachments = (await this.deps.attachments?.sync(ticket.id, worktree.scratch).catch(() => [])) ?? []
-    // The files the branch changes, for the role's prompt. Never fetches, and a failure is no reason not to start.
-    const changes = await Promise.resolve()
-      .then(async () => this.deps.worktrees.changedFiles(worktree.path, await (this.deps.baseRef?.(launch.workspace) ?? launch.workspace.baseBranch)))
-      .catch(() => null)
+    const changes = await changesLookup
     // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
     let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {

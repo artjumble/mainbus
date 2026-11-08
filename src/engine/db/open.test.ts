@@ -663,7 +663,7 @@ describe('openDb', () => {
     for (const id of ['w1', 'w2']) {
       await first.db.run(
         sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-            values (${id}, 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+            values (${id}, 'W', 'repo-path', 'main', ${id}, '2026-10-30T00:00:00.000Z')`
       )
     }
     const rows = [
