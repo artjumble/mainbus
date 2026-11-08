@@ -654,6 +654,43 @@ describe('openDb', () => {
     expect(await byId('w2reviewer')).toBe(newReviewer!.instructions)
   })
 
+  it('moves the default Reviewer instructions to the skip-tests text, and leaves edited ones and other roles alone', async () => {
+    const PLANNER = 'Plan it.'
+    const IMPLEMENTER = defaultLineup()[1]!.instructions
+    const OLD_REVIEWER =
+      "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the full test suite, every kind the project has (end-to-end tests included), and check each criterion. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+    const first = await open(firstMigrations(33))
+    for (const id of ['w1', 'w2']) {
+      await first.db.run(
+        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+            values (${id}, 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    const rows = [
+      ['w1', 'planner', 1, 'Planner', PLANNER],
+      ['w1', 'implementer', 2, 'Implementer', IMPLEMENTER],
+      ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER],
+      ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER + ' Mine.']
+    ] as const
+    for (const [w, id, position, name, instructions] of rows) {
+      await first.db.run(
+        sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
+            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'reviewing', 'ask_me', 'read_only')`
+      )
+    }
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    expect(backupFiles()).toHaveLength(1)
+    const byId = async (id: string) =>
+      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
+    expect(await byId('w1reviewer')).toBe(defaultLineup()[2]!.instructions)
+    expect(await byId('w2reviewer')).toBe(OLD_REVIEWER + ' Mine.')
+    expect(await byId('w1planner')).toBe(PLANNER)
+    expect(await byId('w1implementer')).toBe(IMPLEMENTER)
+  })
+
   it('moves the app-wide unattended setting onto the workspace, backs up first, and keeps slugs unique', async () => {
     const first = await open(firstMigrations(22))
     await first.db.run(sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at) values ('w1', 'app', '/a', 'main', 'app', 'x')`)

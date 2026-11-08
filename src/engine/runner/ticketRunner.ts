@@ -117,6 +117,8 @@ export interface RunnerDeps {
    * Without it a role is told of none.
    */
   attachments?: { sync(ticketId: string, scratch: string): Promise<PromptAttachment[]> }
+  /** The ref a ticket's changes are listed against in a role's prompt. Without it, the workspace's base branch. */
+  baseRef?: (ws: Workspace) => Promise<string>
   /**
    * Runs the workspace's setup command in a new ticket folder, before its first role starts. Mainbus runs it itself,
    * never through an agent or the permission guard. Without it no setup runs.
@@ -1727,6 +1729,10 @@ export class TicketRunner {
     const endsWithReport = await this.endsWithReport(ticket, role.id, launch.ticketRunId)
     // The user's images, copied fresh into the scratch folder at every launch. A failed copy is no reason not to start.
     const attachments = (await this.deps.attachments?.sync(ticket.id, worktree.scratch).catch(() => [])) ?? []
+    // The files the branch changes, for the role's prompt. Never fetches, and a failure is no reason not to start.
+    const changes = await Promise.resolve()
+      .then(async () => this.deps.worktrees.changedFiles(worktree.path, await (this.deps.baseRef?.(launch.workspace) ?? launch.workspace.baseBranch)))
+      .catch(() => null)
     // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
     let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {
@@ -1746,7 +1752,8 @@ export class TicketRunner {
         // Where Mainbus saves the report: the file already chosen, or the workspace's folder.
         endsWithReport && this.deps.reportFiles && launch.workspace.saveReports ? (ticket.reportFile ?? `${launch.workspace.reportsFolder}/`) : null,
         gate.setup,
-        await this.repos.dependencies.blockersOf(ticket.id)
+        await this.repos.dependencies.blockersOf(ticket.id),
+        changes
       ),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,

@@ -47,6 +47,16 @@ describe('default lineup', () => {
     expect(reviewer!.instructions).toContain('run the full test suite, every kind the project has (end-to-end tests included)')
     expect(planner!.instructions).toMatch(/^Read the ticket and the code it touches./)
   })
+
+  it('lets the Reviewer skip the tests only when no code changed, and say so', () => {
+    const text = defaultLineup()[2]!.instructions
+    expect(text).toContain('You may skip the tests only when the branch changes no code')
+    expect(text).toContain('nothing in the build, the tests or the app reads (check that no code or test refers to it)')
+    expect(text).toContain('say in your handoff that you skipped them and why')
+    expect(text).toContain('its links and the commands and paths it names exist')
+    expect(text).toContain('If an acceptance criterion requires the tests to pass, run them anyway')
+    expect(text).toContain("never tick a criterion about tests you didn't run")
+  })
 })
 
 describe('lineup repo', () => {

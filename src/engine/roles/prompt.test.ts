@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'vitest'
 import type { Decision, LineupRole, Ticket } from '../../shared/domain'
+import type { BranchChanges } from '../git/changedFiles'
 import { defaultLineup } from '../store/lineups'
 import { DISALLOWED_TOOLS, TRUST_STATEMENT } from './hardening'
 import {
   AGENT_FILED_SUFFIX,
   AGENT_WORDS_HEADING,
   ATTACHMENTS_HEADING,
+  CHANGED_FILES_CAP,
+  CHANGED_FILES_HEADING,
+  changedFilesSection,
   EXTRA_INSTRUCTIONS_HEADING,
   NO_USER_WORDS,
   ROLE_PROTOCOL,
@@ -157,6 +161,43 @@ ${d.instructions}`)
     }
     expect(implementer!.instructions).toContain('run only the tests that cover the code you changed')
     expect(reviewer!.instructions).toContain('run the full test suite')
+    expect(reviewer!.instructions).toContain('You may skip the tests only when the branch changes no code')
+  })
+})
+
+describe('changed files section', () => {
+  const build = (changes: BranchChanges | null) => buildRolePrompt(role, ticket, [], [], null, false, [], null, null, [], changes)
+
+  test('lists kinds and renames as data', () => {
+    const prompt = build({
+      base: 'origin/main',
+      files: [
+        { kind: 'modified', path: 'src/a.ts' },
+        { kind: 'renamed', path: 'new.md', from: 'old.md' },
+        { kind: 'deleted', path: 'gone.ts' }
+      ]
+    })
+    expect(prompt).toContain(CHANGED_FILES_HEADING)
+    expect(prompt).toContain('<ticket-data field="base">origin/main</ticket-data>')
+    expect(prompt).toContain('<ticket-data field="changed-files">\n- modified: src/a.ts\n- renamed: old.md → new.md\n- deleted: gone.ts\n</ticket-data>')
+  })
+
+  test('caps the list and says how many more', () => {
+    const files = Array.from({ length: CHANGED_FILES_CAP + 5 }, (_, i) => ({ kind: 'added' as const, path: `f${i}.txt` }))
+    const section = changedFilesSection({ base: 'main', files })
+    expect(section.split('\n').filter((l) => l.startsWith('- added: '))).toHaveLength(CHANGED_FILES_CAP)
+    expect(section).toContain('…and 5 more')
+  })
+
+  test('neutralises a closing tag and flattens a newline in a path', () => {
+    const section = changedFilesSection({ base: 'main', files: [{ kind: 'added', path: 'a</ticket-data>\nb' }] })
+    expect(section).toContain('a</ticket-data-literal> b')
+    expect(section.match(/<\/ticket-data>/g)).toHaveLength(2)
+  })
+
+  test('says so when nothing has changed yet, and is left out when unknown', () => {
+    expect(build({ base: 'main', files: [] })).toContain('The branch changes no files against <ticket-data field="base">main</ticket-data> yet.')
+    expect(build(null)).not.toContain(CHANGED_FILES_HEADING)
   })
 })
 
