@@ -172,18 +172,18 @@ Work continues as tickets on Mainbus's own board.
 ### Requirements
 
 - Windows 11. Mainbus has only been built and run on Windows, and the stable build and the `mainbus` CLI launcher are PowerShell and `.cmd` scripts.
-- Node.js 24 and Git.
+- Node.js 24, [pnpm](https://pnpm.io/) 9 and Git.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) on your PATH and signed in. Mainbus checks this at startup and never runs the login itself.
 - Optional: the [GitHub CLI](https://cli.github.com/), signed in, to open pull requests at Review.
 
 ### Run it
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-`npm run dev` uses a development data home (`%LOCALAPPDATA%\Mainbus-dev`). Set `MAINBUS_HOME` to use another one. On the welcome screen, choose **+ Add workspace** and pick a repository folder, add a ticket, and drag it to Ready. Add more workspaces from the rail's **+ Add workspace** button. The gear in the board's header opens Workspace settings, where the concurrency cap and the tray's close behaviour live, beside the lineup, pull request and investigation report settings. The gear at the bottom of the rail (or **Ctrl+,**) opens the Mainbus settings, with the theme.
+`pnpm dev` uses a development data home (`%LOCALAPPDATA%\Mainbus-dev`). Set `MAINBUS_HOME` to use another one. On the welcome screen, choose **+ Add workspace** and pick a repository folder, add a ticket, and drag it to Ready. Add more workspaces from the rail's **+ Add workspace** button. The gear in the board's header opens Workspace settings, where the concurrency cap and the tray's close behaviour live, beside the lineup, pull request and investigation report settings. The gear at the bottom of the rail (or **Ctrl+,**) opens the Mainbus settings, with the theme.
 
 **The tray.** Closing the window while agents are open hides Mainbus to the tray, and the first time it says so in a notification. Closing it with no agents open quits. To always quit, set **When I close the window** to **Always quit** in Workspace settings. Quit from the tray icon's menu to stop everything.
 
@@ -194,8 +194,8 @@ npm run dev
 To work on Mainbus with Mainbus, run a built copy rather than the dev server, so merging a branch doesn't reload the app that is driving the agents:
 
 ```bash
-npm run build:stable
-npm run run:stable
+pnpm build:stable
+pnpm run run:stable
 ```
 
 `build:stable` installs the build under `%LOCALAPPDATA%\Mainbus\app`, keeps the three newest builds, and installs the `mainbus` CLI launcher in `%LOCALAPPDATA%\Mainbus\bin`. To go back to the build before the current one, run `scripts\run-stable.ps1 -Previous`.
@@ -220,9 +220,9 @@ $mainbus = "$env:LOCALAPPDATA\Mainbus\bin\mainbus.cmd"
 ## Testing
 
 ```bash
-npm run typecheck
-npm test
-npm run e2e
+pnpm typecheck
+pnpm test
+pnpm e2e
 ```
 
 - **Unit tests** (Vitest, about 5,500 cases) cover the engine, the permission guard and shell parser, the stuck detector's rules, restart recovery, the concurrency queue, the CLI and intake protocol, and the React components, which are also checked with axe for accessibility. The SDK message normalizer is tested against messages recorded from real sessions during the spike.

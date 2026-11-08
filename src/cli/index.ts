@@ -31,7 +31,7 @@ async function serveMcp(...args: Parameters<Io['serveMcp']>): Promise<void> {
 
 const io: Io = {
   env: process.env,
-  // `npm run mainbus` runs in the package root; the folder it was typed in is the one that counts.
+  // `pnpm mainbus` runs in the package root; the folder it was typed in is the one that counts.
   cwd: invocationDir(process.env, 'mainbus', process.cwd()),
   mode: modeOf(__dirname),
   stdout: (text) => void process.stdout.write(text),

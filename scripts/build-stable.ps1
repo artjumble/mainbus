@@ -74,8 +74,8 @@ try {
         Write-Warning "Could not remove leftover temporary folders: $($_.Exception.Message)"
     }
 
-    Invoke-Step 'npm run build' { npm run build }
-    Invoke-Step 'electron-builder' { npx electron-builder --win dir }
+    Invoke-Step 'pnpm run build' { pnpm run build }
+    Invoke-Step 'electron-builder' { pnpm exec electron-builder --win dir }
 
     $name = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmm'), (Get-Revision)
 

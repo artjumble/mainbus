@@ -6,14 +6,15 @@
     "private": true,
     "type": "module",
     "main": "./out/main/index.js",
+    "packageManager": "pnpm@9.5.0",
     "scripts": {
         "dev": "electron-vite dev",
-        "build": "electron-vite build && npm run build:cli",
+        "build": "electron-vite build && pnpm run build:cli",
         "build:cli": "vite build -c vite.cli.config.ts --logLevel warn",
-        "mainbus": "npm run --silent build:cli && node out/cli/mainbus.cjs",
+        "mainbus": "pnpm run --silent build:cli && node out/cli/mainbus.cjs",
         "test": "vitest run",
         "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-        "e2e": "npm run build && playwright test",
+        "e2e": "pnpm run build && playwright test",
         "build:stable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-stable.ps1",
         "run:stable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-stable.ps1"
     },

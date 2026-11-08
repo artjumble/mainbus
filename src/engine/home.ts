@@ -8,8 +8,8 @@ export function orchestratorFolder(root: string): string {
 }
 
 /**
- * The directory a command was run from. npm runs a package script in the package root, and records the
- * directory it was called from in INIT_CWD (npm sets both variables itself on every run, so neither leaks
+ * The directory a command was run from. npm and pnpm run a package script in the package root, and record the
+ * directory it was called from in INIT_CWD (they set both variables themselves on every run, so neither leaks
  * in from a parent). Only the named script gets this; anything else uses its own working directory.
  */
 export function invocationDir(env: Record<string, string | undefined>, script: string, cwd: string): string {
