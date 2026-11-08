@@ -219,6 +219,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const freshnessChecker = new BranchFreshnessChecker(cfg.git, cfg.commands ?? runCommand)
     const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups, undefined, undefined, async (ws) => {
       const base = await freshnessChecker.newestBase(ws, { fetch: true })
+      // The fetch may have moved origin/<base>: the other open tickets are measured against it now (freshness exists by the time a ticket starts).
+      void freshness.refresh(ws.id, { fetch: false }).catch(() => {})
       return { ref: base.ref, notice: base.notice }
     })
     const attachments = new Attachments({

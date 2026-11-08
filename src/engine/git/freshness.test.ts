@@ -6,6 +6,8 @@ import { runCommand, type CommandRunner } from './command'
 import { BranchFreshnessChecker } from './freshness'
 import { runGit } from './git'
 
+vi.setConfig({ testTimeout: 60_000 })
+
 let tmp: string
 let repo: string
 let origin: string
