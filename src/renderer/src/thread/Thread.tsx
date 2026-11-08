@@ -17,6 +17,7 @@ import { PermissionCard } from './PermissionCard'
 import { SetupEntry } from './SetupEntry'
 import { ThinkingBlock } from './ThinkingBlock'
 import classes from './Thread.module.css'
+import { ROW_BADGE } from './rowBadgeStyles'
 import { ToolRow } from './ToolRow'
 import { summariseTools } from './toolSummary'
 
@@ -219,7 +220,7 @@ const ToolGroup = memo(function ToolGroup({ role, items }: { role: string; items
             </Text>
             {running && <Loader size={12} type="dots" />}
             {failed && (
-              <Badge color="needs" variant="light" size="sm">
+              <Badge color="needs" variant="light" size="sm" data-failed-tag {...ROW_BADGE}>
                 Failed
               </Badge>
             )}
