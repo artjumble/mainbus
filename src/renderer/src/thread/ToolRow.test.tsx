@@ -84,3 +84,22 @@ test('the input is a JSON block, and a shell command is a shell block above the 
   await waitFor(() => expect(blocks()).toEqual(['{\n  "file_path": "a.ts"\n}', 'ls -la', '{\n  "description": "List"\n}']))
   await expectNoAxeViolations()
 })
+
+test('in a narrow row with a very long command, the Failed tag and the name tag stay whole', () => {
+  const command = `git log --oneline ${'--format=%H%n%an%n%s '.repeat(20)}| grep -v fixup`
+  renderWithMantine(
+    <div style={{ width: 160 }}>
+      <ToolRow name="Bash" input={{ command }} result={{ ok: false, summary: 'exit 1: a long failure message' }} />
+    </div>
+  )
+  // jsdom has no layout, so these are the styles that keep the tags whole (the artboard e2e test measures the name tag only).
+  for (const [selector, text] of [['[data-failed-tag]', 'Failed'], ['[data-tool-tag]', 'Bash']] as const) {
+    const tag = document.querySelector<HTMLElement>(selector)!
+    expect(tag).toHaveTextContent(new RegExp(`^${text}$`))
+    expect(getComputedStyle(tag).flexShrink).toBe('0')
+    expect(getComputedStyle(tag).overflow).toBe('visible')
+    const label = tag.querySelector<HTMLElement>('.mantine-Badge-label')!
+    expect(getComputedStyle(label).overflow).toBe('visible')
+    expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
+  }
+})

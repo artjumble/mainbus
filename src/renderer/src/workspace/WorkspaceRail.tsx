@@ -18,6 +18,7 @@ import type { WorkspaceSummary } from '../../../shared/api'
 import { openFolder } from '../api'
 import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
+import { ROW_BADGE } from '../rowBadgeStyles'
 import { useMainbus } from '../store'
 import classes from './WorkspaceRail.module.css'
 
@@ -187,6 +188,7 @@ export function WorkspaceRail(): ReactElement {
                         circle
                         size={expanded ? 'md' : 'sm'}
                         data-needs-you
+                        {...ROW_BADGE}
                         role="img"
                         aria-hidden
                         aria-label={`${w.needsYou} need you`}

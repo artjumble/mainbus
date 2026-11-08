@@ -1,6 +1,7 @@
 import { Badge, Collapse, Group, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
 import { CodeBlock } from '../code/CodeBlock'
+import { ROW_BADGE } from '../rowBadgeStyles'
 
 interface Props {
   name: string
@@ -59,9 +60,8 @@ export function ToolRow({ name, input, result }: Props): ReactElement {
             color="gray"
             size="sm"
             radius="sm"
-            tt="none"
             data-tool-tag
-            styles={{ root: { flexShrink: 0, overflow: 'visible' }, label: { overflow: 'visible', textOverflow: 'clip' } }}
+            {...ROW_BADGE}
           >
             {name}
           </Badge>
@@ -74,7 +74,7 @@ export function ToolRow({ name, input, result }: Props): ReactElement {
             {outcome}
           </Text>
           {result && !result.ok && (
-            <Badge color="needs" variant="light" size="sm">
+            <Badge color="needs" variant="light" size="sm" data-failed-tag {...ROW_BADGE}>
               Failed
             </Badge>
           )}

@@ -357,3 +357,16 @@ describe('collapsed and expanded', () => {
     }
   })
 })
+
+test('in the expanded rail, the needs-you count keeps its width and is never clipped beside a long name', async () => {
+  engine()
+  renderWithMantine(<WorkspaceRail />)
+  const nav = await expand()
+  const badge = nav.querySelector<HTMLElement>('[data-needs-you]')!
+  expect(badge).toHaveTextContent('1')
+  // jsdom has no layout, so these are the styles that keep the count whole.
+  expect(getComputedStyle(badge).flexShrink).toBe('0')
+  expect(getComputedStyle(badge).overflow).toBe('visible')
+  const label = badge.querySelector<HTMLElement>('.mantine-Badge-label')!
+  expect(getComputedStyle(label).overflow).toBe('visible')
+})
