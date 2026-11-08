@@ -80,7 +80,7 @@ export interface UsageHooks {
   changed(): void
 }
 
-/** How long a role's start waits for the list of changed files. */
+/** How long a role's start waits for the list of changed files; never fetches, and a failure or slow git is no reason not to start. */
 const CHANGED_FILES_TIMEOUT_MS = 3000
 
 export interface RunnerDeps {
@@ -267,6 +267,8 @@ interface Prepared {
   workspace: Workspace
   /** `scratch` is the ticket's scratch folder: its agents' temp folder, writable like the worktree. */
   worktree: { branch: string; path: string; scratch: string; baseNotice: string | null }
+  /** The files the branch changes against its base, for the role's prompt; null when unknown or not looked up. */
+  changes: BranchChanges | null
 }
 
 /** What `updateFromMain` runs: the role to run alone, its extra instructions, what the thread says, and whether the setup command is due again. */
@@ -1385,7 +1387,7 @@ export class TicketRunner {
     }
     const decisions = await this.repos.decisions.forTicket(run.ticketId)
     try {
-      const { worktree } = await this.prepare(run.ticketId)
+      const { worktree } = await this.prepare(run.ticketId, false)
       const timeoutMs = this.deps.summaryTimeoutMs ?? SKIP_SUMMARY_MS
       const call = this.deps.runtime.summarize({
         cwd: worktree.path,
@@ -1543,14 +1545,19 @@ export class TicketRunner {
 
   // --- launching (always inside a queued step) ---
 
-  private async prepare(ticketId: string): Promise<Prepared> {
+  /**
+   * Looking up the changed files happens here, before the run is created: from then on the ticket shows as working,
+   * and the agent should start without another wait.
+   */
+  private async prepare(ticketId: string, withChanges = true): Promise<Prepared> {
     let ticket = await this.repos.tickets.get(ticketId)
     const workspace = await this.workspaceOf(ticket)
     const worktree = await this.deps.worktrees.ensure(workspace, ticket)
     ticket = await this.repos.tickets.setWorktree(ticket.id, worktree.branch, worktree.path)
     // A folder made just now is due the setup command (or none, when the workspace has no command or this build runs none).
     if (worktree.created) ticket = await this.markSetupDue(ticket, workspace)
-    return { ticket, workspace, worktree }
+    const changes = withChanges ? await this.changedFiles(workspace, worktree.path) : null
+    return { ticket, workspace, worktree, changes }
   }
 
   /**
@@ -1696,9 +1703,9 @@ export class TicketRunner {
     }
   }
 
-  private changedFiles(launch: Launch): Promise<BranchChanges | null> {
+  private changedFiles(workspace: Workspace, wtPath: string): Promise<BranchChanges | null> {
     const lookup = Promise.resolve()
-      .then(async () => this.deps.worktrees.changedFiles(launch.worktree.path, await (this.deps.baseRef?.(launch.workspace) ?? launch.workspace.baseBranch)))
+      .then(async () => this.deps.worktrees.changedFiles(wtPath, await (this.deps.baseRef?.(workspace) ?? workspace.baseBranch)))
       .catch(() => null)
     const timeout = new Promise<null>((resolve) => setTimeout(resolve, CHANGED_FILES_TIMEOUT_MS, null).unref())
     return Promise.race([lookup, timeout])
@@ -1721,9 +1728,6 @@ export class TicketRunner {
       workspaceId: ticket.workspaceId,
       role: role.name
     }
-    // The files the branch changes, for the role's prompt. It runs alongside setup and the queue wait, never fetches,
-    // and gives up after a moment: a failure or a slow git is no reason not to start.
-    const changesLookup = this.changedFiles(launch)
     // The workspace's setup command runs before the agent starts, and before it takes a slot: setup never holds one.
     const gate = await this.setupGate(launch, target)
     if (gate === null) {
@@ -1744,7 +1748,7 @@ export class TicketRunner {
     const endsWithReport = await this.endsWithReport(ticket, role.id, launch.ticketRunId)
     // The user's images, copied fresh into the scratch folder at every launch. A failed copy is no reason not to start.
     const attachments = (await this.deps.attachments?.sync(ticket.id, worktree.scratch).catch(() => [])) ?? []
-    const changes = await changesLookup
+    const { changes } = launch
     // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
     let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {
