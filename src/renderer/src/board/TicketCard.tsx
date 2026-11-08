@@ -10,6 +10,7 @@ import { BoardAnswer } from './BoardAnswer'
 import { BlockedChip } from './BlockedChip'
 import { HoldChip } from './HoldChip'
 import { RunSettingsChip } from './RunSettingsChip'
+import { FreshnessChip } from './FreshnessChip'
 import { StuckChip } from './StuckChip'
 import { WRAPPING_CHIP } from './chipStyles'
 import classes from './TicketCard.module.css'
@@ -222,6 +223,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         <BlockedChip blockedBy={ticket.blockedBy} done={ticket.manualColumn === 'done'} />
         <RunSettingsChip ticket={ticket} />
         <StuckChip stuck={ticket.stuck} />
+        <FreshnessChip freshness={ticket.freshness} done={ticket.manualColumn === 'done'} />
         {ticket.kind === 'investigate' && (
           <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
             Investigate

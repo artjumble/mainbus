@@ -152,6 +152,7 @@ describe('createEngine', () => {
     expect(runIds).toHaveLength(2)
     const [first, second] = runIds
     expect(events.map((e) => [e.runId === first ? 1 : 2, e.event.kind])).toEqual([
+      [1, 'notice'],
       [1, 'message'],
       [1, 'decision'],
       [1, 'stopped'],

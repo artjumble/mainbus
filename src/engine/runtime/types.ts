@@ -55,6 +55,7 @@ export interface OrchestratorToolHandlers extends OrchestratorReadToolHandlers {
   proposeRedirect(a: unknown): Promise<string>
   proposeReplace(a: unknown): Promise<string>
   proposePromote(a: unknown): Promise<string>
+  proposeUpdateFromMain(a: unknown): Promise<string>
 }
 
 /** A role's `claude` process: its id, and the time just before it was spawned (ms since the epoch). */

@@ -9,7 +9,7 @@ import { investigationTitle } from './reportFiles'
 export const PR_COMMAND_TIMEOUT_MS = 2 * 60 * 1000
 
 /** Nothing Mainbus runs here may stop to ask for input: no terminal prompt from git, no prompt from gh. */
-const NO_PROMPTS = { GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' }
+export const NO_PROMPTS = { GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' }
 
 const GH_MISSING = 'the GitHub CLI (gh) is not installed'
 const GH_SIGNED_OUT = 'the GitHub CLI (gh) is not signed in; run `gh auth login`'
@@ -191,7 +191,7 @@ function isHttps(url: string): boolean {
 }
 
 /** The lines of git's or gh's error output worth showing, without any credentials in remote URLs. */
-function firstLines(stderr: string): string {
+export function firstLines(stderr: string): string {
   const lines = stderr
     .split(/\r?\n/)
     .map((l) => l.trim())

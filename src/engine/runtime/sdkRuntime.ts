@@ -77,7 +77,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_answer',
   'mcp__mainbus__propose_redirect',
   'mcp__mainbus__propose_replace',
-  'mcp__mainbus__propose_promote'
+  'mcp__mainbus__propose_promote',
+  'mcp__mainbus__propose_update_from_main'
 ]
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
@@ -782,6 +783,16 @@ export class SdkRuntime implements AgentRuntime {
             spec: z.string().optional().describe("The new ticket's spec: what to change and how to verify it, using only what the report says; drafted from the report by default")
           },
           async (a) => toolText(await t.proposePromote(a))
+        ),
+        sdk.tool(
+          'propose_update_from_main',
+          "Propose updating a ticket's branch from main: an Implementer-only run merges the newest base into the branch, resolves conflicts, runs the type check and related tests, and commits; the pull request is updated when it hands off. Only for a Change ticket that is behind main (list_tickets and get_ticket show it) and has no role working; a paused or waiting role's run is ended first. Suggest it when a ticket in Review conflicts with main. The user confirms or rejects it; nothing changes until then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
+            reason: z.string().describe('Why the branch should be updated now, shown to the user')
+          },
+          async (a) => toolText(await t.proposeUpdateFromMain(a))
         )
       ]
     })

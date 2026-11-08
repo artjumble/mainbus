@@ -32,7 +32,10 @@ function ctx(over: { open?: Workspace | null; ticket?: Ticket | null; why?: stri
     whyNotPromotable: vi.fn(async () => (over.why === undefined ? null : over.why)),
     draftPromotionSpec: vi.fn(async () => ({ spec: 'Drafted spec', drafted: over.drafted ?? true })),
     promoteTicket: vi.fn(async (_id: string, f: { title: string; spec: string }) => ({ id: 't7', number: 7, title: f.title }) as Ticket),
-    answerDecision: async () => {}
+    answerDecision: async () => {},
+    whyNotUpdatable: async () => null,
+    freshnessOf: () => null,
+    updateFromMain: async () => {}
   }
   return c satisfies ExecContext
 }

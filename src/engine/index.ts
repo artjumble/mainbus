@@ -32,7 +32,10 @@ import type { GitRunner } from './git/git'
 import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
+import { BranchFreshnessChecker } from './git/freshness'
 import { WorktreeManager } from './git/worktrees'
+import { FreshnessMonitor, type FreshnessMonitorDeps } from './freshness/monitor'
+import { LOCKFILES, updateInstructions, updateRoleOf } from './freshness/update'
 import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
 import { Attachments, type AttachmentWithPath } from './attachments/attachments'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
@@ -101,6 +104,8 @@ export interface EngineConfig {
   clock?: Clock
   /** The stuck detector's timer, interval and file probe; tests pass fakes. By default a real timer, once a minute. */
   stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange'>>
+  /** The freshness monitor's timer and interval; tests pass fakes. By default a real timer, every five minutes. */
+  freshness?: Partial<Pick<FreshnessMonitorDeps, 'timer' | 'intervalMs'>>
   /** How long to wait before trying again when a usage limit has no known reset; 15 minutes by default (tests shorten it). */
   usageRetryMs?: number
   /** How long drafting a promoted ticket's spec may take before the report stands in; as long as a skip's summary by default (tests shorten it). */
@@ -210,7 +215,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         decision === null ? addWake(workspaceId, 'released_hold', hold.id) : addWake(workspaceId, 'resurfaced', decision.id)
     })
 
-    const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups)
+    // New branches start from the newest base; the monitor (below) measures open branches against it.
+    const freshnessChecker = new BranchFreshnessChecker(cfg.git, cfg.commands ?? runCommand)
+    const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups, undefined, undefined, async (ws) => {
+      const base = await freshnessChecker.newestBase(ws, { fetch: true })
+      // The fetch may have moved origin/<base>: the other open tickets are measured against it now (freshness exists by the time a ticket starts).
+      void freshness.refresh(ws.id, { fetch: false }).catch(() => {})
+      return { ref: base.ref, notice: base.notice }
+    })
     const attachments = new Attachments({
       repo: repos.attachments,
       paths: cfg.paths,
@@ -246,6 +258,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       reportFiles: new ReportFileSaver(cfg.commands ?? runCommand),
       processes: sweeper,
       setup: cfg.setupCommands ?? createSetupCommandRunner(sweeper),
+      branchMoved: (workspaceId) => void freshness.refresh(workspaceId, { fetch: false }).catch(() => {}),
       onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId),
       attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) }
     })
@@ -261,6 +274,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       onStuck: (workspaceId, episode) => addWake(workspaceId, 'stuck', episode.id),
       newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
     })
+    const freshness = new FreshnessMonitor({
+      repos,
+      checker: freshnessChecker,
+      now,
+      emit,
+      timer: cfg.freshness?.timer ?? realTimer,
+      ...(cfg.freshness?.intervalMs !== undefined ? { intervalMs: cfg.freshness.intervalMs } : {})
+    })
     await worktrees.recoverPendingCleanups()
     // Before recovery kicks the queue: a limit stored at the last quit must hold the agents back from the start.
     await gate.load()
@@ -269,6 +290,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     // Holds that came due while Mainbus was closed are released before anything can start a ticket.
     await holds.start()
     stuckDetector.start()
+    // Not waited for: the first measurements arrive on the board when they are done.
+    freshness.start()
+    void freshness.refreshAll().catch(() => {})
 
     /** The workspace a renderer command is about: the one named, else the focused one. */
     const requireWorkspace = async (id?: string): Promise<Workspace> => {
@@ -549,6 +573,57 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return runner.skip(ticketId, expect)
     }
 
+    // The ticket view's Update from main; a confirmed proposal goes through the same functions.
+    /** Why a ticket can't be updated from main right now, or null. Judged from the last freshness check. */
+    const whyNotUpdatableNow = async (ticket: Ticket): Promise<string | null> => {
+      const n = `#${ticket.number}`
+      if (ticket.kind !== 'change') return `${n} is an Investigate ticket; Update from main is for Change tickets`
+      if (ticket.manualColumn === 'done') return `${n} is Done`
+      if (ticket.branch === null || ticket.worktreePath === null) return `${n} has no branch yet`
+      const fresh = freshness.statusOf(ticket.id)
+      if (fresh === null || fresh.behind === 0) return `${n} is not behind ${(await repos.workspaces.get(ticket.workspaceId))?.baseBranch ?? 'main'}`
+      const { agentStatus, settingUp } = await runner.stateOf(ticket.id)
+      if (agentStatus === 'working' || agentStatus === 'queued' || settingUp || runner.isLaunching(ticket.id)) {
+        return `A role is working on ${n}; wait for it to hand off, or pause it first`
+      }
+      if (updateRoleOf(await repos.lineups.get(ticket.workspaceId, ticket.kind)) === null) {
+        return `The Change lineup has no Implementer, so there is no role to merge main`
+      }
+      return null
+    }
+    /**
+     * Ends the ticket's open run, if there is one, and starts the Implementer-only Update run. `expect` is the open run the
+     * caller saw (null: none was open); without it the open run, whichever it is, ends.
+     */
+    const updateFromMain = async (ticketId: string, expect?: RunExpectation | null): Promise<void> => {
+      requireRuntime()
+      const ticket = await repos.tickets.get(ticketId)
+      const ws = await requireWorkspace(ticket.workspaceId)
+      // Measured now, so the instructions name what main looks like at this moment.
+      await freshness.refresh(ws.id)
+      const why = await whyNotUpdatableNow(ticket)
+      if (why !== null) throw new Error(why)
+      const fresh = freshness.statusOf(ticketId)!
+      const base = await freshnessChecker.newestBase(ws, { fetch: false })
+      const lineup = await repos.lineups.get(ws.id, ticket.kind)
+      const role = updateRoleOf(lineup)!
+      // The model and effort the ticket's saved run settings give this role.
+      const chosen = applyRunSettings(ticket.runSettings, lineup).options.roles?.[role.id]
+      const lockfileChanged = ws.setupCommand !== '' && (await freshnessChecker.differs(ws.repoPath, ticket.branch!, base.sha, LOCKFILES))
+      ;(await modeOfTicket(ticketId))?.userStopped(ticketId)
+      await runner.updateFromMain(
+        ticketId,
+        {
+          roleId: role.id,
+          extraInstructions: updateInstructions({ ref: base.ref, sha: base.sha, behind: fresh.behind, conflicts: fresh.conflicts, lockfileChanged }),
+          notice: `Update from main: the ${role.name} merges ${base.ref}, which has ${fresh.behind} commit${fresh.behind === 1 ? '' : 's'} this branch lacks${fresh.conflicts.length > 0 ? ` (conflicts in ${fresh.conflicts.join(', ')})` : ''}.`,
+          setupAgain: lockfileChanged,
+          ...(chosen ? { roles: { [role.id]: chosen } } : {})
+        },
+        expect
+      )
+    }
+
     // The ticket view's Promote; a confirmed proposal goes through the same functions.
     const promoting = new Set<string>()
     const whyNotPromotableNow = async (ticket: Ticket): Promise<string | null> =>
@@ -563,6 +638,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       // A Done ticket has nothing left to hold back.
       if (moved) await holds.unhold(id)
       if (moved && !wasDone) await noteUnblocked(id)
+      // Main may have just moved: the open tickets are measured against it again.
+      if (moved) void freshness.refresh((await repos.tickets.get(id)).workspaceId).catch(() => {})
       return moved ? 'moved' : 'dirty'
     }
     /** After a ticket reached Done: each ticket it was the last open blocker of is noted as unblocked (its Activity, the orchestrator's next turn). */
@@ -671,6 +748,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         now,
         holdTicket: (ticketId, opts) => holds.hold(ticketId, opts),
         whyNotPromotable: whyNotPromotableNow,
+        whyNotUpdatable: whyNotUpdatableNow,
+        freshnessOf: (ticket) => freshness.statusOf(ticket.id),
+        updateFromMain: (ticketId, expect) => updateFromMain(ticketId, expect),
         draftPromotionSpec: draftPromotion,
         promoteTicket,
         async decision(id) {
@@ -719,6 +799,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           ...(await runner.boardView(t.id, () => workspaceLineup(t.kind))),
           hold: holdOf.get(t.id) ?? null,
           stuck: stuckOf.get(t.id) ?? null,
+          freshness: freshness.statusOf(t.id),
           attachments: attached.filter((a) => a.ticketId === t.id),
           blockedBy: blockedBy.get(t.id) ?? [],
           dependencyNotes: dependencyNotes.get(t.id) ?? [],
@@ -1197,6 +1278,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.openPr': (id) => runner.openPr(id),
       'ticket.saveReport': (id) => runner.saveReport(id),
       'ticket.runSetup': (id) => runner.runSetupAgain(id),
+      'ticket.updateFromMain': (id) => updateFromMain(id),
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.
       'thread.get': async (ticketId) => {
@@ -1340,6 +1422,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             gate.dispose()
             holds.dispose()
             stuckDetector.dispose()
+            freshness.dispose()
             wakeScheduler.dispose()
             await Promise.all([runner.shutdown(), orchestrator.shutdown()])
             // Recovery stops at its next step once the runner is shutting down; wait for it, but not for long.
@@ -1351,6 +1434,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
               })
             })
           } finally {
+            // A measurement under way reads the database.
+            await freshness.idle()
             listeners.clear()
             handle.close()
           }

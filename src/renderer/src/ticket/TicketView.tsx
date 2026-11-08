@@ -5,6 +5,7 @@ import { attachToTicket, useImagePaste } from '../attachments/files'
 import { asOwnChange } from '../board/ownChanges'
 import { HoldChip } from '../board/HoldChip'
 import { RunSettingsChip } from '../board/RunSettingsChip'
+import { FreshnessChip } from '../board/FreshnessChip'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
 import { PausedChip, PhaseChip, PrLink, QueuedChip, SettingUpChip } from '../board/TicketCard'
 import { showError } from '../notify'
@@ -21,6 +22,7 @@ import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
 import { RunSettingsModal, runSettingsEditable } from './RunSettingsModal'
 import { SkipModal } from './SkipModal'
+import { UpdateFromMainModal } from './UpdateFromMainModal'
 import { StartBlockedModal } from './StartBlockedModal'
 import { openBlockers } from '../../../shared/dependencies'
 
@@ -66,6 +68,7 @@ export function TicketView(): ReactElement {
           <HoldChip hold={ticket.hold} />
           <RunSettingsChip ticket={ticket} />
           <StuckChip stuck={ticket.stuck} />
+          <FreshnessChip freshness={ticket.freshness} done={ticket.manualColumn === 'done'} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" ml="auto">
             Source: Local
@@ -154,6 +157,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   // True once this screen has started a run that the board has not shown yet, so a retried send does not start again.
   const started = useRef(false)
   const [skipping, setSkipping] = useState(false)
+  const [updating, setUpdating] = useState(false)
   // Start was asked for while a blocker isn't Done: the question is showing.
   const [askingStart, setAskingStart] = useState(false)
   const openBlocked = openBlockers(ticket.blockedBy)
@@ -181,6 +185,15 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     (workspace?.setupCommand ?? '') !== '' &&
     ticket.worktreePath !== null &&
     (agentStatus === null || agentStatus === 'handed_off' || agentStatus === 'failed' || agentStatus === 'paused')
+
+  // "Update from main": the branch lacks commits of the base and no role is working, queued or starting. A paused or waiting run is ended by it.
+  const canUpdate =
+    !isDone &&
+    ticket.kind === 'change' &&
+    (ticket.freshness?.behind ?? 0) > 0 &&
+    ticket.worktreePath !== null &&
+    settingUp !== true &&
+    (agentStatus === null || agentStatus === 'handed_off' || agentStatus === 'failed' || agentStatus === 'paused' || agentStatus === 'waiting_on_you')
 
   useEffect(() => {
     started.current = false
@@ -261,6 +274,10 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     return guarded(() => invoke('agent.skip', ticket.id), 'Could not skip')
   }
 
+  function updateFromMain(): Promise<boolean> {
+    return guarded(() => invoke('ticket.updateFromMain', ticket.id), 'Could not update from main')
+  }
+
   /** Replace…: opens the replace card in the orchestrator panel, with no stuck episode needed. */
   function replace(): Promise<boolean> {
     return guarded(() => proposeReplace(ticket.id), 'Could not propose a replacement')
@@ -338,6 +355,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                   Run setup again
                 </Button>
               )}
+              {canUpdate && (
+                <Button size="compact-sm" variant="default" disabled={busy || moving || startingSetup} onClick={() => setUpdating(true)}>
+                  {`Update from ${ticket.freshness?.baseBranch ?? 'main'}`}
+                </Button>
+              )}
               {runOpen && activeRole && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
                   {`Skip to ${ticket.skipTo ?? 'next role'}`}
@@ -396,6 +418,14 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               setAskingStart(false)
               void control('agent.start', 'Could not start', true)
             }}
+          />
+          <UpdateFromMainModal
+            opened={updating && canUpdate}
+            base={ticket.freshness?.baseBranch ?? 'main'}
+            behind={ticket.freshness?.behind ?? 0}
+            openRole={runOpen ? (activeRole?.name ?? 'role') : null}
+            onClose={() => setUpdating(false)}
+            onUpdate={updateFromMain}
           />
           <SkipModal
             opened={skipping && runOpen && activeRole !== undefined}

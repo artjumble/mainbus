@@ -573,6 +573,21 @@ export interface HoldOptions {
   reason?: string
 }
 
+/** How far a ticket's branch is from the newest base: what the board's freshness chips and the ticket view show. */
+export interface BranchFreshness {
+  /** The workspace's base branch, by name. */
+  baseBranch: string
+  /** The ref compared against: origin/<base> when that is ahead of the local base, else the local base. */
+  base: string
+  /** Commits on the newest base that the branch doesn't have. */
+  behind: number
+  /** Files that would conflict if the newest base were merged into the branch; empty when it merges cleanly. */
+  conflicts: string[]
+  checkedAt: string
+  /** Why the newest base couldn't be fetched, or null. */
+  fetchError: string | null
+}
+
 /** What the stuck detector looks for. */
 export type StuckRule = 'repeated_failure' | 'no_progress' | 'silence' | 'long_turn' | 'dead_process'
 

@@ -24,6 +24,9 @@ export type RemoveDir = (dir: string) => Promise<void>
 
 const removeDir: RemoveDir = (dir) => fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
 
+/** The ref a new ticket branch starts from, with a notice for the thread when it is the local base for want of a newer one. */
+export type BaseResolver = (ws: Workspace) => Promise<{ ref: string; notice: string | null }>
+
 const NOT_A_WORKTREE = (dir: string) =>
   `${dir} is no longer a git worktree but still holds files, so Mainbus left it alone. It needs looking at: check what is in it, then delete it or move the files out.`
 
@@ -45,7 +48,9 @@ export class WorktreeManager {
     private readonly paths: HomePaths,
     private readonly cleanups: PendingCleanupRepo,
     private readonly warn: (message: string) => void = (m) => console.warn(m),
-    private readonly rmDir: RemoveDir = removeDir
+    private readonly rmDir: RemoveDir = removeDir,
+    /** What a new branch starts from, and what to tell the user if that isn't the newest base. By default the local base. */
+    private readonly baseFor: BaseResolver = (ws) => Promise.resolve({ ref: ws.baseBranch, notice: null })
   ) {}
 
   /**
@@ -54,22 +59,22 @@ export class WorktreeManager {
    * `created` is true only when this call made the folder, which is when the workspace's setup command is due.
    * The ticket's scratch folder is created too, every time, so one deleted since the last run comes back.
    */
-  async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string; created: boolean }> {
+  async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string; created: boolean; baseNotice: string | null }> {
     const branch = t.branch ?? branchName(t.number, t.title)
     const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(this.paths, ws.slug), `${t.number}-${slugify(t.title)}`)
     const scratch = scratchPathFor(this.paths, wtPath)
     await fs.mkdir(scratch, { recursive: true })
 
     if (await this.isRegistered(ws.repoPath, wtPath)) {
-      if (await exists(wtPath)) return { branch, path: wtPath, scratch, created: false }
+      if (await exists(wtPath)) return { branch, path: wtPath, scratch, created: false, baseNotice: null }
       // Registered but the folder was deleted behind git's back.
       await this.run(['worktree', 'prune'], ws.repoPath)
     }
 
     const branchExists = (await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], ws.repoPath)).code === 0
-    const addArgs = branchExists
-      ? ['worktree', 'add', wtPath, branch]
-      : ['worktree', 'add', '-b', branch, wtPath, ws.baseBranch]
+    // Only a branch made now needs a base; an existing one keeps the commits it has.
+    const base = branchExists ? null : await this.baseFor(ws)
+    const addArgs = base === null ? ['worktree', 'add', wtPath, branch] : ['worktree', 'add', '--no-track', '-b', branch, wtPath, base.ref]
 
     let added = await this.git(addArgs, ws.repoPath)
     if (added.code !== 0) {
@@ -78,7 +83,7 @@ export class WorktreeManager {
       added = await this.git(addArgs, ws.repoPath)
     }
     if (added.code !== 0) throw new Error(`git ${addArgs.join(' ')} failed: ${added.stderr.trim()}`)
-    return { branch, path: wtPath, scratch, created: true }
+    return { branch, path: wtPath, scratch, created: true, baseNotice: base?.notice ?? null }
   }
 
   /**

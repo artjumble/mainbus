@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ticket, Workspace } from '../../shared/domain'
 import { resolveHome, type HomePaths } from '../home'
 import { createCleanupRepo, type PendingCleanupRepo } from '../store/cleanups'
@@ -62,6 +62,27 @@ describe('WorktreeManager', () => {
     expect(result.path).toBe(path.join(paths.worktrees, 'my-repo', '14-rate-limit-login'))
     expect(await exists(path.join(result.path, 'README.md'))).toBe(true)
     expect(await git(['branch', '--list', result.branch])).toContain(result.branch)
+  })
+
+  it('starts a new branch from the ref the resolver names, and returns its notice', async () => {
+    await fs.writeFile(path.join(repoPath, 'newer.txt'), 'x\n')
+    await git(['switch', '-q', '-c', 'newest'])
+    await git(['add', '.'])
+    await git(['commit', '-m', 'newer'])
+    await git(['switch', '-q', 'main'])
+    const baseFor = vi.fn(async () => ({ ref: 'newest', notice: 'from the local one' }))
+    const m = new WorktreeManager(runGit, paths, cleanups, undefined, undefined, baseFor)
+
+    const result = await m.ensure(ws, ticket)
+
+    expect(result.baseNotice).toBe('from the local one')
+    expect(await exists(path.join(result.path, 'newer.txt'))).toBe(true)
+    expect(await git(['rev-parse', 'refs/heads/main'])).not.toBe(await git(['rev-parse', 'refs/heads/' + result.branch]))
+    expect(await git(['config', '--get', 'branch.' + result.branch + '.merge']).catch(() => '')).toBe('')
+    // An existing branch, or a second call, never asks again.
+    await m.ensure(ws, ticket)
+    expect(baseFor).toHaveBeenCalledTimes(1)
+    expect((await m.ensure(ws, ticket)).baseNotice).toBeNull()
   })
 
   it('ensure is idempotent', async () => {

@@ -1,0 +1,40 @@
+{
+  "Planner": [
+    { "callTool": "handoff", "args": { "summary": "Planned", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "writeFile": { "path": "migrations/0002_a.sql", "content": "select 'a';\n" } },
+    { "writeFile": { "path": "migrations/journal.txt", "content": "0001_init\n0002_a\n" } },
+    { "git": ["add", "-A"] },
+    { "git": ["commit", "-m", "Add migration 0002_a"] },
+    { "callTool": "handoff", "args": { "summary": "Added migration 0002_a", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Implementer #2": [
+    { "writeFile": { "path": "migrations/0002_b.sql", "content": "select 'b';\n" } },
+    { "writeFile": { "path": "migrations/journal.txt", "content": "0001_init\n0002_b\n" } },
+    { "git": ["add", "-A"] },
+    { "git": ["commit", "-m", "Add migration 0002_b"] },
+    { "callTool": "handoff", "args": { "summary": "Added migration 0002_b", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Implementer #3": [
+    { "git": ["merge", "origin/main"], "allowFail": true },
+    { "writeFile": { "path": "migrations/journal.txt", "content": "0001_init\n0002_a\n0003_b\n" } },
+    { "git": ["mv", "migrations/0002_b.sql", "migrations/0003_b.sql"] },
+    { "git": ["add", "-A"] },
+    { "git": ["commit", "--no-edit"] },
+    { "callTool": "handoff", "args": { "summary": "Merged main and renumbered 0002_b to 0003_b", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Reviewer": [
+    { "callTool": "handoff", "args": { "summary": "Reviewed", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

@@ -8,6 +8,7 @@ import { promote } from './promote'
 import { replace } from './replace'
 import { pause, skip, stop } from './roleControls'
 import { startLineup } from './startLineup'
+import { updateFromMain } from './updateFromMain'
 
 /** Every kind of proposal. A new kind only adds an entry here. */
 export const KINDS: Record<ProposalKindName, ProposalKind<any, any>> = {
@@ -20,5 +21,6 @@ export const KINDS: Record<ProposalKindName, ProposalKind<any, any>> = {
   answer,
   redirect,
   replace,
-  promote
+  promote,
+  update_from_main: updateFromMain
 }

@@ -234,7 +234,7 @@ if (!app.requestSingleInstanceLock()) {
         }),
         intakeError: () => intakeError,
         keepAwake,
-        // With the test clock, the stuck detector's once-a-minute check moves with it.
+        // With the test clock, the stuck detector's once-a-minute check moves with it. The freshness check stays on the real timer: a fake two-day advance would run hundreds of git checks.
         ...(clock ? { clock, stuck: { timer: clock } } : {})
       })
       try {

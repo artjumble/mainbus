@@ -1,6 +1,6 @@
-import { Anchor, Badge, Box, Button, Checkbox, Code, Group, Stack, Text, Textarea, Timeline, Title } from '@mantine/core'
+import { Anchor, Badge, Box, Button, Checkbox, Code, Group, List, Stack, Text, Textarea, Timeline, Title } from '@mantine/core'
 import { useState, type ReactElement, type ReactNode } from 'react'
-import { ANSWERED_VIA_PHRASES, type Criterion, type Decision } from '../../../shared/domain'
+import { ANSWERED_VIA_PHRASES, type BranchFreshness, type Criterion, type Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { stuckHeadline } from '../../../shared/stuck'
 import { describeEdit } from '../../../shared/ticketEdit'
@@ -37,7 +37,7 @@ export function ContextPane({ ticket, events, decisions, runs, onViewRun }: Prop
       </Section>
       <BlockedBy ticket={ticket} />
       <Labels labels={ticket.labels} />
-      <Branch branch={ticket.branch} />
+      <Branch ticket={ticket} />
       <Activity ticket={ticket} events={events} decisions={decisions} runs={runs} onViewRun={onViewRun} />
     </Stack>
   )
@@ -275,12 +275,44 @@ function Labels({ labels }: { labels: string[] }): ReactElement | null {
 }
 
 /** The ticket's own branch, set once a run has created it: the branch to review and merge. */
-function Branch({ branch }: { branch: string | null }): ReactElement | null {
+function Branch({ ticket }: { ticket: BoardTicket }): ReactElement | null {
+  const { branch, freshness } = ticket
   if (branch === null) return null
   return (
     <Section title="Branch">
       <Code>{branch}</Code>
+      {ticket.manualColumn !== 'done' && freshness && <Freshness freshness={freshness} />}
     </Section>
+  )
+}
+
+/** How far the branch is behind the newest base, and the files a merge would conflict in. */
+function Freshness({ freshness }: { freshness: BranchFreshness }): ReactElement {
+  return (
+    <Stack gap={4} mt={6} data-freshness-details>
+      <Text size="sm">
+        {freshness.behind === 0
+          ? `Up to date with ${freshness.base}.`
+          : `${freshness.behind} commit${freshness.behind === 1 ? '' : 's'} behind ${freshness.base}.`}
+      </Text>
+      {freshness.conflicts.length > 0 && (
+        <>
+          <Text size="sm">Merging it conflicts in:</Text>
+          <List size="sm" spacing={2} listStyleType="disc">
+            {freshness.conflicts.map((file) => (
+              <List.Item key={file}>
+                <Code>{file}</Code>
+              </List.Item>
+            ))}
+          </List>
+        </>
+      )}
+      {freshness.fetchError !== null && (
+        <Text size="xs" c="dimmed">
+          {`Couldn't fetch the newest ${freshness.baseBranch}: ${freshness.fetchError}`}
+        </Text>
+      )}
+    </Stack>
   )
 }
 

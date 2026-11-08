@@ -658,7 +658,8 @@ export class OrchestratorSession {
         proposeAnswer: (a) => this.propose('answer', a),
         proposeRedirect: (a) => this.propose('redirect', a),
         proposeReplace: (a) => this.propose('replace', a),
-        proposePromote: (a) => this.propose('promote', a)
+        proposePromote: (a) => this.propose('promote', a),
+        proposeUpdateFromMain: (a) => this.propose('update_from_main', a)
       },
       onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, readable })
     }
