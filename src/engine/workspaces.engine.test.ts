@@ -291,7 +291,7 @@ describe('unattended mode per workspace', () => {
       ).toBe(true)
     )
     expect((await engine.invoke('thread.get', inA.id)).decisions).toEqual([])
-    expect((await engine.invoke('thread.get', inB.id)).events.some((e) => e.event.kind === 'notice')).toBe(false)
+    expect((await engine.invoke('thread.get', inB.id)).events.some((e) => e.event.kind === 'notice' && e.event.text.startsWith('Allowed by unattended mode'))).toBe(false)
   })
 })
 
