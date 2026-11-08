@@ -267,6 +267,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       processes: sweeper,
       setup: cfg.setupCommands ?? createSetupCommandRunner(sweeper),
       branchMoved: (workspaceId) => void freshness.refresh(workspaceId, { fetch: false }).catch(() => {}),
+      onMovedToDone: (ticketId, wasDone) => movedToDone(ticketId, wasDone),
       onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId),
       attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) }
     })
@@ -640,16 +641,18 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const draftPromotion = async (ticket: Ticket) =>
       draftPromotionSpec(cfg.runtime ?? missingRuntime, cfg.paths, ticket, cfg.promoteSummaryTimeoutMs ?? SKIP_SUMMARY_MS)
     /** The one way a ticket moves to Done: the ticket view's move, and a promotion's. 'dirty' leaves it where it was. */
-    const moveTicketToDone = async (id: string): Promise<'moved' | 'dirty'> => {
+    const moveTicketToDone = async (id: string): Promise<'moved' | 'dirty' | 'asked'> => {
       ;(await modeOfTicket(id))?.userMoved(id, 'done')
-      const wasDone = (await repos.tickets.get(id)).manualColumn === 'done'
-      const moved = (await runner.moveToDone(id)) === 'done'
+      const outcome = await runner.moveToDone(id)
+      return outcome === 'done' ? 'moved' : outcome
+    }
+    /** After a ticket reached Done, by a move or by the answer to a question about its folder. */
+    const movedToDone = async (id: string, wasDone: boolean): Promise<void> => {
       // A Done ticket has nothing left to hold back.
-      if (moved) await holds.unhold(id)
-      if (moved && !wasDone) await noteUnblocked(id)
+      await holds.unhold(id)
+      if (!wasDone) await noteUnblocked(id)
       // Main may have just moved: the open tickets are measured against it again.
-      if (moved) void freshness.refresh((await repos.tickets.get(id)).workspaceId).catch(() => {})
-      return moved ? 'moved' : 'dirty'
+      void freshness.refresh((await repos.tickets.get(id)).workspaceId).catch(() => {})
     }
     /** After a ticket reached Done: each ticket it was the last open blocker of is noted as unblocked (its Activity, the orchestrator's next turn). */
     async function noteUnblocked(doneId: string): Promise<void> {
@@ -691,8 +694,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const why = await whyNotPromotableNow(original)
         if (why !== null) throw new Error(why)
         // Done first: if creating the Change ticket then fails, Promote still works from Done.
-        if (original.manualColumn !== 'done' && (await moveTicketToDone(ticketId)) === 'dirty') {
+        const moveOutcome = original.manualColumn !== 'done' ? await moveTicketToDone(ticketId) : 'moved'
+        if (moveOutcome === 'dirty') {
           throw new Error(`#${original.number}'s folder has uncommitted changes, so it can't move to Done; nothing was promoted`)
+        }
+        if (moveOutcome === 'asked') {
+          throw new Error(`#${original.number}'s folder is no longer a git worktree; answer the question on the ticket first; nothing was promoted`)
         }
         const moved = await repos.tickets.get(ticketId)
         // Whatever spec was confirmed, it names the report's file in the repo.

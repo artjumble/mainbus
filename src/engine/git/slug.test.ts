@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { branchName, slugify } from './slug'
+import { branchName, folderName, slugify } from './slug'
 
 describe('slugify', () => {
   it('lowercases and joins words with hyphens', () => {
@@ -33,5 +33,27 @@ describe('slugify', () => {
 describe('branchName', () => {
   it('prefixes the ticket number and slug with mainbus/', () => {
     expect(branchName(14, 'Rate-limit login')).toBe('mainbus/14-rate-limit-login')
+  })
+})
+
+describe('folderName', () => {
+  it('keeps a slug of 16 characters or fewer', () => {
+    expect(folderName(14, 'Rate-limit login')).toBe('14-rate-limit-login')
+  })
+
+  it('cuts a longer slug at a word boundary', () => {
+    expect(folderName(88, 'Tidy leftover npm mentions after the switch to pnpm')).toBe('88-tidy-leftover')
+  })
+
+  it('keeps 16 characters when the next one is a word boundary', () => {
+    expect(folderName(5, 'abcdefghijklmnop qrs')).toBe('5-abcdefghijklmnop')
+  })
+
+  it('cuts one long word hard at 16 characters', () => {
+    expect(folderName(7, 'internationalizationfeature')).toBe('7-internationaliza')
+  })
+
+  it('leaves the branch name on the longer slug', () => {
+    expect(branchName(88, 'Tidy leftover npm mentions after the switch to pnpm')).toBe('mainbus/88-tidy-leftover-npm-mentions-after-the-swi')
   })
 })

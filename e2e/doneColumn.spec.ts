@@ -29,6 +29,8 @@ async function withBoard(body: (page: Page, home: string) => Promise<void>): Pro
     fs.mkdirSync(repo)
     git(repo, 'init', '-b', 'main')
     fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
+    // Like a real project: installed packages are ignored, so they don't count as uncommitted work.
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\n')
     git(repo, 'add', '.')
     git(repo, 'commit', '-m', 'initial')
     const env: Record<string, string> = {}
@@ -199,5 +201,25 @@ test('a Done card dragged out to Ready stays in sight under the pointer, and lan
 
     await expect(ready.getByText('Ship it')).toBeVisible()
     await expect(done(page).getByTestId('column-count')).toHaveText('0')
+  })
+})
+
+test('a ticket whose folder holds a deep node_modules tree moves to Done and the folder is gone', async () => {
+  await withBoard(async (page, home) => {
+    await ticketInReview(page, 'Deep tree')
+    const [folder] = worktrees(home)
+    const base = path.join(home, 'work', folder!, 'node_modules', '.pnpm')
+    // Paths past the 260 characters Windows allows by default, as pnpm's store makes under a long folder name.
+    for (let i = 0; i < 30; i++) {
+      const deep = path.join(base, `package-${i}-${'x'.repeat(80)}@1.0.0`, 'node_modules', `package-${i}-${'y'.repeat(80)}`, 'dist')
+      fs.mkdirSync(deep, { recursive: true })
+      for (let j = 0; j < 5; j++) fs.writeFileSync(path.join(deep, `file-${j}.js`), 'x')
+    }
+
+    await review(page).getByRole('button', { name: /Deep tree/ }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Move to Done' }).click()
+    await expect(done(page).getByText('Deep tree')).toBeVisible()
+    await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 60_000 })
+    await expect.poll(() => worktrees(home), { timeout: 30_000 }).toEqual([])
   })
 })

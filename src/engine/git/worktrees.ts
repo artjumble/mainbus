@@ -5,7 +5,16 @@ import { scratchPathFor, ticketFoldersFor, type HomePaths } from '../home'
 import type { PendingCleanupRepo } from '../store/cleanups'
 import { branchChanges, type BranchChanges } from './changedFiles'
 import type { GitRunner } from './git'
-import { branchName, slugify } from './slug'
+import { branchName, folderName } from './slug'
+
+/** The files under a folder, counting anything that isn't a folder as one. Links are counted, never followed. */
+async function countFiles(dir: string): Promise<number> {
+  let n = 0
+  for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    n += e.isDirectory() ? await countFiles(path.join(dir, e.name)) : 1
+  }
+  return n
+}
 
 async function exists(p: string): Promise<boolean> {
   return fs.access(p).then(
@@ -24,6 +33,18 @@ async function canonical(p: string): Promise<string> {
 export type RemoveDir = (dir: string) => Promise<void>
 
 const removeDir: RemoveDir = (dir) => fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
+
+/** What an unregistered folder holds, for asking the user before it is deleted. */
+export interface LeftoverFolder {
+  files: number
+  /** The top-level entries with the files under each (a file counts as one), most files first. */
+  entries: { name: string; files: number }[]
+  /** 'kept' when the ticket's branch still exists: commits made in a worktree live in the repository, not the folder. */
+  commits: 'kept' | 'unknown'
+}
+
+/** Git is told to use long paths for the calls that create or delete a worktree, whatever the user's own config says. */
+const worktreeArgs = (...args: string[]): string[] => ['-c', 'core.longpaths=true', 'worktree', ...args]
 
 /** The ref a new ticket branch starts from, with a notice for the thread when it is the local base for want of a newer one. */
 export type BaseResolver = (ws: Workspace) => Promise<{ ref: string; notice: string | null }>
@@ -62,25 +83,26 @@ export class WorktreeManager {
    */
   async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string; created: boolean; baseNotice: string | null }> {
     const branch = t.branch ?? branchName(t.number, t.title)
-    const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(this.paths, ws.slug), `${t.number}-${slugify(t.title)}`)
+    const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(this.paths, ws.slug), folderName(t.number, t.title))
     const scratch = scratchPathFor(this.paths, wtPath)
     await fs.mkdir(scratch, { recursive: true })
 
     if (await this.isRegistered(ws.repoPath, wtPath)) {
       if (await exists(wtPath)) return { branch, path: wtPath, scratch, created: false, baseNotice: null }
       // Registered but the folder was deleted behind git's back.
-      await this.run(['worktree', 'prune'], ws.repoPath)
+      await this.run(worktreeArgs('prune'), ws.repoPath)
     }
 
     const branchExists = (await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], ws.repoPath)).code === 0
     // Only a branch made now needs a base; an existing one keeps the commits it has.
     const base = branchExists ? null : await this.baseFor(ws)
-    const addArgs = base === null ? ['worktree', 'add', wtPath, branch] : ['worktree', 'add', '--no-track', '-b', branch, wtPath, base.ref]
+    const addArgs =
+      base === null ? worktreeArgs('add', wtPath, branch) : worktreeArgs('add', '--no-track', '-b', branch, wtPath, base.ref)
 
     let added = await this.git(addArgs, ws.repoPath)
     if (added.code !== 0) {
       // A stale registration for this path makes add fail; prune and try once more.
-      await this.git(['worktree', 'prune'], ws.repoPath)
+      await this.git(worktreeArgs('prune'), ws.repoPath)
       added = await this.git(addArgs, ws.repoPath)
     }
     if (added.code !== 0) throw new Error(`git ${addArgs.join(' ')} failed: ${added.stderr.trim()}`)
@@ -95,8 +117,8 @@ export class WorktreeManager {
     if (t.branch === null || t.worktreePath === null) throw new Error('The ticket has no folder to recreate')
     const found = await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${t.branch}`], ws.repoPath)
     if (found.code !== 0) throw new Error(`The branch ${t.branch} no longer exists, so the folder can't be recreated`)
-    await this.run(['worktree', 'prune'], ws.repoPath)
-    await this.run(['worktree', 'add', t.worktreePath, t.branch], ws.repoPath)
+    await this.run(worktreeArgs('prune'), ws.repoPath)
+    await this.run(worktreeArgs('add', t.worktreePath, t.branch), ws.repoPath)
     await fs.mkdir(scratchPathFor(this.paths, t.worktreePath), { recursive: true })
   }
 
@@ -120,24 +142,35 @@ export class WorktreeManager {
    * Removes the worktree folder, then the ticket's scratch folder; the branch is always kept. Without
    * `discard`, a worktree with uncommitted work is left untouched and 'dirty' is returned. A scratch folder
    * that can't be removed is only a warning: it holds nothing the user needs.
+   *
+   * A folder git no longer lists but that still holds files is refused, unless a pending removal for this ticket
+   * covers it, or `leftover` is given and the folder is the ticket's own: then 'leftover' is returned (ask the user),
+   * or with `leftover.delete` the folder is deleted.
    */
   async remove(
     ticketId: string,
     repoPath: string,
     wtPath: string,
     branch: string,
-    opts: { discard: boolean }
-  ): Promise<'removed' | 'dirty'> {
+    opts: { discard: boolean; leftover?: { workspaceSlug: string; delete: boolean } }
+  ): Promise<'removed' | 'dirty' | 'leftover'> {
     const present = await exists(wtPath)
     // A folder git no longer lists is what a half-done removal leaves behind. Don't ask git about it:
     // `git status` there would answer for whatever repository contains the folder.
     const registered = present && (await this.isRegistered(repoPath, wtPath))
-    if (present && !registered && !(await this.isEmptyDir(wtPath))) throw new Error(NOT_A_WORKTREE(wtPath))
+    const hasFiles = present && !registered && !(await this.isEmptyDir(wtPath))
+    if (hasFiles && !(await this.isPending(ticketId, wtPath))) {
+      // Mainbus can't vouch for what is in it.
+      if (!opts.leftover || !(await this.isOwnFolder(wtPath, opts.leftover.workspaceSlug))) throw new Error(NOT_A_WORKTREE(wtPath))
+      if (!opts.leftover.delete) return 'leftover'
+    }
     if (registered && !opts.discard && (await this.hasUncommitted(wtPath))) return 'dirty'
 
     // Record the decision first so an interrupted removal is finished on next launch.
     await this.cleanups.add(ticketId, repoPath, wtPath, branch)
-    if (present && !registered) {
+    if (hasFiles) {
+      await this.deleteFolder(wtPath)
+    } else if (present && !registered) {
       try {
         await fs.rmdir(wtPath)
       } catch (err) {
@@ -148,26 +181,64 @@ export class WorktreeManager {
         }
       }
     } else if (present) {
-      const removed = await this.git(
-        ['worktree', 'remove', ...(opts.discard ? ['--force'] : []), wtPath],
-        repoPath
-      )
+      const removed = await this.git(worktreeArgs('remove', ...(opts.discard ? ['--force'] : []), wtPath), repoPath)
       if (removed.code !== 0 && (await exists(wtPath))) {
-        // Without `discard` the user never agreed to lose files that appeared since the check,
-        // so don't leave a row that recovery would force through.
-        if (!opts.discard) await this.cleanups.done(ticketId)
-        const detail = removed.stderr.trim()
-        if (isLockError(detail)) {
-          // Git drops the worktree from its list before deleting the folder, so unlisted means it got that far.
-          throw new Error(HELD_OPEN(!(await this.isRegistered(repoPath, wtPath))))
+        if (await this.isRegistered(repoPath, wtPath)) {
+          // Git stopped before touching the worktree. Without `discard` the user never agreed to lose files
+          // that appeared since the check, so don't leave a row that recovery would force through.
+          if (!opts.discard) await this.cleanups.done(ticketId)
+          const detail = removed.stderr.trim()
+          if (isLockError(detail)) throw new Error(HELD_OPEN(false))
+          throw new Error(`git worktree remove failed: ${detail}`)
         }
-        throw new Error(`git worktree remove failed: ${detail}`)
+        // Git drops the worktree from its list even when deleting the folder fails (a path over 260 characters, a
+        // lock), and our own uncommitted check passed. Finish the job; the row stays until the folder is gone.
+        await this.deleteFolder(wtPath)
       }
     }
-    await this.run(['worktree', 'prune'], repoPath)
+    await this.run(worktreeArgs('prune'), repoPath)
     await this.removeScratch(wtPath)
     await this.cleanups.done(ticketId)
     return 'removed'
+  }
+
+  /** What is in the folder at `wtPath`, which git no longer lists, and whether the branch still has the ticket's commits. */
+  async describeLeftover(repoPath: string, wtPath: string, branch: string): Promise<LeftoverFolder> {
+    const entries: { name: string; files: number }[] = []
+    for (const e of await fs.readdir(wtPath, { withFileTypes: true })) {
+      entries.push({ name: e.name, files: e.isDirectory() ? await countFiles(path.join(wtPath, e.name)) : 1 })
+    }
+    entries.sort((x, y) => y.files - x.files || x.name.localeCompare(y.name))
+    const found = await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], repoPath)
+    return { files: entries.reduce((n, e) => n + e.files, 0), entries, commits: found.code === 0 ? 'kept' : 'unknown' }
+  }
+
+  /** Deletes a folder git no longer lists. A lock gives the held-open message; the pending row stays either way. */
+  private async deleteFolder(dir: string): Promise<void> {
+    try {
+      await this.rmDir(dir)
+    } catch (err) {
+      if (!(await exists(dir))) return
+      throw isLockError(err) ? new Error(HELD_OPEN(true)) : err
+    }
+    if (await exists(dir)) throw new Error(`Mainbus could not delete ${dir}`)
+  }
+
+  /** True when a recorded removal for this ticket covers the path: the removal was already decided. */
+  private async isPending(ticketId: string, wtPath: string): Promise<boolean> {
+    const target = await canonical(wtPath)
+    for (const row of await this.cleanups.list()) {
+      if (row.ticketId === ticketId && (await canonical(row.path)) === target) return true
+    }
+    return false
+  }
+
+  /** True when `wtPath` is a real folder (not a link) directly inside the workspace's folder for ticket worktrees. */
+  private async isOwnFolder(wtPath: string, workspaceSlug: string): Promise<boolean> {
+    if (path.basename(wtPath) === '') return false
+    const stat = await fs.lstat(wtPath).catch(() => null)
+    if (!stat || !stat.isDirectory() || stat.isSymbolicLink()) return false
+    return (await canonical(path.dirname(wtPath))) === (await canonical(ticketFoldersFor(this.paths, workspaceSlug)))
   }
 
   /** Finishes removals that were recorded but interrupted. Returns the ticket ids it completed. */
@@ -178,13 +249,14 @@ export class WorktreeManager {
         // The row means removal was already decided, so force.
         if (await exists(row.path)) {
           if (await this.isRegistered(row.repoPath, row.path)) {
-            await this.git(['worktree', 'remove', '--force', row.path], row.repoPath)
-          } else if (await this.isEmptyDir(row.path)) {
-            await fs.rmdir(row.path)
+            await this.git(worktreeArgs('remove', '--force', row.path), row.repoPath)
+          }
+          if ((await exists(row.path)) && !(await this.isRegistered(row.repoPath, row.path))) {
+            await this.rmDir(row.path)
           }
         }
         if (await exists(row.path)) continue
-        await this.git(['worktree', 'prune'], row.repoPath)
+        await this.git(worktreeArgs('prune'), row.repoPath)
         await this.removeScratch(row.path)
         await this.cleanups.done(row.ticketId)
         completed.push(row.ticketId)

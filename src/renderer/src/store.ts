@@ -78,7 +78,7 @@ interface MainbusState {
    * the board is read again before the overlay goes, so the card does not flicker back. Rejects with the
    * engine's reason when it refuses; on 'dirty' or a rejection the card returns to its real column.
    */
-  moveTicket(id: string, to: ManualColumn): Promise<'moved' | 'dirty'>
+  moveTicket(id: string, to: ManualColumn): Promise<'moved' | 'dirty' | 'asked'>
   /** Switches unattended mode; rejects with the engine's reason when it can't be switched on. */
   setUnattended(on: boolean): Promise<void>
   /** Asks the engine for a start proposal for a Backlog or Ready ticket (the card dragged into In progress), then shows it. */

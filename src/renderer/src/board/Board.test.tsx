@@ -130,6 +130,18 @@ test('moving a ticket with uncommitted work to Done shows a notification', async
   expect(within(screen.getByRole('region', { name: 'Done' })).queryByText(ticket.title)).not.toBeInTheDocument()
 })
 
+test('moving a ticket whose folder needs a decision to Done tells the user to answer it', async () => {
+  const ticket = makeTicket({}, { column: 'review', phase: 'ready_for_review' })
+  showBoard(ticket)
+  mockInvoke.mockResolvedValue('asked')
+  renderWithMantine(<Board />)
+  drag(ticket.id, 'done')
+  expect(
+    await screen.findByText("This ticket's folder is no longer a git worktree. Open the ticket to decide whether to delete it.")
+  ).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Review' })).getByText(ticket.title)).toBeInTheDocument()
+})
+
 test('a rejected move shows the engine message', async () => {
   const ticket = makeTicket({}, { column: 'backlog' })
   showBoard(ticket)

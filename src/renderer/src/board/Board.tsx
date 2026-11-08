@@ -136,6 +136,9 @@ const SCREEN_READER_INSTRUCTIONS = {
     'To move this ticket, press Space, then the Left or Right arrow key to choose a column, then Space again to drop it. Press Escape to cancel.'
 }
 
+const ASKED_MESSAGE =
+  "This ticket's folder is no longer a git worktree. Open the ticket to decide whether to delete it."
+
 const DIRTY_MESSAGE = 'This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
 
 export function Board(): ReactElement {
@@ -169,6 +172,8 @@ export function Board(): ReactElement {
         const result = await move(ticket.id, target)
         if (result === 'dirty') {
           notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
+        } else if (result === 'asked') {
+          notifications.show({ color: 'needs', title: 'Mainbus needs your answer first', message: ASKED_MESSAGE })
         }
       } catch (err) {
         showError(err, "Can't move this ticket")

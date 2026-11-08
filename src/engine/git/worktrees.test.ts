@@ -32,6 +32,12 @@ async function exists(p: string): Promise<boolean> {
   )
 }
 
+/** True for `git [-c ...] worktree <verb>`. */
+function isWorktreeCall(args: string[], verb: string): boolean {
+  const i = args.indexOf('worktree')
+  return i >= 0 && args[i + 1] === verb
+}
+
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-wt-'))
   repoPath = path.join(tmp, 'my repo é')
@@ -119,6 +125,37 @@ describe('WorktreeManager', () => {
     await fs.rm(first.path, { recursive: true, force: true, maxRetries: 5 })
     expect(await manager.ensure(ws, renamed)).toEqual({ ...first, created: true })
     expect(await git(['branch', '--list', 'mainbus/14-throttle-sign-in'])).toBe('')
+  })
+
+  it('gives a long title a short folder and the full branch, and keeps a stored path', async () => {
+    const long = { id: 'ticket-88', number: 88, title: 'Tidy leftover npm mentions after the switch to pnpm' } as Ticket
+    const made = await manager.ensure(ws, long)
+
+    expect(made.path).toBe(path.join(paths.worktrees, 'my-repo', '88-tidy-leftover'))
+    expect(made.branch).toBe('mainbus/88-tidy-leftover-npm-mentions-after-the-swi')
+
+    const old = path.join(paths.worktrees, 'my-repo', '88-tidy-leftover-npm-mentions-after-the-swi')
+    await git(['worktree', 'move', made.path, old])
+    const stored = { ...long, branch: made.branch, worktreePath: old }
+    expect((await manager.ensure(ws, stored)).path).toBe(old)
+  })
+
+  it('passes core.longpaths=true to every worktree add, remove and prune', async () => {
+    const calls: string[][] = []
+    const recording: GitRunner = (args, cwd) => {
+      calls.push(args)
+      return runGit(args, cwd)
+    }
+    const m = new WorktreeManager(recording, paths, cleanups)
+    const { path: wt, branch } = await m.ensure(ws, ticket)
+    await m.remove(ticket.id, repoPath, wt, branch, { discard: false })
+    await m.ensure(ws, ticket)
+    await cleanups.add(ticket.id, repoPath, wt, branch)
+    await m.recoverPendingCleanups()
+
+    const mutating = calls.filter((a) => ['add', 'remove', 'prune'].some((v) => isWorktreeCall(a, v)))
+    expect(mutating.length).toBeGreaterThanOrEqual(5)
+    for (const a of mutating) expect(a.slice(0, 2)).toEqual(['-c', 'core.longpaths=true'])
   })
 
   it('adds a worktree for a branch that exists without one', async () => {
@@ -328,7 +365,7 @@ describe('WorktreeManager', () => {
 
   describe('when git fails mid-removal', () => {
     const failRemove: GitRunner = async (args, cwd) =>
-      args[0] === 'worktree' && args[1] === 'remove'
+      isWorktreeCall(args, 'remove')
         ? { code: 1, stdout: '', stderr: 'simulated failure' }
         : runGit(args, cwd)
 
@@ -375,5 +412,154 @@ describe('WorktreeManager', () => {
       expect(await exists(wt)).toBe(false)
       expect(await cleanups.list()).toEqual([])
     })
+  })
+
+  describe('a removal git leaves half done', () => {
+    /** Git unregisters the worktree, then fails to delete the files (as with paths over 260 characters on Windows). */
+    function halfDone(wt: string): GitRunner {
+      return async (args, cwd) => {
+        if (!isWorktreeCall(args, 'remove')) return runGit(args, cwd)
+        await runGit(['worktree', 'remove', '--force', wt], cwd)
+        await fs.mkdir(path.join(wt, 'node_modules', 'pkg'), { recursive: true })
+        await fs.writeFile(path.join(wt, 'node_modules', 'pkg', 'index.js'), 'x')
+        return { code: 1, stdout: '', stderr: 'error: failed to delete: Filename too long' }
+      }
+    }
+
+    it('is finished by Mainbus, with the row kept until the folder is gone', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      const rowsAtDelete: number[] = []
+      const rm = new WorktreeManager(halfDone(wt), paths, cleanups, undefined, async (dir) => {
+        rowsAtDelete.push((await cleanups.list()).length)
+        await fs.rm(dir, { recursive: true, force: true })
+      })
+
+      expect(await rm.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+      expect(await exists(wt)).toBe(false)
+      expect(await exists(scratch)).toBe(false)
+      expect(rowsAtDelete[0]).toBe(1)
+      expect(await cleanups.list()).toEqual([])
+    })
+
+    it('survives a crash in the middle: the row stays and the next launch finishes', async () => {
+      const { path: wt, branch, scratch } = await manager.ensure(ws, ticket)
+      const crashing = new WorktreeManager(halfDone(wt), paths, cleanups, undefined, () => Promise.reject(new Error('simulated crash')))
+
+      await expect(crashing.remove(ticket.id, repoPath, wt, branch, { discard: false })).rejects.toThrow(/simulated crash/)
+      expect(await exists(wt)).toBe(true)
+      expect((await cleanups.list()).map((c) => c.ticketId)).toEqual([ticket.id])
+
+      expect(await manager.recoverPendingCleanups()).toEqual([ticket.id])
+      expect(await exists(wt)).toBe(false)
+      expect(await exists(scratch)).toBe(false)
+      expect(await cleanups.list()).toEqual([])
+    })
+
+    it('says a program holds it open on a lock error, keeps the row, and finishes on the next try', async () => {
+      const { path: wt, branch } = await manager.ensure(ws, ticket)
+      const locked = new WorktreeManager(halfDone(wt), paths, cleanups, undefined, () =>
+        Promise.reject(Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' }))
+      )
+
+      const failure = locked.remove(ticket.id, repoPath, wt, branch, { discard: false })
+      await expect(failure).rejects.toThrow(/a program still has it open/)
+      await expect(failure).rejects.toThrow(/already removed the folder's contents/)
+      expect((await cleanups.list()).map((c) => c.ticketId)).toEqual([ticket.id])
+
+      expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+      expect(await exists(wt)).toBe(false)
+      expect(await cleanups.list()).toEqual([])
+    })
+  })
+
+  describe("a ticket's own folder that git no longer lists", () => {
+    const slugOf = () => ws.slug
+    async function leftover() {
+      const made = await manager.ensure(ws, ticket)
+      await git(['worktree', 'remove', '--force', made.path])
+      await fs.mkdir(path.join(made.path, 'node_modules', 'a'), { recursive: true })
+      await fs.writeFile(path.join(made.path, 'node_modules', 'a', 'one.js'), 'x')
+      await fs.writeFile(path.join(made.path, 'node_modules', 'a', 'two.js'), 'x')
+      await fs.writeFile(path.join(made.path, 'package.json'), '{}')
+      return made
+    }
+
+    it('is reported, not touched, when the caller can ask', async () => {
+      const { path: wt, branch } = await leftover()
+
+      const outcome = await manager.remove(ticket.id, repoPath, wt, branch, { discard: false, leftover: { workspaceSlug: slugOf(), delete: false } })
+
+      expect(outcome).toBe('leftover')
+      expect(await exists(path.join(wt, 'package.json'))).toBe(true)
+      expect(await cleanups.list()).toEqual([])
+    })
+
+    it('is described with counts, the biggest entry first, and whether the branch is kept', async () => {
+      const { path: wt, branch } = await leftover()
+
+      expect(await manager.describeLeftover(repoPath, wt, branch)).toEqual({
+        files: 3,
+        entries: [
+          { name: 'node_modules', files: 2 },
+          { name: 'package.json', files: 1 }
+        ],
+        commits: 'kept'
+      })
+      await git(['branch', '-D', branch])
+      expect((await manager.describeLeftover(repoPath, wt, branch)).commits).toBe('unknown')
+    })
+
+    it('is deleted when the user chose Delete, and a link inside it leaves its target alone', async () => {
+      const { path: wt, branch, scratch } = await leftover()
+      const target = path.join(tmp, 'link-target')
+      await fs.mkdir(target)
+      await fs.writeFile(path.join(target, 'precious.txt'), 'x')
+      await fs.symlink(target, path.join(wt, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+
+      const outcome = await manager.remove(ticket.id, repoPath, wt, branch, { discard: false, leftover: { workspaceSlug: slugOf(), delete: true } })
+
+      expect(outcome).toBe('removed')
+      expect(await exists(wt)).toBe(false)
+      expect(await exists(scratch)).toBe(false)
+      expect(await exists(path.join(target, 'precious.txt'))).toBe(true)
+      expect(await cleanups.list()).toEqual([])
+    })
+
+    it('is still refused when the folder belongs to another workspace, is outside the work folder, or is a link', async () => {
+      const { path: wt, branch } = await leftover()
+      const ask = { discard: false, leftover: { workspaceSlug: slugOf(), delete: true } }
+
+      const other = path.join(paths.worktrees, 'other-ws', path.basename(wt))
+      await fs.mkdir(path.dirname(other), { recursive: true })
+      await fs.rename(wt, other)
+      await expect(manager.remove(ticket.id, repoPath, other, branch, ask)).rejects.toThrow(/no longer a git worktree/)
+
+      const outside = path.join(tmp, 'elsewhere')
+      await fs.rename(other, outside)
+      await expect(manager.remove(ticket.id, repoPath, outside, branch, ask)).rejects.toThrow(/no longer a git worktree/)
+
+      await fs.mkdir(path.dirname(wt), { recursive: true })
+      await fs.symlink(outside, wt, process.platform === 'win32' ? 'junction' : 'dir')
+      await expect(manager.remove(ticket.id, repoPath, wt, branch, ask)).rejects.toThrow(/no longer a git worktree/)
+      expect(await exists(path.join(outside, 'package.json'))).toBe(true)
+      expect(await cleanups.list()).toEqual([])
+    })
+  })
+
+  it.runIf(process.platform === 'win32')('removes a worktree holding paths over 260 characters', async () => {
+    await fs.writeFile(path.join(repoPath, '.gitignore'), 'node_modules/\n')
+    await git(['add', '.'])
+    await git(['commit', '-m', 'ignore'])
+    const { path: wt, branch } = await manager.ensure(ws, ticket)
+    const deep = path.join(wt, 'node_modules', '.pnpm', 'a'.repeat(100) + '@1.0.0', 'node_modules', 'a'.repeat(100), 'dist')
+    await fs.mkdir(deep, { recursive: true })
+    await fs.writeFile(path.join(deep, 'index.js'), 'x')
+    expect(path.join(deep, 'index.js').length).toBeGreaterThan(260)
+
+    // Git itself is made to fail, as it does for a user whose config turns long paths off.
+    const noLongPaths: GitRunner = (args, cwd) => runGit(args.map((a) => (a === 'core.longpaths=true' ? 'core.longpaths=false' : a)), cwd)
+    const m = new WorktreeManager(noLongPaths, paths, cleanups)
+    expect(await m.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+    expect(await exists(wt)).toBe(false)
   })
 })

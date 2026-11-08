@@ -11,6 +11,7 @@ import { decisions, holds, tickets } from '../db/schema'
  *   other ("Keep going") reaches the agent as an answer.
  * - missing_worktree: the run's folder is gone after a restart; one option recreates it from `branch` and continues, the other stops the run.
  * - setup_failed: the workspace's setup command failed in the ticket's folder; Retry runs it again, Start without setup continues without it, Stop stops the run.
+ * - leftover_folder: the ticket's own folder is no longer a git worktree but still holds files; one option deletes it and moves the ticket to Done, the other keeps it.
  * - round_trip: the pair has gone back and forth too often; "Keep going" does the hand-back, "Take over" stops.
  */
 export type DecisionAction =
@@ -18,6 +19,7 @@ export type DecisionAction =
   | { kind: 'round_trip'; fromRoleId: string; toRoleId: string; details: string }
   | { kind: 'missing_worktree'; path: string; branch: string }
   | { kind: 'setup_failed' }
+  | { kind: 'leftover_folder'; path: string }
 
 export interface DecisionRepo {
   open(
