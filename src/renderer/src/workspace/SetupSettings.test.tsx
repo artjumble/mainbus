@@ -35,7 +35,7 @@ const save = (): HTMLElement => screen.getByRole('button', { name: 'Save setup' 
 test('is empty by default with a 15 minute timeout, and nothing to save', () => {
   renderWithMantine(<SetupSettings opened />)
   expect(command()).toHaveValue('')
-  expect(command()).toHaveAttribute('placeholder', 'npm ci')
+  expect(command()).toHaveAttribute('placeholder', 'e.g. pnpm install --frozen-lockfile')
   expect(timeout()).toHaveValue('15')
   expect(save()).toBeDisabled()
 })
