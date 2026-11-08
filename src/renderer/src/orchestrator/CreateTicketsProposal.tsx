@@ -25,6 +25,8 @@ interface DraftEdit {
   labels: string
   /** Not editable here: the edit keeps what was proposed. */
   kind?: TicketKind
+  /** The run settings preset proposed, by name: not editable here. */
+  preset?: string
   /** The images proposed for it, each ticked to attach it. */
   images: (ImageRef & { include: boolean })[]
   /** What blocks it, as proposed: not editable here. A `draft` is the index of an earlier draft as proposed. */
@@ -154,6 +156,11 @@ function Editor({
                     {draft.kind === 'investigate' && (
                       <Badge size="xs" variant="outline" color="gray" ml={6}>
                         Investigate
+                      </Badge>
+                    )}
+                    {draft.preset && (
+                      <Badge size="xs" variant="outline" color="gray" ml={6}>
+                        Preset: {draft.preset}
                       </Badge>
                     )}
                   </Text>
@@ -290,6 +297,7 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
       criteria: d.criteria.join('\n'),
       labels: d.labels.join(', '),
       ...(d.kind ? { kind: d.kind } : {}),
+      ...(d.preset ? { preset: d.preset } : {}),
       images: (d.images ?? []).map((image) => ({ ...image, include: true })),
       blockedBy: d.blocked_by ?? []
     })),
@@ -312,6 +320,7 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
         labels: splitLabels(d.labels),
         ...(blockers(d.blockedBy, position).length > 0 ? { blocked_by: blockers(d.blockedBy, position) } : {}),
         ...(d.kind ? { kind: d.kind } : {}),
+        ...(d.preset ? { preset: d.preset } : {}),
         ...(d.images.some((image) => image.include) ? { images: d.images.filter((image) => image.include).map((image) => image.id) } : {})
       }))
     return tickets.length === 0 ? null : { tickets, column: edit.column, ...(edit.context.trim() ? { context: edit.context } : {}) }

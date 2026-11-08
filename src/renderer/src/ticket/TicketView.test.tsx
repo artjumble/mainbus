@@ -479,6 +479,7 @@ describe('Run settings', () => {
     mockInvoke.mockImplementation(async (command: string) => {
       if (command === 'thread.get') return thread
       if (command === 'lineup.get') return makeLineup()
+      if (command === 'preset.list') return []
       return undefined
     })
   })
@@ -531,6 +532,7 @@ describe('Run settings', () => {
     mockInvoke.mockImplementation(async (command: string) => {
       if (command === 'thread.get') return thread
       if (command === 'lineup.get') return lineup
+      if (command === 'preset.list') return []
       return undefined
     })
     const ticket = show({ column: 'backlog' })
@@ -600,6 +602,7 @@ describe('Run settings', () => {
     mockInvoke.mockImplementation(async (command: string) => {
       if (command === 'thread.get') return thread
       if (command === 'lineup.get') return makeLineup()
+      if (command === 'preset.list') return []
       if (command === 'ticket.setRunSettings') throw new Error("Run settings can't be changed while a run is open")
       return undefined
     })
@@ -751,7 +754,7 @@ describe('View previous run', () => {
 describe('accessibility', () => {
   test('a ticket with no run, with the Run settings dialog open, has no axe violations', async () => {
     show({ column: 'ready' })
-    mockInvoke.mockImplementation(async (command: string) => (command === 'lineup.get' ? makeLineup() : command === 'thread.get' ? thread : undefined))
+    mockInvoke.mockImplementation(async (command: string) => (command === 'lineup.get' ? makeLineup() : command === 'thread.get' ? thread : command === 'preset.list' ? [] : undefined))
     renderWithMantine(<TicketView />)
     await userEvent.click(await screen.findByRole('button', { name: 'Run settings…' }))
     await screen.findByRole('dialog', { name: 'Run settings' })

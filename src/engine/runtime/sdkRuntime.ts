@@ -80,6 +80,7 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_promote',
   'mcp__mainbus__propose_update_from_main'
 ]
+const PRESET_DESCRIPTION = "A preset of the workspace, by name, as list_workspaces shows: sets the ticket's run settings (which roles run, and their models)"
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
 
@@ -559,7 +560,8 @@ export class SdkRuntime implements AgentRuntime {
           images: z
             .array(z.string())
             .optional()
-            .describe("Images to attach to the ticket, by name: only ones the user sent with the request's messages, as Mainbus listed them")
+            .describe("Images to attach to the ticket, by name: only ones the user sent with the request's messages, as Mainbus listed them"),
+          preset: z.string().optional().describe(PRESET_DESCRIPTION)
         })
       )
       .describe('The tickets, in the order to create them')
@@ -649,6 +651,7 @@ export class SdkRuntime implements AgentRuntime {
             criteria: z.array(z.string()).optional().describe('The full new list of acceptance criteria, replacing the old one'),
             labels: z.array(z.string()).optional().describe('The full new list of labels, replacing the old one'),
             blocked_by: z.array(z.number().int()).optional().describe('The full new list of blockers, as ticket numbers in the workspace, replacing the old one; [] clears it'),
+            preset: z.string().optional().describe(PRESET_DESCRIPTION + " (replaces the ticket's saved run settings)"),
             add_user_words: z
               .boolean()
               .optional()
@@ -689,6 +692,10 @@ export class SdkRuntime implements AgentRuntime {
               .optional()
               .describe('The roles to run; left out, the whole lineup. They run in lineup order'),
             extraInstructions: z.string().optional().describe('Instructions for every role in this run, shown to the user'),
+            preset: z
+              .string()
+              .optional()
+              .describe(PRESET_DESCRIPTION + '. It shapes this start only and is not saved on the ticket; not with roles or extraInstructions, nor when the ticket has saved run settings'),
             reason: z.string().optional().describe('Why to start it now, shown to the user')
           },
           // The engine validates it again, against the board: the SDK passes what the agent sent.

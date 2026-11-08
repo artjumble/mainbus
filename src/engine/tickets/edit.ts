@@ -1,6 +1,7 @@
 import { z } from 'zod'
-import type { Criterion, EditedField, EditedValues, Ticket, TicketPatch } from '../../shared/domain'
+import type { Criterion, EditedField, EditedValues, RunSettings, Ticket, TicketPatch } from '../../shared/domain'
 import { parsePayload, ProposalInvalid } from '../proposals/kind'
+import { PRESET_NAME_MAX } from '../../shared/domain'
 import { ticketFields } from './validate'
 
 /**
@@ -16,6 +17,8 @@ const editInput = z
     labels: ticketFields.labels.optional(),
     /** The full new list of blockers, by ticket number; [] clears it. */
     blocked_by: z.array(z.number().int().positive()).max(50).optional(),
+    /** A preset of the workspace, by name: its run settings replace the ticket's saved ones. */
+    preset: z.string().trim().min(1).max(PRESET_NAME_MAX).optional(),
     add_user_words: z.literal(true).optional()
   })
   .strict()
@@ -31,6 +34,8 @@ export interface EditPlan {
   before: EditedValues
   after: EditedValues
   addUserWords: boolean
+  /** The ticket's new run settings, when the preset changes them (null: the lineup's defaults). */
+  runSettings?: RunSettings | null
 }
 
 export function parseEditInput(input: unknown): EditInput {
@@ -53,12 +58,18 @@ export function carryTicks(old: Criterion[], texts: string[]): Criterion[] {
 const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
 /** Works out what the edit changes in `current`; throws ProposalInvalid when it changes nothing. */
-export function planEdit(current: Ticket, input: EditInput, currentBlockers: number[] = []): EditPlan {
+export function planEdit(
+  current: Ticket,
+  input: EditInput,
+  currentBlockers: number[] = [],
+  /** The run settings the input's preset comes to, resolved by the engine. */
+  preset?: { name: string; settings: RunSettings | null }
+): EditPlan {
   const patch: TicketPatch = {}
   const before: EditedValues = {}
   const after: EditedValues = {}
   const fields: EditedField[] = []
-  const changed = <K extends Exclude<EditedField, 'blockedBy'>>(field: K, old: NonNullable<EditedValues[K]>, next: NonNullable<EditedValues[K]>): void => {
+  const changed = <K extends Exclude<EditedField, 'blockedBy' | 'runSettings'>>(field: K, old: NonNullable<EditedValues[K]>, next: NonNullable<EditedValues[K]>): void => {
     patch[field] = next as never
     before[field] = old as never
     after[field] = next as never
@@ -79,9 +90,17 @@ export function planEdit(current: Ticket, input: EditInput, currentBlockers: num
       fields.push('blockedBy')
     }
   }
+  let runSettings: RunSettings | null | undefined
+  if (preset && JSON.stringify(preset.settings) !== JSON.stringify(current.runSettings)) {
+    runSettings = preset.settings
+    before.runSettings = current.runSettings
+    after.runSettings = preset.settings
+    after.preset = preset.name
+    fields.push('runSettings')
+  }
   const addUserWords = input.add_user_words === true
   if (fields.length === 0 && !addUserWords) throw new ProposalInvalid(NOTHING_TO_CHANGE)
-  return { patch, fields, before, after, addUserWords }
+  return { patch, fields, before, after, addUserWords, ...(runSettings !== undefined ? { runSettings } : {}) }
 }
 
 /**

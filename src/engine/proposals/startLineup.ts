@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Effort } from '../../shared/domain'
+import { PRESET_NAME_MAX, type Effort, type RunSettings } from '../../shared/domain'
 import {
   EFFORTS,
   EXTRA_INSTRUCTIONS_MAX,
@@ -9,7 +9,7 @@ import {
   sameRoleName
 } from '../../shared/models'
 import type { StartLineupPayload, StartLineupResult, StartRolePlan } from '../../shared/proposals'
-import { applyRunSettings } from '../../shared/runSettings'
+import { applyRunSettings, findPreset, presetNames, presetRunSettings } from '../../shared/runSettings'
 import { notDoneYetText } from '../../shared/dependencies'
 import { listJoin } from './createTickets'
 import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
@@ -24,7 +24,9 @@ const proposeSchema = z.strictObject({
     .array(z.strictObject({ role: z.string().min(1), model: z.enum(MODELS).optional(), effort: effortSchema.optional() }))
     .min(1, 'must have at least 1 role')
     .optional(),
-  extraInstructions: extraSchema.optional()
+  extraInstructions: extraSchema.optional(),
+  /** A preset of the workspace, by name: it decides this start's roles, as saved run settings would. */
+  preset: z.string().trim().min(1).max(PRESET_NAME_MAX).optional()
 })
 
 const overrideSchema = z.strictObject({
@@ -86,7 +88,27 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
 
     // The user's saved run settings win: their roles run (the orchestrator's list only gives those roles a model and
     // effort), and their model, effort and extra instructions beat the orchestrator's.
-    const saved = applyRunSettings(ticket.runSettings, lineup).options
+    // A preset acts the same way for this start only: it is not saved on the ticket (update_ticket's preset does that).
+    let settings: RunSettings | null = ticket.runSettings
+    let preset: StartLineupPayload['preset']
+    if (p.preset !== undefined) {
+      if (ticket.kind === 'investigate') throw new ProposalInvalid('preset: presets are for Change tickets')
+      if (p.roles !== undefined || p.extraInstructions !== undefined) {
+        throw new ProposalInvalid('preset: a preset sets the roles and instructions; leave out roles and extraInstructions, or leave out the preset')
+      }
+      if (ticket.runSettings !== null) {
+        throw new ProposalInvalid(`preset: #${ticket.number} has saved run settings, which decide its roles; use update_ticket's preset to change them`)
+      }
+      const presets = (await ctx.presets?.(turn.workspaceId)) ?? []
+      const found = findPreset(presets, p.preset)
+      if (!found) {
+        throw new ProposalInvalid(`preset: there is no preset ${JSON.stringify(p.preset)} in this workspace; its presets are ${presetNames(presets)}`)
+      }
+      const resolved = presetRunSettings(found, lineup)
+      settings = resolved.settings
+      preset = { name: found.name, notices: resolved.notices }
+    }
+    const saved = applyRunSettings(settings, lineup).options
     const runs = (id: string): boolean => (saved.roleIds ? saved.roleIds.includes(id) : chosen.has(id))
 
     // In lineup order, whatever order the orchestrator listed them in.
@@ -103,6 +125,7 @@ export const startLineup: ProposalKind<StartLineupPayload, StartLineupResult> = 
       title: ticket.title,
       roles,
       extraInstructions,
+      ...(preset ? { preset } : {}),
       // The user asked for it: the card says it is blocked, and confirming starts it anyway.
       ...(open.length > 0 ? { blockedBy: open.map((b) => ({ number: b.number, title: b.title })) } : {})
     }

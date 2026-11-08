@@ -31,6 +31,7 @@ import { invoke } from '../api'
 import { phaseLabel } from '../board/TicketCard'
 import { withCurrent } from '../ticket/RoleChoice'
 import { errorMessage, showError } from '../notify'
+import { PresetSettings } from './PresetSettings'
 import { moveRole, newRole, removeRole, sameLineup, toDraft, type DraftRole } from './lineupDraft'
 
 /** "" stands for null ("Orchestrator decides", "Previous role"), which a native select cannot hold as a value. */
@@ -80,6 +81,8 @@ const AFTER_LAST: Record<Lineup, string> = {
 
 /** The workspace's lineups, one tab each. Both editors stay mounted, so unsaved edits survive a tab switch. */
 export function LineupSettings({ opened }: Props): ReactElement {
+  // Bumped when the Change lineup is saved, so the presets below are read against its new roles.
+  const [changeSaves, setChangeSaves] = useState(0)
   return (
     <Stack gap="sm" component="section" aria-labelledby="lineup-heading">
       <Title order={3} size="h4" id="lineup-heading">
@@ -91,18 +94,19 @@ export function LineupSettings({ opened }: Props): ReactElement {
           <Tabs.Tab value="investigate">Investigate</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="change" pt="sm">
-          <LineupEditor opened={opened} lineup="change" />
+          <LineupEditor opened={opened} lineup="change" onSaved={() => setChangeSaves((n) => n + 1)} />
         </Tabs.Panel>
         <Tabs.Panel value="investigate" pt="sm">
           <LineupEditor opened={opened} lineup="investigate" />
         </Tabs.Panel>
       </Tabs>
+      <PresetSettings opened={opened} lineupVersion={changeSaves} />
     </Stack>
   )
 }
 
 /** One lineup: the roles that work a ticket of that kind in turn. One Save writes the whole lineup. */
-export function LineupEditor({ opened, lineup: kind }: Props & { lineup: Lineup }): ReactElement {
+export function LineupEditor({ opened, lineup: kind, onSaved }: Props & { lineup: Lineup; onSaved?: () => void }): ReactElement {
   // The saved lineup is what Save compares against, and what stays on screen after a save.
   const [saved, setSaved] = useState<DraftRole[] | null>(null)
   const [roles, setRoles] = useState<DraftRole[]>([])
@@ -192,6 +196,7 @@ export function LineupEditor({ opened, lineup: kind }: Props & { lineup: Lineup 
     try {
       const selectedIndex = Math.max(0, roles.findIndex((r) => r.id === selectedId))
       adopt(await invoke('lineup.save', roles, kind), selectedIndex)
+      onSaved?.()
     } catch (err) {
       setError(errorMessage(err))
     } finally {

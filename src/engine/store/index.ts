@@ -8,6 +8,7 @@ import { createHoldRepo, type HoldRepo } from './holds'
 import { createLineupRepo, type LineupRepo } from './lineups'
 import { createOrchestratorRepo, type OrchestratorRepo } from './orchestrator'
 import { createOrchestratorImageRepo, type OrchestratorImageRepo } from './orchestratorImages'
+import { createPresetRepo, type PresetRepo } from './presets'
 import { createProposalRepo, type ProposalRepo } from './proposals'
 import { createRunRepo, type RunRepo } from './runs'
 import { createSettingsRepo, type SettingsRepo } from './settings'
@@ -20,6 +21,7 @@ import { createWorkspaceRepo, type WorkspaceRepo } from './workspaces'
 export interface Repos {
   workspaces: WorkspaceRepo
   lineups: LineupRepo
+  presets: PresetRepo
   tickets: TicketRepo
   ticketEdits: TicketEditRepo
   attachments: AttachmentRepo
@@ -42,6 +44,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
   return {
     workspaces: createWorkspaceRepo(db, now),
     lineups: createLineupRepo(db),
+    presets: createPresetRepo(db, now),
     tickets,
     ticketEdits: createTicketEditRepo(db, now, tickets),
     attachments: createAttachmentRepo(db, now),

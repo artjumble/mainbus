@@ -16,6 +16,7 @@ import {
   type Lineup,
   type LineupRole,
   type NewTicketInput,
+  type RunSettings,
   type RunSettingsInput,
   type StartOptions,
   type StuckEpisode,
@@ -23,7 +24,7 @@ import {
   type TicketEdit,
   type Workspace
 } from '../shared/domain'
-import { applyRunSettings, checkRunSettings } from '../shared/runSettings'
+import { applyRunSettings, checkRunSettings, findPreset, presetNames, presetRunSettings } from '../shared/runSettings'
 import { openDb } from './db/open'
 import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
@@ -706,6 +707,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         orchestratorFolder: orchestratorFolder(cfg.paths.root),
         createTickets,
         lineup: (workspaceId, kind) => repos.lineups.get(workspaceId, kind),
+        presets: (workspaceId) => repos.presets.list(workspaceId),
         ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
         async whyNotStartable(ticket) {
           const held = await holds.active(ticket.id)
@@ -870,7 +872,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const why = await whyNotEditableNow(ticket)
         if (why !== null) throw new Error(why)
         const current = await repos.dependencies.blockersOf(ticket.id)
-        const plan = planEdit(ticket, input, current.map((b) => b.number))
+        let preset: { name: string; settings: RunSettings | null } | undefined
+        if (input.preset !== undefined) {
+          if (ticket.kind === 'investigate') throw new ProposalInvalid(`#${ticket.number} is an Investigate ticket, and presets are for Change tickets`)
+          const presets = await repos.presets.list(ws.id)
+          const found = findPreset(presets, input.preset)
+          if (!found) throw new ProposalInvalid(`preset: there is no preset ${JSON.stringify(input.preset)} in ${ws.name}; its presets are ${presetNames(presets)}`)
+          preset = { name: found.name, settings: presetRunSettings(found, await repos.lineups.get(ws.id, 'change')).settings }
+        }
+        const plan = planEdit(ticket, input, current.map((b) => b.number), preset)
         // Checked before anything is written, so a refusal changes nothing.
         let blockedBy: string[] | undefined
         if (plan.after.blockedBy) {
@@ -880,6 +890,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         }
         const edit = await repos.ticketEdits.apply({
           ...(blockedBy ? { blockedBy } : {}),
+          ...(plan.runSettings !== undefined ? { runSettings: plan.runSettings } : {}),
           ticketId: ticket.id,
           workspaceId: ws.id,
           orchestratorRunId: ctx.orchestratorRunId,
@@ -1046,6 +1057,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return answered
       },
       ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
+      presetSource: async (workspaceId) => ({ presets: await repos.presets.list(workspaceId), lineup: await repos.lineups.get(workspaceId, 'change') }),
       unblockedSince: async (since) => {
         const unblocked: UnblockedTicket[] = []
         for (const n of await repos.dependencies.unblockedSince(since)) {
@@ -1195,9 +1207,18 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
-      'ticket.create': async ({ attachments: files, ...input }, workspaceId) => {
+      'ticket.create': async ({ attachments: files, preset: presetName, ...input }, workspaceId) => {
         const ws = await requireWorkspace(workspaceId)
         const images = checkNewAttachments(files)
+        // The ticket gets a copy of the preset's settings, never a link to it.
+        let runSettings: RunSettings | null = null
+        if (presetName !== undefined && presetName !== '') {
+          if (input.kind === 'investigate') throw new Error('Presets are for Change tickets')
+          const presets = await repos.presets.list(ws.id)
+          const preset = findPreset(presets, presetName)
+          if (!preset) throw new Error(`There is no preset ${JSON.stringify(presetName)} in ${ws.name}; its presets are ${presetNames(presets)}`)
+          runSettings = presetRunSettings(preset, await repos.lineups.get(ws.id, 'change')).settings
+        }
         const blockerIds = input.blockedBy ?? []
         if (blockerIds.length > 0) {
           const known = await repos.tickets.list(ws.id)
@@ -1212,7 +1233,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           source: undefined,
           via: undefined,
           intentAdded: undefined,
-          agentContext: undefined
+          agentContext: undefined,
+          runSettings
         })
         for (const image of images) {
           try {
@@ -1326,6 +1348,17 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const saved = await repos.lineups.save(ws.id, roles, knownLineup(lineup))
         emit({ type: 'board.changed', workspaceId: ws.id })
         return saved
+      },
+
+      'preset.list': async (workspaceId) => repos.presets.list((await requireWorkspace(workspaceId)).id),
+      'preset.save': async (preset, workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
+        if (typeof preset !== 'object' || preset === null || typeof preset.name !== 'string') throw new Error('The preset is not valid')
+        const settings = checkRunSettings(preset.settings, await repos.lineups.get(ws.id, 'change'))
+        return repos.presets.save(ws.id, { ...(preset.id !== undefined ? { id: preset.id } : {}), name: preset.name, settings })
+      },
+      'preset.remove': async (id) => {
+        await repos.presets.remove(id)
       },
 
       'allowRules.list': async (workspaceId) => {
