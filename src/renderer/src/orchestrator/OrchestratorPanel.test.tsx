@@ -270,6 +270,7 @@ describe('Waiting on you', () => {
     agentRunId: 'r',
     kind: 'question',
     question: `Question ${id}?`,
+    request: null,
     options: ['Yes', 'No'],
     recommended: null,
     allowAlways: true,
@@ -563,5 +564,34 @@ describe('images in a message', () => {
     fireEvent.drop(box(), { dataTransfer: transfer([pngFile('a.png')]) })
     await screen.findByRole('img', { name: 'a.png' })
     await expectNoAxeViolations()
+  })
+})
+
+describe('Permission cards in the panel', () => {
+  const request = { role: 'Implementer', tool: 'Bash', command: 'cat > a.ts', path: null, input: null, reason: 'Why it asks' }
+
+  test('pending and deferred permissions show the command as a code block with Copy and the reason', async () => {
+    history()
+    const until = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+    const t = makeTicket(
+      {
+        title: 'Login',
+        pendingDecisions: [makeDecision({ id: 'p', kind: 'permission', question: 'x', options: [], request })],
+        deferredDecisions: [makeDecision({ id: 'q', kind: 'permission', question: 'Planner wants to run `ls` — Because', options: [], status: 'deferred', deferredUntil: until, request: null })]
+      },
+      { column: 'needs_you' }
+    )
+    useMainbus.setState({ tickets: [t] })
+    renderWithMantine(<Panel />)
+    const waiting = await screen.findByRole('region', { name: 'Waiting on you' })
+    expect(within(waiting).getByText('Implementer wants to run')).toBeInTheDocument()
+    expect(waiting.querySelector('pre code')?.textContent).toBe('cat > a.ts')
+    expect(within(waiting).getByRole('button', { name: 'Copy command' })).toBeInTheDocument()
+    expect(within(waiting).getByText('Why it asks')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Deferred/ }))
+    const deferredGroup = screen.getByRole('region', { name: 'Deferred' })
+    expect(within(deferredGroup).getByText('Planner wants to run')).toBeInTheDocument()
+    expect(deferredGroup.querySelector('pre code')?.textContent).toBe('ls')
+    expect(within(deferredGroup).getByText('Because')).toBeInTheDocument()
   })
 })

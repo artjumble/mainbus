@@ -9,6 +9,8 @@ export function stuckHeadline(rule: StuckRule, count?: number): string {
       return 'no progress for a while'
     case 'silence':
       return 'no events for a while'
+    case 'no_milestone':
+      return 'no commit, tick or message for a while'
     case 'long_turn':
       return 'one turn running very long'
     case 'dead_process':

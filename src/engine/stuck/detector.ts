@@ -5,7 +5,7 @@ import type { Repos } from '../store'
 import type { StuckHit } from '../store/stuck'
 import { STUCK } from './config'
 import type { RunObservation } from './observation'
-import { evaluate, toolKindsSeen, type RuleInput } from './rules'
+import { evaluate, lastMilestoneAt, toolKindsSeen, turnRules, type RuleInput } from './rules'
 
 /** What the detector tells the run's thread about an episode. */
 export interface StuckNote {
@@ -33,6 +33,8 @@ export interface StuckDetectorDeps {
   onStuck?: (workspaceId: string, episode: StuckEpisode) => void | Promise<void>
   /** The newest file change in a worktree (ms since the epoch), or null. */
   newestChange: (worktreePath: string) => Promise<number | null>
+  /** The commit a worktree's branch is at, or null when it can't be read. */
+  headCommit: (worktreePath: string) => Promise<string | null>
 }
 
 /**
@@ -45,6 +47,8 @@ export class StuckDetector {
   private timer: unknown = null
   private running: Promise<void> = Promise.resolve()
   private stopped = false
+  /** The branch head last seen per run, and when it was seen to move (null until it has). */
+  private readonly heads = new Map<string, { sha: string; movedAt: number | null }>()
 
   constructor(private readonly deps: StuckDetectorDeps) {}
 
@@ -77,7 +81,10 @@ export class StuckDetector {
   }
 
   private async checkAll(): Promise<void> {
-    const ticketIds = new Set((await this.deps.repos.runs.listOpen()).map((r) => r.ticketId))
+    const openRuns = await this.deps.repos.runs.listOpen()
+    const openIds = new Set(openRuns.map((r) => r.id))
+    for (const id of this.heads.keys()) if (!openIds.has(id)) this.heads.delete(id)
+    const ticketIds = new Set(openRuns.map((r) => r.ticketId))
     for (const ticketId of ticketIds) {
       // One ticket failing to be read (its data changing under the check) must not stop the others.
       await this.checkTicket(ticketId).catch(() => {})
@@ -101,13 +108,7 @@ export class StuckDetector {
     }
 
     const filesChangedAt = obs.worktreePath === null ? null : await this.deps.newestChange(obs.worktreePath)
-    const episode = open?.rule === 'dead_process' ? null : open
-    if (episode && this.progressedSince(obs, episode.rule, Date.parse(episode.lastHitAt), filesChangedAt)) {
-      await this.close(obs)
-      return
-    }
-    if (await this.expectedQuiet(obs, now, filesChangedAt)) return
-
+    const committedAt = await this.committedAt(obs, now)
     const wait = obs.declaredWait
     const input: RuleInput = {
       now,
@@ -118,9 +119,19 @@ export class StuckDetector {
       inTurn: obs.live.inTurn,
       // Silence is counted from the end of a wait that has passed, so a long build isn't reported the moment it ends.
       waitEndedAt: wait === null ? null : Date.parse(wait.until),
-      filesChangedAt
+      filesChangedAt,
+      committedAt
     }
-    const hit = evaluate(input)
+    const episode = open?.rule === 'dead_process' ? null : open
+    if (episode && this.progressedSince(obs, input, episode.rule, Date.parse(episode.lastHitAt))) {
+      await this.close(obs)
+      return
+    }
+    if (await this.expectedQuiet(obs, now)) return
+
+    // Files still changing silence the other rules, but not the turn rules: an agent that edits and runs commands without a milestone is what they catch.
+    const filesChanging = filesChangedAt !== null && now - filesChangedAt < STUCK.filesChangingMs
+    const hit = filesChanging ? turnRules(input) : evaluate(input)
     if (hit === null) return
     // A repeat hit counts only after the spacing, so an episode doesn't escalate within a few minutes of a first hit.
     if (episode && now - Date.parse(episode.lastHitAt) < STUCK.hitSpacingMs) return
@@ -140,22 +151,36 @@ export class StuckDetector {
   }
 
   /** True while no rule may fire: the agent is not working, or silence is expected. */
-  private async expectedQuiet(obs: RunObservation, now: number, filesChangedAt: number | null): Promise<boolean> {
+  private async expectedQuiet(obs: RunObservation, now: number): Promise<boolean> {
     if (obs.state.agentStatus !== 'working' || obs.usageLimited) return true
     if (obs.declaredWait !== null && Date.parse(obs.declaredWait.until) > now) return true
-    if (filesChangedAt !== null && now - filesChangedAt < STUCK.filesChangingMs) return true
     return (await this.deps.repos.holds.active('ticket', obs.ticketId)) !== null
   }
 
   /** True when the agent has shown progress since the episode's last hit: a new file change or kind of tool, or the rule's own cause gone. */
-  private progressedSince(obs: RunObservation, rule: StuckHit['rule'], lastHitAt: number, filesChangedAt: number | null): boolean {
+  private progressedSince(obs: RunObservation, input: RuleInput, rule: StuckHit['rule'], lastHitAt: number): boolean {
+    const live = obs.live
+    // The turn rules close on their own causes only: file changes and new tools are what a churning agent does all along.
+    if (live !== null && rule === 'no_milestone') return !live.inTurn || live.turnStartedAt > lastHitAt || lastMilestoneAt(input) > lastHitAt
+    if (live !== null && rule === 'long_turn') return !live.inTurn || live.turnStartedAt > lastHitAt
+    const filesChangedAt = input.filesChangedAt
     if (filesChangedAt !== null && filesChangedAt > lastHitAt) return true
     if ([...toolKindsSeen(obs.events).values()].some((at) => at > lastHitAt)) return true
-    const live = obs.live
     if (live === null) return false
     if (rule === 'silence') return live.lastActivityAt > lastHitAt
-    if (rule === 'long_turn') return !live.inTurn || live.turnStartedAt > lastHitAt
     return false
+  }
+
+  /** When the run's branch head was last seen to move (stamped with the detector's clock); null until it has been. */
+  private async committedAt(obs: RunObservation, now: number): Promise<number | null> {
+    const seen = this.heads.get(obs.runId)
+    // Git is only asked while a turn is being judged; a head first seen later is no earlier than that turn's start.
+    if (obs.worktreePath === null || obs.state.agentStatus !== 'working' || !obs.live?.inTurn) return seen?.movedAt ?? null
+    const sha = await this.deps.headCommit(obs.worktreePath).catch(() => null)
+    if (sha === null) return seen?.movedAt ?? null
+    if (!seen) this.heads.set(obs.runId, { sha, movedAt: null })
+    else if (seen.sha !== sha) this.heads.set(obs.runId, { sha, movedAt: now })
+    return this.heads.get(obs.runId)!.movedAt
   }
 
   /** `before` is the run's episode as it was before this hit; null when it had none. */

@@ -50,7 +50,7 @@ test.each(['light', 'dark'] as const)('%s looks exactly as it did before the the
   // in it, nor the board's lane and card border, added since.
   const now = resolvedVariables(id)
   const before = Object.keys(now)
-    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$/.test(k))
+    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$|^--mainbus-code-/.test(k))
     .sort()
   expect(Object.fromEntries(before.map((k) => [k, now[k]]))).toMatchSnapshot()
 })
@@ -92,6 +92,10 @@ describe.each(THEME_IDS)('%s', (id) => {
     for (const v of Object.values(def.palette)) expect(v).toMatch(HEX)
     expect(Object.keys(def.palette).sort()).toEqual(
       ['anchor', 'border', 'cardBorder', 'dimmed', 'error', 'ground', 'lane', 'raised', 'strongBorder', 'surface', 'text'].sort()
+    )
+    for (const v of Object.values(def.code)) expect(v).toMatch(HEX)
+    expect(Object.keys(def.code).sort()).toEqual(
+      ['addition', 'comment', 'deletion', 'function', 'keyword', 'number', 'string', 'type', 'variable'].sort()
     )
     expect(Object.keys(def.colors).sort()).toEqual([...NAMED_COLORS].sort())
     for (const name of NAMED_COLORS) {
@@ -171,6 +175,11 @@ describe.each(THEME_IDS)('%s', (id) => {
       // is black on gray-0 in light, white on dark-5 in dark.
       ['code on a Code ground', text, scheme === 'light' ? color('gray-0') : color('dark-6')],
       ['code on a code block', text, scheme === 'light' ? color('gray-0') : color('dark-8')],
+      ...Object.keys(def.code).map((token): [string, string, string] => [
+        `${token} in a code block`,
+        vars[`--mainbus-code-${token}`],
+        scheme === 'light' ? color('gray-0') : color('dark-8')
+      ]),
       ['inline code', scheme === 'light' ? color('black') : color('white'), scheme === 'light' ? color('gray-0') : color('dark-5')],
       ...tints.flatMap((c): [string, string, string][] => [
         [`white on a filled ${c} button`, white, color(`${c}-filled`)],

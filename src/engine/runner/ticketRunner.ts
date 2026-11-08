@@ -35,7 +35,7 @@ import type { WorktreeManager } from '../git/worktrees'
 import { endedNotice, type ProcessRef, type ProcessSweeper } from '../processes/sweep'
 import { credentialReason } from '../permissions/credentials'
 import { guardReason } from '../permissions/guard'
-import { BACKGROUND_DENIED, commandOf, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, isShellTool, rulesFromRequest } from '../permissions/policy'
+import { BACKGROUND_DENIED, commandOf, describeRequest, isAllowed, isBackgroundShell, isDestructivePush, isShellTool, requestParts, rulesFromRequest } from '../permissions/policy'
 import { parseShell } from '../permissions/shell'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
 import { buildRolePrompt, data, firstMessage, oneLine, type EarlierHandoff, type PromptAttachment } from '../roles/prompt'
@@ -2295,6 +2295,7 @@ export class TicketRunner {
       kind: 'permission',
       // The guard's reason tells the user why Mainbus is asking.
       question: describeRequest(req, target.role) + (req.reason ? ` — ${req.reason}` : ''),
+      request: requestParts(req, target.role, req.reason),
       options: PERMISSION_OPTIONS,
       recommended: null,
       allowAlways: !noAlways

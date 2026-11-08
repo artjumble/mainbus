@@ -225,7 +225,7 @@ export const stuckEpisodes = sqliteTable(
       .notNull()
       .references(() => agentRuns.id, { onDelete: 'cascade' }),
     /** The rule of the latest hit. */
-    rule: text('rule', { enum: ['repeated_failure', 'no_progress', 'silence', 'long_turn', 'dead_process'] }).notNull(),
+    rule: text('rule', { enum: ['repeated_failure', 'no_progress', 'silence', 'no_milestone', 'long_turn', 'dead_process'] }).notNull(),
     evidence: text('evidence').notNull(), // JSON: string[], from the latest hit
     hitCount: integer('hit_count').notNull(),
     openedAt: text('opened_at').notNull(),
@@ -268,6 +268,8 @@ export const decisions = sqliteTable(
       .references(() => agentRuns.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(),
     question: text('question').notNull(),
+    /** JSON: PermissionRequestParts | null. The parts of a permission request, for showing the command as code. */
+    request: text('request'),
     options: text('options').notNull(), // JSON: string[]
     recommended: integer('recommended'),
     status: text('status').notNull(),

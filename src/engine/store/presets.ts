@@ -24,7 +24,7 @@ const NO_SETTINGS: RunSettings = { excludedRoleIds: [], roles: {}, extraInstruct
  * The presets every workspace starts with, against its Change lineup: Full (all roles), Quick fix (no Planner) and
  * Docs (the Implementer only, on Sonnet at medium effort). A Planner or Implementer the lineup lacks is named by the
  * placeholder id "planner" or "implementer", so applying the preset drops that part with the usual notice.
- * Migration 0031 has its own copy of this, as it was when written.
+ * Migration 0032 has its own copy of this, as it was when written.
  */
 export function defaultPresets(lineup: Role[]): Array<{ name: string; settings: RunSettings }> {
   const find = (name: string): Role | undefined => lineup.find((r) => r.name.trim().toLowerCase() === name)

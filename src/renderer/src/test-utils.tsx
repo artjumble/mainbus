@@ -1,3 +1,4 @@
+import { CodeHighlightAdapterProvider } from '@mantine/code-highlight'
 import { MantineProvider } from '@mantine/core'
 import { Notifications, notifications } from '@mantine/notifications'
 import axe from 'axe-core'
@@ -7,6 +8,7 @@ import type { Decision, LineupRole, TicketState, Workspace } from '../../shared/
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { BoardTicket } from './store'
 import { isThemeId, type ThemeId } from '../../shared/domain'
+import { highlightAdapter } from './code/highlighter'
 import { mantineThemes } from './theme'
 
 /** The theme components are rendered in: Light, or another in its own test project (jsdom-dark, jsdom-night-owl, ...). */
@@ -20,7 +22,7 @@ function Providers({ children }: { children: ReactNode }): ReactElement {
   return (
     <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} env="test" forceColorScheme={testScheme}>
       <Notifications />
-      {children}
+      <CodeHighlightAdapterProvider adapter={highlightAdapter}>{children}</CodeHighlightAdapterProvider>
     </MantineProvider>
   )
 }
@@ -118,6 +120,7 @@ export function makeDecision(overrides: Partial<Decision> = {}): Decision {
     agentRunId: 'r1',
     kind: 'question',
     question: 'Which database?',
+    request: null,
     options: ['SQLite', 'Postgres'],
     recommended: null,
     allowAlways: true,

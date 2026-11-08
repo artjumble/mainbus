@@ -93,3 +93,19 @@ test('Escape closes the popover and focus goes back to the Answer button', async
   await waitFor(() => expect(screen.getByRole('button', { name: 'Answer' })).toHaveFocus())
   expect(onOpen).not.toHaveBeenCalled()
 })
+
+test('a permission shows its command as a code block with Copy, and its reason', async () => {
+  card([
+    makeDecision({
+      kind: 'permission',
+      question: 'x',
+      options: [],
+      request: { role: 'Implementer', tool: 'Bash', command: 'git status\nls', path: null, input: null, reason: 'Why it asks' }
+    })
+  ])
+  await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+  expect(await screen.findByText('Implementer wants to run')).toBeInTheDocument()
+  expect(document.querySelector('pre code')?.textContent).toBe('git status\nls')
+  expect(screen.getByRole('button', { name: 'Copy command' })).toBeInTheDocument()
+  expect(screen.getByText('Why it asks')).toBeInTheDocument()
+})

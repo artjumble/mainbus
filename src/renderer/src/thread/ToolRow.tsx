@@ -1,5 +1,6 @@
-import { Badge, Code, Collapse, Group, Paper, Text, UnstyledButton } from '@mantine/core'
+import { Badge, Collapse, Group, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
+import { CodeBlock } from '../code/CodeBlock'
 
 interface Props {
   name: string
@@ -20,6 +21,15 @@ function showInput(input: unknown): string {
   return text.length > MAX_INPUT_CHARS ? `${text.slice(0, MAX_INPUT_CHARS)}\n…` : text
 }
 
+/** A shell tool's command, and the rest of its input (null when nothing else is in it); other tools show their whole input. */
+function splitInput(name: string, input: unknown): { command: string | null; rest: unknown } {
+  if (name !== 'Bash' && name !== 'PowerShell') return { command: null, rest: input }
+  if (typeof input !== 'object' || input === null) return { command: null, rest: input }
+  const { command, ...others } = input as Record<string, unknown>
+  if (typeof command !== 'string') return { command: null, rest: input }
+  return { command, rest: Object.keys(others).length > 0 ? others : null }
+}
+
 /** What the tool acted on, from its input: a file, a pattern or a command; null when there is nothing to name. */
 export function toolTarget(input: unknown): string | null {
   if (typeof input !== 'object' || input === null) return null
@@ -34,6 +44,7 @@ export function toolTarget(input: unknown): string | null {
 export function ToolRow({ name, input, result }: Props): ReactElement {
   const [opened, setOpened] = useState(false)
   const target = toolTarget(input)
+  const { command, rest } = splitInput(name, input)
   const outcome = result ? result.summary : 'Running…'
   return (
     <Paper withBorder radius="sm" data-event="tool">
@@ -70,9 +81,10 @@ export function ToolRow({ name, input, result }: Props): ReactElement {
         </Group>
       </UnstyledButton>
       <Collapse expanded={opened} keepMounted={false}>
-        <Code block m="xs" mt={0}>
-          {showInput(input)}
-        </Code>
+        <Stack gap="xs" m="xs" mt={0}>
+          {command !== null && <CodeBlock code={command} language={name === 'PowerShell' ? 'powershell' : 'bash'} copyLabel="Copy command" />}
+          {rest !== null && <CodeBlock code={showInput(rest)} language="json" copyLabel="Copy input" />}
+        </Stack>
       </Collapse>
     </Paper>
   )

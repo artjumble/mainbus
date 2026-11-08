@@ -41,6 +41,7 @@ function pending(kind: Decision['kind'], question: string): Decision {
     agentRunId: 'r-1',
     kind,
     question,
+    request: null,
     options: [],
     recommended: null,
     allowAlways: true,

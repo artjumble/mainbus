@@ -492,6 +492,31 @@ describe('TicketRunner', () => {
     expect(decision.question).toBe('Implementer wants to run `python -c "print(1)"` — ' + reason)
   })
 
+  it('stores the parts of the request with the question, for Bash, PowerShell, Edit and Write', async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    const requests: [string, Record<string, unknown>][] = [
+      ['Bash', { command: 'python -c "print(1)"' }],
+      ['PowerShell', { command: 'Get-Date -Format o' }],
+      ['Edit', { file_path: 'C:\\w\\.git\\config', old_string: 'a', new_string: 'b' }],
+      ['Write', { file_path: 'C:\\w\\.git\\hooks\\x', content: 'x' }]
+    ]
+    const seen: unknown[] = []
+    for (const [toolName, input] of requests) {
+      void runtime.specs[0].onPermission({ toolName, input, toolUseId: 't', signal: new AbortController().signal })
+      const decision = await waitForPending()
+      seen.push(decision.request)
+      await runner.answer(decision.id, { kind: 'permission', choice: 'deny' }, 'thread')
+    }
+    expect(seen).toMatchObject([
+      { role: 'Implementer', tool: 'Bash', command: 'python -c "print(1)"', path: null },
+      { tool: 'PowerShell', command: 'Get-Date -Format o' },
+      { tool: 'Edit', command: null, path: 'C:\\w\\.git\\config', input: { new_string: 'b' } },
+      { tool: 'Write', path: 'C:\\w\\.git\\hooks\\x' }
+    ])
+  })
+
   it('deny returns the note to the agent', async () => {
     const runtime = new FakeRuntime(keepAlive)
     const runner = makeRunner(runtime)

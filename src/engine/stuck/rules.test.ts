@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { STUCK } from './config'
-import { evaluate, longTurn, newCommandFinishedAt, noProgress, repeatedFailure, silence, toolKindsSeen, type RuleInput } from './rules'
+import { evaluate, lastMilestoneAt, longTurn, newCommandFinishedAt, noMilestone, noProgress, repeatedFailure, silence, toolKindsSeen, type RuleInput } from './rules'
 
 const T0 = Date.parse('2026-11-02T09:00:00.000Z')
 const MIN = 60_000
@@ -33,6 +33,7 @@ function input(over: Partial<RuleInput> = {}): RuleInput {
     inTurn: true,
     waitEndedAt: null,
     filesChangedAt: null,
+    committedAt: null,
     ...over
   }
 }
@@ -124,17 +125,68 @@ describe('silence', () => {
   })
 })
 
-describe('long turn', () => {
-  test('fires when one turn has run for 60 minutes, and not a moment before', () => {
-    expect(longTurn(input({ now: T0 + 60 * MIN - 1 }))).toBeNull()
-    expect(longTurn(input({ now: T0 + 60 * MIN }))).toEqual({
-      rule: 'long_turn',
-      evidence: ['The current turn has been running for 60 minutes']
+describe('no milestone', () => {
+  const say = (m: number): StoredEvent => at(T0 + m * MIN, { kind: 'message', text: 'Working on it' })
+  const tick = (m: number): StoredEvent => at(T0 + m * MIN, { kind: 'criterion_checked', index: 0, text: 'It works' })
+  const wait = (m: number): StoredEvent => at(T0 + m * MIN, { kind: 'waiting', reason: 'a build', until: new Date(T0 + (m + 5) * MIN).toISOString() })
+
+  test('fires 30 minutes into a turn with no milestone, and not a moment before', () => {
+    expect(noMilestone(input({ now: T0 + 30 * MIN - 1 }))).toBeNull()
+    expect(noMilestone(input({ now: T0 + 30 * MIN }))).toEqual({
+      rule: 'no_milestone',
+      evidence: ['No commit, ticked criterion or message for 30 minutes in a turn that has run 30 minutes']
     })
   })
 
   test('needs a turn under way', () => {
-    expect(longTurn(input({ now: T0 + 90 * MIN, inTurn: false }))).toBeNull()
+    expect(noMilestone(input({ now: T0 + 90 * MIN, inTurn: false }))).toBeNull()
+  })
+
+  test.each([
+    ['a message', { events: [say(10)] }],
+    ['a ticked criterion', { events: [tick(10)] }],
+    ['a declared wait', { events: [wait(10)] }],
+    ['a commit', { committedAt: T0 + 10 * MIN }],
+    ['the end of a wait', { waitEndedAt: T0 + 10 * MIN }]
+  ] as [string, Partial<RuleInput>][])('%s restarts the count', (_name, over) => {
+    expect(noMilestone(input({ ...over, now: T0 + 40 * MIN - 1 }))).toBeNull()
+    expect(noMilestone(input({ ...over, now: T0 + 40 * MIN }))).toMatchObject({
+      rule: 'no_milestone',
+      evidence: ['No commit, ticked criterion or message for 30 minutes in a turn that has run 40 minutes']
+    })
+  })
+
+  test('tool calls, thinking and blank messages are not milestones', () => {
+    const events = [
+      ...command('npm test', 20, 21),
+      ...looks('Read', 25),
+      at(T0 + 28 * MIN, { kind: 'thinking', text: 'Hmm' }),
+      at(T0 + 29 * MIN, { kind: 'message', text: '  ' })
+    ]
+    expect(lastMilestoneAt(input({ events }))).toBe(T0)
+    expect(noMilestone(input({ events, now: T0 + 30 * MIN }))?.rule).toBe('no_milestone')
+  })
+
+  test('a milestone from before the turn started does not count', () => {
+    expect(lastMilestoneAt(input({ turnStartedAt: T0 + 50 * MIN, events: [say(10)], committedAt: T0 + 20 * MIN }))).toBe(T0 + 50 * MIN)
+  })
+})
+
+describe('ceiling', () => {
+  test('a turn over 3 hours fires whatever its milestones, and not a moment before', () => {
+    const talk = Array.from({ length: 18 }, (_, k) => at(T0 + (k + 1) * 10 * MIN, { kind: 'message', text: 'Still going' }))
+    const now = T0 + 180 * MIN
+    expect(longTurn(input({ events: talk, now: now - 1 }))).toBeNull()
+    expect(longTurn(input({ events: talk, now }))).toEqual({
+      rule: 'long_turn',
+      evidence: ['The current turn has been running for 180 minutes']
+    })
+    expect(noMilestone(input({ events: talk, now }))).toBeNull()
+    expect(evaluate(input({ events: talk, now, lastActivityAt: now, filesChangedAt: now }))?.rule).toBe('long_turn')
+  })
+
+  test('needs a turn under way', () => {
+    expect(longTurn(input({ now: T0 + 200 * MIN, inTurn: false }))).toBeNull()
   })
 })
 
@@ -144,15 +196,16 @@ describe('evaluate', () => {
   })
 
   test('the thresholds are the defaults', () => {
-    expect([STUCK.repeatedFailures, STUCK.noProgressMs / MIN, STUCK.silenceMs / MIN, STUCK.longTurnMs / MIN]).toEqual([5, 15, 10, 60])
+    expect([STUCK.repeatedFailures, STUCK.noProgressMs / MIN, STUCK.silenceMs / MIN, STUCK.noMilestoneMs / MIN, STUCK.maxTurnMs / MIN]).toEqual([5, 15, 10, 30, 180])
   })
 
-  test('reports the first rule that fires: repeated failure, then no progress, silence, long turn', () => {
+  test('reports the first rule that fires: repeated failure, then no progress, silence, no milestone, long turn', () => {
     const stale = { now: T0 + 90 * MIN, lastActivityAt: T0 }
     expect(evaluate(input({ events: failures('npm test', 5), ...stale }))?.rule).toBe('repeated_failure')
     expect(evaluate(input({ ...stale }))?.rule).toBe('no_progress')
     expect(evaluate(input({ ...stale, filesChangedAt: T0 + 80 * MIN }))?.rule).toBe('silence')
-    expect(evaluate(input({ now: T0 + 90 * MIN, lastActivityAt: T0 + 90 * MIN, filesChangedAt: T0 + 80 * MIN }))?.rule).toBe('long_turn')
+    expect(evaluate(input({ now: T0 + 90 * MIN, lastActivityAt: T0 + 90 * MIN, filesChangedAt: T0 + 80 * MIN }))?.rule).toBe('no_milestone')
+    expect(evaluate(input({ now: T0 + 200 * MIN, lastActivityAt: T0 + 200 * MIN, filesChangedAt: T0 + 199 * MIN, committedAt: T0 + 195 * MIN }))?.rule).toBe('long_turn')
   })
 })
 
@@ -188,7 +241,10 @@ function replay(script: StoredEvent[][], end: number): { minute: number; rule: s
     const now = T0 + minute * MIN
     const sofar = events.filter((e) => Date.parse(e.at) <= now)
     const lastActivityAt = Math.max(T0, ...sofar.map((e) => Date.parse(e.at)))
-    const hit = evaluate(input({ now, events: sofar, lastActivityAt }))
+    // File changes are seen the way the worktree probe would: the last edit or write so far.
+    const edits = sofar.filter((e) => e.event.kind === 'tool_call' && (e.event.name === 'Edit' || e.event.name === 'Write'))
+    const filesChangedAt = edits.length > 0 ? Date.parse(edits.at(-1)!.at) : null
+    const hit = evaluate(input({ now, events: sofar, lastActivityAt, filesChangedAt }))
     if (hit) hits.push({ minute, rule: hit.rule })
   }
   return hits
@@ -209,7 +265,8 @@ describe('no progress while commands keep finishing', () => {
       looks('Grep', 28, 30, 32),
       command('git diff main...HEAD -- src/engine/stuck/rules.ts', 33, 34),
       looks('Read', 36, 38),
-      command('git status', 39, 40)
+      command('git status', 39, 40),
+      saying(20)
     ]
     expect(replay(script, 40)).toEqual([])
     // The old rule, counting only file changes and new tool kinds, fired here from minute 21: Grep, first used at minute 6, was the last new thing.
@@ -224,7 +281,8 @@ describe('no progress while commands keep finishing', () => {
       command('npx vitest run', 15, 25, { timeout: 20 }),
       looks('Read', 27, 30),
       command('git status', 31, 32),
-      looks('Read', 34, 37, 40)
+      looks('Read', 34, 37, 40),
+      saying(20)
     ]
     expect(replay(script, 40)).toEqual([])
     // Minutes 23 and 24 are 15 or more since the last new thing, Grep first used at minute 8: once the command's timeout has run out, they hit.
@@ -266,8 +324,47 @@ describe('no progress while commands keep finishing', () => {
     expect(replay([command('npx tsc --noEmit', 0, 0), ...failing], 9)[0]).toEqual({ minute: 9, rule: 'repeated_failure' })
 
     const busy = Array.from({ length: 13 }, (_, k) => command(`npx vitest run src/part${'abcdefghijklm'[k]}.test.ts`, k * 5, k * 5 + 1))
-    const hits = replay(busy, 61)
-    expect(hits[0]).toEqual({ minute: 60, rule: 'long_turn' })
+    // With no milestone in the whole turn, the milestone rule is what catches it.
+    expect(replay(busy, 61)[0]).toEqual({ minute: 30, rule: 'no_milestone' })
+  })
+})
+
+/** A file edit at each of the given minutes. */
+function edits(...minutes: number[]): StoredEvent[] {
+  return minutes.flatMap((m) => {
+    const id = `edit-${++seq}`
+    return [
+      at(T0 + m * MIN, { kind: 'tool_call', id, name: 'Edit', input: { file_path: `src/f${m}.ts` } }),
+      at(T0 + m * MIN, { kind: 'tool_result', id, ok: true, summary: '' })
+    ]
+  })
+}
+
+const saying = (m: number): StoredEvent[] => [at(T0 + m * MIN, { kind: 'message', text: 'Status update' })]
+
+describe('replays of the milestone rule', () => {
+  test('churn: edits and different commands every few minutes for 40 minutes, with no commit, tick or message, hit at 30', () => {
+    const script = [
+      edits(1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37, 40),
+      ...[2, 6, 11, 15, 20, 24, 29, 33, 38].map((m) => command(`npx vitest run src/part${m}.test.ts`, m, m + 1))
+    ]
+    expect(replay(script, 40)[0]).toEqual({ minute: 30, rule: 'no_milestone' })
+  })
+
+  test('#79: 80 minutes of edits, test runs, an e2e pass and a status message every 15 to 20 minutes gets no hit', () => {
+    // Rebuilt from the ticket's account of the run (11:03 to 12:23), not from its stored events, which the tests cannot reach.
+    const script = [
+      edits(2, 5, 9, 14, 18, 22, 27, 31, 36, 40, 44, 49, 53, 58, 62, 66, 70, 74, 78),
+      ...[3, 8, 13, 19, 25, 32, 38, 45, 52, 59, 67, 75].map((m) => command(`npx vitest related src/engine/f${m}.ts --run`, m, m + 1)),
+      command('npx playwright test e2e/stuck.spec.ts', 41, 44, { timeout: 10 }),
+      [16, 33, 51, 68, 79].flatMap(saying)
+    ]
+    expect(replay(script, 80)).toEqual([])
+  })
+
+  test('a commit or a tick every 25 minutes keeps a long busy turn quiet until the 3 hour ceiling', () => {
+    const script = [edits(...Array.from({ length: 90 }, (_, k) => 1 + k * 2)), [20, 45, 70, 95, 120, 145, 170].flatMap((m) => [at(T0 + m * MIN, { kind: 'criterion_checked', index: 0, text: 'x' })])]
+    expect(replay(script, 181)[0]).toEqual({ minute: 180, rule: 'long_turn' })
   })
 })
 
@@ -284,7 +381,8 @@ describe('replays of the #57 and #68 false alarms', () => {
       command('npx vitest run src/engine/stuck src/engine/runner', 19, 22, { timeout: 10 }),
       looks('Read', 24, 27, 30, 33),
       command('git diff main...HEAD -- src/engine/stuck', 34, 35),
-      looks('Grep', 37, 40)
+      looks('Grep', 37, 40),
+      saying(20)
     ]
     expect(replay(script, 40)).toEqual([])
   })
@@ -298,7 +396,8 @@ describe('replays of the #57 and #68 false alarms', () => {
       command('npx vitest run src/engine/runner/ticketRunner.test.ts', 19, 21, { timeout: 5 }),
       command('npx vitest run src/engine/stuck/rules.test.ts', 22, 24, { timeout: 5 }),
       command('npx vitest run src/engine/roles/prompt.test.ts', 25, 27, { timeout: 5 }),
-      looks('Read', 29, 33, 37, 40)
+      looks('Read', 29, 33, 37, 40),
+      saying(20)
     ]
     expect(replay(script, 40)).toEqual([])
   })

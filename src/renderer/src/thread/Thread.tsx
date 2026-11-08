@@ -1,11 +1,12 @@
-import { Anchor, Badge, Box, Button, Collapse, Group, Loader, Paper, Stack, Text, Typography, UnstyledButton } from '@mantine/core'
+import { Anchor, Badge, Box, Button, Code, Collapse, Group, Loader, Paper, Stack, Text, Typography, UnstyledButton } from '@mantine/core'
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
-import Markdown from 'react-markdown'
+import Markdown, { type Components } from 'react-markdown'
 import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { waitingText } from '../../../shared/waiting'
 import { SentImages } from '../attachments/Attachments'
+import { CodeBlock } from '../code/CodeBlock'
 import { CreatedTicketsReceipt } from '../orchestrator/CreatedTicketsReceipt'
 import { TicketEditReceipt } from '../orchestrator/TicketEditReceipt'
 import type { TicketEdit } from '../../../shared/domain'
@@ -554,18 +555,27 @@ function HandoffDivider({
   )
 }
 
+/** A fenced block or inline code of agent text: a block (it has a language, or its text has a line break) is a CodeBlock. */
+function AgentCode({ className, children }: { className?: string; children?: ReactNode }): ReactElement {
+  const text = typeof children === 'string' ? children : ''
+  const language = /language-([\w+-]+)/.exec(className ?? '')?.[1]
+  if (language === undefined && !text.includes('\n')) return <Code>{children}</Code>
+  return <CodeBlock code={text.replace(/\n$/, '')} language={language} label={language ?? 'text'} copyLabel="Copy code" />
+}
+
+// Module-level, so the memoized rows keep the same components.
+const AGENT_TEXT_COMPONENTS: Components = {
+  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+  img: ({ alt }) => <span>{alt}</span>,
+  pre: ({ children }) => <>{children}</>,
+  code: ({ node: _node, className, children }) => <AgentCode className={className}>{children}</AgentCode>
+}
+
 /** Agent text is untrusted: markdown without raw HTML, no remote images, and links that open in the system browser. */
 export function AgentText({ text }: { text: string }): ReactElement {
   return (
     <Typography fz="sm">
-      <Markdown
-        components={{
-          a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
-          img: ({ alt }) => <span>{alt}</span>
-        }}
-      >
-        {text}
-      </Markdown>
+      <Markdown components={AGENT_TEXT_COMPONENTS}>{text}</Markdown>
     </Typography>
   )
 }

@@ -330,12 +330,27 @@ export const ANSWERED_VIA_PHRASES: Record<AnsweredVia, string> = {
   message: 'in a message'
 }
 
+/** What a permission request asked for, kept apart from the question text so a card can show the command as code. */
+export interface PermissionRequestParts {
+  role: string
+  tool: string
+  /** The command of a shell tool (Bash, PowerShell). */
+  command: string | null
+  /** The file a file tool works on. */
+  path: string | null
+  /** The input of a tool that is not a shell tool. */
+  input: Record<string, unknown> | null
+  reason: string | null
+}
+
 export interface Decision {
   id: string
   ticketId: string
   agentRunId: string
   kind: 'question' | 'permission'
   question: string
+  /** The parts of a permission request; null for questions and for permissions asked before they were kept. */
+  request: PermissionRequestParts | null
   options: string[]
   recommended: number | null
   /** False for permission decisions where "Always allow" must not be offered (force-pushes). */
@@ -591,7 +606,7 @@ export interface BranchFreshness {
 }
 
 /** What the stuck detector looks for. */
-export type StuckRule = 'repeated_failure' | 'no_progress' | 'silence' | 'long_turn' | 'dead_process'
+export type StuckRule = 'repeated_failure' | 'no_progress' | 'silence' | 'no_milestone' | 'long_turn' | 'dead_process'
 
 /** A stuck episode as the board and the ticket view show it. */
 export interface StuckEpisode {

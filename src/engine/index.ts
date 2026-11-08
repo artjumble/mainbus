@@ -61,7 +61,7 @@ import { ProcessSweeper } from './processes/sweep'
 import { createSetupCommandRunner, type SetupCommandRunner } from './setup/setupCommand'
 import { railCounts } from './state/railCounts'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
-import { newestChange } from './stuck/files'
+import { headCommit, newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
 import { TicketRunner, SKIP_SUMMARY_MS, type RunExpectation } from './runner/ticketRunner'
 import { draftPromotionSpec, whyNotPromotable, withReportFile } from './tickets/promote'
@@ -104,7 +104,7 @@ export interface EngineConfig {
   /** The time and the one timer that releases holds on their date; tests (and the end-to-end tests) pass a fake. */
   clock?: Clock
   /** The stuck detector's timer, interval and file probe; tests pass fakes. By default a real timer, once a minute. */
-  stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange'>>
+  stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange' | 'headCommit'>>
   /** The freshness monitor's timer and interval; tests pass fakes. By default a real timer, every five minutes. */
   freshness?: Partial<Pick<FreshnessMonitorDeps, 'timer' | 'intervalMs'>>
   /** How long to wait before trying again when a usage limit has no known reset; 15 minutes by default (tests shorten it). */
@@ -273,7 +273,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       failIfExhausted: (ticketId, runId) => runner.failIfExhausted(ticketId, runId),
       noteStuck: (ticketId, runId, note) => runner.noteStuck(ticketId, runId, note),
       onStuck: (workspaceId, episode) => addWake(workspaceId, 'stuck', episode.id),
-      newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath))
+      newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath)),
+      headCommit: cfg.stuck?.headCommit ?? ((worktreePath) => headCommit(cfg.git, worktreePath))
     })
     const freshness = new FreshnessMonitor({
       repos,
