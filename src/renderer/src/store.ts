@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { BoardTicket, WorkspaceSummary } from '../../shared/api'
+import type { BoardTicket, PrepareOptions, WorkspaceSummary } from '../../shared/api'
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { invoke, onEngineEvent } from './api'
 import { asOwnChange, isOwnChange } from './board/ownChanges'
@@ -57,6 +57,8 @@ interface MainbusState {
   load(): Promise<void>
   checkSetup(): Promise<void>
   openWorkspace(repoPath: string): Promise<void>
+  /** After the user confirmed: sets git up in the folder (see `workspace.prepare`), then opens it as a workspace. */
+  prepareWorkspace(repoPath: string, options: PrepareOptions): Promise<void>
   /** Reads the rail's summaries. Runs one at a time: a call made meanwhile waits and reads once more afterwards. */
   refreshWorkspaces(): Promise<void>
   /** Makes the workspace the focused one; the board shows it and an open ticket view closes. */
@@ -205,6 +207,12 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
 
   async openWorkspace(repoPath) {
     const workspace = await invoke('workspace.open', repoPath)
+    set({ workspace, workspaceLoaded: true, boardLoaded: false })
+    await Promise.all([get().refreshBoard(), get().refreshWorkspaces()])
+  },
+
+  async prepareWorkspace(repoPath, options) {
+    const workspace = await invoke('workspace.prepare', repoPath, options)
     set({ workspace, workspaceLoaded: true, boardLoaded: false })
     await Promise.all([get().refreshBoard(), get().refreshWorkspaces()])
   },

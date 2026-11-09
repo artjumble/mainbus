@@ -1,19 +1,26 @@
-import { Button, Center, Stack, Text, Title } from '@mantine/core'
+import { Button, Center, Modal, Stack, Text, Title } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import { openFolder } from '../api'
+import type { FolderReadiness } from '../../../shared/api'
+import { invoke, openFolder } from '../api'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
+import { GitSetup } from './GitSetup'
 
 /** Shown when Claude Code is ready but no repo is open yet. */
 export function OpenWorkspace(): ReactElement {
   const openWorkspace = useMainbus((s) => s.openWorkspace)
   const [opening, setOpening] = useState(false)
+  const [notReady, setNotReady] = useState<FolderReadiness | null>(null)
 
   async function pick(): Promise<void> {
     setOpening(true)
     try {
       const folder = await openFolder()
-      if (folder) await openWorkspace(folder)
+      if (folder) {
+        const readiness = await invoke('workspace.check', folder)
+        if (readiness.status === 'ready') await openWorkspace(folder)
+        else setNotReady(readiness)
+      }
     } catch (err) {
       showError(err, 'Could not open that folder')
     } finally {
@@ -37,6 +44,9 @@ export function OpenWorkspace(): ReactElement {
           + Add workspace
         </Button>
       </Stack>
+      <Modal opened={notReady !== null} onClose={() => setNotReady(null)} title="Add workspace">
+        {notReady && <GitSetup readiness={notReady} onDone={() => setNotReady(null)} onCancel={() => setNotReady(null)} />}
+      </Modal>
     </Center>
   )
 }

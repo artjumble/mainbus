@@ -31,6 +31,7 @@ import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
+import { checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
 import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
@@ -394,17 +395,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       )
       if (!isFolder) throw new Error(`Folder does not exist: ${folder}`)
 
-      // A subfolder opens its repository: the workspace is the repo root.
-      const top = await cfg.git(['rev-parse', '--show-toplevel'], folder)
-      if (top.code !== 0 || top.stdout.trim() === '') {
-        const why = top.stderr.trim()
-        throw new Error(
-          /not a git repository/i.test(why)
-            ? `${folder} is not a git repository`
-            : `Could not read the repository at ${folder}: ${why || 'git failed'}`
-        )
-      }
-      const root = path.resolve(top.stdout.trim())
+      const readiness = await checkFolder(cfg.git, folder)
+      const root = readiness.root
+      if (readiness.status === 'not_a_repo') throw new WorkspaceNotReadyError('not_a_repo', folder, root, notReadyMessage(readiness))
 
       // The same repo again is the workspace it already is (a removed one comes back, board and all).
       const known = (await repos.workspaces.listAll()).find((w) => samePath(path.resolve(w.repoPath), root))
@@ -418,16 +411,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return live
       }
 
-      if ((await cfg.git(['rev-parse', '--verify', 'HEAD'], root)).code !== 0) {
-        throw new Error('The repository has no commits yet.')
+      if (readiness.status !== 'ready') {
+        throw new WorkspaceNotReadyError(readiness.status, folder, root, notReadyMessage(readiness))
       }
-      const head = await cfg.git(['symbolic-ref', '--short', 'HEAD'], root)
-      const baseBranch = head.stdout.trim()
-      if (head.code !== 0 || baseBranch === '') {
-        throw new Error(
-          `Could not read the current branch of ${root}: ${head.stderr.trim() || 'HEAD is not on a branch'}`
-        )
-      }
+      const baseBranch = (await cfg.git(['symbolic-ref', '--short', 'HEAD'], root)).stdout.trim()
       const name = path.basename(root)
       const workspace = await repos.workspaces.create(root, baseBranch, name, slugify(name))
       modeFor(workspace)
@@ -1210,6 +1197,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         )
       },
       'workspace.open': openWorkspace,
+      'workspace.check': (folder) => checkFolder(cfg.git, z.string().min(1).parse(folder)),
+      'workspace.previewSetup': (folder) => previewSetup(cfg.git, z.string().min(1).parse(folder)),
+      // Renderer-only too: the agent intake has no way to make Mainbus commit.
+      'workspace.prepare': async (folder, options) => {
+        const input = z.strictObject({ commitFiles: z.boolean(), writeGitignore: z.boolean().optional() }).parse(options)
+        return openWorkspace(await prepareFolder(cfg.git, z.string().min(1).parse(folder), input))
+      },
       'workspace.focus': async (id) => {
         const ws = await requireWorkspace(id)
         await repos.workspaces.setFocused(ws.id)

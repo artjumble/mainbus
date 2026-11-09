@@ -1,0 +1,7 @@
+[
+  { "expectFile": "README.md" },
+  { "emit": { "kind": "session", "sessionId": "e2e-session" } },
+  { "callTool": "handoff", "args": { "summary": "Looked at the files", "notesForNext": "none" } },
+  { "emit": { "kind": "turn_end", "ok": true } },
+  { "waitForSend": true }
+]

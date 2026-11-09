@@ -47,6 +47,38 @@ import type { UsageTotals } from './usageTotals'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
 
+/** Whether a chosen folder can open as a workspace, and if not, why.  is the repository root (the folder itself when there is no repository). */
+export interface FolderReadiness {
+  status: 'ready' | 'not_a_repo' | 'no_commits' | 'detached_head'
+  folder: string
+  root: string
+}
+
+/** Something in the folder worth a second look before it is committed. */
+export interface SetupWarning {
+  kind: 'secret' | 'generated' | 'large'
+  path: string
+  files: number
+  bytes: number
+}
+
+/** What a first commit of the folder's files would include. */
+export interface SetupPreview {
+  root: string
+  files: number
+  bytes: number
+  /** One per top-level name, sorted. */
+  entries: { name: string; folder: boolean; files: number; bytes: number }[]
+  warnings: SetupWarning[]
+}
+
+export interface PrepareOptions {
+  /** Commit the folder's files (true) or make an empty commit (false). */
+  commitFiles: boolean
+  /** Append the warned-about items to .gitignore first; only with commitFiles. */
+  writeGitignore?: boolean
+}
+
 /** An open workspace with what the rail shows beside its name. */
 export type WorkspaceSummary = Workspace & {
   /** An agent is working in it (or queued, or about to resume after a restart). */
@@ -137,6 +169,19 @@ export interface EngineCommands {
    * A repo that is open already is returned as it is, and focused.
    */
   'workspace.open'(repoPath: string): Workspace
+  /** Whether the folder can open as a workspace, and if not, why (a rejection carries only text, so the reason comes here). */
+  'workspace.check'(repoPath: string): FolderReadiness
+  /**
+   * What a first commit of the folder's files would include: counts, top-level entries, and warnings for likely secrets
+   * and large or generated folders. Only for a folder without a repository or without commits. Changes nothing.
+   */
+  'workspace.previewSetup'(repoPath: string): SetupPreview
+  /**
+   * After the user confirmed:  when there is no repository, a first commit (of the files, or empty), then opens
+   * the workspace. A missing git identity or a detached HEAD is refused with what to run. Never sets git's configuration,
+   * adds a remote or pushes. Only the renderer can reach it: the agent intake has no way to make Mainbus commit.
+   */
+  'workspace.prepare'(repoPath: string, options: PrepareOptions): Workspace
   /** Makes the workspace the focused one, which is remembered. Unknown or removed ids are refused. */
   'workspace.focus'(id: string): Workspace
   /**
