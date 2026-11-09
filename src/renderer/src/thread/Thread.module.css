@@ -31,3 +31,20 @@
   border-top-width: 2px;
   border-top-color: var(--mantine-color-working-6);
 }
+
+/* A plain-text entry: line breaks kept, and a run with no break opportunity (a log rule, a URL) wraps rather than widening the thread. */
+.wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Agent markdown: long words, URLs and inline code wrap; a fenced code block keeps its own horizontal scroll. */
+.markdown {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.markdown pre,
+.markdown pre code {
+  overflow-wrap: normal;
+}
