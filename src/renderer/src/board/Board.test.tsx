@@ -556,9 +556,28 @@ describe('lanes', () => {
     for (const lane of lanes()) {
       expect(lane).not.toHaveAttribute('data-with-border')
       expect(lane.style.border).toBe('')
-      expect(lane.style.background).toContain('--mainbus-color-lane')
     }
     expect(screen.getByText(/No tickets in .* yet/).closest('.mantine-Paper-root')).toHaveAttribute('data-with-border')
+  })
+
+  test('the empty board has the real board\'s tracks and fills: Needs you the tinted collapsed strip, Done the strip', () => {
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    const real = renderWithMantine(<Board />)
+    const realLanes = lanes()
+    const realTracks = realLanes[0].parentElement!.style.gridTemplateColumns
+    const realFills = realLanes.map((l) => l.style.background)
+    expect(realTracks).toBe(gridStyle(true).gridTemplateColumns)
+    real.unmount()
+
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [] }, true)
+    renderWithMantine(<Board />)
+    const empty = lanes()
+    expect(empty[0].parentElement!.style.gridTemplateColumns).toBe(realTracks)
+    expect(empty.map((l) => l.style.background)).toEqual(realFills)
+    expect(empty[3]).toHaveAttribute('data-collapsed')
+    expect(empty[3].style.background).toContain('--mantine-color-needs-0')
+    expect(empty.filter((l) => l.hasAttribute('data-collapsed'))).toHaveLength(1)
+    expect(empty[5].querySelector('h3')!.style.writingMode).toBe('vertical-rl')
   })
 })
 
