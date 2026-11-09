@@ -126,7 +126,7 @@ test('an error from opening a folder is shown plainly in the dialog', async () =
 test('a folder without a repository offers to set git up instead of an error', async () => {
   engine()
   mockOpenFolder.mockResolvedValue('/r/plain')
-  const base = mockInvoke.getMockImplementation()!
+  const base = mockInvoke.getMockImplementation() as (c: string, ...a: unknown[]) => Promise<unknown>
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
     if (command === 'workspace.check') return { status: 'not_a_repo', folder: '/r/plain', root: '/r/plain' }
     if (command === 'workspace.previewSetup') return { root: '/r/plain', files: 1, bytes: 5, entries: [{ name: 'a.txt', folder: false, files: 1, bytes: 5 }], warnings: [] }
