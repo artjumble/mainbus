@@ -382,6 +382,16 @@ describe('SdkRuntime', () => {
     expect(events.at(-1)).toMatchObject({ kind: 'turn_end' })
   })
 
+  test('a resumed run starts from the baseline, so its first usage is that turn only', async () => {
+    const baseline = { 'claude-haiku-5-5': { inputTokens: 12, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 } }
+    const run = async (usageBaseline?: typeof baseline) => {
+      const runtime = new SdkRuntime(CLAUDE_PATH, fakeSdk({ messages: fixture('e2-resume') }).sdk)
+      const events = await drain(runtime, await runtime.start(makeSpec({ resumeSessionId: 'sess-1', ...(usageBaseline ? { usageBaseline } : {}) })))
+      return events.find((e) => e.kind === 'usage') as { inputTokens: number }
+    }
+    expect((await run()).inputTokens - (await run(baseline)).inputTokens).toBe(12)
+  })
+
   test('a start without resume does not wait for the stream', async () => {
     const f = fakeSdk({ failBeforeInit: true })
     const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk)
@@ -613,6 +623,17 @@ describe('SdkRuntime.summarize', () => {
     expect(env).toMatchObject({ MAINBUS_AGENT: '1', MAINBUS_AGENT_HOME: 'C:\\home', TEMP: request.tempDir })
     expect(f.servers).toEqual([])
     expect(f.tools).toEqual([])
+  })
+
+  test('reports what the call used through onUsage, also when it failed', async () => {
+    const modelUsage = { 'claude-haiku-5-5': { inputTokens: 3, outputTokens: 4, cacheReadInputTokens: 5, cacheCreationInputTokens: 6, costUSD: 0.01 } }
+    for (const over of [{}, { is_error: true, result: 'API Error: 529' }]) {
+      const onUsage = vi.fn()
+      const f = fakeSdk({ messages: [result({ modelUsage, duration_ms: 900, ...over })] })
+      await new SdkRuntime(CLAUDE_PATH, f.sdk).summarize({ ...request, onUsage }).catch(() => {})
+      expect(onUsage).toHaveBeenCalledTimes(1)
+      expect(onUsage.mock.calls[0][0]).toMatchObject({ kind: 'usage', inputTokens: 3, outputTokens: 4, cacheReadTokens: 5, cacheWriteTokens: 6, costUsd: 0.01, durationMs: 900 })
+    }
   })
 
   test('rejects once the time limit passes, and aborts the call', async () => {

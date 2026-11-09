@@ -10,6 +10,7 @@ import { clockTime } from '../../shared/waiting'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { NO_WORKSPACE, resolveWorkspaceRef } from './workspaceRef'
+import { NOT_RECORDED, ticketUsage, usageLine } from '../../shared/usageTotals'
 import type { Repos } from '../store'
 import { STUCK_RULE_TEXT } from '../stuck/config'
 import { firedAgainAfterRedirect } from '../stuck/ladder'
@@ -329,6 +330,23 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
     return { ticketRun, roles }
   }
 
+  /** What the ticket's runs used, in plain lines; "Not recorded" for runs from before usage was kept. */
+  async function usageSection(t: BoardTicket): Promise<string> {
+    const runs = await deps.repos.runs.listForTicket(t.id)
+    if (runs.length === 0) return 'Not started.'
+    const events = (await Promise.all(runs.map((run) => deps.repos.runs.events(run.id)))).flat()
+    const usage = ticketUsage(events, runs.map((run) => ({ id: run.id, ticketRunId: run.ticketRunId, role: run.role })))
+    const lines = [
+      usage.total ? `Total: ${usageLine(usage.total)}` : `Total: ${NOT_RECORDED}`,
+      ...usage.runs.flatMap((r) => [
+        `Run ${r.n}: ${r.usage ? usageLine(r.usage) : NOT_RECORDED}`,
+        ...r.roles.map((x) => `- ${oneLine(x.role)}: ${x.usage ? usageLine(x.usage) : NOT_RECORDED}`),
+        ...(r.mainbus ? [`- Mainbus's own calls: ${usageLine(r.mainbus)}`] : [])
+      ])
+    ]
+    return lines.join('\n')
+  }
+
   async function pendingLines(t: BoardTicket): Promise<string[]> {
     const pending = await deps.repos.decisions.pending(t.id)
     if (pending.length === 0) return []
@@ -425,6 +443,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         `## Folder\n${folder}`,
         `## Pull request\n${pr}${t.prError ? `\nThe last push or pull request failed: ${data('pr-error', clip(t.prError, MESSAGE_MAX))}` : ''}`,
         `## Latest run\n${roles}`,
+        `## Usage\n${await usageSection(t)}`,
         `## Run settings (the user's)\n${runSettingsText(t, await deps.repos.lineups.get(found.ws.id, t.kind))}`,
         ...(t.kind === 'change'
           ? [`## Presets (the workspace's; set one with a preset argument)\n${presetLines(await deps.repos.presets.list(found.ws.id), await deps.repos.lineups.get(found.ws.id, t.kind))}`]

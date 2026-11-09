@@ -1,6 +1,6 @@
 import type { ImageMime } from '../../shared/attachments'
 import type { Effort } from '../../shared/domain'
-import type { AgentEvent } from '../../shared/events'
+import type { AgentEvent, ModelUsage, UsageEvent } from '../../shared/events'
 
 /** What the in-process role tools (ask_user, handoff or submit_report, report_problem, report_waiting, check_criterion) call back into. */
 export interface RoleToolHandlers {
@@ -82,6 +82,8 @@ export interface RunSpec {
   disallowedTools: string[]
   additionalDirectories: string[]
   resumeSessionId?: string
+  /** What the resumed session had used before, per model: the SDK's totals carry over, so the first turn is the difference. */
+  usageBaseline?: Record<string, ModelUsage>
   roleTools: RoleToolHandlers
   onPermission(r: PermissionRequest): Promise<PermissionVerdict>
   /** Called when the run's `claude` process has started. */
@@ -108,6 +110,8 @@ export interface OrchestratorRunSpec {
   additionalDirectories: string[]
   disallowedTools: string[]
   resumeSessionId?: string
+  /** As for a role's run. */
+  usageBaseline?: Record<string, ModelUsage>
   tools: OrchestratorToolHandlers
   /** Allows or denies at once: the orchestrator never waits on the user for a permission. */
   onPermission(r: PermissionRequest): Promise<PermissionVerdict>
@@ -133,6 +137,8 @@ export interface SummaryRequest {
   prompt: string
   /** The call is abandoned after this long. */
   timeoutMs: number
+  /** Called with what the call used, also when it failed. */
+  onUsage?: (u: UsageEvent) => void
 }
 
 export interface AgentRuntime {

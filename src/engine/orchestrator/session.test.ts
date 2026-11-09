@@ -182,6 +182,28 @@ describe('orchestrator.send', () => {
   })
 })
 
+describe('orchestrator usage', () => {
+  const model = { inputTokens: 5, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.1 }
+  const usage: FakeStep = { emit: { kind: 'usage', ...model, models: { m: model }, costUsd: 0.1, durationMs: 10 } }
+
+  test("a turn's usage is recorded against the orchestrator, and a resumed session starts from its baseline", async () => {
+    const runtime = new FakeRuntime([], {
+      orchestrator: (spec) =>
+        spec.resumeSessionId ? [say('Resumed'), turnEnd()] : [{ emit: { kind: 'session', sessionId: 'sess-1' } }, usage, { exit: 1 }]
+    })
+    const { engine } = await makeEngine(runtime)
+    expect(await engine.invoke('orchestrator.usage')).toBeNull()
+    await engine.invoke('orchestrator.send', 'Hi')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('failed'))
+    expect(await engine.invoke('orchestrator.usage')).toMatchObject({ inputTokens: 5, outputTokens: 2, turns: 1, costUsd: 0.1 })
+
+    await engine.invoke('orchestrator.send', 'Still there?')
+    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    expect(runtime.orchestratorSpecs[0]!.usageBaseline).toBeUndefined()
+    expect(runtime.orchestratorSpecs[1]!.usageBaseline).toEqual({ m: model })
+  })
+})
+
 describe('orchestrator.stop', () => {
   test('interrupts the turn under way and keeps the session', async () => {
     const runtime = new FakeRuntime([], { orchestrator: [{ waitForSend: true }, say('Later'), turnEnd()], endTurnOnInterrupt: true })

@@ -188,6 +188,19 @@ describe('get_ticket', () => {
     expect(out).toContain('## Latest run\n- Planner: handed off\n- Implementer: working (active)')
   })
 
+  test('has a Usage section: totals, a line per run and role, and Not recorded for an old run', async () => {
+    const t = await ticket()
+    expect(await tools.getTicket({ number: 1 })).toContain('## Usage\nNot started.')
+    const { plannerRun, implementerRun } = await running(t)
+    const turn = { kind: 'usage', inputTokens: 1500, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, costUsd: 0.5, durationMs: 60_000 } as const
+    await append(implementerRun, turn, turn)
+    await append(plannerRun, { kind: 'message', text: 'old run, no usage' })
+    const out = await tools.getTicket({ number: 1 })
+    expect(out).toMatch(/## Usage\nTotal: 3k input, 400 output.*; 2 turns, 2m of agent time; API-equivalent cost \$1\.00, not billed on the user's Claude plan/)
+    expect(out).toContain('- Planner: Not recorded')
+    expect(out).toMatch(/- Implementer: 3k input/)
+  })
+
   test('says when the user saved no run settings', async () => {
     await ticket()
     expect(await tools.getTicket({ number: 1 })).toContain("## Run settings (the user's)\nNone saved: the lineup's defaults.")
@@ -407,7 +420,7 @@ describe('get_recent_events', () => {
       { kind: 'user_message', text: 'Use Redis' },
       { kind: 'tool_call', id: 't1', name: 'Bash', input: { command: 'npm test', description: 'Run tests' } },
       { kind: 'tool_result', id: 't1', ok: false, summary: 'SECRET TOOL OUTPUT' },
-      { kind: 'usage', inputTokens: 1, outputTokens: 2 },
+      { kind: 'usage', inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, durationMs: 0 },
       { kind: 'session', sessionId: 's1' },
       { kind: 'message', text: 'x'.repeat(5000) }
     )

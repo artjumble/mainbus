@@ -69,6 +69,7 @@ import { planEdit, whyNotEditable, type EditInput } from './tickets/edit'
 import { EditChangedError } from './store/ticketEdits'
 import { ticketFields } from './tickets/validate'
 import { UnattendedMode, type KeepAwake } from './runner/unattended'
+import { orchestratorUsage } from '../shared/usageTotals'
 import { UsageGate, usageHooks } from './runner/usageGate'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
@@ -639,7 +640,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const whyNotPromotableNow = async (ticket: Ticket): Promise<string | null> =>
       whyNotPromotable(ticket, (await runner.stateOf(ticket.id)).column, await repos.tickets.promotedTo(ticket.id))
     const draftPromotion = async (ticket: Ticket) =>
-      draftPromotionSpec(cfg.runtime ?? missingRuntime, cfg.paths, ticket, cfg.promoteSummaryTimeoutMs ?? SKIP_SUMMARY_MS)
+      draftPromotionSpec(cfg.runtime ?? missingRuntime, cfg.paths, ticket, cfg.promoteSummaryTimeoutMs ?? SKIP_SUMMARY_MS, (u) =>
+        void runner.recordCallUsage(ticket.id, { ...u, call: 'promote' }).catch(() => {})
+      )
     /** The one way a ticket moves to Done: the ticket view's move, and a promotion's. 'dirty' leaves it where it was. */
     const moveTicketToDone = async (id: string): Promise<'moved' | 'dirty' | 'asked'> => {
       ;(await modeOfTicket(id))?.userMoved(id, 'done')
@@ -1422,6 +1425,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       // Reached only through `invoke` (the renderer's IPC). Like Stop, stopping and reading need no runtime.
       'orchestrator.get': () => orchestrator.get(),
+      'orchestrator.usage': async () => orchestratorUsage((await orchestrator.get()).events),
       'orchestrator.send': (text, images, mentions) => {
         requireRuntime()
         return orchestrator.send(text, images, mentions)

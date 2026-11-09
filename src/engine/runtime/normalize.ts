@@ -1,7 +1,41 @@
-import type { AgentEvent } from '../../shared/events'
+import type { AgentEvent, ModelUsage, UsageEvent } from '../../shared/events'
 
 type Json = Record<string, unknown>
 type RateLimitWindows = Extract<AgentEvent, { kind: 'rate_limit' }>['windows']
+
+function num(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
+
+function modelUsageOf(raw: Json): ModelUsage {
+  return {
+    inputTokens: num(raw.inputTokens),
+    outputTokens: num(raw.outputTokens),
+    cacheReadTokens: num(raw.cacheReadInputTokens),
+    cacheWriteTokens: num(raw.cacheCreationInputTokens),
+    costUsd: num(raw.costUSD)
+  }
+}
+
+function add(a: ModelUsage, b: ModelUsage): ModelUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+    costUsd: a.costUsd + b.costUsd
+  }
+}
+
+function subtract(a: ModelUsage, b: ModelUsage): ModelUsage {
+  return {
+    inputTokens: a.inputTokens - b.inputTokens,
+    outputTokens: a.outputTokens - b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens - b.cacheReadTokens,
+    cacheWriteTokens: a.cacheWriteTokens - b.cacheWriteTokens,
+    costUsd: a.costUsd - b.costUsd
+  }
+}
 
 const SUMMARY_MAX = 200
 
@@ -48,7 +82,16 @@ export class Normalizer {
   private messageId = ''
   private interruptExpected = false
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /** The session's running total per model so far. */
+  private readonly usageSoFar: Record<string, ModelUsage>
+
+  /** `usageBaseline`: what a resumed session had used before this process, since the SDK's totals carry over. */
+  constructor(
+    private readonly now: () => number = Date.now,
+    usageBaseline: Record<string, ModelUsage> = {}
+  ) {
+    this.usageSoFar = { ...usageBaseline }
+  }
 
   /** The next `result` with `error_during_execution` counts as interrupted, not failed. */
   expectInterrupt(): void {
@@ -189,7 +232,50 @@ export class Normalizer {
     ]
   }
 
+  /**
+   * What this turn used. `usage` and `duration_ms` are for the turn, but `modelUsage` and `total_cost_usd` are running
+   * totals for the whole session (resumed sessions carry them over), so the turn is the difference from `usageSoFar`.
+   */
+  private usage(msg: Json): UsageEvent | null {
+    const models: Record<string, ModelUsage> = {}
+    if (isRecord(msg.modelUsage)) {
+      for (const [name, raw] of Object.entries(msg.modelUsage)) {
+        if (!isRecord(raw)) continue
+        const total = modelUsageOf(raw)
+        const before = this.usageSoFar[name]
+        // A total that went down means the session's count started over: take it whole.
+        const fresh = !before || (Object.keys(total) as (keyof ModelUsage)[]).some((k) => total[k] < before[k])
+        models[name] = fresh ? total : subtract(total, before)
+        this.usageSoFar[name] = total
+      }
+    }
+    const durationMs = typeof msg.duration_ms === 'number' ? msg.duration_ms : 0
+    const names = Object.keys(models)
+    if (names.length > 0) {
+      const sum = names.reduce<ModelUsage>((acc, n) => add(acc, models[n]), modelUsageOf({}))
+      const { costUsd, ...tokens } = sum
+      return { kind: 'usage', ...tokens, models, costUsd, durationMs }
+    }
+    if (!isRecord(msg.usage)) return null
+    const u = msg.usage
+    return {
+      kind: 'usage',
+      inputTokens: num(u.input_tokens),
+      outputTokens: num(u.output_tokens),
+      cacheReadTokens: num(u.cache_read_input_tokens),
+      cacheWriteTokens: num(u.cache_creation_input_tokens),
+      models: {},
+      durationMs
+    }
+  }
+
   private result(msg: Json): AgentEvent[] {
+    const usage = this.usage(msg)
+    // Usage comes first: the runner may stop the process on turn_end.
+    return [...(usage ? [usage] : []), ...this.turnEnd(msg)]
+  }
+
+  private turnEnd(msg: Json): AgentEvent[] {
     const interruptExpected = this.interruptExpected
     this.interruptExpected = false
     const subtype = typeof msg.subtype === 'string' ? msg.subtype : 'unknown'

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Ticket } from '../../shared/domain'
+import type { UsageEvent } from '../../shared/events'
 import type { HomePaths } from '../home'
 import { COLUMNS } from '../orchestrator/readTools'
 import { data } from '../roles/prompt'
@@ -62,13 +63,14 @@ export async function draftPromotionSpec(
   runtime: AgentRuntime,
   paths: HomePaths,
   ticket: Ticket,
-  timeoutMs: number
+  timeoutMs: number,
+  onUsage?: (u: UsageEvent) => void
 ): Promise<{ spec: string; drafted: boolean }> {
   const report = ticket.report ?? ''
   try {
     const dir = path.join(paths.scratch, 'promote')
     await fs.mkdir(dir, { recursive: true })
-    const call = runtime.summarize({ cwd: dir, tempDir: dir, prompt: promoteSpecPrompt(ticket.title, report), timeoutMs })
+    const call = runtime.summarize({ cwd: dir, tempDir: dir, prompt: promoteSpecPrompt(ticket.title, report), timeoutMs, onUsage })
     // Bounded here too, whatever the runtime does with its timeout.
     const spec = (await withinMs(call, timeoutMs)).trim()
     if (spec) return { spec: withReportFile(spec, ticket), drafted: true }

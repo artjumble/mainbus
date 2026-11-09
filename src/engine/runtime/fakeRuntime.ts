@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Effort } from '../../shared/domain'
-import type { AgentEvent } from '../../shared/events'
+import type { AgentEvent, UsageEvent } from '../../shared/events'
 import {
   ResumeFailedError,
   type AgentRuntime,
@@ -201,6 +201,8 @@ export class FakeRuntime implements AgentRuntime {
     private readonly opts: {
       rejectResume?: boolean
       summary?: FakeSummary
+      /** What summarize() reports as its usage through `onUsage`. */
+      summaryUsage?: Omit<UsageEvent, 'call'>
       /** The orchestrator's steps; without them it stays open and says nothing. */
       orchestrator?: FakeStep[] | ((spec: OrchestratorRunSpec) => FakeStep[])
       /** interrupt() ends the turn under way with an interrupted turn_end, as the real runtime does. */
@@ -217,6 +219,7 @@ export class FakeRuntime implements AgentRuntime {
 
   async summarize(req: SummaryRequest): Promise<string> {
     this.summaries.push(req)
+    if (this.opts.summaryUsage) req.onUsage?.(this.opts.summaryUsage)
     const summary = this.opts.summary ?? FAKE_SUMMARY
     if (typeof summary === 'string') return summary
     if ('fail' in summary) throw new Error(summary.fail)

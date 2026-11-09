@@ -220,7 +220,7 @@ export class SdkRuntime implements AgentRuntime {
       input,
       events: new InputQueue<AgentEvent>(),
       abort,
-      normalizer: new Normalizer(),
+      normalizer: new Normalizer(Date.now, spec.resumeSessionId !== undefined ? spec.usageBaseline : undefined),
       stopped: false,
       pumped: Promise.resolve(null) // replaced just below, once pump() has started
     }
@@ -316,6 +316,9 @@ export class SdkRuntime implements AgentRuntime {
       for await (const msg of q) {
         const m = msg as { type?: unknown; subtype?: unknown; is_error?: unknown; result?: unknown }
         if (m.type !== 'result') continue
+        if (req.onUsage) {
+          for (const ev of new Normalizer().push(msg)) if (ev.kind === 'usage') req.onUsage(ev)
+        }
         if (m.subtype !== 'success' || m.is_error === true) {
           throw new Error(`The summary failed: ${typeof m.result === 'string' && m.result ? m.result : String(m.subtype)}`)
         }

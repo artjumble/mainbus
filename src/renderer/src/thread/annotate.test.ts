@@ -40,7 +40,7 @@ test('a tool group starts at the first tool row of a run, after any other row, a
   const events = [
     call('p', 'a'),
     result('p', 'a'), // joined to its call: not shown
-    e('p', { kind: 'usage', inputTokens: 1, outputTokens: 1 }), // not shown
+    e('p', { kind: 'usage', inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, durationMs: 0 }), // not shown
     call('p', 'b'),
     message('p'),
     call('p', 'c'),

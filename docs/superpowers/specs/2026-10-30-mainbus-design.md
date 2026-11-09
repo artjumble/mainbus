@@ -169,7 +169,7 @@ type AgentEvent =
   | { kind: 'status'; status: AgentStatus; detail?: string }
   | { kind: 'needs_input'; decision: DecisionDraft }
   | { kind: 'handoff'; summary: string; outcome: 'done' | 'hand_back' | 'ask' }
-  | { kind: 'usage'; inputTokens: number; outputTokens: number } // stored, never shown on cards
+  | { kind: 'usage'; inputTokens; outputTokens; cacheReadTokens; cacheWriteTokens; models; costUsd?; durationMs; call? } // one turn's usage; stored, shown only in the ticket view's Usage section, never on cards
   | { kind: 'error'; message: string }
 ```
 

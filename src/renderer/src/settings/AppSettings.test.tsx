@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ThemeChoice, ThemeSetting } from '../../../shared/domain'
+import type { UsageTotals } from '../../../shared/usageTotals'
 import { invoke } from '../api'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { AppSettings } from './AppSettings'
@@ -11,12 +12,14 @@ vi.mock('../notify', () => ({ showError: vi.fn() }))
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 
 let storedTheme: ThemeSetting
+let orchestratorUsage: UsageTotals | null = null
 
 beforeEach(() => {
   mockInvoke.mockReset()
   storedTheme = { choice: 'light', light: 'light', dark: 'dark' }
   const settings = () => ({ maxAgents: 3, whenClosed: 'tray', theme: storedTheme })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'orchestrator.usage') return orchestratorUsage
     if (command === 'settings.get') return settings()
     if (command === 'settings.setTheme') {
       storedTheme = { ...storedTheme, choice: args[0] as ThemeChoice }
@@ -62,4 +65,16 @@ test('the Mainbus settings, with Match Windows open, have no axe violations', as
   renderWithMantine(<AppSettings opened onClose={() => {}} />)
   await screen.findByRole('radiogroup', { name: 'Dark theme' })
   await expectNoAxeViolations()
+})
+
+test('the Usage section shows what the orchestrator used, with the cost labelled, or Not recorded', async () => {
+  const { rerender } = renderWithMantine(<AppSettings opened onClose={() => {}} />)
+  const drawer = await screen.findByRole('dialog', { name: 'Mainbus settings' })
+  expect(await within(within(drawer).getByRole('region', { name: 'Usage' })).findByText('Not recorded')).toBeInTheDocument()
+  rerender(<AppSettings opened={false} onClose={() => {}} />)
+  orchestratorUsage = { inputTokens: 1500, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 2, agentMs: 30_000, costUsd: 0.1, models: ['claude-opus-5-5'] }
+  rerender(<AppSettings opened onClose={() => {}} />)
+  const usage = within(await screen.findByRole('dialog', { name: 'Mainbus settings' })).getByRole('region', { name: 'Usage' })
+  await vi.waitFor(() => expect(usage.textContent).toContain('1.5k input'))
+  expect(usage.textContent).toContain('API-equivalent cost, not billed on your Claude plan')
 })

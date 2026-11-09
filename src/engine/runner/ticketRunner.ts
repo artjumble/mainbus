@@ -18,10 +18,11 @@ import {
   type TicketState,
   type Workspace
 } from '../../shared/domain'
-import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun } from '../../shared/events'
+import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun, UsageEvent } from '../../shared/events'
 import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
 import { applyRunSettings } from '../../shared/runSettings'
 import { clockTime } from '../../shared/waiting'
+import { sessionUsageSoFar } from '../../shared/usageTotals'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import {
   investigationTitle,
@@ -560,6 +561,13 @@ export class TicketRunner {
   }
 
   /** Takes effect on an in-flight launch as soon as its process starts; the rest waits its turn. */
+  /** Records what one of Mainbus's own calls for the ticket used (the promote draft) on its latest run, which has events. */
+  async recordCallUsage(ticketId: string, usage: UsageEvent): Promise<void> {
+    const run = await this.repos.runs.latest(ticketId)
+    if (!run) return
+    await this.record(this.target(run, await this.repos.tickets.get(ticketId)), usage)
+  }
+
   async stop(ticketId: string, expect?: RunExpectation): Promise<void> {
     // A stop for a run that has moved on must not mark the ticket as stopping, or it would kill the next role's launch.
     if (expect) await this.assertExpected(ticketId, expect)
@@ -1237,7 +1245,7 @@ export class TicketRunner {
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
 
-      const { summary, source } = await this.summarise(run, (events, decisions) => replaceSummaryPrompt(events, decisions, run.role))
+      const { summary, source } = await this.summarise(run, target, (events, decisions) => replaceSummaryPrompt(events, decisions, run.role))
       // The old agent's own handoff, a hand-back or a stop may have ended the run meanwhile: then that stands.
       const { proposalId, suggestedBy, ...launchRequest } = request
       const next = await this.repos.runs.replace(run.id, { ...launchRequest, handoffSummary: summary })
@@ -1350,7 +1358,7 @@ export class TicketRunner {
       for (const live of [...this.live.values()].filter((l) => l.ticketId === ticketId)) await this.halt(live)
       this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
 
-      const { summary, source } = await this.summarise(run, (events, decisions) => skipSummaryPrompt(events, decisions, run.role, next?.name ?? null))
+      const { summary, source } = await this.summarise(run, target, (events, decisions) => skipSummaryPrompt(events, decisions, run.role, next?.name ?? null))
       // The skipped agent's own handoff, a hand-back or a stop may have ended the run meanwhile: then that stands.
       let nextRun: AgentRunRow | null = null
       if (next) {
@@ -1404,6 +1412,7 @@ export class TicketRunner {
    */
   private async summarise(
     run: AgentRunRow,
+    target: ThreadTarget,
     prompt: (events: StoredEvent[], decisions: Decision[]) => string
   ): Promise<{ summary: string; source: 'summary' | 'digest' }> {
     const events: StoredEvent[] = []
@@ -1419,7 +1428,9 @@ export class TicketRunner {
         cwd: worktree.path,
         tempDir: worktree.scratch,
         prompt: prompt(events, decisions),
-        timeoutMs
+        timeoutMs,
+        // Recorded on the skipped or replaced run, which has events already; it may land after the wait gave up.
+        onUsage: (u) => void this.record(target, { ...u, call: 'summary' }).catch(() => {})
       })
       // Bounded here too, whatever the runtime does with its timeout.
       const summary = (await withinMs(call, timeoutMs)).trim()
@@ -1856,7 +1867,9 @@ export class TicketRunner {
       disallowedTools: DISALLOWED_TOOLS,
       // Edits and simple file commands in the scratch folder run without asking, as in the worktree.
       additionalDirectories: [worktree.scratch],
-      ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
+      ...(resumeSessionId !== undefined
+        ? { resumeSessionId, usageBaseline: sessionUsageSoFar((await this.repos.runs.events(runId)).map((e) => e.event), resumeSessionId) }
+        : {}),
       roleTools: this.roleTools(target, worktree.path, ticket.kind, endsWithReport),
       onPermission: (req) => this.onPermission(target, worktree, req),
       onProcessStart: (p) => void (claude = this.processStarted(target, p)),

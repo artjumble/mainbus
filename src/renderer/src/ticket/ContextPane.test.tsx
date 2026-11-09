@@ -355,3 +355,25 @@ test("the orchestrator's summary sits under \"From an agent\" after the user's t
   expect(fromAgent.getByText('The user asked whether images can be attached.')).toBeInTheDocument()
   expect(fromAgent.getByText('from orchestrator (reported)')).toBeInTheDocument()
 })
+
+const usageEvent = {
+  kind: 'usage',
+  inputTokens: 1200,
+  outputTokens: 300,
+  cacheReadTokens: 5000,
+  cacheWriteTokens: 700,
+  models: { 'claude-haiku-5-5': { inputTokens: 1200, outputTokens: 300, cacheReadTokens: 5000, cacheWriteTokens: 700, costUsd: 0.42 } },
+  costUsd: 0.42,
+  durationMs: 65_000
+} as const
+
+test('usage events add no entry to the Activity timeline, which shows no usage', () => {
+  const events = [
+    makeEvent({ kind: 'message', text: 'hi' }, { runId: 'a', at: '2026-10-30T10:00:00.000Z' }),
+    makeEvent(usageEvent, { runId: 'a', at: '2026-10-30T10:01:00.000Z' })
+  ]
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} runs={{ a: { id: 'a', ticketRunId: 't', role: 'Implementer' } }} />)
+  const activity = screen.getByRole('region', { name: 'Activity' })
+  expect(within(activity).getAllByRole('listitem')).toHaveLength(2)
+  expect(activity.textContent).not.toMatch(/token|usage|\$0/i)
+})

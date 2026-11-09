@@ -43,8 +43,14 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-async function setup(summary?: FakeSummary, promoteSummaryTimeoutMs?: number) {
-  const runtime = new FakeRuntime(scriptFromFile({ Investigator: INVESTIGATOR }), { orchestrator: ORCHESTRATOR, ...(summary !== undefined ? { summary } : {}) })
+const USAGE = { kind: 'usage', inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, durationMs: 40 } as const
+
+async function setup(summary?: FakeSummary, promoteSummaryTimeoutMs?: number, orchestrator: FakeStep[] = ORCHESTRATOR) {
+  const runtime = new FakeRuntime(scriptFromFile({ Investigator: INVESTIGATOR }), {
+    orchestrator,
+    summaryUsage: USAGE,
+    ...(summary !== undefined ? { summary } : {})
+  })
   const engine = await createEngine({ paths, migrationsDir, runtime, git: runGit, exec, ...(promoteSummaryTimeoutMs !== undefined ? { promoteSummaryTimeoutMs } : {}) })
   engines.push(engine)
   await engine.invoke('workspace.open', repoPath)
@@ -87,6 +93,23 @@ describe('ticket.draftPromotion', () => {
       spec: `## From the investigation\n\n${REPORT}${fileLine(t)}`,
       drafted: false
     })
+  })
+})
+
+describe('usage', () => {
+  test("the promote draft's usage is recorded on the ticket's latest run, as a Mainbus call", async () => {
+    const s = await setup()
+    const t = await s.investigate()
+    await s.engine.invoke('ticket.draftPromotion', t.id)
+    await vi.waitFor(async () => {
+      const { events } = await s.engine.invoke('thread.get', t.id)
+      expect(events.filter((e) => e.event.kind === 'usage' && e.event.call === 'promote')).toHaveLength(1)
+    })
+  })
+
+  test("orchestrator.usage adds up the orchestrator's turns, and is null before any", async () => {
+    const s = await setup(undefined, undefined, [{ emit: { kind: 'session', sessionId: 's' } }, { emit: USAGE }, { emit: { kind: 'turn_end', ok: true } }, { waitForSend: true }])
+    await vi.waitFor(async () => expect(await s.engine.invoke('orchestrator.usage')).toMatchObject({ inputTokens: 7, turns: 1 }))
   })
 })
 

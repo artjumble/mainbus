@@ -5,6 +5,7 @@ import type { Proposal } from '../../shared/proposals'
 import type { ImageRef } from '../../shared/attachments'
 import type { EditedField, IntentAddition, Ticket, TicketEdit, Workspace } from '../../shared/domain'
 import { describeEdit } from '../../shared/ticketEdit'
+import { sessionUsageSoFar } from '../../shared/usageTotals'
 import { parseEditInput, type EditInput } from '../tickets/edit'
 import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
@@ -675,7 +676,9 @@ export class OrchestratorSession {
       effort: ORCHESTRATOR_EFFORT,
       additionalDirectories: readable,
       disallowedTools: ORCHESTRATOR_DISALLOWED,
-      ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
+      ...(resumeSessionId !== undefined
+        ? { resumeSessionId, usageBaseline: sessionUsageSoFar((await this.deps.repo.events(runId)).map((e) => e.event), resumeSessionId) }
+        : {}),
       tools: {
         ...this.deps.readTools,
         createTickets: (a) => this.createNow(a),
