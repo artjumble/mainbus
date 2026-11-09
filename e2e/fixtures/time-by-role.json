@@ -1,0 +1,116 @@
+{
+  "Planner": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-time-planner"
+      }
+    },
+    {
+      "emit": {
+        "kind": "usage",
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "models": {},
+        "durationMs": 1000
+      }
+    },
+    {
+      "callTool": "handoff",
+      "args": {
+        "summary": "Plan: add hello.txt",
+        "notesForNext": "none"
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    }
+  ],
+  "Implementer": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-time-implementer"
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_call",
+        "id": "t1",
+        "name": "Bash",
+        "input": {
+          "command": "pnpm test"
+        }
+      }
+    },
+    {
+      "emit": {
+        "kind": "tool_result",
+        "id": "t1",
+        "ok": true,
+        "summary": "ok"
+      }
+    },
+    {
+      "emit": {
+        "kind": "usage",
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "models": {},
+        "durationMs": 1000
+      }
+    },
+    {
+      "callTool": "handoff",
+      "args": {
+        "summary": "Added hello.txt",
+        "notesForNext": "none"
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    }
+  ],
+  "Reviewer": [
+    {
+      "emit": {
+        "kind": "session",
+        "sessionId": "e2e-time-reviewer"
+      }
+    },
+    {
+      "emit": {
+        "kind": "usage",
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "models": {},
+        "durationMs": 1000
+      }
+    },
+    {
+      "callTool": "handoff",
+      "args": {
+        "summary": "Reviewed: looks right",
+        "notesForNext": "none"
+      }
+    },
+    {
+      "emit": {
+        "kind": "turn_end",
+        "ok": true
+      }
+    }
+  ]
+}

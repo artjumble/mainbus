@@ -65,6 +65,7 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__get_ticket',
   'mcp__mainbus__get_run_status',
   'mcp__mainbus__get_recent_events',
+  'mcp__mainbus__get_time_report',
   'mcp__mainbus__list_pending_decisions',
   'mcp__mainbus__create_tickets',
   'mcp__mainbus__update_ticket',
@@ -621,6 +622,23 @@ export class SdkRuntime implements AgentRuntime {
             limit: z.number().int().optional().describe('How many events, 20 by default, at most 50')
           },
           async (a) => toolText(await t.getRecentEvents({ number: a.number, ...(a.workspace !== undefined ? { workspace: a.workspace } : {}), ...(a.limit !== undefined ? { limit: a.limit } : {}) }))
+        ),
+        sdk.tool(
+          'get_time_report',
+          "Where time went, from the events Mainbus stored: waiting on the user (permissions, questions), paused, queued, setup, tests, builds, installs, git, reading, editing, web, the model, and gaps. With a ticket number: that ticket's time per run and role, its time to Review and its longest commands. Without one: the workspace's last tickets that reached Review, with totals, averages per category and per role, the median time to Review and the longest commands.",
+          {
+            workspace,
+            ticket: z.number().int().optional().describe('A ticket number, as in #12; leave out for the workspace report'),
+            last: z.number().int().optional().describe('For the workspace report, how many tickets that reached Review: 10 by default, at most 50')
+          },
+          async (a) =>
+            toolText(
+              await t.getTimeReport({
+                ...(a.workspace !== undefined ? { workspace: a.workspace } : {}),
+                ...(a.ticket !== undefined ? { ticket: a.ticket } : {}),
+                ...(a.last !== undefined ? { last: a.last } : {})
+              })
+            )
         ),
         sdk.tool('list_pending_decisions', "Every decision waiting for the user in a workspace, with its ticket.", { workspace }, async (a) =>
           toolText(await t.listPendingDecisions(a.workspace !== undefined ? { workspace: a.workspace } : {}))

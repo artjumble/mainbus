@@ -9,6 +9,7 @@ import { LineupSettings } from './LineupSettings'
 import { PullRequestSettings } from './PullRequestSettings'
 import { ReportSettings } from './ReportSettings'
 import { BaseTestsSettings } from './BaseTestsSettings'
+import { TimeReportSettings } from './TimeReportSettings'
 import { SetupSettings } from './SetupSettings'
 
 interface Props {
@@ -64,6 +65,8 @@ export function WorkspaceSettings({ opened, onClose }: Props): ReactElement {
         <SetupSettings opened={opened} />
 
         <BaseTestsSettings opened={opened} />
+
+        <TimeReportSettings opened={opened} />
 
         <Stack gap="sm">
           <Title order={3} size="h4">

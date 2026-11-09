@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm
 import type { DeclaredWait, LineupRole } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { Db } from '../db/open'
-import { agentEvents, agentRuns, stuckEpisodes, ticketRuns } from '../db/schema'
+import { agentEvents, agentRuns, stuckEpisodes, ticketRuns, tickets } from '../db/schema'
 
 /** `handed_back`: the run's role reported a problem and handed the ticket back to an earlier role. */
 export type EndReason = 'handoff' | 'handed_back' | 'stopped' | 'failed' | 'replaced'
@@ -115,6 +115,11 @@ export interface RunRepo {
   listForTicket(ticketId: string): Promise<AgentRunRow[]>
   /** Every agent run of a ticket run, oldest first. */
   listForTicketRun(ticketRunId: string): Promise<AgentRunRow[]>
+  /**
+   * The workspace's tickets that reached Review (a ticket run of theirs finished), newest first, each with when it first
+   * did. Either the newest `limit`, or those between the days `since` and `until` (YYYY-MM-DD, UTC, both inclusive).
+   */
+  reachedReview(workspaceId: string, range: { limit: number } | { since?: string; until?: string }): Promise<{ ticketId: string; reachedAt: string }[]>
   /** Every run that has not ended, oldest first. */
   listOpen(): Promise<AgentRunRow[]>
   /**
@@ -349,6 +354,22 @@ export function createRunRepo(db: Db, now: () => Date): RunRepo {
         .where(eq(agentRuns.ticketRunId, ticketRunId))
         .orderBy(asc(agentRuns.startedAt), asc(sql`rowid`))
       return rows.map(toRun)
+    },
+
+    async reachedReview(workspaceId, range) {
+      const reachedAt = sql<string>`min(${ticketRuns.endedAt})`
+      const conditions = []
+      if ('since' in range && range.since) conditions.push(sql`${reachedAt} >= ${`${range.since}T00:00:00.000Z`}`)
+      if ('until' in range && range.until) conditions.push(sql`${reachedAt} <= ${`${range.until}T23:59:59.999Z`}`)
+      const query = db
+        .select({ ticketId: ticketRuns.ticketId, reachedAt })
+        .from(ticketRuns)
+        .innerJoin(tickets, eq(tickets.id, ticketRuns.ticketId))
+        .where(and(eq(tickets.workspaceId, workspaceId), eq(ticketRuns.status, 'done'), isNotNull(ticketRuns.endedAt)))
+        .groupBy(ticketRuns.ticketId)
+        .having(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(reachedAt))
+      return 'limit' in range ? query.limit(range.limit) : query
     },
 
     async listOpen() {

@@ -4,10 +4,18 @@ import { clockTime } from './waiting'
 
 type Limited = Extract<UsageState, { kind: 'limited' }>
 
+/** How every usage-limit pause reason starts; the thread's notice for it is found by this. */
+export const USAGE_PAUSED_PREFIX = 'Usage limit;'
+
+/** True for the notice a usage-limit pause records. */
+export function isUsagePauseNotice(text: string): boolean {
+  return text.startsWith(USAGE_PAUSED_PREFIX)
+}
+
 /** Why an agent is paused: "Usage limit; resumes at 14:00", or when the reset is unknown, when Mainbus tries again. */
 export function usagePauseReason(state: Limited): string {
-  if (state.resetsAt !== null) return `Usage limit; resumes at ${clockTime(state.resetsAt)}`
-  return state.retryAt !== null ? `Usage limit; trying again at ${clockTime(state.retryAt)}` : 'Usage limit; resumes when it resets'
+  if (state.resetsAt !== null) return `${USAGE_PAUSED_PREFIX} resumes at ${clockTime(state.resetsAt)}`
+  return state.retryAt !== null ? `${USAGE_PAUSED_PREFIX} trying again at ${clockTime(state.retryAt)}` : `${USAGE_PAUSED_PREFIX} resumes when it resets`
 }
 
 /** The banner's text; empty when nothing is wrong. */

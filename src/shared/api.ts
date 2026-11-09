@@ -43,6 +43,7 @@ import type {
   WhenClosed,
   Workspace
 } from './domain'
+import type { TicketTime, WorkspaceTimeReport } from './timeBreakdown'
 import type { UsageTotals } from './usageTotals'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
@@ -292,6 +293,13 @@ export interface EngineCommands {
    * into the branch. Refused unless the branch is behind and no role is working. Only the renderer can reach it.
    */
   'ticket.updateFromMain'(id: string): void
+  /** Where the ticket's time went, per run and role, from its stored events. */
+  'ticket.time'(ticketId: string): TicketTime
+  /**
+   * Where time went over the workspace's tickets that reached Review: the newest `last` (10, 25 or 50), or those between
+   * the days `since` and `until` (YYYY-MM-DD).
+   */
+  'workspace.timeReport'(opts: { last?: number; since?: string; until?: string }, workspaceId?: string): WorkspaceTimeReport
   /** Every run of the ticket, oldest first: their events, and the runs themselves (for each event's role). */
   'thread.get'(ticketId: string): { events: StoredEvent[]; decisions: Decision[]; runs: ThreadRun[] }
   /**

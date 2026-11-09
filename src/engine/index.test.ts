@@ -166,6 +166,27 @@ describe('createEngine', () => {
     ])
   })
 
+  it('ticket.time counts the wait on a pending question as waiting on the user, and the workspace report covers only tickets that reached Review', async () => {
+    const engine = await makeEngine(
+      new FakeRuntime([
+        { emit: { kind: 'message', text: 'attempt' } },
+        { callTool: 'askUser', args: { question: 'Which?', options: ['A', 'B'] } },
+        { waitForSend: true }
+      ])
+    )
+    await engine.invoke('workspace.open', repoPath)
+    const t = await engine.invoke('ticket.create', newTicket)
+    expect((await engine.invoke('ticket.time', t.id)).runCount).toBe(0)
+    await engine.invoke('agent.start', t.id)
+    await vi.waitFor(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
+    const time = await engine.invoke('ticket.time', t.id)
+    expect(time.runCount).toBe(1)
+    expect(time.toReviewMs).toBeNull()
+    expect(Object.values(time.byCategory).reduce((a, b) => a + b, 0)).toBe(time.totalMs)
+    const report = await engine.invoke('workspace.timeReport', { last: 10 })
+    expect(report.ticketCount).toBe(0)
+  })
+
   it('thread.get is empty for a ticket that never ran', async () => {
     const engine = await makeEngine(new FakeRuntime([]))
     await engine.invoke('workspace.open', repoPath)

@@ -33,6 +33,8 @@ export interface OrchestratorReadToolHandlers {
   getRunStatus(a: { workspace?: string; number: number }): Promise<string>
   getRecentEvents(a: { workspace?: string; number: number; limit?: number }): Promise<string>
   listPendingDecisions(a: { workspace?: string }): Promise<string>
+  /** Where time went: one ticket's (by number), or the workspace's last `last` tickets that reached Review (10 by default, at most 50). */
+  getTimeReport(a: { workspace?: string; ticket?: number; last?: number }): Promise<string>
 }
 
 /**

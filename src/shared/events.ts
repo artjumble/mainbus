@@ -127,6 +127,8 @@ export type ThreadEvent =
   | { kind: 'role_hand_back'; from: string; to: string }
   /** The run's role ticked the ticket's acceptance criterion at zero-based `index`. */
   | { kind: 'criterion_checked'; index: number; text: string }
+  /** The run joined the queue for a free agent slot; it ends when the run's process starts. */
+  | { kind: 'queued' }
   /** The user paused the run's role: its process stopped, and the run stays open until Resume. */
   | { kind: 'paused' }
   /** The user's pause ended: Resume, or a message or answer that resumed the role. */
