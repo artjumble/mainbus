@@ -27,17 +27,19 @@ interface Props {
 
 /** The left side of the ticket: what an agent filed and what the person asked for, the spec, criteria, images, labels and what has happened so far. */
 export function ContextPane({ ticket, events, decisions, runs, onViewRun }: Props): ReactElement {
+  // A Done ticket is read-only: its controls are hidden or disabled until it is moved back.
+  const readOnly = ticket.state.column === 'done'
   return (
     <Stack gap="lg" p="md">
       <Promotion ticket={ticket} />
-      <YourWords ticket={ticket} />
-      <Spec ticket={ticket} />
+      <YourWords ticket={ticket} readOnly={readOnly} />
+      <Spec ticket={ticket} readOnly={readOnly} />
       <InvestigationReport ticket={ticket} />
-      <Criteria ticket={ticket} />
+      <Criteria ticket={ticket} readOnly={readOnly} />
       <Section title="Attachments">
-        <AttachmentsSection ticket={ticket} />
+        <AttachmentsSection ticket={ticket} readOnly={readOnly} />
       </Section>
-      <BlockedBy ticket={ticket} />
+      <BlockedBy ticket={ticket} readOnly={readOnly} />
       <Labels labels={ticket.labels} />
       <Branch ticket={ticket} />
       <UsageSection events={events} runs={runs ?? NO_RUNS} />
@@ -58,7 +60,7 @@ function Section({ title, children }: { title: string; children: ReactNode }): R
   )
 }
 
-function YourWords({ ticket }: { ticket: BoardTicket }): ReactElement {
+function YourWords({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement {
   const [adding, setAdding] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -114,18 +116,22 @@ function YourWords({ ticket }: { ticket: BoardTicket }): ReactElement {
               </Text>
             </Box>
           ))}
-          <Textarea
-            aria-label="Add to your words"
-            placeholder="Add to your words"
-            autosize
-            minRows={2}
-            maxRows={6}
-            value={adding}
-            onChange={(e) => setAdding(e.currentTarget.value)}
-          />
-          <Button w="fit-content" size="compact-sm" disabled={adding.trim() === ''} loading={saving} onClick={() => void add()}>
-            Add
-          </Button>
+          {!readOnly && (
+            <>
+              <Textarea
+                aria-label="Add to your words"
+                placeholder="Add to your words"
+                autosize
+                minRows={2}
+                maxRows={6}
+                value={adding}
+                onChange={(e) => setAdding(e.currentTarget.value)}
+              />
+              <Button w="fit-content" size="compact-sm" disabled={adding.trim() === ''} loading={saving} onClick={() => void add()}>
+                Add
+              </Button>
+            </>
+          )}
         </Stack>
       </Section>
     </>
@@ -175,7 +181,7 @@ function Added({ at }: { at: string }): ReactElement {
   )
 }
 
-function Spec({ ticket }: { ticket: BoardTicket }): ReactElement {
+function Spec({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement {
   // null means "no edit in progress": the box follows the ticket.
   const [draft, setDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -202,16 +208,19 @@ function Spec({ ticket }: { ticket: BoardTicket }): ReactElement {
         minRows={3}
         maxRows={14}
         value={draft ?? ticket.spec}
+        readOnly={readOnly}
         onChange={(e) => setDraft(e.currentTarget.value)}
       />
-      <Button w="fit-content" size="compact-sm" disabled={!dirty} loading={saving} onClick={() => void save()}>
-        Save spec
-      </Button>
+      {!readOnly && (
+        <Button w="fit-content" size="compact-sm" disabled={!dirty} loading={saving} onClick={() => void save()}>
+          Save spec
+        </Button>
+      )}
     </Stack>
   )
 }
 
-function Criteria({ ticket }: { ticket: BoardTicket }): ReactElement | null {
+function Criteria({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement | null {
   if (ticket.criteria.length === 0) return null
 
   async function toggle(position: number, checked: boolean): Promise<void> {
@@ -231,6 +240,7 @@ function Criteria({ ticket }: { ticket: BoardTicket }): ReactElement | null {
             key={c.position}
             label={c.text}
             checked={c.checked}
+            disabled={readOnly}
             onChange={(e) => void toggle(c.position, e.currentTarget.checked)}
           />
         ))}
@@ -240,7 +250,7 @@ function Criteria({ ticket }: { ticket: BoardTicket }): ReactElement | null {
 }
 
 /** The tickets that should be Done first; changed at any time, and saved as soon as it changes. */
-function BlockedBy({ ticket }: { ticket: BoardTicket }): ReactElement {
+function BlockedBy({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement {
   const saved = ticket.blockedBy.map((b) => b.id)
   // What was picked while saving; null when the saved list shows.
   const [picked, setPicked] = useState<string[] | null>(null)
@@ -258,7 +268,7 @@ function BlockedBy({ ticket }: { ticket: BoardTicket }): ReactElement {
 
   return (
     <Section title="Blocked by">
-      <BlockedByPicker ticketId={ticket.id} value={picked ?? saved} onChange={(ids) => void change(ids)} />
+      <BlockedByPicker ticketId={ticket.id} value={picked ?? saved} onChange={(ids) => void change(ids)} disabled={readOnly} />
     </Section>
   )
 }

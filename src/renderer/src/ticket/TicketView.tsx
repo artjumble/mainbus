@@ -81,6 +81,11 @@ export function TicketView(): ReactElement {
         {ticket.reportFileError !== null && ticket.state.column === 'review' && <ReportFileFailure ticket={ticket} />}
         {ticket.prError !== null && ticket.state.column === 'review' && <PrFailure ticket={ticket} />}
         <StuckEvidence stuck={ticket.stuck} />
+        {ticket.state.column === 'done' && (
+          <Text size="sm" c="dimmed">
+            Done tickets are read-only. Move it back to Ready to change it.
+          </Text>
+        )}
       </Stack>
       <TicketBody key={ticket.id} ticket={ticket} />
     </Flex>
@@ -284,8 +289,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
 
   /** Attaches images to the ticket; a working agent is told by Mainbus. */
   const attach = useCallback(
-    (files: File[]) => void attachToTicket(ticket.id, files, ticket.attachments.length),
-    [ticket.id, ticket.attachments.length]
+    (files: File[]) => {
+      // A Done ticket is read-only: a pasted image is left alone.
+      if (!isDone) void attachToTicket(ticket.id, files, ticket.attachments.length)
+    },
+    [ticket.id, ticket.attachments.length, isDone]
   )
 
   useImagePaste(attach)
@@ -406,7 +414,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
             opened={settingsOpen}
             onClose={() => setSettingsOpen(false)}
             ticket={ticket}
-            editable={runSettingsEditable(ticket.state) && !busy}
+            editable={runSettingsEditable(ticket.state) && !busy && !isDone}
           />
           <PromoteModal opened={promoting && canPromote} ticketId={ticket.id} onClose={() => setPromoting(false)} />
           <StartBlockedModal

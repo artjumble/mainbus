@@ -886,3 +886,25 @@ describe('Run setup again', () => {
     expect(mockInvoke).toHaveBeenCalledWith('agent.stop', ticket.id)
   })
 })
+
+test('a done ticket says it is read-only, and its Run settings dialog cannot save; other columns say nothing of it', async () => {
+  show({ column: 'ready' })
+  const { unmount } = renderWithMantine(<TicketView />)
+  await screen.findByRole('button', { name: 'Run settings…' })
+  expect(screen.queryByText(/Done tickets are read-only/)).not.toBeInTheDocument()
+  unmount()
+
+  show({ column: 'done', phase: 'done' })
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'thread.get') return thread
+    if (command === 'lineup.get') return makeLineup()
+    if (command === 'preset.list') return []
+    return undefined
+  })
+  renderWithMantine(<TicketView />)
+  expect(await screen.findByText('Done tickets are read-only. Move it back to Ready to change it.')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Run settings…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Run settings' })
+  await within(dialog).findByText(/Untick a role/)
+  expect(within(dialog).queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+})
