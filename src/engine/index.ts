@@ -844,7 +844,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     /** Saves a ticket's run settings, checked against its own lineup, whenever no run is open: before the first start, or after a run has ended. */
     const setRunSettings = async (id: string, input: RunSettingsInput | null): Promise<Ticket> => {
-      const ticket = await repos.tickets.get(id)
+      const ticket = await assertNotDone(id)
       const latest = await repos.runs.latest(id)
       if ((latest && latest.endReason === null) || runner.isLaunching(id)) throw new Error("Run settings can't be changed while a run is open")
       const settings = input === null ? null : checkRunSettings(input, await repos.lineups.get(ticket.workspaceId, ticket.kind))
@@ -878,6 +878,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       } finally {
         editing.delete(ticketId)
       }
+    }
+    /** Refuses a Done ticket: its data and run settings are read-only until it is moved back to Backlog or Ready. */
+    const assertNotDone = async (ticketId: string): Promise<Ticket> => {
+      const ticket = await repos.tickets.get(ticketId)
+      if ((await runner.stateOf(ticketId)).column === 'done') {
+        throw new Error(`#${ticket.number} is Done, so it can't be changed. Move it back to Backlog or Ready to change it.`)
+      }
+      return ticket
     }
     const whyNotEditableNow = async (ticket: Ticket): Promise<string | null> => {
       const latest = await repos.runs.latest(ticket.id)
@@ -1305,24 +1313,28 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return ticket
       },
       'attachment.add': async (ticketId, name, bytes) => {
+        if (typeof ticketId === 'string') await assertNotDone(ticketId)
         const added = await attachments.add(ticketId, name, bytes)
         await attachmentChanged('attached', added)
         return withoutPath(added)
       },
       'attachment.remove': async (id) => {
+        const found = typeof id === 'string' ? await repos.attachments.get(id) : null
+        if (found) await assertNotDone(found.ticketId)
         const removed = await attachments.remove(id)
         if (removed) await attachmentChanged('removed', removed)
       },
       'attachment.list': async (ticketId) => (await attachments.list(ticketId)).map(withoutPath),
       'attachment.data': (id) => attachments.dataUrl(id),
       'ticket.update': async (id, patch) => {
+        await assertNotDone(id)
         const ticket = await repos.tickets.update(id, patch)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
         return ticket
       },
       // Reached only through `invoke` (the renderer's IPC): the user edits blockers at any time, even when a run is open.
       'ticket.setBlockedBy': async (id, blockerIds) => {
-        const ticket = await repos.tickets.get(id)
+        const ticket = await assertNotDone(id)
         const checked = await checkedBlockers(ticket, blockerIds)
         if (typeof checked === 'string') throw new Error(checked)
         await handle.db.batch(replaceDependencyStatements(handle.db, id, checked, now().toISOString()) as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]])
@@ -1330,6 +1342,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return repos.tickets.get(id)
       },
       'ticket.appendIntent': async (id, text) => {
+        await assertNotDone(id)
         const ticket = await repos.tickets.appendIntent(id, text)
         emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
         return ticket

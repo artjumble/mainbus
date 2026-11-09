@@ -156,7 +156,7 @@ export function MessageImages({ images, onRemove }: { images: NewAttachment[]; o
   )
 }
 
-function AttachedThumb({ attachment, onOpen }: { attachment: Attachment; onOpen: () => void }): ReactElement {
+function AttachedThumb({ attachment, onOpen, readOnly }: { attachment: Attachment; onOpen: () => void; readOnly: boolean }): ReactElement {
   const src = useAttachmentImage(attachment.id)
   async function remove(): Promise<void> {
     try {
@@ -165,11 +165,11 @@ function AttachedThumb({ attachment, onOpen }: { attachment: Attachment; onOpen:
       showError(err, "Couldn't remove the image")
     }
   }
-  return <Thumb name={attachment.filename} src={src} onOpen={onOpen} onRemove={() => void remove()} />
+  return <Thumb name={attachment.filename} src={src} onOpen={onOpen} {...(readOnly ? {} : { onRemove: () => void remove() })} />
 }
 
 /** The ticket view's Attachments: the images the user attached, which every role of the ticket can read. */
-export function AttachmentsSection({ ticket }: { ticket: BoardTicket }): ReactElement {
+export function AttachmentsSection({ ticket, readOnly = false }: { ticket: BoardTicket; readOnly?: boolean }): ReactElement {
   const [previewing, setPreviewing] = useState<{ name: string; id: string } | null>(null)
   const [adding, setAdding] = useState(false)
   const full = ticket.attachments.length >= ATTACHMENTS_PER_TICKET
@@ -188,11 +188,11 @@ export function AttachmentsSection({ ticket }: { ticket: BoardTicket }): ReactEl
       {ticket.attachments.length > 0 && (
         <SimpleGrid cols={3} spacing="xs" verticalSpacing="xs">
           {ticket.attachments.map((a) => (
-            <AttachedThumb key={a.id} attachment={a} onOpen={() => setPreviewing({ name: a.filename, id: a.id })} />
+            <AttachedThumb key={a.id} attachment={a} readOnly={readOnly} onOpen={() => setPreviewing({ name: a.filename, id: a.id })} />
           ))}
         </SimpleGrid>
       )}
-      {full ? (
+      {readOnly ? null : full ? (
         <Text size="xs" c="dimmed">{`A ticket can have at most ${ATTACHMENTS_PER_TICKET} images.`}</Text>
       ) : (
         <DropZone onFiles={(files) => void add(files)} disabled={adding} />

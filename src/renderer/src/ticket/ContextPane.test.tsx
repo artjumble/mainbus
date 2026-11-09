@@ -377,3 +377,24 @@ test('usage events add no entry to the Activity timeline, which shows no usage',
   expect(within(activity).getAllByRole('listitem')).toHaveLength(2)
   expect(activity.textContent).not.toMatch(/token|usage|\$0/i)
 })
+
+describe('a Done ticket', () => {
+  test('shows its words, spec, criteria and blockers without edit controls', () => {
+    const done = makeTicket({ ...ticket }, { column: 'done', phase: 'done' })
+    renderWithMantine(<ContextPane ticket={done} events={[]} decisions={[]} />)
+    expect(screen.queryByRole('textbox', { name: 'Add to your words' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save spec' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Spec' })).toHaveAttribute('readonly')
+    for (const box of screen.getAllByRole('checkbox')) expect(box).toBeDisabled()
+    expect(screen.queryByText(/Drop images here/)).not.toBeInTheDocument()
+    expect(screen.getByText('Add a theme toggle')).toBeInTheDocument()
+  })
+
+  test.each(['backlog', 'ready', 'review'] as const)('a %s ticket keeps its edit controls', (column) => {
+    renderWithMantine(<ContextPane ticket={makeTicket({ ...ticket }, { column })} events={[]} decisions={[]} />)
+    expect(screen.getByRole('textbox', { name: 'Add to your words' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save spec' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Spec' })).not.toHaveAttribute('readonly')
+  })
+})
