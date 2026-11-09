@@ -41,6 +41,7 @@ function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
     if (command === 'workspace.get') return focused
     if (command === 'board.get') return { tickets: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
+    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0] }
     if (command === 'workspace.open') {
       if (opts.failOpen) throw new Error(opts.failOpen)
       return bravo
@@ -120,6 +121,26 @@ test('an error from opening a folder is shown plainly in the dialog', async () =
   await userEvent.click(await screen.findByRole('button', { name: 'Choose folder…' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('/r/x is not a git repository')
   expect(screen.getByRole('dialog')).toBeInTheDocument()
+})
+
+test('a folder without a repository offers to set git up instead of an error', async () => {
+  engine()
+  mockOpenFolder.mockResolvedValue('/r/plain')
+  const base = mockInvoke.getMockImplementation()!
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'workspace.check') return { status: 'not_a_repo', folder: '/r/plain', root: '/r/plain' }
+    if (command === 'workspace.previewSetup') return { root: '/r/plain', files: 1, bytes: 5, entries: [{ name: 'a.txt', folder: false, files: 1, bytes: 5 }], warnings: [] }
+    return base(command, ...args)
+  })
+  renderWithMantine(<WorkspaceRail />)
+  await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Choose folder…' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('Set up git here')).toBeInTheDocument()
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.open', expect.anything())
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.prepare', expect.anything(), expect.anything())
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })
 
 async function chooseRemove(name: string): Promise<HTMLElement> {

@@ -14,12 +14,13 @@ import {
 import { useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import type { WorkspaceSummary } from '../../../shared/api'
-import { openFolder } from '../api'
+import type { FolderReadiness, WorkspaceSummary } from '../../../shared/api'
+import { invoke, openFolder } from '../api'
 import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
 import { ROW_BADGE } from '../rowBadgeStyles'
 import { useMainbus } from '../store'
+import { GitSetup } from './GitSetup'
 import classes from './WorkspaceRail.module.css'
 
 /** The rail's layout width: always collapsed to initials, so the board never shifts. */
@@ -281,6 +282,13 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
   const openWorkspace = useMainbus((s) => s.openWorkspace)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notReady, setNotReady] = useState<FolderReadiness | null>(null)
+
+  function close(): void {
+    setNotReady(null)
+    setError(null)
+    onClose()
+  }
 
   async function choose(): Promise<void> {
     setBusy(true)
@@ -288,8 +296,13 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
     try {
       const folder = await openFolder()
       if (!folder) return
-      await openWorkspace(folder)
-      onClose()
+      const readiness = await invoke('workspace.check', folder)
+      if (readiness.status === 'ready') {
+        await openWorkspace(folder)
+        close()
+      } else {
+        setNotReady(readiness)
+      }
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -298,7 +311,10 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
   }
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Add workspace">
+    <Modal opened={opened} onClose={close} title="Add workspace">
+      {notReady ? (
+        <GitSetup readiness={notReady} onDone={close} onCancel={close} />
+      ) : (
       <Stack gap="md">
         <Text>Pick the folder of the git repository you want to work on.</Text>
         <Text size="sm" c="dimmed">
@@ -311,7 +327,7 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
           </Alert>
         )}
         <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>
+          <Button variant="default" onClick={close}>
             Cancel
           </Button>
           <Button onClick={() => void choose()} loading={busy}>
@@ -319,6 +335,7 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
           </Button>
         </Group>
       </Stack>
+      )}
     </Modal>
   )
 }
