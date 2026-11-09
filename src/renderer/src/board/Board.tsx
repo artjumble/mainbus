@@ -115,7 +115,7 @@ export function gridStyle(needsYouCollapsed: boolean): CSSProperties {
     gridTemplateColumns: tracks.join(' '),
     gap: 'var(--mantine-spacing-sm)',
     overflowX: 'auto',
-    // The board fills the height left under the header, and each lane the board's: an empty lane is full height, and
+    // The board fills the height left under the usage banner, and each lane the board's: an empty lane is full height, and
     // a drop anywhere in it lands in it. A lane with more cards makes the board taller, and the page scrolls.
     flex: '1 0 auto',
     alignItems: 'stretch',

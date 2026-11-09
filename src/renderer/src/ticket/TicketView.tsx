@@ -26,7 +26,6 @@ import { UpdateFromMainModal } from './UpdateFromMainModal'
 import { StartBlockedModal } from './StartBlockedModal'
 import { openBlockers } from '../../../shared/dependencies'
 
-const HEADER_HEIGHT = 48
 const CONTEXT_WIDTH = 380
 
 /** The split view for one ticket: its context on the left, the live agent thread on the right. */
@@ -52,7 +51,7 @@ export function TicketView(): ReactElement {
   }
 
   return (
-    <Flex direction="column" h={`calc(100vh - ${HEADER_HEIGHT}px)`}>
+    <Flex direction="column" h="100vh">
       <Stack gap={4} px="md" py="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
         <Group gap="sm" align="baseline">
           {back}

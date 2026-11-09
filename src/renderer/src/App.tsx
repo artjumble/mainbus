@@ -1,4 +1,4 @@
-import { AppShell, Button, Center, Group, Loader, Stack, Text, Title } from '@mantine/core'
+import { AppShell, Button, Center, Loader, Stack, Text, Title, VisuallyHidden } from '@mantine/core'
 import { useEffect, useState, useSyncExternalStore, type ReactElement } from 'react'
 import { Announcer } from './Announcer'
 import { Board } from './board/Board'
@@ -100,27 +100,23 @@ export function App(): ReactElement {
     <AppShell
       // No slide while dragging, or the panel lags the pointer.
       transitionDuration={resizing ? 0 : undefined}
-      header={{ height: 48 }}
       // The rail's layout width is always the collapsed one; expanded, it lies over the board.
       navbar={withRail ? { width: RAIL_WIDTH, breakpoint: 0 } : undefined}
       // Breakpoint 0: never the mobile layout, where the aside goes full width over the board.
       aside={withPanel ? { width: panelOpen ? shownWidth : STRIP_WIDTH, breakpoint: 0 } : undefined}
     >
       <Announcer />
-      <AppShell.Header>
-        <Group h="100%" px="md">
-          <Title order={1} size="h4">
-            Mainbus
-          </Title>
-        </Group>
-      </AppShell.Header>
       {withRail && (
         <AppShell.Navbar>
           <WorkspaceRail />
         </AppShell.Navbar>
       )}
-      {/* A column, so the board can fill the height under the header and the usage banner. */}
+      {/* A column, so the board can fill the height under the usage banner. */}
       <AppShell.Main style={{ display: 'flex', flexDirection: 'column' }}>
+        {/* The page's heading for screen readers; the window's title bar already says Mainbus. */}
+        <VisuallyHidden>
+          <Title order={1}>Mainbus</Title>
+        </VisuallyHidden>
         {withPanel && <UsageBanner />}
         {screen()}
         {/* Outside screen(), so Settings from the rail works from the ticket view too. */}

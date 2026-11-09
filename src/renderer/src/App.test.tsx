@@ -184,6 +184,17 @@ test('the first launch shows a welcome with Add workspace', async () => {
   expect(await screen.findByText('Welcome to Mainbus')).toBeInTheDocument()
 })
 
+test('there is no header bar, but the page keeps a visually hidden h1 "Mainbus"', async () => {
+  answer({ ok: true, path: 'claude', version: '2' }, workspace)
+  renderWithMantine(<App />)
+  await screen.findByRole('complementary', { name: 'Orchestrator' })
+  expect(screen.queryByRole('banner')).not.toBeInTheDocument()
+  const h1 = screen.getByRole('heading', { level: 1, name: 'Mainbus' })
+  expect(h1.closest('main')).not.toBeNull()
+  // Mantine's VisuallyHidden; its clipping is a stylesheet jsdom does not load.
+  expect(h1.parentElement?.className).toMatch(/VisuallyHidden/)
+})
+
 test('asking the orchestrator to draft tickets expands a collapsed panel and fills its box', async () => {
   answer({ ok: true, path: 'claude', version: '2' }, workspace)
   renderWithMantine(<App />)
