@@ -84,8 +84,8 @@ const PRESET_DESCRIPTION = "A preset of the workspace, by name, as list_workspac
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
 
-/** The only built-in tools the orchestrator has. */
-export const ORCHESTRATOR_BUILT_IN_TOOLS = ['Read', 'Grep', 'Glob']
+/** The only built-in tools the orchestrator has: it reads files and, unless the user turns it off, web pages. */
+export const ORCHESTRATOR_BUILT_IN_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch']
 
 interface Run {
   q: Query

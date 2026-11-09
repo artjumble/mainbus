@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { runGit } from '../git/git'
 import { makeRepo } from '../intake/testBoard'
-import { ORCHESTRATOR_DENIED, orchestratorVerdict } from './permissions'
+import { ORCHESTRATOR_DENIED, ORCHESTRATOR_WEB_OFF, orchestratorVerdict } from './permissions'
 
 let tmp: string
 let CWD: string
@@ -91,8 +91,6 @@ describe('orchestratorVerdict', () => {
     ['Edit', { file_path: 'C:\\code\\repo\\x.ts', old_string: 'a', new_string: 'b' }],
     ['Bash', { command: 'ls' }],
     ['PowerShell', { command: 'ls' }],
-    ['WebFetch', { url: 'https://example.com' }],
-    ['WebSearch', { query: 'x' }],
     ['Task', { prompt: 'x' }],
     ['Agent', { prompt: 'x' }],
     ['AskUserQuestion', { questions: [] }],
@@ -100,6 +98,61 @@ describe('orchestratorVerdict', () => {
     ['mcp__other__tool', {}]
   ])('denies %s without a card', async (tool, input) => {
     expect(await verdict(tool, input)).toEqual({ allow: false, message: ORCHESTRATOR_DENIED })
+  })
+})
+
+describe('web tools', () => {
+  const fetchVerdict = (url: unknown, web = { allowed: true }) => orchestratorVerdict('WebFetch', { url }, { cwd: CWD, readable: [] }, web)
+
+  test('allows WebFetch of public pages and WebSearch', async () => {
+    expect(await fetchVerdict('https://docs.waveshare.com/x')).toEqual({ allow: true })
+    expect(await fetchVerdict('http://example.com')).toEqual({ allow: true })
+    expect(await fetchVerdict('http://172.32.0.1')).toEqual({ allow: true })
+    expect(await fetchVerdict('http://100.128.0.1')).toEqual({ allow: true })
+    expect(await verdict('WebSearch', { query: 'esp32-c6' })).toEqual({ allow: true })
+  })
+
+  test.each([
+    ['file:///C:/x', /not file:/],
+    ['ftp://x.com', /not ftp:/],
+    ['http://localhost:3000', /localhost is on this computer/],
+    ['http://LOCALHOST./', /localhost is on this computer/],
+    ['http://printer.local', /printer.local is on this computer/],
+    ['http://127.0.0.1', /local or private network address/],
+    ['http://2130706433/', /127.0.0.1 is a local/],
+    ['http://10.1.2.3', /local or private/],
+    ['http://172.16.0.1', /local or private/],
+    ['http://172.31.255.1', /local or private/],
+    ['http://192.168.1.1', /local or private/],
+    ['http://169.254.169.254/latest', /local or private/],
+    ['http://100.64.0.1', /local or private/],
+    ['http://[::1]/', /local or private/],
+    ['http://[::ffff:127.0.0.1]/', /local or private/],
+    ['http://[fc00::1]/', /local or private/],
+    ['http://[fd12::1]/', /local or private/],
+    ['http://[fe80::1]/', /local or private/],
+    ['https://user:pass@x.com', /user name or password/],
+    [undefined, /full http or https URL/],
+    ['not a url', /full http or https URL/]
+  ])('refuses WebFetch of %s', async (url, why) => {
+    const v = await fetchVerdict(url)
+    expect(v.allow).toBe(false)
+    expect(v).toMatchObject({ message: expect.stringMatching(why) })
+    expect((v as { message: string }).message).toContain(ORCHESTRATOR_DENIED)
+  })
+
+  test('refuses both tools when the user turned web access off', async () => {
+    expect(await fetchVerdict('https://example.com', { allowed: false })).toEqual({ allow: false, message: ORCHESTRATOR_WEB_OFF })
+    expect(await orchestratorVerdict('WebSearch', { query: 'x' }, { cwd: CWD, readable: [] }, { allowed: false })).toEqual({
+      allow: false,
+      message: ORCHESTRATOR_WEB_OFF
+    })
+  })
+
+  test.each([true, false])('still refuses Bash, Edit and Write with web access %s', async (allowed) => {
+    for (const [tool, input] of [['Bash', { command: 'ls' }], ['Edit', { file_path: 'x' }], ['Write', { file_path: 'x' }]] as const) {
+      expect(await orchestratorVerdict(tool, input, { cwd: CWD, readable: [] }, { allowed })).toEqual({ allow: false, message: ORCHESTRATOR_DENIED })
+    }
   })
 })
 

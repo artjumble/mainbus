@@ -39,7 +39,7 @@ test('General keeps Agents running at once and When I close the window, and has 
   const base = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
     command === 'settings.get'
-      ? { maxAgents: 3, whenClosed: 'tray', theme: { choice: 'light', light: 'light', dark: 'dark' } }
+      ? { maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: { choice: 'light', light: 'light', dark: 'dark' } }
       : base(command, ...args)
   )
   renderWithMantine(<WorkspaceSettings opened onClose={() => {}} />)

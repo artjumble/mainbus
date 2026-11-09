@@ -34,7 +34,11 @@ export interface AppSettings {
   whenClosed: WhenClosed
   /** "Theme": the theme the app is drawn in, and with Match Windows the light and dark theme it switches between. */
   theme: ThemeSetting
+  /** "Let the orchestrator read web pages": whether it may use WebFetch and WebSearch. On by default. */
+  orchestratorWebAccess: boolean
 }
+
+export const ORCHESTRATOR_WEB_ACCESS_DEFAULT = true
 
 export type WhenClosed = 'tray' | 'quit'
 export const WHEN_CLOSED_DEFAULT: WhenClosed = 'tray'

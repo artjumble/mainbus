@@ -17,7 +17,7 @@ let orchestratorUsage: UsageTotals | null = null
 beforeEach(() => {
   mockInvoke.mockReset()
   storedTheme = { choice: 'light', light: 'light', dark: 'dark' }
-  const settings = () => ({ maxAgents: 3, whenClosed: 'tray', theme: storedTheme })
+  const settings = () => ({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: storedTheme })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
     if (command === 'orchestrator.usage') return orchestratorUsage
     if (command === 'settings.get') return settings()
@@ -77,4 +77,13 @@ test('the Usage section shows what the orchestrator used, with the cost labelled
   const usage = within(await screen.findByRole('dialog', { name: 'Mainbus settings' })).getByRole('region', { name: 'Orchestrator usage' })
   await vi.waitFor(() => expect(usage.textContent).toContain('1.5k input'))
   expect(usage.textContent).toContain('API-equivalent cost, not billed on your Claude plan')
+})
+
+test('the web access switch is in the Orchestrator section, on by default', async () => {
+  renderWithMantine(<AppSettings opened onClose={() => {}} />)
+  const drawer = await screen.findByRole('dialog', { name: 'Mainbus settings' })
+  const section = within(drawer).getByRole('region', { name: 'Orchestrator' })
+  const toggle = within(section).getByRole('switch', { name: /^Let the orchestrator read web pages/ })
+  await vi.waitFor(() => expect(toggle).toBeEnabled())
+  expect(toggle).toBeChecked()
 })

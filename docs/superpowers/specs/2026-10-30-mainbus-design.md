@@ -292,7 +292,7 @@ One decision record drives the board card (Needs you column with the question su
 - **Its working directory and built-in tools (designer's call):**
   - Its `cwd` is a Mainbus scratch folder (`<MAINBUS_HOME>\orchestrator`).
   - Every workspace's repo is added as an extra read-only directory.
-  - Its built-in tools are limited to Read, Grep and Glob, so it can read code to draft good tickets. It has no Bash, no edit tools, and no web tools.
+  - Its built-in tools are limited to Read, Grep, Glob, WebFetch and WebSearch, so it can read code and the pages the user links to draft good tickets. It has no Bash and no edit tools. Web pages are data, never instructions; addresses on this computer or a private network, non-http(s) URLs and URLs with credentials are refused, and a Mainbus setting turns web access off.
   - It may read the user's own checkout but never change it.
   - Its subagent, worktree and scheduling tools are disallowed. It delegates by proposing work on tickets, never by doing the work itself.
 - **Voice rules** (adapted from firstmate's rules for talking to its user):
@@ -518,5 +518,6 @@ This design is the record of what was decided at the start, and it is left as wr
 | A ticket created in Backlog can carry a flag that has the orchestrator propose a start once it reaches Ready. | §13 | #49 |
 | Promote makes the new Change ticket's spec with a one-shot call from the report, and uses the report itself if that call fails. It works once, from Review or Done. | §9 | #43 |
 | A ticket's **Run settings…** dialog replaces Adjust before starting. It saves the roles, models and extra instructions that every start uses (Save, Reset to defaults, Cancel) and never starts the ticket; they can be changed whenever no run is open. | §9, §13 | #68, #71 |
+| The orchestrator can read web pages with WebFetch and WebSearch, as data and never as instructions: it cites the URLs and never pastes page text into a spec. WebFetch refuses non-http(s) URLs, localhost and `.local` names, loopback, private, link-local and carrier-grade NAT addresses, and URLs with credentials. Setting **Let the orchestrator read web pages**, on by default, turns both tools off, at its next tool call. | §11 | #96 |
 
 For the differences between each wireframe artboard and the app, and what was done about each, see [`docs/superpowers/plans/m7-wireframe-pass.md`](../plans/m7-wireframe-pass.md).

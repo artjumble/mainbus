@@ -1,6 +1,7 @@
 import { summariseTools } from './toolSummary'
 
-const calls = (...names: string[]): { name: string }[] => names.map((name) => ({ name }))
+const calls = (...names: string[]): { name: string; input?: unknown }[] => names.map((name) => ({ name }))
+const fetches = (...urls: string[]): { name: string; input: unknown }[] => urls.map((url) => ({ name: 'WebFetch', input: { url } }))
 
 test('Read calls count the files', () => {
   expect(summariseTools(calls('Read', 'Read', 'Read'))).toBe('Read 3 files')
@@ -38,6 +39,19 @@ test('create_tickets reads as creating tickets', () => {
 })
 
 test('other tools are counted', () => {
-  expect(summariseTools(calls('WebFetch'))).toBe('Used 1 tool')
-  expect(summariseTools(calls('Read', 'WebFetch', 'Bash'))).toBe('Read 1 file, used 2 tools')
+  expect(summariseTools(calls('Bash'))).toBe('Used 1 tool')
+  expect(summariseTools(calls('Read', 'TodoWrite', 'Bash'))).toBe('Read 1 file, used 2 tools')
+})
+
+test('web pages are named by host, and a search reads as searching the web', () => {
+  expect(summariseTools(fetches('https://docs.waveshare.com/esp32-c6'))).toBe('Read docs.waveshare.com')
+  expect(summariseTools(fetches('https://a.com/1', 'https://a.com/2'))).toBe('Read a.com')
+  expect(summariseTools(fetches('https://a.com', 'https://b.org'))).toBe('Read a.com and b.org')
+  expect(summariseTools(fetches('https://a.com', 'https://b.org', 'https://c.net'))).toBe('Read 3 web pages')
+  expect(summariseTools(fetches('nonsense'))).toBe('Read a web page')
+  expect(summariseTools(calls('WebFetch'))).toBe('Read a web page')
+  expect(summariseTools(calls('WebSearch', 'WebSearch'))).toBe('Searched the web')
+  expect(summariseTools([{ name: 'Read' }, ...fetches('https://docs.waveshare.com/x'), { name: 'WebSearch' }])).toBe(
+    'Read 1 file, read docs.waveshare.com, searched the web'
+  )
 })

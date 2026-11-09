@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type { UsageTotals } from '../../../shared/usageTotals'
 import { invoke } from '../api'
 import { UsageTotalsView } from '../ticket/UsageSection'
+import { OrchestratorSettings } from './OrchestratorSettings'
 import { ThemeSettings } from './ThemeSettings'
 
 interface Props {
@@ -45,6 +46,9 @@ export function AppSettings({ opened, onClose }: Props): ReactElement {
       <Stack gap="xl">
         <Section title="Appearance">
           <ThemeSettings opened={opened} />
+        </Section>
+        <Section title="Orchestrator">
+          <OrchestratorSettings opened={opened} />
         </Section>
         <Section title="Usage" label="Orchestrator usage">
           <OrchestratorUsage opened={opened} />

@@ -1068,6 +1068,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       paths: cfg.paths,
       now,
       emit,
+      webAccess: async () => (await repos.settings.get()).orchestratorWebAccess,
       focused: () => repos.workspaces.focused(),
       workspaces: () => repos.workspaces.list(),
       decisionWorkspace: async (id) => {
@@ -1441,6 +1442,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       'settings.setWhenClosed': (v) => repos.settings.setWhenClosed(v),
+      'settings.setOrchestratorWebAccess': (on) => repos.settings.setOrchestratorWebAccess(on),
       'settings.setTheme': async (v) => {
         const settings = await repos.settings.setTheme(v)
         emit({ type: 'theme.changed', theme: settings.theme })

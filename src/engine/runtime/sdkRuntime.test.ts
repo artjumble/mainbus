@@ -747,13 +747,13 @@ describe('SdkRuntime: the orchestrator spec', () => {
     await runtime.stop(run)
   })
 
-  test('limits built-in tools to Read, Grep and Glob, loads no settings, and pre-approves only the Mainbus tools', async () => {
+  test('limits built-in tools to Read, Grep, Glob, WebFetch and WebSearch, loads no settings, and pre-approves only the Mainbus tools', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test')
     const f = fakeSdk()
     const spec = makeOrchestratorSpec()
     await new SdkRuntime(CLAUDE_PATH, f.sdk, { agentHome: 'C:\\home' }).start(spec)
     const o = f.calls[0].options
-    expect(o.tools).toEqual(['Read', 'Grep', 'Glob'])
+    expect(o.tools).toEqual(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
     expect(o.disallowedTools).toEqual(['Bash', 'Edit', 'Agent'])
     expect(o.allowedTools).toEqual([
       'mcp__mainbus__list_workspaces',

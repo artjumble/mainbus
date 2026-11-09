@@ -1,0 +1,13 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-orchestrator-web" } },
+    { "emit": { "kind": "tool_call", "id": "w1", "name": "WebFetch", "input": { "url": "https://docs.waveshare.com/esp32-c6", "prompt": "Summarise" } } },
+    { "emit": { "kind": "tool_result", "id": "w1", "ok": true, "summary": "Fetched" } },
+    { "emit": { "kind": "tool_call", "id": "w2", "name": "WebSearch", "input": { "query": "esp32-c6 pinout" } } },
+    { "emit": { "kind": "tool_result", "id": "w2", "ok": true, "summary": "5 results" } },
+    { "emit": { "kind": "message", "text": "I read the Waveshare page." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

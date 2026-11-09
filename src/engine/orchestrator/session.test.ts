@@ -94,15 +94,23 @@ describe('orchestrator.send', () => {
     expect(spec.resumeSessionId).toBeUndefined()
     expect(spec.prompt).toBe(`[Mainbus] Focused workspace: repo (${repoPath}) · Local time: 2026-11-01 14:05, Sunday\n\nWhat needs me?`)
     expect(spec.appendSystemPrompt).toContain('Mainbus orchestrator')
-    for (const tool of ['Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'AskUserQuestion', 'Agent', 'Task', 'EnterWorktree', 'CronCreate']) {
+    for (const tool of ['Bash', 'Edit', 'Write', 'AskUserQuestion', 'Agent', 'Task', 'EnterWorktree', 'CronCreate']) {
       expect(spec.disallowedTools).toContain(tool)
     }
+    expect(spec.disallowedTools).not.toContain('WebFetch')
+    expect(spec.disallowedTools).not.toContain('WebSearch')
     // Its permissions: reads in the repo, never a credential file, never anything else.
     const ask = (toolName: string, input: Record<string, unknown>) =>
       spec.onPermission({ toolName, input, toolUseId: 't', signal: new AbortController().signal })
     expect(await ask('Read', { file_path: path.join(repoPath, 'README.md') })).toEqual({ allow: true })
     expect((await ask('Read', { file_path: path.join(repoPath, '.env') })).allow).toBe(false)
     expect((await ask('Bash', { command: 'ls' })).allow).toBe(false)
+    // Web pages: public ones are allowed until the user turns it off, which applies without a restart.
+    expect(await ask('WebFetch', { url: 'https://example.com/docs' })).toEqual({ allow: true })
+    expect((await ask('WebFetch', { url: 'http://localhost:8080' })).allow).toBe(false)
+    await engine.invoke('settings.setOrchestratorWebAccess', false)
+    expect((await ask('WebFetch', { url: 'https://example.com/docs' })).allow).toBe(false)
+    expect((await ask('WebSearch', { query: 'x' })).allow).toBe(false)
     // So are reads in the ticket folders, including one made after the session started; never the scratch folders.
     const later = path.join(ticketFolders, '2-later')
     await fs.mkdir(later, { recursive: true })

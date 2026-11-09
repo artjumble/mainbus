@@ -327,6 +327,20 @@ test('with summariseTools, each group of tool rows is one collapsed line that ex
   expect(screen.getByText('mcp__mainbus__list_tickets')).toBeInTheDocument()
 })
 
+test('with summariseTools, a web page read is named by its host', () => {
+  const { container } = renderWithMantine(
+    <Thread
+      events={[
+        ev({ kind: 'tool_call', id: 'w', name: 'WebFetch', input: { url: 'https://docs.waveshare.com/esp32-c6' } }),
+        ev({ kind: 'tool_call', id: 's', name: 'WebSearch', input: { query: 'esp32-c6' } })
+      ]}
+      decisions={[]}
+      summariseTools
+    />
+  )
+  expect(container.querySelector('[data-event="tool_group"]')).toHaveTextContent('Read docs.waveshare.com, searched the web')
+})
+
 test('without summariseTools, tool rows show one by one', () => {
   const { container } = renderWithMantine(<Thread events={toolEvents()} decisions={[]} />)
   expect(container.querySelector('[data-event="tool_group"]')).toBeNull()
