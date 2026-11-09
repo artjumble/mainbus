@@ -350,6 +350,10 @@ test('Empty states: an empty workspace, and a ticket nobody is working on', asyn
     await expect(page.getByText('Done', { exact: true })).toBeInViewport({ ratio: 1 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     const { board } = await expectFullHeightLanes(page)
+    // Needs you is the narrow tinted strip a board with tickets shows while it is empty, not a full lane.
+    const strip = page.locator('[data-lane][data-collapsed]')
+    await expect(strip).toHaveCount(1)
+    expect((await strip.boundingBox())!.width).toBeLessThan(60)
     const message = (await page.getByRole('heading', { name: 'No tickets in web-app yet' }).boundingBox())!
     expect(message.y).toBeGreaterThan(board.top)
     expect(message.y + message.height).toBeLessThan(board.bottom)

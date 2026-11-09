@@ -31,6 +31,7 @@ import {
 import { useHotkeys, useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
+  forwardRef,
   memo,
   useCallback,
   useEffect,
@@ -41,7 +42,8 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   type KeyboardEventHandler,
-  type ReactElement
+  type ReactElement,
+  type ReactNode
 } from 'react'
 import type { Column } from '../../../shared/domain'
 import { useExpandOnHover } from '../expandOnHover'
@@ -128,6 +130,87 @@ export function gridStyle(needsYouCollapsed: boolean): CSSProperties {
 
 /** A lane is a fill a step away from the ground, with no outline and square corners, unlike the cards on it. */
 const LANE = 'var(--mainbus-color-lane)'
+
+/** A lane's fill: the Needs you tint, the working tint under a card being dragged over a lane, else the lane colour. */
+const laneFill = (id: Column, isOver = false): string =>
+  isOver ? 'working.0' : id === 'needs_you' ? 'needs.0' : LANE
+
+/** What a strip shows: the count above the title set vertically. Done's closed and Needs you's collapsed share it. */
+function StripBody({
+  title,
+  count,
+  headingId,
+  children
+}: {
+  title: string
+  count: number
+  headingId: string
+  children?: ReactNode
+}): ReactElement {
+  return (
+    <Stack align="center" gap="xs">
+      <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
+        {count}
+      </Text>
+      <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId} style={{ writingMode: 'vertical-rl' }}>
+        {title}
+      </Title>
+      {children}
+    </Stack>
+  )
+}
+
+/** Needs you with no tickets: a narrow tinted strip that never opens. The empty board draws the same one. */
+const CollapsedLane = forwardRef<HTMLElement, { title: string; headingId: string; label?: string }>(
+  function CollapsedLane({ title, headingId, label = `${title}, no tickets` }, ref) {
+    return (
+      <Paper
+        ref={ref}
+        component="section"
+        aria-label={label}
+        data-collapsed
+        data-lane
+        p="xs"
+        radius={0}
+        bg={laneFill('needs_you')}
+        style={{ overflow: 'hidden', minWidth: 0 }}
+      >
+        <StripBody title={title} count={0} headingId={headingId} />
+      </Paper>
+    )
+  }
+)
+
+/**
+ * The lanes of a board with no tickets, drawn from the same tracks, fills and strips as the real one but inert:
+ * no drop targets, no cards. Needs you is collapsed, since nothing is in it, and Done is its strip.
+ */
+function PlaceholderLanes(): ReactElement {
+  return (
+    <Box aria-hidden style={{ ...gridStyle(true), overflowX: 'hidden' }}>
+      {COLUMNS.map((c) =>
+        c.id === 'needs_you' ? (
+          <CollapsedLane key={c.id} title={c.title} headingId={`empty-${c.id}`} />
+        ) : (
+          <Paper key={c.id} component="section" data-lane radius={0} bg={laneFill(c.id)} p="xs">
+            {c.id === 'done' ? (
+              <StripBody title={c.title} count={0} headingId={`empty-${c.id}`} />
+            ) : (
+              <Group justify="space-between" mb="xs" px={4}>
+                <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={`empty-${c.id}`}>
+                  {c.title}
+                </Title>
+                <Text size="xs" c="dimmed" data-testid="column-count">
+                  0
+                </Text>
+              </Group>
+            )}
+          </Paper>
+        )
+      )}
+    </Box>
+  )
+}
 
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
@@ -347,22 +430,7 @@ export function Board(): ReactElement {
       {empty ? (
         <Box pos="relative" style={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column' }}>
           {/* The lanes the board will have, full height, with their names: no scrolling, they share the width. */}
-          <Box aria-hidden style={{ ...gridStyle(false), gridTemplateColumns: `repeat(5, minmax(0, 1fr)) ${STRIP}`, overflowX: 'hidden' }}>
-            {COLUMNS.map((c) => (
-              <Paper key={c.id} data-lane radius={0} bg={LANE} p="xs">
-                <Text
-                  size="xs"
-                  fw={700}
-                  tt="uppercase"
-                  lts="0.04em"
-                  c="dimmed"
-                  style={c.id === 'done' ? { writingMode: 'vertical-rl' } : undefined}
-                >
-                  {c.title}
-                </Text>
-              </Paper>
-            ))}
-          </Box>
+          <PlaceholderLanes />
           {/* The message lies over the lanes, on a surface of its own. */}
           <Center pos="absolute" inset={0} p="md">
             <Paper withBorder shadow="sm" radius="md" maw={460} p="md">
@@ -455,30 +523,7 @@ const BoardColumn = memo(function BoardColumn({
 }): ReactElement {
   const { setNodeRef, isOver } = useDroppable({ id, disabled: !isManual(id) && id !== 'in_progress' })
   const headingId = `column-${id}`
-  if (collapsed) {
-    return (
-      <Paper
-        ref={setNodeRef}
-        component="section"
-        aria-label={`${title}, no tickets`}
-        data-collapsed
-        data-lane
-        p="xs"
-        radius={0}
-        bg="needs.0"
-        style={{ overflow: 'hidden', minWidth: 0 }}
-      >
-        <Stack align="center" gap="xs">
-          <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
-            0
-          </Text>
-          <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId} style={{ writingMode: 'vertical-rl' }}>
-            {title}
-          </Title>
-        </Stack>
-      </Paper>
-    )
-  }
+  if (collapsed) return <CollapsedLane ref={setNodeRef} title={title} headingId={headingId} />
   return (
     <Paper
       ref={setNodeRef}
@@ -487,7 +532,7 @@ const BoardColumn = memo(function BoardColumn({
       data-lane
       p="xs"
       radius={0}
-      bg={isOver ? 'working.0' : id === 'needs_you' ? 'needs.0' : LANE}
+      bg={laneFill(id, isOver)}
     >
       <Group justify="space-between" mb="xs" px={4}>
         <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
@@ -623,20 +668,14 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
           </Text>
         </Group>
       ) : (
-        <Stack align="center" gap="xs">
-          <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
-            {tickets.length}
-          </Text>
-          <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId} style={{ writingMode: 'vertical-rl' }}>
-            {title}
-          </Title>
+        <StripBody title={title} count={tickets.length} headingId={headingId}>
           {cleaningUp && (
             <span data-testid="done-working">
               <Loader size={12} aria-hidden />
               <VisuallyHidden>Cleaning up</VisuallyHidden>
             </span>
           )}
-        </Stack>
+        </StripBody>
       )}
       <VisuallyHidden id={countId}>{ticketCount(tickets.length)}</VisuallyHidden>
       <ColumnCards tickets={tickets} pendingMoves={pendingMoves} {...rest} hidden={!open} />
