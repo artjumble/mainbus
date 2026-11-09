@@ -65,6 +65,8 @@ interface Props {
   mentions?: { options: MentionOption[]; label: string }
 }
 
+const MENTION_LIST_WIDTH = 260
+
 /** A message box with Send inside it (not beside it). Ctrl+Enter sends, or Enter with `enterSends`. */
 export function Composer({
   onSend,
@@ -85,7 +87,7 @@ export function Composer({
   const [picked, setPicked] = useState<{ id: string; token: string }[]>([])
   const [active, setActive] = useState<{ start: number; query: string } | null>(null)
   const [dismissed, setDismissed] = useState<number | null>(null)
-  const [anchor, setAnchor] = useState({ left: 0, top: 0 })
+  const [anchor, setAnchor] = useState({ left: 0, top: 0, height: 0 })
   const frame = useRef<HTMLDivElement>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const caretAfter = useRef<number | null>(null)
@@ -140,7 +142,9 @@ export function Composer({
       const at = caretPosition(input.current, caret)
       const from = input.current.getBoundingClientRect()
       const into = frame.current.getBoundingClientRect()
-      setAnchor({ left: at.left + from.left - into.left, top: at.top + from.top - into.top })
+      const line = parseFloat(getComputedStyle(input.current).lineHeight) || 20
+      // The target is the caret's whole line, so the list opens clear of it whichever way it goes.
+      setAnchor({ left: at.left + from.left - into.left, top: at.top - line + from.top - into.top, height: line })
     }
   }
 
@@ -274,9 +278,16 @@ export function Composer({
   if (!mentions) return box
   return (
     <Box pos="relative" ref={frame}>
-      <Combobox store={combobox} onOptionSubmit={pick} position="bottom-start">
+      <Combobox store={combobox} onOptionSubmit={pick} position="top-start"
+        width={MENTION_LIST_WIDTH}
+        shadow="md"
+        withinPortal
+        zIndex={400}
+        middlewares={{ shift: { boundary: frame.current ?? undefined, padding: 0 } }}
+      >
+        {/* The target is a zero-size caret marker, so the list needs a width of its own rather than the target's. */}
         <Combobox.DropdownTarget>
-          <span aria-hidden style={{ position: 'absolute', left: anchor.left, top: anchor.top, width: 0, height: 0 }} />
+          <span aria-hidden style={{ position: 'absolute', left: anchor.left, top: anchor.top, width: 0, height: anchor.height }} />
         </Combobox.DropdownTarget>
         {/* Mantine's own aria-activedescendant follows its keyboard navigation, which is off here, so ours is passed to override it. */}
         <Combobox.EventsTarget
@@ -291,7 +302,7 @@ export function Composer({
             {filtered.map((o) => (
               <Combobox.Option key={o.id} value={o.id}>
                 <Group gap="xs" wrap="nowrap">
-                  <Text size="sm" fw={500}>
+                  <Text size="sm" fw={500} truncate style={{ flexShrink: 0, maxWidth: '60%' }}>
                     {o.name}
                   </Text>
                   <Text size="xs" c="dimmed" truncate style={{ flex: 1, minWidth: 0 }}>

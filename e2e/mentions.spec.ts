@@ -81,3 +81,59 @@ test('picking @hunter from the list sends its identity, and the orchestrator cre
     }
   }
 })
+
+for (const theme of ['light', 'dark'] as const)
+  test(`the @ list is a sized dropdown above the caret's line and inside the panel (${theme})`, async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
+    let app: ElectronApplication | undefined
+    try {
+      const home = path.join(tmp, 'home')
+      const mainbus = makeRepo(path.join(tmp, 'mainbus'))
+      const hunter = makeRepo(path.join(tmp, 'hunter'))
+      const env: Record<string, string> = {}
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+      delete env['ELECTRON_RUN_AS_NODE']
+      app = await electron.launch({
+        args: ['.'],
+        cwd: root,
+        env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-mentions.json', MAINBUS_TEST_REPO: mainbus }
+      })
+      const page = await app.firstWindow()
+      await page.getByRole('button', { name: 'Add workspace' }).click()
+      await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
+      await invoke(page, 'workspace.open', hunter)
+      await invoke(page, 'settings.setTheme', theme)
+      await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', theme)
+
+      const panel = page.getByRole('complementary', { name: 'Orchestrator' })
+      const box = panel.getByRole('textbox', { name: 'Message the orchestrator' })
+      await box.pressSequentially('line one\nline two\nline three')
+      await box.pressSequentially(' @')
+      const list = page.getByRole('listbox')
+      await expect(list.getByRole('option')).toHaveCount(2)
+
+      const dropdown = await list.boundingBox()
+      const field = await box.boundingBox()
+      const bounds = await panel.boundingBox()
+      expect(dropdown!.width).toBeGreaterThanOrEqual(200)
+      for (const option of await list.getByRole('option').all()) {
+        const o = (await option.boundingBox())!
+        expect(o.x).toBeGreaterThanOrEqual(dropdown!.x)
+        expect(o.x + o.width).toBeLessThanOrEqual(dropdown!.x + dropdown!.width + 1)
+      }
+      // Above the caret line (the last line of text, which sits in the bottom 40 px of the box), inside the panel and the window.
+      expect(dropdown!.y + dropdown!.height).toBeLessThanOrEqual(field!.y + field!.height - 40)
+      expect(dropdown!.x).toBeGreaterThanOrEqual(bounds!.x - 1)
+      expect(dropdown!.x + dropdown!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width + 1)
+      expect(dropdown!.y).toBeGreaterThanOrEqual(0)
+      const shadow = await page.locator('.mantine-Combobox-dropdown').evaluate((e) => getComputedStyle(e).boxShadow)
+      expect(shadow).not.toBe('none')
+    } finally {
+      await app?.close()
+      try {
+        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      } catch {
+        // A temp folder left behind is harmless.
+      }
+    }
+  })
