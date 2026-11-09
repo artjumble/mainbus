@@ -66,7 +66,10 @@ const COMMAND_CLIP = 120
 export interface CommandTime {
   command: string
   count: number
+  /** Running time: call to result, less any time a decision (permission or question) was open on the run. */
   ms: number
+  /** Time spent waiting on a decision while the call was open. */
+  waitedMs: number
 }
 
 export interface TurnCheck {
@@ -134,12 +137,14 @@ export function runBreakdown(input: { run: TimeRunInput; events: StoredEvent[]; 
 
   // Waiting on the user: a decision is open from its creation to its answer, deferred ones too.
   const answersToQuestions: number[] = []
+  const decisionOpen: Interval[] = []
   for (const d of decisions) {
     if (d.agentRunId !== run.id) continue
     const open = d.status === 'pending' || d.status === 'deferred'
     const s = ms(d.createdAt)
     const e = d.answeredAt !== null ? ms(d.answeredAt) : open ? end : s
     add(d.kind === 'permission' ? 'permission' : 'question', s, e)
+    if (e > s) decisionOpen.push({ s, e })
     if (d.kind === 'question' && d.answeredAt !== null) answersToQuestions.push(e)
   }
   answersToQuestions.sort((a, b) => a - b)
@@ -153,9 +158,23 @@ export function runBreakdown(input: { run: TimeRunInput; events: StoredEvent[]; 
   const commands = new Map<string, CommandTime>()
   const countCommand = (command: string, s: number, e: number): void => {
     const key = normalizeCommand(command).slice(0, COMMAND_CLIP)
-    const cur = commands.get(key) ?? { command: key, count: 0, ms: 0 }
+    const cur = commands.get(key) ?? { command: key, count: 0, ms: 0, waitedMs: 0 }
+    const from = Math.max(s, start)
+    const to = Math.min(e, end)
+    // Decisions may overlap each other: merge them so the wait is counted once.
+    let waited = 0
+    let upTo = from
+    for (const d of [...decisionOpen].sort((a, b) => a.s - b.s)) {
+      const ds = Math.max(d.s, upTo, from)
+      const de = Math.min(d.e, to)
+      if (de > ds) {
+        waited += de - ds
+        upTo = de
+      }
+    }
     cur.count++
-    cur.ms += Math.max(0, Math.min(e, end) - Math.max(s, start))
+    cur.ms += Math.max(0, to - from - waited)
+    cur.waitedMs += waited
     commands.set(key, cur)
   }
   const closeTool = (id: string, e: number): void => {
@@ -341,9 +360,10 @@ export function mergeCommands(lists: CommandTime[][], limit: number): CommandTim
   const all = new Map<string, CommandTime>()
   for (const list of lists)
     for (const c of list) {
-      const cur = all.get(c.command) ?? { command: c.command, count: 0, ms: 0 }
+      const cur = all.get(c.command) ?? { command: c.command, count: 0, ms: 0, waitedMs: 0 }
       cur.count += c.count
       cur.ms += c.ms
+      cur.waitedMs += c.waitedMs
       all.set(c.command, cur)
     }
   return [...all.values()].sort((a, b) => b.ms - a.ms || b.count - a.count).slice(0, limit)
@@ -493,7 +513,8 @@ export function exactMinutes(durationMs: number): string {
 }
 
 export function commandLine(c: CommandTime): string {
-  return `${c.command} × ${c.count}, ${formatMinutes(c.ms)}`
+  const waited = c.waitedMs > 0 ? `, waited ${formatMinutes(c.waitedMs)} for approval` : ''
+  return `${c.command} × ${c.count}, ${formatMinutes(c.ms)}${waited}`
 }
 
 /** The categories with time, largest first, as "Tests 12 min, Model 8 min". */

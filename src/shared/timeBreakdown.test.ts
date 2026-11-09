@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { classifyCommand, classifyTool } from './commandCategory'
 import type { Decision } from './domain'
 import type { StoredEvent, ThreadEvent } from './events'
-import { runBreakdown, ticketTime, timeReportCsv, workspaceTimeReport, formatMinutes, type TimeRunInput, type TimedTicket } from './timeBreakdown'
+import { commandLine as formatCommand, runBreakdown,ticketTime, timeReportCsv, workspaceTimeReport, formatMinutes, type TimeRunInput, type TimedTicket } from './timeBreakdown'
 import { isUsagePauseNotice, usagePauseReason } from './usage'
 
 const T0 = Date.UTC(2026, 0, 1, 10, 0, 0)
@@ -86,7 +86,34 @@ describe('runBreakdown', () => {
     expect(b.byCategory.model).toBe(20 * S)
     expect(b.byCategory.between).toBe(50 * S)
     expect(b.totalMs).toBe(100 * S)
-    expect(b.commands).toEqual([{ command: 'pnpm test', count: 1, ms: 30 * S }])
+    expect(b.commands).toEqual([{ command: 'pnpm test', count: 1, ms: 30 * S, waitedMs: 0 }])
+  })
+
+  it('lists a command at its running time, with the wait on a card shown apart, and ranks by running time', () => {
+    const b = breakdown(
+      [
+        ev('r1', 1, bash('a', "cat > f <<'EOF'")),
+        ev('r1', 1 + 7 * 3600 + 2, result('a')),
+        ev('r1', 1 + 7 * 3600 + 3, bash('b', 'pnpm test')),
+        ev('r1', 1 + 7 * 3600 + 13, result('b'))
+      ],
+      [decision({ createdAt: iso(1), answeredAt: iso(1 + 7 * 3600) })],
+      run({ endedAt: iso(1 + 7 * 3600 + 20) })
+    )
+    expect(b.commands).toEqual([
+      { command: 'pnpm test', count: 1, ms: 10 * S, waitedMs: 0 },
+      { command: "cat > f <<'EOF'", count: 1, ms: 2 * S, waitedMs: 7 * 3600 * S }
+    ])
+    expect(formatCommand(b.commands[1]!)).toContain('2 s')
+    expect(formatCommand(b.commands[1]!)).toContain('waited 7 h 00 min for approval')
+  })
+
+  it('counts overlapping decisions once in a command\'s wait', () => {
+    const b = breakdown(
+      [ev('r1', 0, bash('a', 'git commit')), ev('r1', 50, result('a'))],
+      [decision({ createdAt: iso(10), answeredAt: iso(30) }), decision({ id: 'd2', kind: 'question', createdAt: iso(20), answeredAt: iso(40) })]
+    )
+    expect(b.commands[0]).toMatchObject({ ms: 20 * S, waitedMs: 30 * S })
   })
 
   it('lets a permission card open during a command win', () => {
@@ -225,7 +252,7 @@ describe('ticketTime and the workspace report', () => {
     expect(time.totalMs).toBe(140 * S)
     expect(time.toReviewMs).toBe(150 * S)
     expect(time.runs[0]!.roles.map((r) => [r.role, r.runs])).toEqual([['Planner', 1], ['Implementer', 2]])
-    expect(time.commands).toEqual([{ command: 'pnpm test N', count: 2, ms: 40 * S }])
+    expect(time.commands).toEqual([{ command: 'pnpm test N', count: 2, ms: 40 * S, waitedMs: 0 }])
     expect(time.byCategory.tests).toBe(40 * S)
   })
 
@@ -244,7 +271,7 @@ describe('ticketTime and the workspace report', () => {
     expect(report.byCategory.tests).toBe(120 * S)
     expect(report.averages.tests).toBe(40 * S)
     expect(report.roles.find((r) => r.role === 'Implementer')?.tickets).toBe(3)
-    expect(report.commands[0]).toEqual({ command: 'pnpm test N', count: 6, ms: 120 * S })
+    expect(report.commands[0]).toEqual({ command: 'pnpm test N', count: 6, ms: 120 * S, waitedMs: 0 })
     const csv = timeReportCsv(report)
     const lines = csv.trim().split('\r\n')
     expect(lines[0]).toBe('ticket,title,run,role,agent_run_id,started_at,ended_at,category,minutes')
