@@ -83,7 +83,7 @@ describe('Normalizer', () => {
       (m) => (m as { subtype?: string }).subtype === 'error_during_execution'
     ) as { errors: string[] }
     expect(failed.errors[0]).toBeTruthy()
-    const [ev] = new Normalizer().push(failed)
+    const [ev] = new Normalizer().push(failed).filter((e) => e.kind === 'turn_end')
     expect(ev).toMatchObject({ kind: 'turn_end', ok: false })
     expect((ev as { error: string }).error).toContain(failed.errors[0])
   })
@@ -267,5 +267,95 @@ describe('Normalizer', () => {
     ]) {
       expect(() => replay(name)).not.toThrow()
     }
+  })
+})
+
+describe('Normalizer usage', () => {
+  type Usage = Extract<AgentEvent, { kind: 'usage' }>
+  const usages = (events: AgentEvent[]): Usage[] => ofKind(events, 'usage')
+  const result = (modelUsage: Record<string, unknown> | undefined, extra: Record<string, unknown> = {}) => ({
+    type: 'result',
+    subtype: 'success',
+    duration_ms: 100,
+    usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 },
+    ...(modelUsage ? { modelUsage } : {}),
+    ...extra
+  })
+  const model = (n: number, costUSD: number) => ({
+    inputTokens: n,
+    outputTokens: 2 * n,
+    cacheReadInputTokens: 3 * n,
+    cacheCreationInputTokens: 4 * n,
+    costUSD
+  })
+
+  test('e1-simple: a usage event with tokens by kind, the model, cost and duration, before turn_end', () => {
+    const events = replay('e1-simple')
+    const [u] = usages(events)
+    expect(u).toMatchObject({ inputTokens: 2, outputTokens: 4, cacheReadTokens: 30753, cacheWriteTokens: 16190, durationMs: 4282 })
+    expect(u.models['claude-haiku-5-5'].costUsd).toBe(0.00354773)
+    expect(u.costUsd).toBe(0.00354773)
+    expect(events.findIndex((e) => e.kind === 'usage')).toBeLessThan(events.findIndex((e) => e.kind === 'turn_end'))
+  })
+
+  test('e2-interrupt-active: each result gives its own turn, not the running totals', () => {
+    const [first, second] = usages(replay('e2-interrupt-active', (() => {
+      const n = new Normalizer()
+      n.expectInterrupt()
+      return n
+    })()))
+    expect(first).toMatchObject({ inputTokens: 4, outputTokens: 634 })
+    expect(second).toMatchObject({ inputTokens: 2, outputTokens: 7, cacheReadTokens: 130592 - 77541 })
+    expect(second.costUsd).toBeCloseTo(0.00616242 - 0.00554301, 8)
+  })
+
+  test('a resumed session starts from its baseline; without one the earlier turns count again', () => {
+    const before = usages(replay('e2-interrupt'))
+    const totals = Object.fromEntries(
+      Object.keys(before[0].models).map((name) => [
+        name,
+        before.reduce(
+          (acc, u) => ({
+            inputTokens: acc.inputTokens + u.models[name].inputTokens,
+            outputTokens: acc.outputTokens + u.models[name].outputTokens,
+            cacheReadTokens: acc.cacheReadTokens + u.models[name].cacheReadTokens,
+            cacheWriteTokens: acc.cacheWriteTokens + u.models[name].cacheWriteTokens,
+            costUsd: acc.costUsd + u.models[name].costUsd
+          }),
+          { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 }
+        )
+      ])
+    )
+    const [resumed] = usages(replay('e2-resume', new Normalizer(Date.now, totals)))
+    const [naive] = usages(replay('e2-resume'))
+    expect(resumed.inputTokens).toBe(naive.inputTokens - Object.values(totals).reduce((s, m) => s + m.inputTokens, 0))
+    expect(resumed.inputTokens).toBeLessThan(naive.inputTokens)
+  })
+
+  test('per-model usage over two models, as differences', () => {
+    const n = new Normalizer()
+    n.push(result({ a: model(1, 0.1), b: model(2, 0.2) }))
+    const [u] = usages(n.push(result({ a: model(3, 0.3), b: model(2, 0.2), c: model(1, 0.05) })))
+    expect(u.models.a).toEqual({ inputTokens: 2, outputTokens: 4, cacheReadTokens: 6, cacheWriteTokens: 8, costUsd: expect.closeTo(0.2, 8) })
+    expect(u.models.b.inputTokens).toBe(0)
+    expect(u.models.c.inputTokens).toBe(1)
+    expect(u.inputTokens).toBe(3)
+  })
+
+  test('a total that goes down is taken whole', () => {
+    const n = new Normalizer()
+    n.push(result({ a: model(5, 0.5) }))
+    const [u] = usages(n.push(result({ a: model(2, 0.2) })))
+    expect(u.models.a.inputTokens).toBe(2)
+  })
+
+  test('without modelUsage it falls back to usage, with no models and no cost', () => {
+    const [u] = usages(new Normalizer().push(result(undefined)))
+    expect(u).toEqual({ kind: 'usage', inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, models: {}, durationMs: 100 })
+  })
+
+  test('a failed result is recorded too, before turn_end', () => {
+    const events = new Normalizer().push(result({ a: model(1, 0.1) }, { subtype: 'error_max_turns' }))
+    expect(events.map((e) => e.kind)).toEqual(['usage', 'turn_end'])
   })
 })

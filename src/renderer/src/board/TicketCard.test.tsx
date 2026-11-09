@@ -9,7 +9,7 @@ test('TicketCard shows number, title and phase chip only', () => {
   expect(screen.getByText('#7')).toBeInTheDocument()
   expect(screen.getByText('Add the thing')).toBeInTheDocument()
   expect(screen.getByText('Implementing')).toBeInTheDocument()
-  expect(container.textContent).not.toMatch(/model|effort|token/i)
+  expect(container.textContent).not.toMatch(/model|effort|token|usage|cost|$d/i)
 })
 
 test('a ticket with saved run settings shows a Custom run chip; one without shows none', () => {

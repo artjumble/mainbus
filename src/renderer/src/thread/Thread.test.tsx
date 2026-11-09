@@ -301,7 +301,7 @@ function toolEvents(): StoredEvent[] {
   return [
     ev({ kind: 'tool_call', id: 'a', name: 'Read', input: { file_path: 'a.ts' } }),
     ev({ kind: 'tool_result', id: 'a', ok: true, summary: 'Read a.ts' }),
-    ev({ kind: 'usage', inputTokens: 1, outputTokens: 1 }),
+    ev({ kind: 'usage', inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, durationMs: 0 }),
     ev({ kind: 'tool_call', id: 'b', name: 'Read', input: { file_path: 'b.ts' } }),
     ev({ kind: 'tool_call', id: 'c', name: 'Read', input: { file_path: 'c.ts' } }),
     ev({ kind: 'tool_call', id: 'd', name: 'mcp__mainbus__list_tickets', input: {} }),

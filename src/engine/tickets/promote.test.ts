@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Ticket } from '../../shared/domain'
 import { resolveHome, type HomePaths } from '../home'
 import { FakeRuntime, FAKE_SUMMARY, type FakeSummary } from '../runtime/fakeRuntime'
@@ -65,5 +65,19 @@ describe('draftPromotionSpec', () => {
   ])('is the report under a heading when the call %s', async (_name, summary, timeout) => {
     expect(await draft(summary, timeout)).toMatchObject({ spec: fallbackSpec('# Findings'), drafted: false })
     expect(fallbackSpec('# Findings')).toBe('## From the investigation\n\n# Findings')
+  })
+})
+
+describe('draftPromotionSpec usage', () => {
+  test('passes the call\'s usage on through onUsage', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-promote-usage-'))
+    try {
+      const usage = { kind: 'usage', inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, durationMs: 5 } as const
+      const onUsage = vi.fn()
+      await draftPromotionSpec(new FakeRuntime([], { summaryUsage: usage }), resolveHome({ MAINBUS_HOME: tmp }, 'dev', os.homedir()), ticket(), 1000, onUsage)
+      expect(onUsage).toHaveBeenCalledWith(usage)
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5 })
+    }
   })
 })

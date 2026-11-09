@@ -240,7 +240,7 @@ describe('not stuck', () => {
   })
 
   test('a low context reading never counts: nothing about it reaches the rules', async () => {
-    const lowContext: StoredEvent = stored(ago(0), { kind: 'usage', inputTokens: 190_000, outputTokens: 1 })
+    const lowContext: StoredEvent = stored(ago(0), { kind: 'usage', inputTokens: 190_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, models: {}, durationMs: 0 })
     scene = () => ({ events: [lowContext], live: live() })
     await detector.check()
     expect(await episode()).toBeNull()

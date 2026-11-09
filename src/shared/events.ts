@@ -11,6 +11,31 @@ export interface DecisionDraft {
   recommended?: number
 }
 
+/** Tokens by kind. */
+export interface TokenCounts {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+/** One model's share of a turn: its tokens, and the SDK's cost estimate (API-equivalent, not billed on the plan). */
+export interface ModelUsage extends TokenCounts {
+  costUsd: number
+}
+
+/**
+ * What one turn used: tokens over all models, per model, the SDK's cost estimate when it gave one, and the turn's duration.
+ * `call` marks one of Mainbus's own one-shot calls (a skip or replace summary, a promote draft), which is no agent turn.
+ */
+export interface UsageEvent extends TokenCounts {
+  kind: 'usage'
+  models: Record<string, ModelUsage>
+  costUsd?: number
+  durationMs: number
+  call?: 'summary' | 'promote'
+}
+
 /** Events emitted by an agent runtime (spec section 7, plus M1 additions). */
 export type AgentEvent =
   | { kind: 'message'; text: string; partial?: boolean }
@@ -32,7 +57,7 @@ export type AgentEvent =
       to?: string
       skipped?: { by: 'user'; source: 'summary' | 'digest' }
     }
-  | { kind: 'usage'; inputTokens: number; outputTokens: number } // stored, never shown on cards
+  | UsageEvent // stored, never shown on cards
   | { kind: 'error'; message: string }
   | { kind: 'turn_end'; ok: boolean; interrupted?: boolean; error?: string }
   | { kind: 'session'; sessionId: string }

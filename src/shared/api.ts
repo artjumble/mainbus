@@ -43,6 +43,7 @@ import type {
   WhenClosed,
   Workspace
 } from './domain'
+import type { UsageTotals } from './usageTotals'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
 
@@ -322,6 +323,8 @@ export interface EngineCommands {
    * renderer can reach it. `get` gives every run's events and its status.
    */
   'orchestrator.get'(): OrchestratorThread
+  /** What the orchestrator's turns used, over all its runs; null when none was recorded. */
+  'orchestrator.usage'(): UsageTotals | null
   /**
    * Starts the conversation on the first message, or resumes it after a restart. `images` go with it (at most 5,
    * checked like attachments); a message with neither text nor images is rejected. `mentions` are the ids of
