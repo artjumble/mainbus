@@ -1,12 +1,13 @@
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
 import { openBlockers } from '../../shared/dependencies'
-import type { Column, Decision, LineupPreset, LineupRole, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
+import type { BaseTestsSummary, Column, Decision, LineupPreset, LineupRole, Phase, RoleStatus, StuckEpisode, UsageState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import { ordinal } from '../../shared/queue'
 import { applyRunSettings, runSettingsSummary } from '../../shared/runSettings'
 import { usageBannerText } from '../../shared/usage'
 import { clockTime } from '../../shared/waiting'
+import { knownFailuresText } from '../baseline/text'
 import { AGENT_FILED_SUFFIX, data, intentSections, oneLine } from '../roles/prompt'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { NO_WORKSPACE, resolveWorkspaceRef } from './workspaceRef'
@@ -26,6 +27,8 @@ export interface ReadToolDeps {
   usage?: () => Promise<UsageState>
   /** The images the user attached to the ticket, with where their files are; without it none are listed. */
   attachments?: (ticketId: string) => Promise<{ filename: string; path: string }[]>
+  /** What is known about the workspace's base-branch tests; null when it has no test commands or no finished run. Without it none is shown. */
+  baseTests?: (ws: Workspace) => Promise<BaseTestsSummary | null>
 }
 
 /** Agent messages, handoffs and the like are cut to this many characters. */
@@ -349,6 +352,18 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       })
   }
 
+  async function baseTestsSuffix(ws: Workspace): Promise<string> {
+    if (!deps.baseTests) return ''
+    if (ws.testCommands.length === 0) return ' · base tests: off'
+    const summary = await deps.baseTests(ws).catch(() => null)
+    if (summary === null) return ' · base tests: not run yet'
+    const at = summary.baseSha.slice(0, 7)
+    if (summary.error !== null) return ` · base tests: couldn't run at ${at}`
+    if (summary.knownFailures.length === 0) return ` · base tests: all passed at ${at}`
+    const intermittent = summary.knownFailures.filter((f) => f.intermittent).length
+    return ` · base tests: ${summary.knownFailures.length} known failures (${intermittent} intermittent) at ${at}`
+  }
+
   return {
     async listWorkspaces() {
       const all = await deps.list()
@@ -359,7 +374,8 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           const needsYou = (await deps.board(ws)).filter((t) => t.state.column === 'needs_you').length
           const mark = ws.id === focused?.id ? ' · focused (the one the user is looking at)' : ''
           const presets = (await deps.repos.presets.list(ws.id)).map((p) => oneLine(p.name))
-          return `- ${oneLine(ws.name)} (id ${ws.id}): repo ${oneLine(ws.repoPath)}, base branch ${oneLine(ws.baseBranch)} · Needs you: ${needsYou}${mark} · presets: ${presets.length === 0 ? 'none' : presets.join(', ')}`
+          const tests = await baseTestsSuffix(ws)
+          return `- ${oneLine(ws.name)} (id ${ws.id}): repo ${oneLine(ws.repoPath)}, base branch ${oneLine(ws.baseBranch)} · Needs you: ${needsYou}${mark} · presets: ${presets.length === 0 ? 'none' : presets.join(', ')}${tests}`
         })
       )
       return `Workspaces (${all.length}):\n${lines.join('\n')}`
@@ -412,6 +428,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
             .map((a) => `- ${data('attachment', oneLine(a.filename), true)}: ${oneLine(a.path)}`)
             .join('\n')}`
         : 'None.'
+      const baseTests = (await deps.baseTests?.(found.ws).catch(() => null)) ?? null
       const sections = [
         `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}${blockedText(t)}`,
         ...(promoted.length ? [promoted.join('\n')] : []),
@@ -420,6 +437,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         criteria ? `## Acceptance criteria${byAgent}\n${data('criteria', criteria)}` : `## Acceptance criteria\nNone.`,
         `## Labels\n${labels(t)}`,
         `## Blocked by\n${blockersSection(t)}`,
+        ...(baseTests ? [`## Known test results on ${oneLine(found.ws.baseBranch)}\n${knownFailuresText(baseTests)}`] : []),
         `## Branch and ${t.freshness?.baseBranch ?? 'main'}\n${freshnessSection(t)}`,
         `## Attachments\n${attached}`,
         `## Folder\n${folder}`,

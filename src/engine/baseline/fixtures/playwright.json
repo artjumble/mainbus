@@ -1,0 +1,23 @@
+{
+  "config": {},
+  "suites": [
+    {
+      "title": "board.spec.ts",
+      "file": "board.spec.ts",
+      "specs": [
+        { "title": "shows the board", "file": "board.spec.ts", "tests": [{ "projectName": "electron", "status": "expected", "results": [] }] }
+      ],
+      "suites": [
+        {
+          "title": "tickets",
+          "file": "board.spec.ts",
+          "specs": [
+            { "title": "moves a ticket", "file": "board.spec.ts", "tests": [{ "projectName": "electron", "status": "unexpected", "results": [] }] },
+            { "title": "is flaky", "file": "board.spec.ts", "tests": [{ "projectName": "electron", "status": "flaky", "results": [] }] },
+            { "title": "is skipped", "file": "board.spec.ts", "tests": [{ "projectName": "electron", "status": "skipped", "results": [] }] }
+          ]
+        }
+      ]
+    }
+  ]
+}

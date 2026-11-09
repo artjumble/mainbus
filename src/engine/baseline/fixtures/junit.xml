@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="vitest tests" tests="5" failures="2">
+  <testsuite name="math.test.ts" tests="5" failures="1" errors="1" skipped="1">
+    <testcase classname="math &gt; arithmetic" name="adds" time="0.001"/>
+    <testcase classname="math &gt; arithmetic" name="divides &amp; rounds" time="0.002">
+      <failure message="expected 1 to be 2" type="AssertionError">AssertionError: expected 1 to be 2</failure>
+    </testcase>
+    <testcase classname="math" name="crashes" time="0.003">
+      <error message="boom"/>
+    </testcase>
+    <testcase classname="math" name="later" time="0">
+      <skipped/>
+    </testcase>
+    <testcase classname="math" name="passes" time="0.001"></testcase>
+  </testsuite>
+</testsuites>

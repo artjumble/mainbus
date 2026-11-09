@@ -46,7 +46,8 @@ export const workspace: Workspace = {
   saveReports: true,
   reportsFolder: 'docs/investigations',
   setupCommand: '',
-  setupTimeoutMinutes: 15
+  setupTimeoutMinutes: 15,
+  testCommands: []
 }
 
 let counter = 0

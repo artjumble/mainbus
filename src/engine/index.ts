@@ -12,6 +12,7 @@ import {
 import type { DraftColumn } from '../shared/proposals'
 import {
   LINEUPS,
+  TEST_RESULT_FORMATS,
   type AgentLauncher,
   type Lineup,
   type LineupRole,
@@ -35,6 +36,8 @@ import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
 import { BranchFreshnessChecker } from './git/freshness'
 import { WorktreeManager, type RemoveDir } from './git/worktrees'
+import { BaseTestMonitor, type BaseTestMonitorDeps } from './baseline/monitor'
+import { BaselineWorktrees } from './baseline/folder'
 import { FreshnessMonitor, type FreshnessMonitorDeps } from './freshness/monitor'
 import { LOCKFILES, updateInstructions, updateRoleOf } from './freshness/update'
 import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
@@ -113,6 +116,8 @@ export interface EngineConfig {
   stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange' | 'headCommit'>>
   /** The freshness monitor's timer and interval; tests pass fakes. By default a real timer, every five minutes. */
   freshness?: Partial<Pick<FreshnessMonitorDeps, 'timer' | 'intervalMs'>>
+  /** The base-branch tests' command runner, timer and intervals; tests pass fakes. By default the real runner and a real timer. */
+  baseTests?: Partial<Pick<BaseTestMonitorDeps, 'commands' | 'timer' | 'intervalMs' | 'retryMs'>>
   /** How long to wait before trying again when a usage limit has no known reset; 15 minutes by default (tests shorten it). */
   usageRetryMs?: number
   /** How long drafting a promoted ticket's spec may take before the report stands in; as long as a skip's summary by default (tests shorten it). */
@@ -269,7 +274,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       branchMoved: (workspaceId) => void freshness.refresh(workspaceId, { fetch: false }).catch(() => {}),
       onMovedToDone: (ticketId, wasDone) => movedToDone(ticketId, wasDone),
       onFailed: ({ workspaceId, runId }) => addWake(workspaceId, 'failure', runId),
-      attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) }
+      attachments: { sync: (ticketId, scratch) => attachments.sync(ticketId, scratch, { skipIfNone: true }) },
+      baseTests: (workspaceId) => baseTests.summaryOf(workspaceId)
     })
     const stuckDetector = new StuckDetector({
       repos,
@@ -292,6 +298,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       timer: cfg.freshness?.timer ?? realTimer,
       ...(cfg.freshness?.intervalMs !== undefined ? { intervalMs: cfg.freshness.intervalMs } : {})
     })
+    const baselineFolders = new BaselineWorktrees(cfg.git, cfg.paths)
+    const baseTests = new BaseTestMonitor({
+      repos,
+      checker: freshnessChecker,
+      folders: baselineFolders,
+      git: cfg.git,
+      commands: cfg.baseTests?.commands ?? cfg.setupCommands ?? createSetupCommandRunner(sweeper),
+      agentsWorking: () => runner.agentsWorking(),
+      now,
+      emit,
+      timer: cfg.baseTests?.timer ?? realTimer,
+      ...(cfg.baseTests?.intervalMs !== undefined ? { intervalMs: cfg.baseTests.intervalMs } : {}),
+      ...(cfg.baseTests?.retryMs !== undefined ? { retryMs: cfg.baseTests.retryMs } : {})
+    })
     await worktrees.recoverPendingCleanups()
     // Before recovery kicks the queue: a limit stored at the last quit must hold the agents back from the start.
     await gate.load()
@@ -303,6 +323,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     // Not waited for: the first measurements arrive on the board when they are done.
     freshness.start()
     void freshness.refreshAll().catch(() => {})
+    baseTests.start()
 
     /** The workspace a renderer command is about: the one named, else the focused one. */
     const requireWorkspace = async (id?: string): Promise<Workspace> => {
@@ -461,6 +482,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         modes.delete(id)
       }
       await repos.workspaces.setUnattendedOn(id, false)
+      await baseTests.forget(ws)
       for (const p of await repos.proposals.list()) {
         if (p.workspaceId !== id || p.status !== 'pending') continue
         const failed = await repos.proposals.failPending(p.id, 'Its workspace was removed')
@@ -1057,7 +1079,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         list: () => repos.workspaces.list(),
         board: boardView,
         usage: () => gate.state(),
-        attachments: (ticketId) => attachments.list(ticketId)
+        attachments: (ticketId) => attachments.list(ticketId),
+        baseTests: (ws) => baseTests.summaryOf(ws.id)
       }),
       proposals,
       images: orchestratorImages,
@@ -1213,6 +1236,23 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ws = await repos.workspaces.setSetupSettings((await requireWorkspace(workspaceId)).id, input)
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
+      },
+      // Renderer-only, like the setup command: these run outside the agents' permission guard.
+      'workspace.setTestCommands': async (commands, workspaceId) => {
+        const input = z
+          .array(z.strictObject({ name: z.string().max(200), command: z.string().max(2000), format: z.enum(TEST_RESULT_FORMATS) }))
+          .max(50)
+          .parse(commands)
+        const ws = await repos.workspaces.setTestCommands((await requireWorkspace(workspaceId)).id, input)
+        emit({ type: 'baseTests.changed', workspaceId: ws.id })
+        baseTests.poke()
+        return ws
+      },
+      'workspace.baseTests': async (workspaceId) => baseTests.viewOf((await requireWorkspace(workspaceId)).id),
+      'workspace.runBaseTests': async (workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
+        if (ws.testCommands.length === 0) throw new Error('Add a test command first')
+        void baseTests.runNow(ws.id).catch(() => {})
       },
       'github.check': async (workspaceId) => pullRequests.checkGh((await requireWorkspace(workspaceId)).repoPath),
 
@@ -1441,7 +1481,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       ticketFolders: (ws) => ticketFoldersFor(cfg.paths, ws.slug),
       createTicket: (ws, input) => createTicket(ws, { ...input, blockedBy: undefined }),
       tickets: boardTickets,
-      ticket: boardTicket
+      ticket: boardTicket,
+      baseTests: (ws) => baseTests.summaryOf(ws.id)
     })
 
     let disposal: Promise<void> | null = null
@@ -1471,6 +1512,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             holds.dispose()
             stuckDetector.dispose()
             freshness.dispose()
+            baseTests.dispose()
             wakeScheduler.dispose()
             await Promise.all([runner.shutdown(), orchestrator.shutdown()])
             // Recovery stops at its next step once the runner is shutting down; wait for it, but not for long.
@@ -1484,6 +1526,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           } finally {
             // A measurement under way reads the database.
             await freshness.idle()
+            await baseTests.idle()
             listeners.clear()
             handle.close()
           }

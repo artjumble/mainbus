@@ -364,6 +364,24 @@ describe('expectPrompt', () => {
   })
 })
 
+describe('expectSystemPrompt', () => {
+  async function play(systemPrompt: string): Promise<AgentEvent[]> {
+    const rt = new FakeRuntime([{ expectSystemPrompt: 'math > divides' }, { emit: { kind: 'message', text: 'ok' } }, { exit: 0 }])
+    const handle = await rt.start(makeSpec({ appendSystemPrompt: systemPrompt }).spec)
+    const events: AgentEvent[] = []
+    for await (const e of rt.events(handle)) events.push(e)
+    return events
+  }
+
+  test('passes when the system prompt has the text', async () => {
+    expect(await play('Known failures: math > divides')).toEqual([{ kind: 'message', text: 'ok' }])
+  })
+
+  test('fails the run with an error when it lacks the text', async () => {
+    expect(await play('nothing')).toEqual([{ kind: 'error', message: 'The system prompt lacks "math > divides"' }])
+  })
+})
+
 describe('expectFile', () => {
   async function play(file: string, make: (cwd: string) => void): Promise<AgentEvent[]> {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-expectfile-'))

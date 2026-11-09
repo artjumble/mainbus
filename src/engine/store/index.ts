@@ -1,5 +1,6 @@
 import type { Db } from '../db/open'
 import { createAllowRuleRepo, type AllowRuleRepo } from './allowRules'
+import { createBaseTestRepo, type BaseTestRepo } from './baseTests'
 import { createAttachmentRepo, type AttachmentRepo } from './attachments'
 import { createCleanupRepo, type PendingCleanupRepo } from './cleanups'
 import { createDependencyRepo, type DependencyRepo } from './dependencies'
@@ -37,6 +38,7 @@ export interface Repos {
   stuck: StuckRepo
   wakes: WakeRepo
   settings: SettingsRepo
+  baseTests: BaseTestRepo
 }
 
 export function createRepos(db: Db, now: () => Date): Repos {
@@ -59,6 +61,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     dependencies: createDependencyRepo(db, now),
     stuck: createStuckRepo(db, now),
     wakes: createWakeRepo(db, now),
-    settings: createSettingsRepo(db)
+    settings: createSettingsRepo(db),
+    baseTests: createBaseTestRepo(db)
   }
 }

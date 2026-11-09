@@ -7,6 +7,7 @@ import type {
   Blocker,
   DependencyNote,
   AppSettings,
+  BaseTestsView,
   CardVia,
   ClaudeSetup,
   Decision,
@@ -25,6 +26,7 @@ import type {
   RunSettingsInput,
   StartOptions,
   StripRole,
+  TestCommand,
   BranchFreshness,
   StuckEpisode,
   Ticket,
@@ -99,6 +101,8 @@ export interface NewAttachment {
  */
 export type EngineEvent =
   | { type: 'board.changed'; workspaceId: string }
+  /** The workspace's base-branch test run started, progressed, finished, or is waiting for agents to finish. */
+  | { type: 'baseTests.changed'; workspaceId: string }
   | { type: 'thread.appended'; workspaceId: string; ticketId: string; event: StoredEvent; run: ThreadRun }
   | { type: 'decision.changed'; workspaceId: string; decision: Decision }
   | { type: 'unattended.changed'; workspaceId: string; state: UnattendedState }
@@ -155,6 +159,16 @@ export interface EngineCommands {
    * agents' permissions, so only the renderer can reach this.
    */
   'workspace.setSetupSettings'(settings: SetupSettingsInput, workspaceId?: string): Workspace
+  /**
+   * The workspace's test commands, run on the newest base branch to learn which failures are already there; an empty list
+   * turns that off. A refused list throws with the reason. The commands run outside the agents' permissions, so only the
+   * renderer can reach this.
+   */
+  'workspace.setTestCommands'(commands: TestCommand[], workspaceId?: string): Workspace
+  /** The last base-branch test run, its known failures, and whether a run is under way or waiting for agents to finish. */
+  'workspace.baseTests'(workspaceId?: string): BaseTestsView
+  /** Runs the test commands on the newest base branch now, whatever the agents are doing; returns once the run is queued. Renderer only. */
+  'workspace.runBaseTests'(workspaceId?: string): void
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
   'github.check'(workspaceId?: string): GhStatus
   /** The tickets of the workspace (the focused one unless given). */

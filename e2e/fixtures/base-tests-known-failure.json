@@ -1,0 +1,7 @@
+[
+  { "expectSystemPrompt": "math > divides" },
+  { "emit": { "kind": "session", "sessionId": "e2e-session" } },
+  { "callTool": "handoff", "args": { "summary": "Saw the known failure", "notesForNext": "none" } },
+  { "emit": { "kind": "turn_end", "ok": true } },
+  { "waitForSend": true }
+]

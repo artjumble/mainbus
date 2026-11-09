@@ -22,7 +22,7 @@ export interface LineupRepo {
 }
 
 // The ids here only link the defaults to each other; saving gives every role a fresh one.
-// Migrations 0002, 0012, 0020 and 0033 have their own copies of these texts, as they were when each was written.
+// Migrations 0002, 0012, 0020, 0033 and 0034 have their own copies of these texts, as they were when each was written.
 /** The lineup every new workspace starts with: Planner → Implementer → Reviewer. */
 export function defaultLineup(): LineupRoleInput[] {
   return [
@@ -47,7 +47,9 @@ export function defaultLineup(): LineupRoleInput[] {
         'Make the change and its tests, following the plan from the previous role unless the code shows it is ' +
         'wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. ' +
         "Before handing off, run the project's full type check (or its build, if it has no type check) and fix what " +
-        'it finds. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran. ' +
+        'it finds. If a test fails and Mainbus lists known failures on the base branch, compare it with them before ' +
+        'blaming your change. Commit your work on the branch before handing off. In notes_for_next, say which tests ' +
+        'you ran and which known failures you saw. ' +
         "Don't tick a criterion about the full test suite: the Reviewer runs it.",
       activePhase: 'implementing',
       onProblem: 'hand_back',
@@ -66,8 +68,9 @@ export function defaultLineup(): LineupRoleInput[] {
         'documentation or other text that nothing in the build, the tests or the app reads (check that no code or ' +
         'test refers to it). Then say in your handoff that you skipped them and why, and check the documentation ' +
         'itself instead: that its links and the commands and paths it names exist. If an acceptance criterion ' +
-        "requires the tests to pass, run them anyway; never tick a criterion about tests you didn't run. If " +
-        'something is wrong or missing, report it as ' +
+        "requires the tests to pass, run them anyway; never tick a criterion about tests you didn't run. If tests " +
+        'fail and Mainbus lists known failures on the base branch, compare the failures with them before blaming the ' +
+        'branch, and say in your summary which known failures you saw. If something is wrong or missing, report it as ' +
         "a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change " +
         "any files. When it's right, hand off with a short review summary.",
       activePhase: 'reviewing',

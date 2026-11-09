@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { z } from 'zod'
-import type { Column, NewTicketInput, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { BaseTestsSummary, Column, NewTicketInput, Ticket, TicketState, Workspace } from '../../shared/domain'
 import { nonBlank, singleLine, text, ticketFields } from '../tickets/validate'
 import type {
   CreateParams,
@@ -42,6 +42,8 @@ export interface IntakeDeps {
   tickets(ws: Workspace): Promise<(Ticket & { state: TicketState })[]>
   /** One ticket by number, or null; loads only that ticket. */
   ticket(ws: Workspace, number: number): Promise<(Ticket & { state: TicketState }) | null>
+  /** What is known about the workspace's base-branch tests; without it none is shown. */
+  baseTests?(ws: Workspace): Promise<BaseTestsSummary | null>
 }
 
 const COLUMNS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done'] as const satisfies readonly Column[]
@@ -163,7 +165,9 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
 
     async get(params) {
       const p = parse(getSchema, params)
-      const t = await byNumber(await workspaceFor(p.cwd, 'cwd'), p.number)
+      const ws = await workspaceFor(p.cwd, 'cwd')
+      const t = await byNumber(ws, p.number)
+      const tests = (await deps.baseTests?.(ws).catch(() => null)) ?? null
       return {
         number: t.number,
         title: t.title,
@@ -173,6 +177,22 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
         criteria: t.criteria.map((c) => ({ text: c.text, checked: c.checked })),
         labels: t.labels,
         prUrl: t.pr?.url ?? null,
+        baseTests:
+          tests === null
+            ? null
+            : {
+                base: tests.baseRef,
+                commit: tests.baseSha,
+                at: tests.at,
+                error: tests.error,
+                knownFailures: tests.knownFailures.map((f) => ({
+                  command: f.command,
+                  test: f.test,
+                  intermittent: f.intermittent,
+                  failedRuns: f.failedRuns,
+                  ofRuns: f.ofRuns
+                }))
+              },
         createdAt: t.createdAt,
         updatedAt: t.updatedAt
       }
