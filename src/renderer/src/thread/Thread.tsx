@@ -106,8 +106,8 @@ export function Thread({
   const groups = useToolGroups(events, notes, results, called, summarise)
 
   return (
-    <Box ref={scroller} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-      <Stack gap="sm" p="md">
+    <Box ref={scroller} onScroll={onScroll} style={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+      <Stack gap="sm" p="md" style={{ minWidth: 0 }}>
         {events.map((stored, i) => {
           const { event } = stored
           // The thread holds every ticket run of the ticket, oldest first; mark where each later one starts.
@@ -247,7 +247,7 @@ interface RowProps extends Lookup {
 // Its props are the event, plain values and stable objects, so an unchanged row is skipped.
 const EventRow = memo(function EventRow({ event, ...lookup }: RowProps): ReactElement | null {
   const row = renderEvent(event, lookup)
-  return row === null ? null : <Box style={{ display: 'flex', flexDirection: 'column' }}>{row}</Box>
+  return row === null ? null : <Box style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>{row}</Box>
 })
 
 interface Lookup {
@@ -305,7 +305,8 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           radius="md"
           maw="80%"
           data-event="user_message"
-          style={{ alignSelf: 'flex-end', whiteSpace: 'pre-wrap' }}
+          className={classes.wrap}
+          style={{ alignSelf: 'flex-end' }}
         >
           {event.images && event.images.length > 0 && (
             <Box mb={event.text === '' ? 0 : 6}>
@@ -318,7 +319,8 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
     case 'redirected':
       // Mainbus's own entry, not the user's message: the orchestrator suggested it and the user confirmed it.
       return (
-        <Paper withBorder p="sm" radius="md" maw="80%" data-event="redirected" style={{ alignSelf: 'flex-end', whiteSpace: 'pre-wrap' }}>
+        <Paper withBorder p="sm" radius="md" maw="80%" data-event="redirected" className={classes.wrap}
+          style={{ alignSelf: 'flex-end' }}>
           <Text size="xs" c="dimmed" fw={600} mb={2}>
             {`Mainbus · Redirected ${lookup.role}`}
           </Text>
@@ -377,7 +379,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
         />
     case 'criterion_checked':
       return (
-        <Text size="xs" c="dimmed" data-event="criterion_checked" style={{ whiteSpace: 'pre-wrap' }}>
+        <Text size="xs" c="dimmed" data-event="criterion_checked" className={classes.wrap}>
           {`${lookup.role} checked: ${event.text}`}
         </Text>
       )
@@ -393,19 +395,19 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return <Divider text="The agent process ended" />
     case 'waiting':
       return (
-        <Text size="xs" c="dimmed" data-event="waiting" style={{ whiteSpace: 'pre-wrap' }}>
+        <Text size="xs" c="dimmed" data-event="waiting" className={classes.wrap}>
           {waitingText(lookup.role, event.reason, event.until)}
         </Text>
       )
     case 'wake':
       return (
-        <Text size="xs" c="dimmed" data-event="wake" style={{ whiteSpace: 'pre-wrap' }}>
+        <Text size="xs" c="dimmed" data-event="wake" className={classes.wrap}>
           {`Mainbus: ${event.items.length} ${event.items.length === 1 ? 'thing' : 'things'} to look at`}
         </Text>
       )
     case 'notice':
       return (
-        <Text size="xs" c="dimmed" data-event="notice" style={{ whiteSpace: 'pre-wrap' }}>
+        <Text size="xs" c="dimmed" data-event="notice" className={classes.wrap}>
           {event.text}
         </Text>
       )
@@ -433,7 +435,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       )
     case 'error':
       return (
-        <Text size="sm" c="needs.7" data-event="error" style={{ whiteSpace: 'pre-wrap' }}>
+        <Text size="sm" c="needs.7" data-event="error" className={classes.wrap}>
           {event.message}
         </Text>
       )
@@ -443,7 +445,7 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       // A past run's thread has no controls: a question still open is only told.
       if (lookup.readOnly && (decision.status === 'pending' || decision.status === 'deferred')) {
         return (
-          <Text size="xs" c="dimmed" data-event="decision" style={{ whiteSpace: 'pre-wrap' }}>
+          <Text size="xs" c="dimmed" data-event="decision" className={classes.wrap}>
             {`Asked the user: ${decision.question}`}
           </Text>
         )
@@ -578,7 +580,7 @@ const AGENT_TEXT_COMPONENTS: Components = {
 /** Agent text is untrusted: markdown without raw HTML, no remote images, and links that open in the system browser. */
 export function AgentText({ text }: { text: string }): ReactElement {
   return (
-    <Typography fz="sm">
+    <Typography fz="sm" className={classes.markdown}>
       <Markdown components={AGENT_TEXT_COMPONENTS}>{text}</Markdown>
     </Typography>
   )
