@@ -99,6 +99,8 @@ export interface OrchestratorDeps {
   paths: HomePaths
   now: () => Date
   emit: (e: EngineEvent) => void
+  /** Whether the user lets the orchestrator read web pages; asked at every tool call, so a change applies at once. */
+  webAccess: () => Promise<boolean>
   /** The focused workspace, or null; send() rejects with `workspaceRequired` when there is none. */
   focused: () => Promise<Workspace | null>
   /** Every open workspace, oldest first. */
@@ -695,7 +697,8 @@ export class OrchestratorSession {
         proposePromote: (a) => this.propose('promote', a),
         proposeUpdateFromMain: (a) => this.propose('update_from_main', a)
       },
-      onPermission: async (req) => orchestratorVerdict(req.toolName, req.input, { cwd, readable })
+      onPermission: async (req) =>
+        orchestratorVerdict(req.toolName, req.input, { cwd, readable }, { allowed: await this.deps.webAccess() })
     }
     const handle = await this.deps.runtime.start(spec)
     if (this.shuttingDown) {

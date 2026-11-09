@@ -65,6 +65,8 @@ test('a ToolRow names what the tool acted on, from its input', () => {
   renderWithMantine(<ToolRow name="Read" input={{ file_path: 'tests/fixtures/cart.ts' }} result={{ ok: true, summary: '42 lines' }} />)
   expect(screen.getByText('tests/fixtures/cart.ts')).toBeInTheDocument()
   expect(toolTarget({ pattern: 'TODO' })).toBe('TODO')
+  expect(toolTarget({ url: 'https://docs.waveshare.com/x' })).toBe('https://docs.waveshare.com/x')
+  expect(toolTarget({ query: 'esp32-c6 pinout' })).toBe('esp32-c6 pinout')
   expect(toolTarget({})).toBeNull()
   expect(toolTarget('x')).toBeNull()
 })

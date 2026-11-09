@@ -16,18 +16,18 @@ const LIGHT = { choice: 'light', light: 'light', dark: 'dark' } as const
 
 describe('settings repo', () => {
   it('allows three agents at once until the user says otherwise', async () => {
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
   })
 
   it('stores the number of agents, and a second repo over the same database reads it', async () => {
-    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', theme: LIGHT })
+    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
     await createSettingsRepo(db).setMaxAgents(1)
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
   })
 
   it.each([0, 11, 2.5, -1, Number.NaN, '3' as unknown as number])('refuses %s', async (n) => {
     await expect(createSettingsRepo(db).setMaxAgents(n)).rejects.toThrow('from 1 to 10')
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
   })
 
   it('keeps the usage limit across a second repo, and clears it', async () => {
@@ -39,12 +39,12 @@ describe('settings repo', () => {
     await createSettingsRepo(db).setUsageLimit(null)
     expect(await createSettingsRepo(db).usageLimit()).toBeNull()
     // The agent cap is untouched.
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
   })
 
   it('keeps running in the tray when the window closes until the user says otherwise, and remembers the choice', async () => {
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
-    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', theme: LIGHT })
+    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', orchestratorWebAccess: true, theme: LIGHT })
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('quit')
     await createSettingsRepo(db).setWhenClosed('tray')
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
@@ -56,9 +56,17 @@ describe('settings repo', () => {
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
   })
 
+  it('lets the orchestrator read web pages until the user says otherwise, and remembers the choice', async () => {
+    expect((await createSettingsRepo(db).get()).orchestratorWebAccess).toBe(true)
+    expect((await createSettingsRepo(db).setOrchestratorWebAccess(false)).orchestratorWebAccess).toBe(false)
+    expect((await createSettingsRepo(db).get()).orchestratorWebAccess).toBe(false)
+    expect((await createSettingsRepo(db).setOrchestratorWebAccess(true)).orchestratorWebAccess).toBe(true)
+    await expect(createSettingsRepo(db).setOrchestratorWebAccess('off' as unknown as boolean)).rejects.toThrow('on or off')
+  })
+
   it('draws the app in Light until the user picks, and remembers each theme and Match Windows', async () => {
     expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
-    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', theme: { ...LIGHT, choice: 'dark' } })
+    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: { ...LIGHT, choice: 'dark' } })
     for (const choice of ['night-owl', 'light-owl', 'system', 'dark', 'light'] as const) {
       await createSettingsRepo(db).setTheme(choice)
       expect((await createSettingsRepo(db).get()).theme).toEqual({ ...LIGHT, choice })

@@ -304,6 +304,8 @@ export interface EngineCommands {
   'settings.setMaxAgents'(n: number): AppSettings
   /** "When I close the window": 'tray' keeps Mainbus running while agents are open, 'quit' always quits. Only the renderer can reach it. */
   'settings.setWhenClosed'(v: WhenClosed): AppSettings
+  /** "Let the orchestrator read web pages": whether it may use WebFetch and WebSearch. Takes effect at its next tool call. Only the renderer can reach it. */
+  'settings.setOrchestratorWebAccess'(on: boolean): AppSettings
   /** "Theme": a theme id, or 'system' (Match Windows). Applied live, through a theme.changed event. Only the renderer can reach it. */
   'settings.setTheme'(v: ThemeChoice): AppSettings
   /** The light or the dark theme Match Windows uses. Applied live, through a theme.changed event. Only the renderer can reach it. */

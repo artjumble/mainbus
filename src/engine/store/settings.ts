@@ -4,6 +4,7 @@ import {
   AGENT_CAP_MAX,
   AGENT_CAP_MIN,
   isThemeId,
+  ORCHESTRATOR_WEB_ACCESS_DEFAULT,
   THEME_CHOICES,
   THEME_IDS,
   THEME_SETTING_DEFAULT,
@@ -21,6 +22,7 @@ import { appSettings } from '../db/schema'
 const MAX_AGENTS = 'max_agents'
 const USAGE_LIMIT = 'usage_limit'
 const WHEN_CLOSED = 'when_closed'
+const ORCHESTRATOR_WEB = 'orchestrator_web'
 // The choice: a theme id or 'system'. Before named themes it held 'light', 'dark' or 'system', which are still choices.
 const THEME = 'theme'
 // The light and the dark theme Match Windows uses; with no row, Light and Dark, as before named themes.
@@ -51,6 +53,8 @@ export interface SettingsRepo {
   setMaxAgents(n: number): Promise<AppSettings>
   /** Stores what closing the window does; rejects anything but 'tray' or 'quit'. */
   setWhenClosed(v: WhenClosed): Promise<AppSettings>
+  /** Stores whether the orchestrator may read web pages; rejects anything but a boolean. */
+  setOrchestratorWebAccess(on: boolean): Promise<AppSettings>
   /** Stores the theme choice; rejects anything but a theme id or 'system'. */
   setTheme(v: ThemeChoice): Promise<AppSettings>
   /** Stores the light or the dark theme Match Windows uses; rejects an unknown id or a theme of the other scheme. */
@@ -67,7 +71,7 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     const rows = await db
       .select()
       .from(appSettings)
-      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
+      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
     const value = (key: string): string | undefined => rows.find((r) => r.key === key)?.value
     const stored = Number(value(MAX_AGENTS) ?? NaN)
     const choice = value(THEME)
@@ -76,6 +80,7 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     return {
       maxAgents: validAgentCap(stored) ? stored : AGENT_CAP_DEFAULT,
       whenClosed: value(WHEN_CLOSED) === 'quit' ? 'quit' : WHEN_CLOSED_DEFAULT,
+      orchestratorWebAccess: value(ORCHESTRATOR_WEB) === 'off' ? false : ORCHESTRATOR_WEB_ACCESS_DEFAULT,
       theme: {
         choice: isThemeChoice(choice) ? choice : THEME_SETTING_DEFAULT.choice,
         light: isThemeOf('light', light) ? light : THEME_SETTING_DEFAULT.light,
@@ -123,6 +128,11 @@ export function createSettingsRepo(db: Db): SettingsRepo {
         .insert(appSettings)
         .values({ key: WHEN_CLOSED, value: v })
         .onConflictDoUpdate({ target: appSettings.key, set: { value: v } })
+      return get()
+    },
+    async setOrchestratorWebAccess(on) {
+      if (typeof on !== 'boolean') throw new Error('Let the orchestrator read web pages must be on or off')
+      await put(ORCHESTRATOR_WEB, on ? 'on' : 'off')
       return get()
     },
     async setTheme(v) {

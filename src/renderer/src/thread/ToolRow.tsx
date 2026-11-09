@@ -34,7 +34,7 @@ function splitInput(name: string, input: unknown): { command: string | null; res
 /** What the tool acted on, from its input: a file, a pattern or a command; null when there is nothing to name. */
 export function toolTarget(input: unknown): string | null {
   if (typeof input !== 'object' || input === null) return null
-  for (const key of ['file_path', 'notebook_path', 'path', 'pattern', 'command']) {
+  for (const key of ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query']) {
     const value = (input as Record<string, unknown>)[key]
     if (typeof value === 'string' && value !== '') return value
   }

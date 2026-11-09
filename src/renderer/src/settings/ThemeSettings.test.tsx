@@ -16,7 +16,7 @@ let storedTheme: ThemeSetting
 beforeEach(() => {
   mockInvoke.mockReset()
   storedTheme = { choice: 'light', light: 'light', dark: 'dark' }
-  const settings = () => ({ maxAgents: 3, whenClosed: 'tray', theme: storedTheme })
+  const settings = () => ({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: storedTheme })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
     if (command === 'settings.get') return settings()
     if (command === 'settings.setTheme') {

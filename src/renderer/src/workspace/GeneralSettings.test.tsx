@@ -16,7 +16,7 @@ beforeEach(() => {
   mockInvoke.mockReset()
   stored = 3
   storedClose = 'tray'
-  const settings = () => ({ maxAgents: stored, whenClosed: storedClose, theme: { choice: 'light', light: 'light', dark: 'dark' } })
+  const settings = () => ({ maxAgents: stored, whenClosed: storedClose, orchestratorWebAccess: true, theme: { choice: 'light', light: 'light', dark: 'dark' } })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
     if (command === 'settings.get') return settings()
     if (command === 'settings.setMaxAgents') {
