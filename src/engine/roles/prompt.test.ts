@@ -161,7 +161,8 @@ describe('buildRolePrompt', () => {
       expect(prompt).toContain(`## Your role: ${d.name}
 ${d.instructions}`)
     }
-    expect(implementer!.instructions).toContain('run only the tests that cover the code you changed')
+    expect(implementer!.instructions).toContain('run only the tests related to your change')
+    expect(implementer!.instructions).toContain('as its CLAUDE.md or README says')
     expect(reviewer!.instructions).toContain('run the full test suite')
     expect(reviewer!.instructions).toContain('You may skip the tests only when the branch changes no code')
   })

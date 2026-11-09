@@ -40,7 +40,7 @@ function newRole(id: string, name: string, extra: Partial<LineupRoleInput> = {})
 describe('default lineup', () => {
   it('tells the Implementer to run related tests and the full type check, and the Reviewer to run everything', () => {
     const [planner, implementer, reviewer] = defaultLineup()
-    expect(implementer!.instructions).toContain('run only the tests that cover the code you changed')
+    expect(implementer!.instructions).toContain('run only the tests related to your change')
     expect(implementer!.instructions).toContain('full type check (or its build, if it has no type check)')
     expect(implementer!.instructions).toContain('say which tests you ran')
     expect(implementer!.instructions).toContain("Don't tick a criterion about the full test suite: the Reviewer runs it.")
@@ -53,6 +53,25 @@ describe('default lineup', () => {
     expect(implementer!.instructions).toContain('compare it with them before blaming your change')
     expect(implementer!.instructions).toContain('say which tests you ran and which known failures you saw')
     expect(reviewer!.instructions).toContain('compare the failures with them before blaming the branch, and say in your summary which known failures you saw')
+  })
+
+  it('tells the Implementer how to find related tests, naming no one tool or package manager', () => {
+    const [planner, implementer, reviewer] = defaultLineup()
+    const text = implementer!.instructions
+    expect(text).toContain("use the test runner's way of running tests related to changed files if it has one")
+    expect(text).toContain('(for example `vitest related`, `jest --findRelatedTests`), otherwise the test files for the code you changed')
+    expect(text).toContain("Use the repository's own package manager and commands, as its CLAUDE.md or README says.")
+    expect(text).toContain("Don't run the full test suite while working: the Reviewer runs it.")
+    expect(text).not.toMatch(/\b(npm|npx|pnpm|yarn)\b/)
+    expect(text).not.toContain('run only the tests that cover the code you changed')
+    // The Planner and Reviewer texts are unchanged.
+    expect(planner!.instructions).toBe(
+      'Read the ticket and the code it touches. Work out the approach: the files to change, the design, and the ' +
+        "tests that will prove it. Don't change any files. Hand off with the plan as your summary and anything the " +
+        'Implementer must watch for in notes_for_next.'
+    )
+    expect(reviewer!.instructions).toMatch(/^Review the branch's changes against the user's words/)
+    expect(reviewer!.instructions).toMatch(/When it's right, hand off with a short review summary\.$/)
   })
 
   it('lets the Reviewer skip the tests only when no code changed, and say so', () => {

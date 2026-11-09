@@ -22,7 +22,7 @@ export interface LineupRepo {
 }
 
 // The ids here only link the defaults to each other; saving gives every role a fresh one.
-// Migrations 0002, 0012, 0020, 0033 and 0034 have their own copies of these texts, as they were when each was written.
+// Migrations 0002, 0012, 0020, 0033, 0034 and 0035 have their own copies of these texts, as they were when each was written.
 /** The lineup every new workspace starts with: Planner → Implementer → Reviewer. */
 export function defaultLineup(): LineupRoleInput[] {
   return [
@@ -45,7 +45,11 @@ export function defaultLineup(): LineupRoleInput[] {
       name: 'Implementer',
       instructions:
         'Make the change and its tests, following the plan from the previous role unless the code shows it is ' +
-        'wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. ' +
+        'wrong (then say why in your handoff). While you work, run only the tests related to your change: use the ' +
+        "test runner's way of running tests related to changed files if it has one (for example `vitest related`, " +
+        "`jest --findRelatedTests`), otherwise the test files for the code you changed. Use the repository's own " +
+        "package manager and commands, as its CLAUDE.md or README says. Don't run the full test suite while " +
+        'working: the Reviewer runs it. ' +
         "Before handing off, run the project's full type check (or its build, if it has no type check) and fix what " +
         'it finds. If a test fails and Mainbus lists known failures on the base branch, compare it with them before ' +
         'blaming your change. Commit your work on the branch before handing off. In notes_for_next, say which tests ' +
