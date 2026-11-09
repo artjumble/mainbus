@@ -220,7 +220,7 @@ export function createDecisionRepo(db: Db, now: () => Date): DecisionRepo {
     },
 
     expire(id) {
-      return settle(id, { status: 'expired' })
+      return settle(id, { status: 'expired', answeredAt: now().toISOString() })
     },
 
     defer,

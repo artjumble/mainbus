@@ -5,7 +5,7 @@ import type { Repos } from '../store'
 import type { StuckHit } from '../store/stuck'
 import { STUCK } from './config'
 import type { RunObservation } from './observation'
-import { evaluate, lastMilestoneAt, toolKindsSeen, turnRules, type RuleInput } from './rules'
+import { decisionTimes, evaluate, lastMilestoneAt, toolKindsSeen, turnRules, type RuleInput } from './rules'
 
 /** What the detector tells the run's thread about an episode. */
 export interface StuckNote {
@@ -16,7 +16,7 @@ export interface StuckNote {
 }
 
 export interface StuckDetectorDeps {
-  repos: Pick<Repos, 'runs' | 'holds' | 'stuck'>
+  repos: Pick<Repos, 'runs' | 'holds' | 'stuck' | 'decisions'>
   /** The time the check reads; the same clock the thread's events are stamped with. */
   now: () => Date
   /** Schedules the periodic check; tests pass a fake. */
@@ -110,6 +110,8 @@ export class StuckDetector {
     const filesChangedAt = obs.worktreePath === null ? null : await this.deps.newestChange(obs.worktreePath)
     const committedAt = await this.committedAt(obs, now)
     const wait = obs.declaredWait
+    const own = (await repos.decisions.forTicket(ticketId)).filter((d) => d.agentRunId === obs.runId)
+    const waits = decisionTimes(own, obs.live.turnStartedAt, now)
     const input: RuleInput = {
       now,
       events: obs.events,
@@ -119,6 +121,8 @@ export class StuckDetector {
       inTurn: obs.live.inTurn,
       // Silence is counted from the end of a wait that has passed, so a long build isn't reported the moment it ends.
       waitEndedAt: wait === null ? null : Date.parse(wait.until),
+      lastDecisionSettledAt: waits.settledAt,
+      decisionOpenMs: waits.openMs,
       filesChangedAt,
       committedAt
     }

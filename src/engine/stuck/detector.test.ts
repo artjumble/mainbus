@@ -557,3 +557,111 @@ describe('the milestone rule', () => {
     expect(await episode()).toBeNull()
   })
 })
+
+describe('time spent waiting on the user', () => {
+  type Kind = 'permission' | 'question' | 'deferred' | 'expired'
+  const HOUR = 60 * MIN
+
+  async function openDecision(kind: Kind) {
+    const d = await repos.decisions.open({
+      ticketId,
+      agentRunId: runId,
+      kind: kind === 'permission' ? 'permission' : 'question',
+      question: 'Run npm test?',
+      options: ['Yes', 'No'],
+      recommended: null,
+      allowAlways: false
+    })
+    if (kind === 'deferred') await repos.decisions.defer(d.id, iso(now() + 100 * HOUR))
+    return d
+  }
+
+  async function settle(kind: Kind, id: string): Promise<void> {
+    if (kind === 'expired') await repos.decisions.expire(id)
+    else await repos.decisions.answer(id, { kind: 'option', index: 0 } as never, 'board')
+  }
+
+  /** The agent is silent from the start of its turn; `turnMs` before now, so it spans the whole wait. */
+  function silentSince(startedAt: number, extra: Partial<RunObservation> = {}): void {
+    scene = () => ({ live: { lastActivityAt: startedAt, startedAt, turnStartedAt: startedAt, inTurn: true }, ...extra })
+  }
+
+  test.each(['permission', 'question', 'deferred', 'expired'] as const)('a %s decision: no hit at the answer, silence counts from it', async (kind) => {
+    const startedAt = now()
+    silentSince(startedAt)
+    const d = await openDecision(kind)
+    await clock.advance(45 * MIN)
+    await settle(kind, d.id)
+    await detector.check()
+    expect(await episode()).toBeNull()
+    await clock.advance(9 * MIN)
+    await detector.check()
+    expect(await episode()).toBeNull()
+    await clock.advance(MIN)
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule: 'silence', evidence: ['No events from the agent for 10 minutes'] })
+  })
+
+  test('no progress counts from the answer', async () => {
+    const startedAt = now()
+    // Events keep the agent from being silent; one tool seen long ago is the only progress.
+    scene = () => ({ live: { lastActivityAt: now(), startedAt, turnStartedAt: startedAt, inTurn: true } })
+    const d = await openDecision('permission')
+    await clock.advance(45 * MIN)
+    await settle('permission', d.id)
+    await detector.check()
+    expect(await episode()).toBeNull()
+    await clock.advance(14 * MIN)
+    await detector.check()
+    expect(await episode()).toBeNull()
+    await clock.advance(MIN)
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule: 'no_progress', evidence: [expect.stringContaining('for 15 minutes')] })
+  })
+
+  test('the milestone rule counts from the answer', async () => {
+    const startedAt = now()
+    scene = () => ({ live: { lastActivityAt: now(), startedAt, turnStartedAt: startedAt, inTurn: true } })
+    const d = await openDecision('question')
+    await clock.advance(45 * MIN)
+    await settle('question', d.id)
+    files = now()
+    await detector.check()
+    expect(await episode()).toBeNull()
+    await clock.advance(29 * MIN)
+    files = now()
+    await detector.check()
+    expect(await episode()).toBeNull()
+    await clock.advance(MIN)
+    files = now()
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule: 'no_milestone' })
+  })
+
+  test('the turn ceiling leaves out the time decisions were open', async () => {
+    const turnStart = now()
+    const d = await openDecision('permission')
+    await clock.advance(8 * HOUR)
+    await settle('permission', d.id)
+    await clock.advance(5 * MIN)
+    scene = () => ({
+      live: { lastActivityAt: now(), startedAt: turnStart, turnStartedAt: turnStart, inTurn: true },
+      events: [stored(now() - MIN, { kind: 'message', text: 'Still on it' })]
+    })
+    files = now() - MIN
+    await detector.check()
+    expect(await episode()).toBeNull()
+  })
+
+  test('the turn ceiling still fires without decisions, and counts open decisions only once', async () => {
+    const turnStart = now()
+    scene = () => ({
+      live: { lastActivityAt: now(), startedAt: turnStart, turnStartedAt: turnStart, inTurn: true },
+      events: [stored(now() - MIN, { kind: 'message', text: 'Still on it' })]
+    })
+    await clock.advance(181 * MIN)
+    files = now() - MIN
+    await detector.check()
+    expect(await episode()).toMatchObject({ rule: 'long_turn' })
+  })
+})
