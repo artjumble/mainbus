@@ -12,6 +12,7 @@ import { makeRepo } from './intake/testBoard'
 import { FakeRuntime, type FakeStep } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
 import type { SetupCommandRequest, SetupCommandResult } from './setup/setupCommand'
+import { eventually } from './testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -68,7 +69,7 @@ const newTicket = (engine: Engine, title: string): Promise<Ticket> =>
 async function recordRun(engine: Engine): Promise<void> {
   await engine.invoke('workspace.setTestCommands', [{ name: 'Unit', command: 'run --out <results>', format: 'junit-xml' }])
   await engine.invoke('workspace.runBaseTests')
-  await vi.waitFor(async () => expect((await engine.invoke('workspace.baseTests')).summary).not.toBeNull(), { timeout: 15_000 })
+  await eventually(async () => expect((await engine.invoke('workspace.baseTests')).summary).not.toBeNull(), { timeout: 15_000 })
 }
 
 describe('base branch tests', () => {
@@ -96,7 +97,7 @@ describe('base branch tests', () => {
     await recordRun(engine)
     const t = await newTicket(engine, 'Do it')
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1), { timeout: 15_000 })
+    await eventually(() => expect(runtime.specs).toHaveLength(1), { timeout: 15_000 })
     const prompt = runtime.specs[0]!.appendSystemPrompt
     expect(prompt).toContain('## Known test results on the base branch')
     expect(prompt).toContain('- Unit: math > divides')

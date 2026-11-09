@@ -12,6 +12,7 @@ import type { SetupCommandRequest, SetupCommandResult, SetupCommandRunner } from
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
+import { eventually } from '../testWait'
 
 let tmp: string
 let repoPath: string
@@ -26,7 +27,7 @@ let setup: FakeSetup
 
 /** vi.waitFor with room for a busy machine. */
 function waitFor<T>(fn: () => T | Promise<T>): Promise<T> {
-  return vi.waitFor(fn, { timeout: 10_000 })
+  return eventually(fn, { timeout: 10_000 })
 }
 
 const working: FakeStep[] = [{ emit: { kind: 'session', sessionId: 's1' } }, { waitForSend: true }]

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EngineEvent } from '../shared/api'
 import { openDb } from './db/open'
 import { runCommand } from './git/command'
@@ -14,6 +14,7 @@ import type { ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
 import { ProcessSweeper } from './processes/sweep'
 import { createRepos } from './store'
+import { eventually } from './testWait'
 
 const migrationsDir = path.join(import.meta.dirname, 'db', 'migrations')
 
@@ -121,7 +122,7 @@ describe('createEngine', () => {
     const t = await engine.invoke('ticket.create', newTicket)
     await engine.invoke('agent.start', t.id)
 
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
     const { events, decisions } = await engine.invoke('thread.get', t.id)
     expect(decisions[0]).toMatchObject({ question: 'Which?', status: 'pending' })
     expect(events.some((e) => e.event.kind === 'decision')).toBe(true)
@@ -142,10 +143,10 @@ describe('createEngine', () => {
     const t = await engine.invoke('ticket.create', newTicket)
 
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
     await engine.invoke('agent.stop', t.id)
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(2))
+    await eventually(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(2))
 
     const { events, decisions } = await engine.invoke('thread.get', t.id)
     const runIds = [...new Set(events.map((e) => e.runId))]
@@ -178,7 +179,7 @@ describe('createEngine', () => {
     const t = await engine.invoke('ticket.create', newTicket)
     expect((await engine.invoke('ticket.time', t.id)).runCount).toBe(0)
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('thread.get', t.id)).decisions).toHaveLength(1))
     const time = await engine.invoke('ticket.time', t.id)
     expect(time.runCount).toBe(1)
     expect(time.toReviewMs).toBeNull()
@@ -216,7 +217,7 @@ describe('createEngine', () => {
       ])
 
       await engine.invoke('agent.start', t.id)
-      await vi.waitFor(async () =>
+      await eventually(async () =>
         expect(await stripOf(engine)).toEqual([
           ['Planner', 'handed_off', false],
           ['Implementer', 'working', true],
@@ -239,7 +240,7 @@ describe('createEngine', () => {
       const t = await engine.invoke('ticket.create', newTicket)
       const lineup = await engine.invoke('lineup.get')
       await engine.invoke('agent.start', t.id, { roleIds: [lineup[1]!.id, lineup[2]!.id] })
-      await vi.waitFor(async () =>
+      await eventually(async () =>
         expect(await stripOf(engine)).toEqual([
           ['Implementer', 'working', true],
           ['Reviewer', 'not_started', false]
@@ -252,7 +253,7 @@ describe('createEngine', () => {
       await engine.invoke('workspace.open', repoPath)
       const t = await engine.invoke('ticket.create', newTicket)
       await engine.invoke('agent.start', t.id)
-      await vi.waitFor(async () => expect((await stripOf(engine))[1]).toEqual(['Implementer', 'working', true]))
+      await eventually(async () => expect((await stripOf(engine))[1]).toEqual(['Implementer', 'working', true]))
       await engine.invoke('agent.stop', t.id)
       expect(await engine.invoke('ticket.move', t.id, 'done')).toBe('moved')
       expect(await stripOf(engine)).toEqual([
@@ -564,7 +565,7 @@ describe('pull requests', () => {
     await engine.invoke('agent.start', ticket.id)
     // Planner, Implementer and Reviewer hand off in turn; only the Reviewer's handoff pushes.
     for (const i of [0, 1, 2]) {
-      const spec = await vi.waitFor(() => {
+      const spec = await eventually(() => {
         expect(runtime.specs[i]).toBeDefined()
         return runtime.specs[i]!
       })
@@ -573,7 +574,7 @@ describe('pull requests', () => {
       await spec.roleTools.handoff({ summary: 'Done', notesForNext: '' })
     }
     const pr = { url: 'https://github.com/example/repo/pull/1', number: 1 }
-    await vi.waitFor(async () => expect((await engine.invoke('board.get')).tickets[0]).toMatchObject({ pr, prError: null }), {
+    await eventually(async () => expect((await engine.invoke('board.get')).tickets[0]).toMatchObject({ pr, prError: null }), {
       timeout: 20_000,
       interval: 50
     })
@@ -595,7 +596,7 @@ describe('createEngine: restart recovery', () => {
     await first.invoke('workspace.open', repoPath)
     const created = await first.invoke('ticket.create', newTicket)
     await first.invoke('agent.start', created.id)
-    await vi.waitFor(async () => expect((await first.invoke('thread.get', created.id)).events.some((e) => e.event.kind === 'message')).toBe(true))
+    await eventually(async () => expect((await first.invoke('thread.get', created.id)).events.some((e) => e.event.kind === 'message')).toBe(true))
     await first.invoke('unattended.set', true)
     await first.dispose()
 
@@ -631,9 +632,10 @@ describe('createEngine: restart recovery', () => {
     expect((await engine.invoke('unattended.get')).on).toBe(false)
 
     release()
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 'sess-1', prompt: 'Mainbus restarted; continue where you left off.' })
-    await vi.waitFor(async () => expect((await engine.invoke('unattended.get')).on).toBe(true))
+    await eventually(async () => expect((await engine.invoke('unattended.get')).on).toBe(true))
   })
 })
 

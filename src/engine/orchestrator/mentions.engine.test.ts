@@ -8,6 +8,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -47,7 +48,7 @@ async function start() {
   return { engine, mainbus, hunter }
 }
 
-const idle = (e: Engine) => vi.waitFor(async () => expect((await e.invoke('orchestrator.get')).status).toBe('idle'))
+const idle = (e: Engine) => eventually(async () => expect((await e.invoke('orchestrator.get')).status).toBe('idle'))
 const userEvents = async (e: Engine) =>
   (await e.invoke('orchestrator.get')).events.map((x) => x.event).filter((x) => x.kind === 'user_message')
 

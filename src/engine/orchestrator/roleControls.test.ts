@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { runGit } from '../git/git'
 import { resolveHome, type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
@@ -52,10 +53,10 @@ describe('pause, stop and skip proposals', () => {
     const t = await newTicket(engine, 'ready')
     await engine.invoke('agent.start', t.id)
     await engine.invoke('orchestrator.send', 'Look at the login ticket')
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     const tools = runtime.orchestratorSpecs[0]!.tools
     const state = async () => (await engine.invoke('board.get')).tickets.find((x) => x.id === t.id)!.state
-    await vi.waitFor(async () => expect((await state()).agentStatus).toBe('working'))
+    await eventually(async () => expect((await state()).agentStatus).toBe('working'))
     const proposals = async () => (await engine.invoke('orchestrator.get')).proposals
     return { runtime, engine, t, tools, state, proposals }
   }
@@ -106,7 +107,8 @@ describe('pause, stop and skip proposals', () => {
     expect(p!.payload).toMatchObject({ role: 'Planner', next: 'Implementer' })
     const done = await engine.invoke('proposal.confirm', p!.id)
     expect(done).toMatchObject({ status: 'confirmed', result: { role: 'Planner', next: 'Implementer' } })
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
     expect(runtime.specs[1]!.role).toBe('Implementer')
   })
 
@@ -117,8 +119,9 @@ describe('pause, stop and skip proposals', () => {
     const [skipP, pauseP] = await proposals()
     // The user skips the Planner by hand first: the Implementer is now the active role.
     await engine.invoke('agent.skip', t.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
-    await vi.waitFor(async () => expect((await state()).agentStatus).toBe('working'))
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
+    await eventually(async () => expect((await state()).agentStatus).toBe('working'))
 
     const failedSkip = await engine.invoke('proposal.confirm', skipP!.id)
     expect(failedSkip.status).toBe('failed')
@@ -166,7 +169,8 @@ describe('a card dragged into In progress', () => {
     expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1)
 
     await engine.invoke('proposal.confirm', p.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect((await engine.invoke('board.get')).tickets[0]!.state.column).toBe('in_progress')
     await expect(engine.invoke('ticket.proposeStart', t.id)).rejects.toThrow(`#${t.number} is already running`)
   })
@@ -178,7 +182,7 @@ describe('a card dragged into In progress', () => {
     const engine = await makeEngine(runtime)
     const t = await newTicket(engine, 'backlog')
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
 
     const p = await engine.invoke('ticket.proposeStart', t.id)
     expect((await engine.invoke('orchestrator.get')).status).toBe('idle')
@@ -187,7 +191,7 @@ describe('a card dragged into In progress', () => {
     expect((await engine.invoke('board.get')).tickets[0]!.state.column).toBe('backlog')
 
     await engine.invoke('orchestrator.send', 'Any news?')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     expect(runtime.sent[0]!).toContain(
       `- Proposal ${p.id} (start a ticket, made by the user dragging the card into In progress): rejected by the user.`
     )

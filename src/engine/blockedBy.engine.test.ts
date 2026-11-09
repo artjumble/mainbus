@@ -10,6 +10,7 @@ import { createEngine, type Engine } from './index'
 import { makeRepo } from './intake/testBoard'
 import { FakeRuntime, type FakeStep } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
+import { eventually } from './testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -53,7 +54,7 @@ const ticketOf = async (engine: Engine, id: string): Promise<BoardTicket> => (aw
 
 async function liveTools(engine: Engine, runtime: FakeRuntime) {
   await engine.invoke('orchestrator.send', 'Hello')
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   return runtime.orchestratorSpecs[0]!.tools
 }
 
@@ -94,7 +95,7 @@ describe('starting a blocked ticket', () => {
     expect(runtime.specs).toEqual([])
 
     await engine.invoke('agent.start', b.id, { startAnyway: true })
-    await vi.waitFor(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
+    await eventually(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
     expect((await ticketOf(engine, b.id)).dependencyNotes).toEqual([
       expect.objectContaining({ kind: 'started_blocked', via: 'ticket', blockers: [{ number: 1, title: 'First' }] })
     ])
@@ -109,7 +110,7 @@ describe('starting a blocked ticket', () => {
     const b = await newTicket(engine, 'Second', 'ready', [a.id])
     await engine.invoke('ticket.move', a.id, 'done')
     await engine.invoke('agent.start', b.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
+    await eventually(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
     expect((await ticketOf(engine, b.id)).dependencyNotes.filter((n) => n.kind === 'started_blocked')).toEqual([])
   })
 
@@ -135,12 +136,12 @@ describe('starting a blocked ticket', () => {
     const a = await newTicket(engine, 'First')
     const b = await newTicket(engine, 'Second', 'ready', [a.id])
     await engine.invoke('unattended.set', true)
-    await vi.waitFor(async () => expect((await engine.invoke('unattended.get')).status.kind).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('unattended.get')).status.kind).toBe('idle'))
     expect(runtime.specs).toEqual([])
     expect((await ticketOf(engine, b.id)).state.column).toBe('ready')
 
     await engine.invoke('ticket.move', a.id, 'done')
-    await vi.waitFor(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
+    await eventually(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
     expect(runtime.specs).toHaveLength(1)
   })
 })
@@ -166,7 +167,7 @@ describe('start proposals', () => {
 
     const confirmed = await engine.invoke('proposal.confirm', proposal.id)
     expect(confirmed.status).toBe('confirmed')
-    await vi.waitFor(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
+    await eventually(async () => expect((await ticketOf(engine, b.id)).state.column).toBe('in_progress'))
     expect(runtime.specs).toHaveLength(1)
     expect((await ticketOf(engine, b.id)).dependencyNotes).toEqual([expect.objectContaining({ kind: 'started_blocked', via: 'proposal' })])
   })

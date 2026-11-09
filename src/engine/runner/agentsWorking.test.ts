@@ -11,6 +11,7 @@ import type { SetupCommandResult } from '../setup/setupCommand'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
+import { eventually } from '../testWait'
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -75,9 +76,9 @@ describe('TicketRunner.agentsWorking', () => {
     const r = makeRunner([{ waitForSend: true }], (signal) => new Promise((resolve) => signal.addEventListener('abort', () => resolve({ exitCode: null, timedOut: false, aborted: true, tail: [] }))))
     const t = await newTicket()
     void r.start(t.id)
-    await vi.waitFor(() => expect(r.agentsWorking()).toBe(true))
+    await eventually(() => expect(r.agentsWorking()).toBe(true))
     await r.stop(t.id)
-    await vi.waitFor(() => expect(r.agentsWorking()).toBe(false))
+    await eventually(() => expect(r.agentsWorking()).toBe(false))
   })
 
   it('is false while an agent has asked the user a question and is waiting for the answer', async () => {
@@ -85,8 +86,8 @@ describe('TicketRunner.agentsWorking', () => {
     const t = await newTicket()
     await r.start(t.id)
     // The turn ends with a question pending; the run stays open, waiting for the user.
-    await vi.waitFor(async () => expect(await repos.decisions.pending(t.id)).toHaveLength(1))
-    await vi.waitFor(() => expect(r.agentsWorking()).toBe(false))
+    await eventually(async () => expect(await repos.decisions.pending(t.id)).toHaveLength(1))
+    await eventually(() => expect(r.agentsWorking()).toBe(false))
     await r.stop(t.id)
   })
 

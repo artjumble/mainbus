@@ -10,6 +10,7 @@ import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import { orchestratorImagesFolder } from './images'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -51,7 +52,7 @@ const turnEnd: FakeStep = { emit: { kind: 'turn_end', ok: true } }
 const IDLE_TURNS: FakeStep[] = [{ emit: { kind: 'session', sessionId: 'sess-1' } }, turnEnd, ...Array.from({ length: 4 }, () => [{ waitForSend: true }, turnEnd] as FakeStep[]).flat()]
 
 async function idle(engine: Engine): Promise<void> {
-  await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+  await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
 }
 
 async function userEvents(engine: Engine) {
@@ -110,7 +111,7 @@ describe('orchestrator.send with images', () => {
     expect(runtime.orchestratorSpecs[0]!.promptImages).toBeUndefined()
 
     await engine.invoke('orchestrator.send', '', [{ name: 'pasted-image.png', bytes: png() }])
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     await idle(engine)
     expect(runtime.sentImages[0]).toEqual([{ mime: 'image/png', base64: base64(png()) }])
     expect(runtime.sent[0]).toMatch(/\n\n\[Mainbus\] The user sent this image with the message.*\n- pasted-image\.png: /)
@@ -194,7 +195,7 @@ describe('images on the tickets the orchestrator creates', () => {
     return { runtime, engine, ws }
   }
   const tools = async (runtime: FakeRuntime) => {
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     return runtime.orchestratorSpecs[0]!.tools
   }
   const board = async (engine: Engine) => (await engine.invoke('board.get')).tickets
@@ -237,7 +238,7 @@ describe('images on the tickets the orchestrator creates', () => {
     const t = await tools(runtime)
     await idle(engine)
     await engine.invoke('orchestrator.send', 'Make a ticket for it')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
 
     const refused = await t.createTickets({ workspace: ws.name, tickets: [{ title: 'Fix the bug', images: ['bug.png'] }] })
     expect(refused).toBe("Invalid: tickets.0.images: bug.png is not an image the user sent in the request's messages (they sent none). Nothing was created; fix it and try again.")

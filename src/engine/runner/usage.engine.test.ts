@@ -11,11 +11,12 @@ import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { RunSpec } from '../runtime/types'
+import { eventually } from '../testWait'
 
 vi.setConfig({ testTimeout: 30_000 })
 
 /** vi.waitFor with room for a loaded machine: a launch makes a git worktree. */
-const waitFor: typeof vi.waitFor = (fn, options) => vi.waitFor(fn, { timeout: 10_000, ...(typeof options === 'object' ? options : {}) })
+const waitFor: typeof vi.waitFor = (fn, options) => eventually(fn, { timeout: 10_000, ...(typeof options === 'object' ? options : {}) })
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })

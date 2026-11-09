@@ -11,6 +11,7 @@ import { makeRepo } from '../intake/testBoard'
 import { ATTACHMENTS_HEADING } from '../roles/prompt'
 import { FakeRuntime, scriptFromFile, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -145,7 +146,8 @@ describe('agents', () => {
     const t = await create()
     await engine.invoke('attachment.add', t.id, 'shot.png', png())
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
 
     const spec = runtime.specs[0]!
     const copy = path.join(spec.tempDir, 'attachments', 'shot.png')
@@ -158,16 +160,16 @@ describe('agents', () => {
 
     // The scripted agent read it from the path in its prompt, with no permission card.
     const reads = async () => (await engine.invoke('thread.get', t.id)).events.filter((e) => e.event.kind === 'tool_result')
-    await vi.waitFor(async () => expect(await reads()).toHaveLength(1))
+    await eventually(async () => expect(await reads()).toHaveLength(1))
     expect((await reads())[0]!.event).toMatchObject({ ok: true })
 
     // An image added mid-run is copied over and announced through the agent's input queue, not by interrupting it.
     await engine.invoke('attachment.add', t.id, 'second.png', png(2))
     const second = path.join(spec.tempDir, 'attachments', 'second.png')
-    await vi.waitFor(() => expect(runtime.sent).toContain(`The user attached second.png: ${second}`))
+    await eventually(() => expect(runtime.sent).toContain(`The user attached second.png: ${second}`))
     expect(await fs.readFile(second)).toEqual(Buffer.from(png(2)))
     expect(runtime.interrupted).toEqual([])
-    await vi.waitFor(async () => expect((await ticket(t.id)).state.column).toBe('review'))
+    await eventually(async () => expect((await ticket(t.id)).state.column).toBe('review'))
     const thread = await engine.invoke('thread.get', t.id)
     expect(thread.decisions).toEqual([])
     expect(thread.events.filter((e) => e.event.kind === 'tool_result').map((e) => e.event)).toEqual([
@@ -192,9 +194,9 @@ describe('agents', () => {
     const t = await create()
     const a = await engine.invoke('attachment.add', t.id, 'shot.png', png())
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', t.id)).events.some((e) => e.event.kind === 'tool_result')).toBe(true))
+    await eventually(async () => expect((await engine.invoke('thread.get', t.id)).events.some((e) => e.event.kind === 'tool_result')).toBe(true))
     await engine.invoke('attachment.remove', a.id)
-    await vi.waitFor(() => expect(runtime.sent).toContain('The user removed the attachment shot.png; its copy is gone from your scratch folder.'))
+    await eventually(() => expect(runtime.sent).toContain('The user removed the attachment shot.png; its copy is gone from your scratch folder.'))
     expect(existsSync(path.join(runtime.specs[0]!.tempDir, 'attachments', 'shot.png'))).toBe(false)
     expect(runtime.interrupted).toEqual([])
   })
@@ -206,7 +208,7 @@ describe('lifetime', () => {
     const t = await engine.invoke('ticket.create', { title: 'Why', intent: 'Find out', spec: '', criteria: [], labels: [], column: 'ready', kind: 'investigate' })
     await engine.invoke('attachment.add', t.id, 'shot.png', png(7))
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await ticket(t.id)).state.column).toBe('review'))
+    await eventually(async () => expect((await ticket(t.id)).state.column).toBe('review'))
     const created = await engine.invoke('ticket.promote', t.id, { title: 'Fix it', spec: 'Do it' })
     const [copy] = await engine.invoke('attachment.list', created.id)
     expect(copy).toMatchObject({ ticketId: created.id, filename: 'shot.png', size: 13 })
@@ -236,7 +238,7 @@ describe('the orchestrator', () => {
     const t = await create()
     const a = await engine.invoke('attachment.add', t.id, 'shot.png', png())
     await engine.invoke('orchestrator.send', 'What is on #1?')
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     const spec = runtime.orchestratorSpecs[0]!
     const file = path.join(attachmentFoldersFor(paths, ws.slug), String(t.number), `${a.id}-shot.png`)
 

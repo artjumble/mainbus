@@ -15,6 +15,7 @@ import { createRepos, type Repos } from '../store'
 import { defaultInvestigateLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner, type RunnerDeps } from './ticketRunner'
+import { eventually } from '../testWait'
 
 // The report's tests commit in a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -136,7 +137,7 @@ describe('Investigate tickets', () => {
     expect((await thread(investigation.id)).find((e) => e.kind === 'report')).toEqual({ kind: 'report', markdown: REPORT })
     expect(await runner.stateOf(investigation.id)).toMatchObject({ column: 'review', phase: 'ready_for_review' })
     expect((await repos.runs.latest(investigation.id))!.endReason).toBe('handoff')
-    await vi.waitFor(async () => expect((await repos.tickets.get(investigation.id)).reportCommit).not.toBeNull(), { timeout: 15_000 })
+    await eventually(async () => expect((await repos.tickets.get(investigation.id)).reportCommit).not.toBeNull(), { timeout: 15_000 })
     await new Promise((r) => setTimeout(r, 100))
     expect(publish).not.toHaveBeenCalled()
     await expect(runner.openPr(investigation.id)).rejects.toThrow(/Open a PR when a ticket reaches Review/)
@@ -148,7 +149,7 @@ describe('Investigate tickets', () => {
     const file = `docs/investigations/${date}-2-why-is-login-slow.md`
 
     async function saved(): Promise<Ticket> {
-      await vi.waitFor(async () => {
+      await eventually(async () => {
         const t = await repos.tickets.get(investigation.id)
         expect(t.reportCommit ?? t.reportFileError).not.toBeNull()
       }, { timeout: 15_000 })
@@ -251,10 +252,11 @@ describe('Investigate tickets', () => {
       // Start again, another day: the file keeps its name.
       clock = new Date(FIXED_NOW.getTime() + 3 * 86_400_000)
       await first.runner.start(investigation.id)
-      await vi.waitFor(() => expect(first.runtime.specs).toHaveLength(2))
+      await first.runtime.started(2)
+      expect(first.runtime.specs).toHaveLength(2)
       const spec = first.runtime.specs[1]!
       expect(await spec.roleTools.submitReport({ markdown: '# Second\n' })).toMatch(/^Report submitted/)
-      await vi.waitFor(async () => expect((await repos.tickets.get(investigation.id)).reportCommit).not.toBe(first.ticket.reportCommit), {
+      await eventually(async () => expect((await repos.tickets.get(investigation.id)).reportCommit).not.toBe(first.ticket.reportCommit), {
         timeout: 15_000
       })
 
@@ -313,7 +315,7 @@ describe('Investigate tickets', () => {
     it('with PRs on, pushes the branch and opens a PR once the report is committed', async () => {
       await repos.workspaces.setOpenPrOnReview(workspaceId, true)
       const { ticket } = await submitted()
-      await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(1), { timeout: 15_000 })
+      await eventually(() => expect(publish).toHaveBeenCalledTimes(1), { timeout: 15_000 })
       const input = publish.mock.calls[0]![0] as PublishInput
       expect(input.ticket).toMatchObject({ id: investigation.id, kind: 'investigate', branch: ticket.branch, reportFile: file, reportCommit: ticket.reportCommit })
       expect(input.baseBranch).toBe('main')
@@ -362,10 +364,11 @@ describe('Investigate tickets', () => {
 
     await fs.writeFile(path.join(scout.cwd, 'scratch.txt'), 'uncommitted\n')
     expect(await scout.roleTools.handoff({ summary: 'looked', notesForNext: '' })).toMatch(/^Handed off/)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
     const writer = runtime.specs[1]!
     expect(writer).toMatchObject({ role: 'Writer', endsWithReport: true })
-    await vi.waitFor(async () => expect((await runner.stateOf(investigation.id)).agentStatus).toBe('working'))
+    await eventually(async () => expect((await runner.stateOf(investigation.id)).agentStatus).toBe('working'))
     expect(await writer.roleTools.submitReport({ markdown: REPORT })).toMatch(/^Report submitted/)
     expect(await runner.stateOf(investigation.id)).toMatchObject({ column: 'review', phase: 'ready_for_review' })
     expect(publish).not.toHaveBeenCalled()
@@ -373,7 +376,7 @@ describe('Investigate tickets', () => {
 
   it('nudges the last role to submit its report, not to commit', async () => {
     await startedInvestigation([{ emit: { kind: 'turn_end', ok: true } }, ...keepAlive])
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       const nudge = (await thread(investigation.id)).find((e) => e.kind === 'nudge')
       expect(nudge).toMatchObject({ text: expect.stringContaining('mcp__mainbus__submit_report') })
       expect(nudge).toMatchObject({ text: expect.not.stringContaining('commit') })

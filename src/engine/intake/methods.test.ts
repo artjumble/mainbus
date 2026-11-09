@@ -4,6 +4,7 @@ import type { EngineEvent } from '../../shared/api'
 import { FakeRuntime } from '../runtime/fakeRuntime'
 import { createIntakeHandler, IntakeFailure, isInside } from './methods'
 import { makeTestBoard, type TestBoard } from './testBoard'
+import { eventually } from '../testWait'
 
 let boards: TestBoard[] = []
 
@@ -226,7 +227,7 @@ describe('intake list and get', () => {
     const id = (await engine.invoke('board.get')).tickets[0]!.id
     await engine.invoke('ticket.move', id, 'ready')
     await engine.invoke('agent.start', id)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', id)).decisions).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('thread.get', id)).decisions).toHaveLength(1))
     expect((await engine.invoke('board.get')).tickets[0]!.state.summary).toBe('SECRET-DECISION-QUESTION')
 
     const replies = JSON.stringify([await engine.intake('list', { cwd: source.cwd }), await engine.intake('get', { cwd: source.cwd, number: 1 })])

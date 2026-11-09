@@ -15,6 +15,7 @@ import { defaultLineup } from '../store/lineups'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
+import { eventually } from '../testWait'
 
 const BRANCH = 'mainbus/1-rate-limit-login'
 const PR = { url: 'https://github.com/example/repo/pull/1', number: 1 }
@@ -127,7 +128,7 @@ async function remoteBranch(): Promise<string | null> {
 
 /** Waits until the ticket has a PR or a PR failure. */
 async function waitForOutcome(): Promise<Ticket> {
-  return vi.waitFor(async () => {
+  return eventually(async () => {
     const t = await repos.tickets.get(ticket.id)
     expect(t.pr ?? t.prError).not.toBeNull()
     return t
@@ -142,7 +143,7 @@ describe('TicketRunner opening pull requests', () => {
 
     expect(await handOff(runner, runtime)).toBe('Handed off. Your part is done; end your turn now.')
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' })
-    await vi.waitFor(() => expect(publishes).toBe(1))
+    await eventually(() => expect(publishes).toBe(1))
     expect(await remoteBranch()).toBeNull()
 
     openGate()
@@ -166,11 +167,11 @@ describe('TicketRunner opening pull requests', () => {
     await runner.start(ticket.id)
 
     for (const [i, role] of ['Planner', 'Implementer', 'Reviewer'].entries()) {
-      const spec = await vi.waitFor(() => {
+      const spec = await eventually(() => {
         expect(runtime.specs[i]).toBeDefined()
         return runtime.specs[i]!
       }, WAIT)
-      await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
+      await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
       expect(spec.appendSystemPrompt).toContain(`## Your role: ${role}\n`)
       // Nothing is pushed while a role is still to come.
       expect(publishes).toBe(0)
@@ -217,7 +218,7 @@ describe('TicketRunner opening pull requests', () => {
     await git(['commit', '-m', 'limiter'], wt)
     await runtime.specs[1].roleTools.handoff({ summary: 'Round two', notesForNext: '' })
 
-    await vi.waitFor(async () => expect((await thread()).some((e) => e.kind === 'pull_request')).toBe(true), WAIT)
+    await eventually(async () => expect((await thread()).some((e) => e.kind === 'pull_request')).toBe(true), WAIT)
     expect(await thread()).toContainEqual({ kind: 'pull_request', branch: BRANCH, ...PR, opened: false })
     expect(gh.prs).toHaveLength(1)
     expect(gh.calls.filter((a) => a[0] === 'pr')).toHaveLength(1)
@@ -256,7 +257,7 @@ describe('TicketRunner opening pull requests', () => {
     await repos.workspaces.setOpenPrOnReview(ticket.workspaceId, false)
     await runner.start(ticket.id)
     await runtime.specs[1].roleTools.handoff({ summary: 'Round two', notesForNext: '' })
-    await vi.waitFor(async () => expect((await repos.tickets.get(ticket.id)).prError).toBeNull(), WAIT)
+    await eventually(async () => expect((await repos.tickets.get(ticket.id)).prError).toBeNull(), WAIT)
   })
 
   it('never pushes a ticket that is not in Review, or is Done', async () => {
@@ -296,7 +297,7 @@ describe('TicketRunner opening pull requests', () => {
       signal: new AbortController().signal
     }
     void runtime.specs[0].onPermission(request)
-    await vi.waitFor(async () => expect(await repos.decisions.pending(ticket.id)).toHaveLength(1))
+    await eventually(async () => expect(await repos.decisions.pending(ticket.id)).toHaveLength(1))
     expect(await remoteBranch()).toBeNull()
   })
 })

@@ -48,7 +48,8 @@ async function renderLoaded(): Promise<void> {
 /** The Model and effort section starts collapsed. */
 async function openModels(): Promise<void> {
   await userEvent.click(screen.getByRole('button', { name: /Model and effort/ }))
-  await screen.findByLabelText('Model')
+  // Collapse shows its content one animation frame after it opens; before that it is hidden and has no accessible role.
+  await screen.findByRole('combobox', { name: 'Model' })
 }
 
 test('shows the lineup in order, with the first role open for editing', async () => {

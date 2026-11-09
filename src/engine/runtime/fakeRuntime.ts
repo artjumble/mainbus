@@ -196,6 +196,13 @@ export class FakeRuntime implements AgentRuntime {
   readonly summaries: SummaryRequest[] = []
   private readonly runs = new Map<string, Run>()
   private nextId = 1
+  private startWaiters: { count: number; resolve: () => void }[] = []
+
+  /** Resolves once start() has been called for `n` role runs in all (at once if it already has): a test's event to await instead of polling `specs`. */
+  started(n = 1): Promise<void> {
+    if (this.specs.length >= n) return Promise.resolve()
+    return new Promise((resolve) => this.startWaiters.push({ count: n, resolve }))
+  }
 
   constructor(
     /** The same steps for every run, or the steps for each run by its spec. */
@@ -233,7 +240,11 @@ export class FakeRuntime implements AgentRuntime {
 
   async start(spec: AnyRunSpec): Promise<RunHandle> {
     if (spec.kind === 'orchestrator') this.orchestratorSpecs.push(spec)
-    else this.specs.push(spec)
+    else {
+      this.specs.push(spec)
+      for (const waiter of this.startWaiters.filter((w) => this.specs.length >= w.count)) waiter.resolve()
+      this.startWaiters = this.startWaiters.filter((w) => this.specs.length < w.count)
+    }
     if (this.opts.rejectResume && spec.resumeSessionId) throw new ResumeFailedError()
     if (spec.resumeSessionId && this.opts.sessionsFile && !this.knownSessions().includes(spec.resumeSessionId)) throw new ResumeFailedError()
     const handle = { id: `fake-${this.nextId++}` }

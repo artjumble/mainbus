@@ -10,6 +10,7 @@ import { runGit } from '../git/git'
 import { FakeClock } from '../holds/clock'
 import { resolveHome } from '../home'
 import { FakeRuntime } from '../runtime/fakeRuntime'
+import { eventually } from '../testWait'
 
 vi.setConfig({ testTimeout: 60_000 })
 const WAIT = { timeout: 20_000, interval: 50 }
@@ -108,7 +109,7 @@ describe('a new ticket branch', () => {
 
     const t = await newTicket()
     await engine.invoke('agent.start', t.id, { roleIds: [implementer] })
-    const spec = await vi.waitFor(() => {
+    const spec = await eventually(() => {
       expect(runtime.specs[0]).toBeDefined()
       return runtime.specs[0]!
     }, WAIT)
@@ -128,7 +129,7 @@ describe('a new ticket branch', () => {
     await git(['remote', 'set-url', 'origin', path.join(tmp, 'missing.git')])
     const t = await newTicket()
     await engine.invoke('agent.start', t.id, { roleIds: [implementer] })
-    await vi.waitFor(() => expect(runtime.specs[0]).toBeDefined(), WAIT)
+    await eventually(() => expect(runtime.specs[0]).toBeDefined(), WAIT)
     const { events } = await engine.invoke('thread.get', t.id)
     const notice = events.find((e) => e.event.kind === 'notice')?.event
     expect(notice).toMatchObject({ kind: 'notice', text: expect.stringMatching(/^This branch starts from your local main: git fetch failed/) })
@@ -140,14 +141,14 @@ describe('Update from main', () => {
   async function ticketInReview(): Promise<{ t: BoardTicket; cwd: string }> {
     const t = await newTicket()
     await engine.invoke('agent.start', t.id, { roleIds: [implementer] })
-    const spec = await vi.waitFor(() => {
+    const spec = await eventually(() => {
       expect(runtime.specs[0]).toBeDefined()
       return runtime.specs[0]!
     }, WAIT)
     await commit('migrations/journal.txt', '0001_init\n0002_b\n', spec.cwd)
     await commit('migrations/0002_b.sql', 'select 2;\n', spec.cwd)
     await spec.roleTools.handoff({ summary: 'Added 0002_b', notesForNext: '' })
-    await vi.waitFor(async () => expect((await ticketNow(t.id)).pr).not.toBeNull(), WAIT)
+    await eventually(async () => expect((await ticketNow(t.id)).pr).not.toBeNull(), WAIT)
     return { t, cwd: spec.cwd }
   }
 
@@ -168,7 +169,7 @@ describe('Update from main', () => {
 
     await engine.invoke('ticket.updateFromMain', t.id)
 
-    const spec = await vi.waitFor(() => {
+    const spec = await eventually(() => {
       expect(runtime.specs[1]).toBeDefined()
       return runtime.specs[1]!
     }, WAIT)
@@ -191,7 +192,7 @@ describe('Update from main', () => {
     expect(spec.cwd).toBe(cwd)
     await spec.roleTools.handoff({ summary: 'Merged main and renumbered 0002_b to 0003_b', notesForNext: '' })
 
-    await vi.waitFor(async () => expect((await ticketNow(t.id)).freshness).toMatchObject({ behind: 0, conflicts: [] }), WAIT)
+    await eventually(async () => expect((await ticketNow(t.id)).freshness).toMatchObject({ behind: 0, conflicts: [] }), WAIT)
     expect((await ticketNow(t.id)).state.column).toBe('review')
     // Pushed again, and the PR from before was kept.
     expect(gh.prs).toHaveLength(1)
@@ -204,7 +205,7 @@ describe('Update from main', () => {
   it('ends a paused run as stopped, then starts the Implementer-only run; it is refused while a role is working', async () => {
     const t = await newTicket()
     await engine.invoke('agent.start', t.id, { roleIds: [implementer] })
-    await vi.waitFor(() => expect(runtime.specs[0]).toBeDefined(), WAIT)
+    await eventually(() => expect(runtime.specs[0]).toBeDefined(), WAIT)
     await pushToOriginMain('news.txt', 'x\n')
     await tick()
     expect((await ticketNow(t.id)).freshness).toMatchObject({ behind: 1 })
@@ -214,7 +215,7 @@ describe('Update from main', () => {
     await engine.invoke('agent.pause', t.id)
     await engine.invoke('ticket.updateFromMain', t.id)
 
-    await vi.waitFor(() => expect(runtime.specs[1]).toBeDefined(), WAIT)
+    await eventually(() => expect(runtime.specs[1]).toBeDefined(), WAIT)
     const { events } = await engine.invoke('thread.get', t.id)
     expect(events.filter((e) => e.event.kind === 'stopped')).toHaveLength(1)
     expect((await ticketNow(t.id)).state.agentStatus).toBe('working')

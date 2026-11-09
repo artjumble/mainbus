@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Ticket } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import { runGit } from '../git/git'
@@ -12,6 +12,7 @@ import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
+import { eventually } from '../testWait'
 
 const CLAUDE_PID = 5000
 const LATER = Date.now() + 60_000
@@ -124,7 +125,7 @@ const working: FakeStep[] = [{ emit: { kind: 'session', sessionId: 's1' } }, { w
 
 describe('sweeping what an agent left running', () => {
   async function expectSwept(): Promise<void> {
-    await vi.waitFor(async () => expect(await notices()).toEqual([NOTICE]))
+    await eventually(async () => expect(await notices()).toEqual([NOTICE]))
     expect(ended.sort()).toEqual([6001, 6002, 6003])
     // Nothing outside the agent's tree was touched.
     expect(table.map((p) => p.pid)).toEqual([7000])
@@ -134,7 +135,7 @@ describe('sweeping what an agent left running', () => {
   it('records the claude process on the run while it works', async () => {
     const runner = makeRunner(fake(working))
     await runner.start(ticket.id)
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect(await repos.runs.latest(ticket.id)).toMatchObject({ processPid: CLAUDE_PID, processStartedAt: expect.any(Number) })
     )
   })
@@ -158,7 +159,7 @@ describe('sweeping what an agent left running', () => {
     const runner = makeRunner(fake(working))
     await runner.start(ticket.id)
     await runner.skip(ticket.id)
-    await vi.waitFor(async () => expect(ended.sort()).toEqual([6001, 6002, 6003]))
+    await eventually(async () => expect(ended.sort()).toEqual([6001, 6002, 6003]))
     expect(await notices()).toEqual([NOTICE])
   })
 
@@ -179,7 +180,7 @@ describe('sweeping what an agent left running', () => {
   it('sweeps on Pause', async () => {
     const runner = makeRunner(fake(working))
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ sessionId: 's1' }))
+    await eventually(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ sessionId: 's1' }))
     await runner.pause(ticket.id)
     await expectSwept()
   })
@@ -189,7 +190,7 @@ describe('sweeping what an agent left running', () => {
     const runner = makeRunner(fake(working))
     await runner.start(ticket.id)
     await runner.stop(ticket.id)
-    await vi.waitFor(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ processPid: null }))
+    await eventually(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ processPid: null }))
     expect(await notices()).toEqual([])
     expect(ended).toEqual([])
   })
@@ -198,12 +199,12 @@ describe('sweeping what an agent left running', () => {
     const runtime = fake(working)
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ sessionId: 's1' }))
+    await eventually(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ sessionId: 's1' }))
     await runner.pause(ticket.id)
     await expectSwept()
     table = [leftover(6100, 'node.exe')]
     await runner.resumePaused(ticket.id)
-    await vi.waitFor(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ processPid: CLAUDE_PID }))
+    await eventually(async () => expect(await repos.runs.latest(ticket.id)).toMatchObject({ processPid: CLAUDE_PID }))
     expect(table.map((p) => p.pid)).toEqual([6100])
   })
 
@@ -221,7 +222,7 @@ describe('Move to Done', () => {
     // A run from before a restart: its process is only on the run row.
     const before = makeRunner(new FakeRuntime([{ callTool: 'handoff', args: { summary: 'Done', notesForNext: '' } }, { waitForSend: true }]))
     await before.start(ticket.id)
-    const run = await vi.waitFor(async () => {
+    const run = await eventually(async () => {
       const r = await repos.runs.latest(ticket.id)
       expect(r).toMatchObject({ endReason: 'handoff' })
       return r!
@@ -241,7 +242,7 @@ describe('Move to Done', () => {
   it('removes the worktree even when the processes could not be listed', async () => {
     const before = makeRunner(new FakeRuntime([{ callTool: 'handoff', args: { summary: 'Done', notesForNext: '' } }, { waitForSend: true }]))
     await before.start(ticket.id)
-    const run = await vi.waitFor(async () => {
+    const run = await eventually(async () => {
       const r = await repos.runs.latest(ticket.id)
       expect(r).toMatchObject({ endReason: 'handoff' })
       return r!

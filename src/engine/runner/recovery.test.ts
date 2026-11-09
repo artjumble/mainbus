@@ -14,6 +14,7 @@ import type { RunSpec } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { RESTART_TEXT, TicketRunner } from './ticketRunner'
+import { eventually } from '../testWait'
 
 let tmp: string
 let repoPath: string
@@ -56,7 +57,7 @@ async function events(t: Ticket): Promise<ThreadEvent[]> {
 /** Starts a ticket with an agent that stays open and has a session, then waits for the session to be stored. */
 async function startWorking(runner: TicketRunner, t: Ticket): Promise<void> {
   await runner.start(t.id)
-  await vi.waitFor(async () => expect((await repos.runs.latest(t.id))?.sessionId).toBeTruthy())
+  await eventually(async () => expect((await repos.runs.latest(t.id))?.sessionId).toBeTruthy())
 }
 
 /** What a new launch of the app does with the DB and the runner. */
@@ -121,7 +122,7 @@ describe('restart recovery', () => {
       ])
     )
     await before.start(t.id)
-    const pending = await vi.waitFor(async () => {
+    const pending = await eventually(async () => {
       const [d] = await repos.decisions.pending(t.id)
       expect(d).toBeDefined()
       return d!
@@ -162,7 +163,7 @@ describe('restart recovery', () => {
       ])
     )
     await before.start(t.id)
-    const [question] = await vi.waitFor(async () => {
+    const [question] = await eventually(async () => {
       const pending = await repos.decisions.pending(t.id)
       expect(pending).toHaveLength(1)
       return pending
@@ -190,7 +191,7 @@ describe('restart recovery', () => {
       ])
     )
     await before.start(t.id)
-    const [question] = await vi.waitFor(async () => {
+    const [question] = await eventually(async () => {
       const pending = await repos.decisions.pending(t.id)
       expect(pending).toHaveLength(1)
       return pending
@@ -213,7 +214,7 @@ describe('restart recovery', () => {
       ])
     )
     await before.start(t.id)
-    await vi.waitFor(async () => expect((await events(t)).some((e) => e.kind === 'process_exit')).toBe(true))
+    await eventually(async () => expect((await events(t)).some((e) => e.kind === 'process_exit')).toBe(true))
 
     const runtime = new FakeRuntime(working)
     await relaunch(runtime)
@@ -429,7 +430,7 @@ describe('restart recovery', () => {
         ])
       )
       await before.start(t.id)
-      const [question] = await vi.waitFor(async () => {
+      const [question] = await eventually(async () => {
         const pending = await repos.decisions.pending(t.id)
         expect(pending).toHaveLength(1)
         return pending

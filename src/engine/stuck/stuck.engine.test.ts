@@ -12,6 +12,7 @@ import { WAKE_HEADING } from '../orchestrator/wakeDigest'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import { clockTime } from '../../shared/waiting'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -76,9 +77,10 @@ async function started(runtime: FakeRuntime) {
   const engine = await makeEngine(runtime)
   const ticket = await newTicket(engine)
   await engine.invoke('agent.start', ticket.id)
-  await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+  await runtime.started(1)
+  expect(runtime.specs).toHaveLength(1)
   // The agent's first event is its activity at the start: it lands before the clock moves, not in the middle of an advance.
-  await vi.waitFor(async () =>
+  await eventually(async () =>
     expect((await engine.invoke('thread.get', ticket.id)).events.some((e) => e.event.kind === 'session')).toBe(true)
   )
   return { engine, ticket }
@@ -197,7 +199,7 @@ describe('a stuck agent on the board', () => {
   test('a dead process is reported once, however many checks follow', async () => {
     const runtime = new FakeRuntime([{ emit: { kind: 'session', sessionId: 's' } }, { exit: 1 }])
     const { engine, ticket } = await started(runtime)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', ticket.id)).events.some((e) => e.event.kind === 'process_exit')).toBe(true))
+    await eventually(async () => expect((await engine.invoke('thread.get', ticket.id)).events.some((e) => e.event.kind === 'process_exit')).toBe(true))
     await clock.advance(MIN)
     const first = (await ticketOf(engine, ticket.id)).stuck
     expect(first).toMatchObject({ rule: 'dead_process', hitCount: 1 })
@@ -212,21 +214,22 @@ describe('the orchestrator hears of stuck agents', () => {
     const engine = await makeEngine(runtime)
     const ticket = await newTicket(engine)
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await engine.invoke('agent.start', ticket.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     // The agent's first event lands before the clock moves, not in the middle of an advance.
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect((await engine.invoke('thread.get', ticket.id)).events.some((e) => e.event.kind === 'session')).toBe(true)
     )
-    const idle = () => vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    const idle = () => eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     const say = async (text: string): Promise<string> => {
       // A wake turn the clock started may still be under way.
       await idle()
       const before = runtime.sent.length
       await engine.invoke('orchestrator.send', text)
-      await vi.waitFor(() => expect(runtime.sent).toHaveLength(before + 1))
-      await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+      await eventually(() => expect(runtime.sent).toHaveLength(before + 1))
+      await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
       return runtime.sent[before]!
     }
     return { runtime, engine, ticket, say, idle }

@@ -9,6 +9,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FAKE_SUMMARY, FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -61,7 +62,7 @@ async function setup() {
   const ticket = await engine.invoke('ticket.create', { title: 'Login', intent: 'Add a login form', spec: '', criteria: ['It logs in'], labels: [], column: 'ready' })
   await engine.invoke('agent.start', ticket.id)
   const agentsStuck = (n: number) =>
-    vi.waitFor(async () => {
+    eventually(async () => {
       expect(runtime.specs).toHaveLength(n)
       const events = (await engine.invoke('thread.get', ticket.id)).events
       expect(events.filter((e) => e.event.kind === 'tool_result')).toHaveLength(5 * n)
@@ -69,7 +70,7 @@ async function setup() {
   await agentsStuck(1)
   const board = async () => (await engine.invoke('board.get')).tickets.find((t) => t.id === ticket.id)!
   await engine.invoke('orchestrator.send', 'Login looks stuck')
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   const tools = runtime.orchestratorSpecs[0]!.tools
   const proposals = async () => (await engine.invoke('orchestrator.get')).proposals
   const threadRuns = async () => (await engine.invoke('thread.get', ticket.id)).runs
@@ -91,9 +92,9 @@ async function redirectAndFireAgain(s: Setup): Promise<void> {
   await s.tools.proposeRedirect({ ticket: s.ticket.number, message: REDIRECT, evidence: 'The same command failed five times' })
   const [p] = await s.proposals()
   await s.engine.invoke('proposal.confirm', p!.id)
-  await vi.waitFor(() => expect(s.runtime.sent).toContain(REDIRECT))
+  await eventually(() => expect(s.runtime.sent).toContain(REDIRECT))
   await clock.advance(6 * MIN)
-  await vi.waitFor(async () => expect((await s.board()).stuck?.hitCount).toBeGreaterThan(1))
+  await eventually(async () => expect((await s.board()).stuck?.hitCount).toBeGreaterThan(1))
 }
 
 describe('propose_replace', () => {
@@ -105,7 +106,7 @@ describe('propose_replace', () => {
 
     await s.tools.proposeRedirect({ ticket: s.ticket.number, message: REDIRECT, evidence: 'The same command failed five times' })
     await s.engine.invoke('proposal.confirm', (await s.proposals())[0]!.id)
-    await vi.waitFor(() => expect(s.runtime.sent).toContain(REDIRECT))
+    await eventually(() => expect(s.runtime.sent).toContain(REDIRECT))
     expect(await s.proposeReplace()).toMatch(/redirected and has not fired again since/)
     expect((await s.proposals()).filter((p) => p.kind === 'replace')).toEqual([])
   })
@@ -227,7 +228,7 @@ describe('a role replaced twice that gets stuck again', () => {
 
     // The third agent gets stuck as well: no more redirects or replacements are offered.
     await clock.advance(3 * MIN)
-    await vi.waitFor(async () => expect((await s.board()).state).toMatchObject({ column: 'needs_you', agentStatus: 'failed' }))
+    await eventually(async () => expect((await s.board()).state).toMatchObject({ column: 'needs_you', agentStatus: 'failed' }))
     const board = await s.board()
     expect(board.stuck).toBeNull()
     expect(board.state.summary).toContain('replaced 2 times')
@@ -246,7 +247,7 @@ describe('a role replaced twice that gets stuck again', () => {
     await s.engine.invoke('proposal.confirm', p.id)
     await s.agentsStuck(2)
     await clock.advance(3 * MIN)
-    await vi.waitFor(async () => expect((await s.board()).stuck).toMatchObject({ rule: 'repeated_failure' }))
+    await eventually(async () => expect((await s.board()).stuck).toMatchObject({ rule: 'repeated_failure' }))
     expect((await s.board()).state.agentStatus).toBe('working')
   })
 })

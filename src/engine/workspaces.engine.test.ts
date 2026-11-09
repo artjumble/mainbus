@@ -10,6 +10,7 @@ import { createEngine, type Engine } from './index'
 import { FakeRuntime, type FakeStep } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
+import { eventually } from './testWait'
 
 // Two throwaway repos, a fake runtime and a temporary home: nothing here touches the user's board or data.
 
@@ -125,7 +126,8 @@ describe('agents in every workspace', () => {
     const inB = await engine.invoke('ticket.create', ticketInput('Bravo'), b.id)
     await engine.invoke('agent.start', inA.id)
     await engine.invoke('agent.start', inB.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
     const cwds = runtime.specs.map((s) => s.cwd)
     expect(cwds.some((c) => c.startsWith(ticketFoldersFor(paths, a.slug)))).toBe(true)
     expect(cwds.some((c) => c.startsWith(ticketFoldersFor(paths, b.slug)))).toBe(true)
@@ -138,7 +140,8 @@ describe('agents in every workspace', () => {
     const inA = await engine.invoke('ticket.create', ticketInput('Alpha'), a.id)
     const inB = await engine.invoke('ticket.create', ticketInput('Bravo'), b.id)
     await engine.invoke('agent.start', inA.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     await engine.invoke('agent.start', inB.id)
     const bravo = (await engine.invoke('board.get', b.id)).tickets[0]!
     expect(bravo.state).toMatchObject({ column: 'in_progress', agentStatus: 'queued' })
@@ -146,7 +149,8 @@ describe('agents in every workspace', () => {
 
     // Stopping the first workspace's agent frees the slot for the other workspace's.
     await engine.invoke('agent.stop', inA.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
   })
 
   it('both agents resume after a restart', async () => {
@@ -158,7 +162,7 @@ describe('agents in every workspace', () => {
     const inB = await first.invoke('ticket.create', ticketInput('Bravo'), b.id)
     await first.invoke('agent.start', inA.id)
     await first.invoke('agent.start', inB.id)
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       for (const id of [inA.id, inB.id]) {
         expect((await first.invoke('thread.get', id)).events.some((e) => e.event.kind === 'session')).toBe(true)
       }
@@ -167,7 +171,8 @@ describe('agents in every workspace', () => {
 
     const runtime = new FakeRuntime(steps)
     await makeEngine(runtime)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
     expect(runtime.specs.map((s) => s.resumeSessionId)).toEqual(['sess-1', 'sess-1'])
   })
 
@@ -253,7 +258,8 @@ describe('unattended mode per workspace', () => {
     const inB = await engine.invoke('ticket.create', ticketInput('Bravo'), b.id)
 
     await engine.invoke('unattended.set', true, a.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]!.cwd.startsWith(ticketFoldersFor(paths, a.slug))).toBe(true)
     expect((await engine.invoke('unattended.get', b.id)).on).toBe(false)
     expect((await engine.invoke('board.get', b.id)).tickets[0]!.state.column).toBe('ready')
@@ -262,7 +268,7 @@ describe('unattended mode per workspace', () => {
     // Remembered for A alone.
     await engine.dispose()
     const again = await makeEngine(new FakeRuntime(WAIT))
-    await vi.waitFor(async () => expect((await again.invoke('unattended.get', a.id)).on).toBe(true))
+    await eventually(async () => expect((await again.invoke('unattended.get', a.id)).on).toBe(true))
     expect((await again.invoke('unattended.get', b.id)).on).toBe(false)
   })
 
@@ -280,12 +286,12 @@ describe('unattended mode per workspace', () => {
     await engine.invoke('agent.start', inB.id)
 
     // B's mode is off: the same request raises a permission card.
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', inB.id)).decisions).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('thread.get', inB.id)).decisions).toHaveLength(1))
     const pending = (await engine.invoke('thread.get', inB.id)).decisions[0]!
     expect(pending).toMatchObject({ kind: 'permission', status: 'pending' })
 
     // A's mode is on: it is allowed with a notice and no card.
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect(
         (await engine.invoke('thread.get', inA.id)).events.some((e) => e.event.kind === 'notice' && e.event.text.startsWith('Allowed by unattended mode'))
       ).toBe(true)
@@ -339,9 +345,9 @@ describe('the orchestrator across workspaces', () => {
     const runtime = new FakeRuntime(WAIT, { orchestrator: ORCHESTRATOR })
     const { engine, a, b, repoA, repoB } = await two(runtime)
     const say = async (text: string) => {
-      await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).not.toBe('working'))
+      await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).not.toBe('working'))
       await engine.invoke('orchestrator.send', text)
-      await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+      await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     }
     return { runtime, engine, a, b, repoA, repoB, say }
   }
@@ -398,9 +404,9 @@ describe('the orchestrator across workspaces', () => {
     const { engine, a } = await two(runtime)
     await engine.invoke('ticket.create', ticketInput('Alpha work', 'backlog'), a.id)
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Please start the alpha ticket')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
     const { proposals } = await engine.invoke('orchestrator.get')
     expect(proposals[0]).toMatchObject({ kind: 'start_lineup', workspaceId: a.id })
   })
@@ -418,7 +424,7 @@ describe('the orchestrator across workspaces', () => {
     const third = await makeRepo('charlie')
     await engine.invoke('workspace.open', third)
     await say('And now?')
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(2))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(2))
     const second = runtime.orchestratorSpecs[1]!
     expect(second.additionalDirectories).toContain(third)
     expect(second.resumeSessionId).toBe('orch')
@@ -443,8 +449,9 @@ describe('stuck detector and holds across workspaces', () => {
     const inB = await engine.invoke('ticket.create', ticketInput('Bravo'), b.id)
     await engine.invoke('agent.start', inA.id)
     await engine.invoke('agent.start', inB.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(2))
-    await vi.waitFor(async () => {
+    await runtime.started(2)
+    expect(runtime.specs).toHaveLength(2)
+    await eventually(async () => {
       for (const id of [inA.id, inB.id]) {
         expect((await engine.invoke('thread.get', id)).events.some((e) => e.event.kind === 'session')).toBe(true)
       }
@@ -489,8 +496,8 @@ describe('workspace summaries for the rail', () => {
     // B is focused; the decision is in A.
     const inA = await engine.invoke('ticket.create', ticketInput('Alpha', 'backlog'), a.id)
     await engine.invoke('agent.start', inA.id)
-    await vi.waitFor(async () => expect((await engine.invoke('thread.get', inA.id)).decisions).toHaveLength(1))
-    await vi.waitFor(async () => {
+    await eventually(async () => expect((await engine.invoke('thread.get', inA.id)).decisions).toHaveLength(1))
+    await eventually(async () => {
       const summaries = await engine.invoke('workspace.summaries')
       expect(summaries.find((w) => w.id === a.id)).toMatchObject({ needsYou: 1 })
       expect(summaries.find((w) => w.id === b.id)).toMatchObject({ needsYou: 0, active: false })
@@ -505,7 +512,7 @@ describe('workspace summaries for the rail', () => {
     const { engine, a } = await two(new FakeRuntime(WAIT))
     const inA = await engine.invoke('ticket.create', ticketInput('Alpha', 'backlog'), a.id)
     await engine.invoke('agent.start', inA.id)
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect((await engine.invoke('workspace.summaries')).find((w) => w.id === a.id)).toMatchObject({ active: true, needsYou: 0 })
     )
   })

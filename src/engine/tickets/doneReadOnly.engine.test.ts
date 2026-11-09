@@ -8,6 +8,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, scriptFromFile, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -96,8 +97,8 @@ describe('a Done ticket is read-only', () => {
     const { engine, create, column } = await setup()
     const t = await create('Why slow', { kind: 'investigate' })
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect(await column(t.id)).toBe('review'))
-    await vi.waitFor(async () => expect((await engine.invoke('board.get')).tickets.find((x) => x.id === t.id)!.reportCommit).not.toBeNull(), { timeout: 15_000 })
+    await eventually(async () => expect(await column(t.id)).toBe('review'))
+    await eventually(async () => expect((await engine.invoke('board.get')).tickets.find((x) => x.id === t.id)!.reportCommit).not.toBeNull(), { timeout: 15_000 })
     expect(await engine.invoke('ticket.move', t.id, 'done')).toBe('moved')
     const created = await engine.invoke('ticket.promote', t.id, { title: 'Speed up', spec: 'Cache it.' })
     expect(created.promotedFrom).toBe(t.id)
