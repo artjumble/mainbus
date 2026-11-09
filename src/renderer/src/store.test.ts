@@ -77,7 +77,7 @@ test('a refresh asked for while one is running waits for it, then reads the boar
   expect(useMainbus.getState().tickets).toEqual([second])
 })
 
-const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15 }
+const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [] }
 
 test('startSync refreshes the board on board.changed and stops after unsubscribe', async () => {
   let listener: (e: EngineEvent) => void = () => {}

@@ -48,6 +48,13 @@ describe('default lineup', () => {
     expect(planner!.instructions).toMatch(/^Read the ticket and the code it touches./)
   })
 
+  it('tells the Implementer and the Reviewer to compare failures with the base branch’s known failures', () => {
+    const [, implementer, reviewer] = defaultLineup()
+    expect(implementer!.instructions).toContain('compare it with them before blaming your change')
+    expect(implementer!.instructions).toContain('say which tests you ran and which known failures you saw')
+    expect(reviewer!.instructions).toContain('compare the failures with them before blaming the branch, and say in your summary which known failures you saw')
+  })
+
   it('lets the Reviewer skip the tests only when no code changed, and say so', () => {
     const text = defaultLineup()[2]!.instructions
     expect(text).toContain('You may skip the tests only when the branch changes no code')

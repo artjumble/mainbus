@@ -39,6 +39,8 @@ export type FakeStep =
   | { waitForSend: true }
   /** Fails the script, with an error event and the run closed, unless the run's launch prompt contains this text. */
   | { expectPrompt: string }
+  /** Fails the script, with an error event and the run closed, unless the run's system prompt (its role instructions and context) contains this text. */
+  | { expectSystemPrompt: string }
   /**
    * Fails the script, with an error event and the run closed, unless this file exists in the run's folder (a path
    * relative to it) when the step is reached: put it first to prove something happened before the run's first event.
@@ -398,6 +400,8 @@ export class FakeRuntime implements AgentRuntime {
           }
         } else if ('expectPrompt' in step) {
           if (!spec.prompt.includes(step.expectPrompt)) throw new Error(`The launch prompt lacks "${step.expectPrompt}"`)
+        } else if ('expectSystemPrompt' in step) {
+          if (!spec.appendSystemPrompt.includes(step.expectSystemPrompt)) throw new Error(`The system prompt lacks "${step.expectSystemPrompt}"`)
         } else if ('expectFile' in step) {
           if (!fs.existsSync(path.resolve(spec.cwd, step.expectFile))) throw new Error(`The run's folder lacks "${step.expectFile}"`)
         } else if ('expectModel' in step) {

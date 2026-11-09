@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { BoardTicket } from '../../shared/api'
-import type { BranchFreshness, Hold, StripRole, Ticket, TicketState, UsageState, Workspace } from '../../shared/domain'
+import type { BaseTestsSummary, BranchFreshness, Hold, StripRole, Ticket, TicketState, UsageState, Workspace } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import { applyRunSettings } from '../../shared/runSettings'
 import type { OrchestratorReadToolHandlers } from '../runtime/types'
@@ -115,6 +115,49 @@ describe('list_workspaces', () => {
     expect(await tools.listWorkspaces()).toBe(NO_WORKSPACE)
     expect(await tools.listTickets({})).toBe(NO_WORKSPACE)
     expect(await tools.getTicket({ number: 1 })).toBe(NO_WORKSPACE)
+  })
+})
+
+describe('base branch tests in the read tools', () => {
+  const summary = (over: Partial<BaseTestsSummary> = {}): BaseTestsSummary => ({
+    baseRef: 'origin/main',
+    baseSha: 'abcdef1234567890',
+    at: '2026-11-07T16:57:28.486Z',
+    error: null,
+    commands: [],
+    knownFailures: [
+      { command: 'Unit', test: 'math > divides', failedRuns: 3, ofRuns: 10, intermittent: true, inLatest: true, exitCode: 1 },
+      { command: 'Unit', test: 'math > adds', failedRuns: 10, ofRuns: 10, intermittent: false, inLatest: true, exitCode: 1 }
+    ],
+    ...over
+  })
+
+  function toolsWith(workspace: Workspace, result: BaseTestsSummary | null): OrchestratorReadToolHandlers {
+    return createReadTools({
+      repos,
+      focused: async () => workspace,
+      list: async () => [workspace],
+      board: async (w) => (await repos.tickets.list(w.id)).map((t) => boardTicket(t)),
+      baseTests: async () => result
+    })
+  }
+
+  test('list_workspaces says whether base tests are off, not run yet, passing or failing', async () => {
+    const on: Workspace = { ...ws, testCommands: [{ name: 'Unit', command: 'x', format: 'plain' }] }
+    expect(await toolsWith(ws, null).listWorkspaces()).toContain(' · base tests: off')
+    expect(await toolsWith(on, null).listWorkspaces()).toContain(' · base tests: not run yet')
+    expect(await toolsWith(on, summary()).listWorkspaces()).toContain(' · base tests: 2 known failures (1 intermittent) at abcdef1')
+    expect(await toolsWith(on, summary({ knownFailures: [] })).listWorkspaces()).toContain(' · base tests: all passed at abcdef1')
+    expect(await toolsWith(on, summary({ error: 'setup failed' })).listWorkspaces()).toContain(" · base tests: couldn't run at abcdef1")
+  })
+
+  test('get_ticket lists the known failures with the intermittent ones marked', async () => {
+    const t = await ticket()
+    const on: Workspace = { ...ws, testCommands: [{ name: 'Unit', command: 'x', format: 'plain' }] }
+    const out = await toolsWith(on, summary()).getTicket({ number: t.number })
+    expect(out).toContain('## Known test results on main\nKnown failures on <ticket-data field="base">origin/main</ticket-data> at abcdef1 (2026-11-07 16:57 UTC):')
+    expect(out).toContain('- Unit: math > divides (intermittent, 3 of 10 runs)')
+    expect(await toolsWith(on, null).getTicket({ number: t.number })).not.toContain('Known test results')
   })
 })
 

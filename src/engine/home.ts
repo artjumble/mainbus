@@ -1,6 +1,15 @@
 import path from 'node:path'
 
-export type HomePaths = { root: string; db: string; worktrees: string; scratch: string; backups: string; attachments: string }
+export type HomePaths = {
+  root: string
+  db: string
+  worktrees: string
+  scratch: string
+  backups: string
+  attachments: string
+  /** The baseline folders: one per workspace, where its tests run on the newest base branch. */
+  baselines: string
+}
 
 /** The folder the orchestrator works in. */
 export function orchestratorFolder(root: string): string {
@@ -42,7 +51,8 @@ export function resolveHome(
     worktrees: path.join(root, 'work'),
     scratch: path.join(root, 'scratch'),
     backups: path.join(root, 'backups'),
-    attachments: path.join(root, 'attachments')
+    attachments: path.join(root, 'attachments'),
+    baselines: path.join(root, 'base')
   }
 }
 
@@ -63,4 +73,24 @@ export function scratchPathFor(paths: HomePaths, worktreePath: string): string {
 /** The folder holding all of a workspace's ticket worktrees: `work\<workspace slug>`. */
 export function ticketFoldersFor(paths: HomePaths, slug: string): string {
   return path.join(paths.worktrees, slug)
+}
+
+/** The folders of a workspace's baseline: a detached worktree of the newest base, and what its test runs need beside it. */
+export interface BaselineFolders {
+  /** The workspace's folder under `base`. */
+  root: string
+  /** The detached worktree (a short name: node_modules paths are long). */
+  repo: string
+  /** The test commands' TEMP and TMP. */
+  temp: string
+  /** The results files the test commands write. */
+  results: string
+  /** The commands' output, one log each. */
+  logs: string
+}
+
+/** `base\<workspace slug>\{repo,temp,results,logs}`, outside the ticket worktrees and scratch folders. */
+export function baselineFoldersFor(paths: HomePaths, slug: string): BaselineFolders {
+  const root = path.join(paths.baselines, slug)
+  return { root, repo: path.join(root, 'r'), temp: path.join(root, 'tmp'), results: path.join(root, 'results'), logs: path.join(root, 'logs') }
 }

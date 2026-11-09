@@ -106,6 +106,103 @@ export interface Workspace {
   setupCommand: string
   /** How long the setup command may run, in minutes (SETUP_TIMEOUT_MIN to SETUP_TIMEOUT_MAX). */
   setupTimeoutMinutes: number
+  /** The workspace's test commands, run on the base branch to learn which failures are already there; empty (the default) turns that off. */
+  testCommands: TestCommand[]
+}
+
+/** How a test command's results are read: a report file in a known format, or plain (exit code and the end of the output). */
+export const TEST_RESULT_FORMATS = ['plain', 'vitest-json', 'playwright-json', 'junit-xml'] as const
+export type TestResultFormat = (typeof TEST_RESULT_FORMATS)[number]
+
+/** The placeholder in a test command that Mainbus replaces with the path of the results file. */
+export const RESULTS_PLACEHOLDER = '<results>'
+export const TEST_COMMANDS_MAX = 10
+export const TEST_NAME_MAX = 60
+
+export interface TestCommand {
+  name: string
+  command: string
+  format: TestResultFormat
+}
+
+/** The test commands as Mainbus stores them (fields trimmed), or why the list is refused. */
+export function checkTestCommands(input: TestCommand[]): { ok: true; commands: TestCommand[] } | { ok: false; reason: string } {
+  if (input.length > TEST_COMMANDS_MAX) return { ok: false, reason: `At most ${TEST_COMMANDS_MAX} test commands` }
+  const seen = new Set<string>()
+  const commands: TestCommand[] = []
+  for (const raw of input) {
+    const name = raw.name.trim()
+    const command = raw.command.trim()
+    const label = name === '' ? 'A test command' : `Test command "${name}"`
+    if (name === '') return { ok: false, reason: 'Every test command needs a name' }
+    if (name.length > TEST_NAME_MAX) return { ok: false, reason: `${label}: the name can be at most ${TEST_NAME_MAX} characters` }
+    if (seen.has(name.toLowerCase())) return { ok: false, reason: `${label}: another command has the same name` }
+    seen.add(name.toLowerCase())
+    if (command === '') return { ok: false, reason: `${label} has no command` }
+    if (/[\r\n]/.test(command)) return { ok: false, reason: `${label}: the command must be one line` }
+    if (command.length > SETUP_COMMAND_MAX) return { ok: false, reason: `${label}: the command can be at most ${SETUP_COMMAND_MAX} characters` }
+    if (!(TEST_RESULT_FORMATS as readonly string[]).includes(raw.format)) return { ok: false, reason: `${label}: unknown result format` }
+    if (raw.format !== 'plain' && !command.includes(RESULTS_PLACEHOLDER)) {
+      return { ok: false, reason: `${label}: a ${raw.format} command must contain ${RESULTS_PLACEHOLDER}, where Mainbus puts the path of the results file` }
+    }
+    commands.push({ name, command, format: raw.format })
+  }
+  return { ok: true, commands }
+}
+
+/** One test command's outcome in a base-branch run. */
+export interface BaseTestCommandResult {
+  name: string
+  command: string
+  format: TestResultFormat
+  /** Null when the command was ended (timeout) or could not start. */
+  exitCode: number | null
+  timedOut: boolean
+  durationMs: number
+  /** The failing tests, sorted; empty when none are named. */
+  failures: string[]
+  /** The end of the output, kept for a plain command or when the results couldn't be read. */
+  tail: string[]
+  /** Why the results are the exit code and tail alone (plain format, no results file, unreadable file); null otherwise. */
+  note: string | null
+}
+
+/** One failing test (or a whole command, `test` null) that is known on the base branch. */
+export interface KnownFailure {
+  command: string
+  /** Null: the command failed without naming a failing test. */
+  test: string | null
+  failedRuns: number
+  ofRuns: number
+  /** Failed in some of the recorded runs and passed in others. */
+  intermittent: boolean
+  /** Failed in the latest run. */
+  inLatest: boolean
+  /** The exit code of the command in the latest run that failed it (for a whole-command entry). */
+  exitCode: number | null
+}
+
+/** What roles and the orchestrator are told about the base branch's tests. */
+export interface BaseTestsSummary {
+  baseRef: string
+  baseSha: string
+  /** When the latest run ended. */
+  at: string
+  /** Why the latest run couldn't run the tests, else null. */
+  error: string | null
+  commands: { name: string; exitCode: number | null; timedOut: boolean; failing: number }[]
+  knownFailures: KnownFailure[]
+}
+
+/** What Workspace settings shows about the base branch's tests. */
+export interface BaseTestsView {
+  summary: BaseTestsSummary | null
+  /** The latest run's results per command. */
+  results: BaseTestCommandResult[]
+  /** How many runs are kept in the history. */
+  runs: number
+  running: { startedAt: string; baseSha: string; command: string | null } | null
+  waitingForAgents: boolean
 }
 
 export const SETUP_TIMEOUT_DEFAULT = 15

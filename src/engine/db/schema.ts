@@ -22,6 +22,8 @@ export const workspaces = sqliteTable(
     setupCommand: text('setup_command').notNull().default(''),
     /** How long the setup command may run, in minutes. */
     setupTimeoutMinutes: integer('setup_timeout_minutes').notNull().default(15),
+    /** JSON: the TestCommand[] run on the base branch; '[]' turns the base-branch tests off. */
+    testCommands: text('test_commands').notNull().default('[]'),
     /** Unattended mode is on for this workspace; remembered across a restart. */
     unattendedOn: integer('unattended_on', { mode: 'boolean' }).notNull().default(false),
     /** Set when the workspace was removed from Mainbus. The row stays so its tickets, history and proposal cards remain intact. */
@@ -483,3 +485,26 @@ export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull()
 })
+
+/**
+ * One run of a workspace's test commands on the newest base branch. Only the newest few are kept (see the repo).
+ * `results` is JSON: BaseTestCommandResult[]; empty when the run could not get as far as running the commands.
+ */
+export const baseTestRuns = sqliteTable(
+  'base_test_runs',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    baseRef: text('base_ref').notNull(),
+    baseSha: text('base_sha').notNull(),
+    trigger: text('trigger', { enum: ['base_moved', 'manual'] }).notNull(),
+    startedAt: text('started_at').notNull(),
+    endedAt: text('ended_at').notNull(),
+    /** Why the commands could not be run (the folder or the setup step failed); null otherwise. */
+    error: text('error'),
+    results: text('results').notNull()
+  },
+  (t) => [index('base_test_runs_workspace_idx').on(t.workspaceId, t.startedAt)]
+)

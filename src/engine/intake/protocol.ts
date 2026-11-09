@@ -90,6 +90,16 @@ export interface IntakeTicketSummary extends IntakeStatus {
   updatedAt: string
 }
 
+/** The failures already known on the workspace's base branch, from Mainbus's own test runs there. */
+export interface IntakeBaseTests {
+  base: string
+  commit: string
+  at: string
+  /** Why the latest run couldn't run the tests, else null. */
+  error: string | null
+  knownFailures: { command: string; test: string | null; intermittent: boolean; failedRuns: number; ofRuns: number }[]
+}
+
 export interface IntakeTicketDetail extends IntakeStatus {
   number: number
   title: string
@@ -99,6 +109,8 @@ export interface IntakeTicketDetail extends IntakeStatus {
   labels: string[]
   /** The ticket's pull request, once Mainbus has opened one. */
   prUrl: string | null
+  /** Null when the workspace has no test commands or no run has finished. */
+  baseTests: IntakeBaseTests | null
   createdAt: string
   updatedAt: string
 }

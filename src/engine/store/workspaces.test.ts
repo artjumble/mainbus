@@ -30,7 +30,8 @@ describe('workspace repo', () => {
       saveReports: true,
       reportsFolder: 'docs/investigations',
       setupCommand: '',
-      setupTimeoutMinutes: 15
+      setupTimeoutMinutes: 15,
+      testCommands: []
     })
     expect(await repo.get(created.id)).toEqual(created)
   })

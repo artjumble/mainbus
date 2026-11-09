@@ -4,10 +4,12 @@ import {
   checkReportsFolder,
   checkSetupCommand,
   checkSetupTimeout,
+  checkTestCommands,
   REPORTS_FOLDER_DEFAULT,
   SETUP_TIMEOUT_DEFAULT,
   type ReportSettingsInput,
   type SetupSettingsInput,
+  type TestCommand,
   type Workspace
 } from '../../shared/domain'
 import type { Db } from '../db/open'
@@ -41,6 +43,8 @@ export interface WorkspaceRepo {
   setReportSettings(id: string, settings: ReportSettingsInput): Promise<Workspace>
   /** Saves the setup settings given; a command or timeout that is refused throws with the reason, and nothing is saved. */
   setSetupSettings(id: string, settings: SetupSettingsInput): Promise<Workspace>
+  /** Saves the list of test commands (empty turns the base-branch tests off); a list that is refused throws with the reason, and nothing is saved. */
+  setTestCommands(id: string, commands: TestCommand[]): Promise<Workspace>
   /** Whether unattended mode was on for this workspace when the app last ran. */
   unattendedOn(id: string): Promise<boolean>
   setUnattendedOn(id: string, on: boolean): Promise<void>
@@ -57,7 +61,17 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
     saveReports: row.saveReports,
     reportsFolder: row.reportsFolder,
     setupCommand: row.setupCommand,
-    setupTimeoutMinutes: row.setupTimeoutMinutes
+    setupTimeoutMinutes: row.setupTimeoutMinutes,
+    testCommands: parseTestCommands(row.testCommands)
+  }
+}
+
+function parseTestCommands(json: string): TestCommand[] {
+  try {
+    const parsed: unknown = JSON.parse(json)
+    return Array.isArray(parsed) ? (parsed as TestCommand[]) : []
+  } catch {
+    return []
   }
 }
 
@@ -94,9 +108,10 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         saveReports: true,
         reportsFolder: REPORTS_FOLDER_DEFAULT,
         setupCommand: '',
-        setupTimeoutMinutes: SETUP_TIMEOUT_DEFAULT
+        setupTimeoutMinutes: SETUP_TIMEOUT_DEFAULT,
+        testCommands: []
       }
-      await db.insert(workspaces).values({ ...workspace, createdAt: now().toISOString() })
+      await db.insert(workspaces).values({ ...workspace, testCommands: '[]', createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
       await insertDefaultPresets(db, workspace.id, now)
       return workspace
@@ -168,6 +183,15 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         set.setupTimeoutMinutes = checked.minutes
       }
       if (Object.keys(set).length > 0) await db.update(workspaces).set(set).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setTestCommands(id, commands) {
+      const checked = checkTestCommands(commands)
+      if (!checked.ok) throw new Error(checked.reason)
+      await db.update(workspaces).set({ testCommands: JSON.stringify(checked.commands) }).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)

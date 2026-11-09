@@ -16,7 +16,8 @@ const ws: Workspace = {
   saveReports: true,
   reportsFolder: 'docs/investigations',
   setupCommand: '',
-  setupTimeoutMinutes: 15
+  setupTimeoutMinutes: 15,
+  testCommands: []
 }
 
 const LINEUP = [

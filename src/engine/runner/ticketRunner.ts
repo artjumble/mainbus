@@ -15,6 +15,7 @@ import {
   type Ticket,
   type TicketKind,
   type TicketSetup,
+  type BaseTestsSummary,
   type TicketState,
   type Workspace
 } from '../../shared/domain'
@@ -130,6 +131,8 @@ export interface RunnerDeps {
    * never through an agent or the permission guard. Without it no setup runs.
    */
   setup?: SetupCommandRunner
+  /** What Mainbus knows about the workspace's base-branch tests, for the role's prompt; null for none. Without it a role is told nothing. */
+  baseTests?: (workspaceId: string) => Promise<BaseTestsSummary | null>
 }
 
 export const NUDGE_TEXT =
@@ -363,6 +366,16 @@ export class TicketRunner {
   private queueHint = true
   private draining: Promise<void> | null = null
   private drainAgain = false
+
+  /**
+   * True while any agent is at work in any workspace: one is starting, being set up, or handing on, or a live one is in
+   * the middle of a turn. An agent waiting for the user or for a slot is not working, so it doesn't hold anything back forever.
+   */
+  agentsWorking(): boolean {
+    if (this.launching.size > 0 || this.handingOn.size > 0 || this.settingUp.size > 0) return true
+    for (const run of this.live.values()) if (!run.ended && run.stopping === null && run.inTurn) return true
+    return false
+  }
 
   constructor(private readonly deps: RunnerDeps) {
     this.repos = deps.repos
@@ -1827,6 +1840,7 @@ export class TicketRunner {
     // The user's images, copied fresh into the scratch folder at every launch. A failed copy is no reason not to start.
     const attachments = (await this.deps.attachments?.sync(ticket.id, worktree.scratch).catch(() => [])) ?? []
     const { changes } = launch
+    const baseTests = (await this.deps.baseTests?.(ticket.workspaceId).catch(() => null)) ?? null
     // This launch's own `claude` process: a resumed run starts another, which an earlier one's exit must not sweep.
     let claude: Promise<ProcessRef | null> | null = null
     const spec: RunSpec = {
@@ -1847,7 +1861,8 @@ export class TicketRunner {
         endsWithReport && this.deps.reportFiles && launch.workspace.saveReports ? (ticket.reportFile ?? `${launch.workspace.reportsFolder}/`) : null,
         gate.setup,
         await this.repos.dependencies.blockersOf(ticket.id),
-        changes
+        changes,
+        baseTests
       ),
       model: role.model ?? fallback.model,
       effort: role.effort ?? fallback.effort,

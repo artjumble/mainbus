@@ -207,6 +207,7 @@ describe('intake list and get', () => {
       ],
       labels: ['ci'],
       prUrl: null,
+      baseTests: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String)
     })

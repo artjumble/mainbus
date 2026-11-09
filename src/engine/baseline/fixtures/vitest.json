@@ -1,0 +1,26 @@
+{
+  "numTotalTests": 5,
+  "numFailedTests": 2,
+  "success": false,
+  "testResults": [
+    {
+      "name": "C:\\work\\repo\\src\\math\\math.test.ts",
+      "status": "failed",
+      "assertionResults": [
+        { "ancestorTitles": ["math", "divide"], "title": "throws on zero", "status": "failed", "fullName": "math divide throws on zero" },
+        { "ancestorTitles": ["math"], "title": "adds", "status": "passed", "fullName": "math adds" },
+        { "ancestorTitles": ["math"], "title": "later", "status": "skipped", "fullName": "math later" }
+      ]
+    },
+    {
+      "name": "/elsewhere/broken.test.ts",
+      "status": "failed",
+      "assertionResults": []
+    },
+    {
+      "name": "C:\\work\\repo\\src\\ok.test.ts",
+      "status": "passed",
+      "assertionResults": [{ "ancestorTitles": [], "title": "works", "status": "passed" }]
+    }
+  ]
+}

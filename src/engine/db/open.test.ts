@@ -691,6 +691,50 @@ describe('openDb', () => {
     expect(await byId('w1implementer')).toBe(IMPLEMENTER)
   })
 
+  it('moves the default Implementer and Reviewer instructions to the known-failures text, leaves edited ones alone, and adds the test commands', async () => {
+    const OLD_IMPLEMENTER =
+      "Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. Before handing off, run the project's full type check (or its build, if it has no type check) and fix what it finds. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran. Don't tick a criterion about the full test suite: the Reviewer runs it."
+    const OLD_REVIEWER =
+      "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the full test suite, every kind the project has (end-to-end tests included), and check each criterion. You may skip the tests only when the branch changes no code: every changed file is documentation or other text that nothing in the build, the tests or the app reads (check that no code or test refers to it). Then say in your handoff that you skipped them and why, and check the documentation itself instead: that its links and the commands and paths it names exist. If an acceptance criterion requires the tests to pass, run them anyway; never tick a criterion about tests you didn't run. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+    const first = await open(firstMigrations(34))
+    for (const id of ['w1', 'w2']) {
+      await first.db.run(
+        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+            values (${id}, 'W', 'repo-path', 'main', ${id}, '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    const rows = [
+      ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER],
+      ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER],
+      ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER + ' Mine.'],
+      ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER + ' Mine.']
+    ] as const
+    for (const [w, id, position, name, instructions] of rows) {
+      await first.db.run(
+        sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
+            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'reviewing', 'ask_me', 'read_only')`
+      )
+    }
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    expect(backupFiles()).toHaveLength(1)
+    const byId = async (id: string) =>
+      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
+    const [, implementer, reviewer] = defaultLineup()
+    expect(await byId('w1implementer')).toBe(implementer!.instructions)
+    expect(await byId('w1reviewer')).toBe(reviewer!.instructions)
+    expect(await byId('w2implementer')).toBe(OLD_IMPLEMENTER + ' Mine.')
+    expect(await byId('w2reviewer')).toBe(OLD_REVIEWER + ' Mine.')
+    expect(implementer!.instructions).not.toBe(OLD_IMPLEMENTER)
+    expect(reviewer!.instructions).not.toBe(OLD_REVIEWER)
+
+    const [ws] = await db.select().from(workspaces).where(sql`${workspaces.id} = 'w1'`)
+    expect(ws!.testCommands).toBe('[]')
+    await expect(db.run(sql`select count(*) from base_test_runs`)).resolves.toBeDefined()
+  })
+
   it('moves the app-wide unattended setting onto the workspace, backs up first, and keeps slugs unique', async () => {
     const first = await open(firstMigrations(22))
     await first.db.run(sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at) values ('w1', 'app', '/a', 'main', 'app', 'x')`)
