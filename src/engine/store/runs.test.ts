@@ -30,6 +30,28 @@ beforeEach(async () => {
 afterEach(() => cleanup())
 
 describe('run repo', () => {
+  it('lists the tickets that reached Review, newest first, by count or by day', async () => {
+    const tickets = createTicketRepo(db, now)
+    const repo = createRunRepo(db, now)
+    const ws = (await tickets.get(ticketId))!.workspaceId
+    const other = await tickets.create({ workspaceId: ws, title: 'U', intent: 'i', spec: '', criteria: [], labels: [], column: 'ready' })
+    const never = await tickets.create({ workspaceId: ws, title: 'V', intent: 'i', spec: '', criteria: [], labels: [], column: 'ready' })
+    const first = await repo.create(ticketId, [testRole()])
+    clock = new Date(FIXED_NOW.getTime() + 86_400_000)
+    const second = await repo.create(other.id, [testRole()])
+    await repo.create(never.id, [testRole()])
+    clock = new Date(FIXED_NOW.getTime() + 2 * 86_400_000)
+    await repo.end(second, 'handoff')
+    clock = new Date(FIXED_NOW.getTime() + 3 * 86_400_000)
+    await repo.end(first, 'handoff')
+    const all = await repo.reachedReview(ws, { limit: 10 })
+    expect(all.map((r) => r.ticketId)).toEqual([ticketId, other.id])
+    expect((await repo.reachedReview(ws, { limit: 1 })).map((r) => r.ticketId)).toEqual([ticketId])
+    const day = (n: number) => new Date(FIXED_NOW.getTime() + n * 86_400_000).toISOString().slice(0, 10)
+    expect((await repo.reachedReview(ws, { since: day(0), until: day(2) })).map((r) => r.ticketId)).toEqual([other.id])
+    expect((await repo.reachedReview('nope', { limit: 10 }))).toEqual([])
+  })
+
   it('has no latest run before one is created', async () => {
     expect(await createRunRepo(db, now).latest(ticketId)).toBeNull()
   })

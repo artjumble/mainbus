@@ -13,11 +13,13 @@ import type { OrchestratorReadToolHandlers } from '../runtime/types'
 import { NO_WORKSPACE, resolveWorkspaceRef } from './workspaceRef'
 import { NOT_RECORDED, ticketUsage, usageLine } from '../../shared/usageTotals'
 import type { Repos } from '../store'
+import { ticketTimeFor, workspaceTimeFor, TIME_REPORT_DEFAULT, TIME_REPORT_MAX } from '../time/report'
+import { categoryLine, commandLine, formatMinutes, TIME_LABELS, TIME_CATEGORIES, type CategoryMs, type CommandTime } from '../../shared/timeBreakdown'
 import { STUCK_RULE_TEXT } from '../stuck/config'
 import { firedAgainAfterRedirect } from '../stuck/ladder'
 
 export interface ReadToolDeps {
-  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck' | 'lineups' | 'presets'>
+  repos: Pick<Repos, 'runs' | 'decisions' | 'stuck' | 'lineups' | 'presets' | 'tickets'>
   /** The focused workspace, or null. */
   focused(): Promise<Workspace | null>
   /** Every open workspace, oldest first. */
@@ -281,6 +283,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
       return `The user paused the ${role}`
     case 'resumed':
       return `The ${role} resumed`
+    case 'queued':
+      return `The ${role} waited for a free agent slot`
     case 'redirected':
       return `The user redirected the ${oneLine(e.role)}, as you suggested; the agent was interrupted and sent this message: ${data('redirect', clip(oneLine(e.text), MESSAGE_MAX), true)}`
     case 'replaced':
@@ -516,6 +520,49 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       if (lines.length === 0) return `${title(t)} has no events yet.`
       const last = lines.slice(-n)
       return `The last ${last.length} of ${lines.length} events of ${title(t)}, oldest first:\n${last.join('\n')}`
+    },
+
+    async getTimeReport({ workspace, ticket: number, last }) {
+      const commandLines = (commands: CommandTime[]): string[] =>
+        commands.length === 0 ? ['None.'] : commands.map((c) => `- ${data('command', oneLine(commandLine(c)), true)}`)
+      const split = (by: CategoryMs): string => categoryLine(by) || 'no time recorded'
+      if (number !== undefined) {
+        const found = await ticket(number, workspace)
+        if (typeof found === 'string') return found
+        const time = await ticketTimeFor(deps.repos, found.t.id)
+        if (time.runCount === 0) return `${title(found.t)} has not run.`
+        const lines = [
+          `Time for ${title(found.t)}: ${formatMinutes(time.totalMs)} in ${time.runCount} ${time.runCount === 1 ? 'run' : 'runs'} and ${time.roleCount} ${time.roleCount === 1 ? 'role' : 'roles'}; ${
+            time.toReviewMs === null ? 'it has not reached Review' : `${formatMinutes(time.toReviewMs)} from the first start to Review`
+          }`,
+          `Where it went: ${split(time.byCategory)}`,
+          ...time.runs.flatMap((g) => [
+            `Run ${g.n}: ${formatMinutes(g.totalMs)}`,
+            ...g.roles.map((r) => `- ${oneLine(r.role)}: ${formatMinutes(r.totalMs)} (${split(r.byCategory)})`)
+          ]),
+          'Longest commands:',
+          ...commandLines(time.commands),
+          ...time.turnChecks.map(
+            (c) => `Note: the ${oneLine(c.role)}'s recorded turn time (${formatMinutes(c.check.recordedMs)}) differs a lot from the log's (${formatMinutes(c.check.computedMs)}).`
+          )
+        ]
+        return lines.join('\n')
+      }
+      const b = await board(workspace)
+      if (typeof b === 'string') return b
+      const count = Math.min(TIME_REPORT_MAX, Math.max(1, Math.floor(last ?? TIME_REPORT_DEFAULT)))
+      const report = await workspaceTimeFor(deps.repos, b.ws.id, { last: count })
+      if (report.ticketCount === 0) return `No ticket in ${oneLine(b.ws.name)} has reached Review yet.`
+      const lines = [
+        `Where time went over the last ${report.ticketCount} ${report.ticketCount === 1 ? 'ticket' : 'tickets'} to reach Review in ${oneLine(b.ws.name)}: ${formatMinutes(report.totalMs)} in total, ${formatMinutes(report.averageMs)} on average; median time to Review ${report.medianToReviewMs === null ? 'unknown' : formatMinutes(report.medianToReviewMs)}`,
+        'By category (total, average per ticket):',
+        ...TIME_CATEGORIES.filter((c) => report.byCategory[c.id] > 0).map((c) => `- ${TIME_LABELS[c.id]}: ${formatMinutes(report.byCategory[c.id])}, ${formatMinutes(report.averages[c.id])}`),
+        'By role:',
+        ...report.roles.map((r) => `- ${oneLine(r.role)} (in ${r.tickets} ${r.tickets === 1 ? 'ticket' : 'tickets'}): ${formatMinutes(r.totalMs)} (${split(r.byCategory)})`),
+        'Longest commands in total:',
+        ...commandLines(report.commands)
+      ]
+      return lines.join('\n')
     },
 
     async listPendingDecisions({ workspace } = {}) {

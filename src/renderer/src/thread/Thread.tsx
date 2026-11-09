@@ -387,6 +387,8 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
       return <Divider text={`Paused ${lookup.role}`} />
     case 'resumed':
       return <Divider text={`Resumed ${lookup.role}`} />
+    case 'queued':
+      return <Divider text="Waiting for a free agent slot" />
     case 'process_exit':
       return <Divider text="The agent process ended" />
     case 'waiting':

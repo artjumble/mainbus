@@ -24,6 +24,7 @@ import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModel
 import { applyRunSettings } from '../../shared/runSettings'
 import { clockTime } from '../../shared/waiting'
 import { sessionUsageSoFar } from '../../shared/usageTotals'
+import { USAGE_PAUSED_PREFIX } from '../../shared/usage'
 import type { PublishInput, PublishResult } from '../git/pullRequests'
 import {
   investigationTitle,
@@ -235,7 +236,7 @@ const SHUTTING_DOWN = 'Mainbus is shutting down'
 /** What a run the usage limit paused starts with when it resumes. */
 export const USAGE_RESUME_TEXT = 'The usage limit has reset; continue where you left off.'
 const PAUSED_BY_LIMIT = 'Paused by the usage limit: use Resume to continue it now'
-const USAGE_PAUSED_FALLBACK = 'Usage limit; resuming'
+const USAGE_PAUSED_FALLBACK = USAGE_PAUSED_PREFIX + ' resuming'
 const AUTO_ALLOWED = 'Allowed by unattended mode'
 const PR_FAILED = "Couldn't open a PR"
 const PR_SETTING_OFF = 'Turn on "Open a PR when a ticket reaches Review" in the workspace settings first'
@@ -475,7 +476,7 @@ export class TicketRunner {
       // Near or at the usage limit nothing new starts (but the probe and a run resumed early): it waits as Queued.
       if (this.deps.usage?.blocksStarts() && !bypass) {
         this.slotKept.delete(ticketId)
-        await this.repos.runs.enqueue(runId, prompt)
+        await this.enqueueRun(ticketId, runId, prompt)
         this.queueHint = true
         return false
       }
@@ -489,10 +490,22 @@ export class TicketRunner {
         this.admitting.add(ticketId)
         return true
       }
-      await this.repos.runs.enqueue(runId, prompt)
+      await this.enqueueRun(ticketId, runId, prompt)
       this.queueHint = true
       return false
     })
+  }
+
+  /** Queues the run, and records the moment it joined the queue (not when it was queued already: that only adds to its message). */
+  private async enqueueRun(ticketId: string, runId: string, prompt: string): Promise<void> {
+    const before = await this.repos.runs.get(runId)
+    await this.repos.runs.enqueue(runId, prompt)
+    if (before && before.queuedSeq === null && before.endReason === null) await this.recordQueued(ticketId, before)
+  }
+
+  private async recordQueued(ticketId: string, run: AgentRunRow): Promise<void> {
+    const ticket = await this.repos.tickets.get(ticketId)
+    if (ticket) await this.record(this.target(run, ticket), { kind: 'queued' }).catch(() => {})
   }
 
   /** Starts the queue's runs, oldest first, until the slots are full. */
@@ -890,7 +903,13 @@ export class TicketRunner {
       }).catch(() => {})
     }
     if (this.shuttingDown) return
+    const unqueued = new Set<string>()
+    for (const id of working) if ((await this.repos.runs.get(id))?.queuedSeq === null) unqueued.add(id)
     await this.repos.runs.enqueueFirst(working, RESTART_TEXT)
+    for (const id of unqueued) {
+      const run = await this.repos.runs.get(id)
+      if (run) await this.recordQueued(run.ticketId, run)
+    }
     if (working.length > 0) this.queueHint = true
     // The queued runs now show as active on their own, so the refresh below needs no recovery allowance.
     this.recovering = false
@@ -2088,10 +2107,15 @@ export class TicketRunner {
   async releaseLimitPaused(): Promise<void> {
     const paused = await this.repos.runs.limitPaused()
     for (const run of paused) if (this.live.has(run.id)) await this.repos.runs.clearLimitPaused(run.id)
+    const released = paused.filter((r) => !this.live.has(r.id))
     await this.repos.runs.releaseLimitPaused(
-      paused.filter((r) => !this.live.has(r.id)).map((r) => r.id),
+      released.map((r) => r.id),
       USAGE_RESUME_TEXT
     )
+    for (const r of released) {
+      const run = await this.repos.runs.get(r.id)
+      if (run && run.queuedSeq !== null) await this.recordQueued(run.ticketId, run)
+    }
     this.limitBypass.clear()
     this.queueHint = true
     await this.emitBoardChangedEverywhere()
@@ -2751,7 +2775,7 @@ function threadRun(target: ThreadTarget): ThreadRun {
 }
 
 /** What a role's thread can hold before its agent was ever launched: the handoff to it, and messages for it. */
-const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message', 'paused', 'resumed', 'setup'])
+const NOT_LAUNCHED_KINDS = new Set<ThreadEvent['kind']>(['role_handoff', 'role_hand_back', 'user_message', 'paused', 'resumed', 'setup', 'queued'])
 
 /** The message a role gets when a later role hands a problem back to it. */
 function problemText(from: LineupRole, details: string): string {

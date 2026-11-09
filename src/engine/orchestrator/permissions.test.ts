@@ -61,6 +61,7 @@ describe('orchestratorVerdict', () => {
       ['mcp__mainbus__get_run_status', { number: 1 }],
       ['mcp__mainbus__get_recent_events', { number: 1 }],
       ['mcp__mainbus__list_pending_decisions', {}],
+      ['mcp__mainbus__get_time_report', { last: 10 }],
       // Proposing only stores a proposal for the user to decide.
       ['mcp__mainbus__propose_create_tickets', { tickets: [{ title: 'Add login' }] }],
       // Creating only puts tickets in a Backlog, where nothing runs.

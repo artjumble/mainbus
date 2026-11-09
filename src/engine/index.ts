@@ -45,6 +45,7 @@ import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } 
 import { Attachments, type AttachmentWithPath } from './attachments/attachments'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
+import { ticketTimeFor, workspaceTimeFor } from './time/report'
 import type { AnsweredDecision } from './orchestrator/answeredBlock'
 import type { ReleasedHold } from './orchestrator/releasedHoldsBlock'
 import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
@@ -1246,6 +1247,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         baseTests.poke()
         return ws
       },
+      'workspace.timeReport': async (opts, workspaceId) => workspaceTimeFor(repos, (await requireWorkspace(workspaceId)).id, opts),
+      'ticket.time': (ticketId) => ticketTimeFor(repos, ticketId),
       'workspace.baseTests': async (workspaceId) => baseTests.viewOf((await requireWorkspace(workspaceId)).id),
       'workspace.runBaseTests': async (workspaceId) => {
         const ws = await requireWorkspace(workspaceId)

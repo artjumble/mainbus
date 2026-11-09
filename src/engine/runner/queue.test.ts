@@ -194,6 +194,31 @@ describe('the cap on agents running at once', () => {
   })
 })
 
+describe('the queued marker', () => {
+  const queuedEvents = async (t: Ticket) => (await repos.runs.events((await repos.runs.latest(t.id))!.id)).filter((e) => e.event.kind === 'queued')
+
+  it('is recorded once when a run joins the queue, not again for a message while it waits, and is not recorded for a run that starts at once', async () => {
+    await repos.settings.setMaxAgents(1)
+    const runtime = new FakeRuntime(handsOffWhenSent)
+    const runner = makeRunner(runtime)
+    const [a, b] = [await newTicket('A'), await newTicket('B')]
+    await runner.start(a.id)
+    await runner.start(b.id)
+    expect(await queuedEvents(a)).toHaveLength(0)
+    expect(await queuedEvents(b)).toHaveLength(1)
+
+    await runner.send(b.id, 'Use the new API')
+    expect(await queuedEvents(b)).toHaveLength(1)
+
+    await finish(runner, a)
+    await waitForStatus(runner, b, 'working')
+    const events = (await repos.runs.events((await repos.runs.latest(b.id))!.id)).map((e) => e.event.kind)
+    expect(events.indexOf('queued')).toBeLessThan(events.indexOf('session'))
+    // The marker must not make the first launch look like a resume.
+    expect(runtime.specs[1]!.resumeSessionId).toBeUndefined()
+  })
+})
+
 describe('what uses a slot', () => {
   it('an agent waiting on a pending decision still uses its slot', async () => {
     await repos.settings.setMaxAgents(1)

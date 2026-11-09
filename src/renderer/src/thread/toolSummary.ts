@@ -8,7 +8,8 @@ const BOARD_TOOLS = new Set([
   'get_ticket',
   'get_run_status',
   'get_recent_events',
-  'list_pending_decisions'
+  'list_pending_decisions',
+  'get_time_report'
 ])
 
 function hostOf(input: unknown): string | null {

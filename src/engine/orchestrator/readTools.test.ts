@@ -612,3 +612,36 @@ describe('behind and conflicting branches', () => {
     expect(await tools.getRunStatus({ number: 1 })).toContain('Branch: 2 commits behind origin/main.')
   })
 })
+
+describe('get_time_report', () => {
+  test('says where one ticket\'s time went, with its commands marked as data', async () => {
+    const t = await ticket()
+    const { plannerRun, implementerRun } = await running(t)
+    await append(implementerRun, { kind: 'tool_call', id: 'a', name: 'Bash', input: { command: 'pnpm test' } }, { kind: 'tool_result', id: 'a', ok: true, summary: '' })
+    await repos.runs.end(implementerRun, 'handoff')
+    expect(plannerRun).not.toBe(implementerRun)
+    const out = await tools.getTimeReport({ ticket: 1 })
+    expect(out).toContain('Time for #1')
+    expect(out).toContain('1 run and 2 roles')
+    expect(out).toContain('from the first start to Review')
+    expect(out).toContain('- Planner:')
+    expect(out).toContain('<ticket-data field="command">pnpm test × 1, 0 s</ticket-data>')
+  })
+
+  test('says when the ticket has not run or does not exist', async () => {
+    await ticket()
+    expect(await tools.getTimeReport({ ticket: 1 })).toContain('has not run')
+    expect(await tools.getTimeReport({ ticket: 9 })).toBe('No ticket #9 in shop.')
+  })
+
+  test('reports over the tickets that reached Review, and clamps last', async () => {
+    expect(await tools.getTimeReport({})).toBe('No ticket in shop has reached Review yet.')
+    const t = await ticket()
+    const { implementerRun } = await running(t)
+    await repos.runs.end(implementerRun, 'handoff')
+    const out = await tools.getTimeReport({ last: 500 })
+    expect(out).toContain('over the last 1 ticket to reach Review in shop')
+    expect(out).toContain('By role:')
+    expect(await tools.getTimeReport({ last: -3 })).toContain('over the last 1 ticket')
+  })
+})
