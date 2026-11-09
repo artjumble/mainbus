@@ -20,6 +20,10 @@ export interface RuleInput {
   inTurn: boolean
   /** The end of the wait the agent declared, once it has passed (then silence is counted from there); null for none. */
   waitEndedAt: number | null
+  /** When the latest decision on the run was answered or expired (the user's answer is progress); null for none. */
+  lastDecisionSettledAt?: number | null
+  /** How long decisions were open within the turn under way (ms); it is not the agent's working time. */
+  decisionOpenMs?: number
   /** The newest file change in the worktree, or null when there is none or it isn't known. */
   filesChangedAt: number | null
   /** When the branch's head was last seen to move to a new commit, or null when it hasn't been seen to. */
@@ -104,6 +108,7 @@ export function noProgress(i: RuleInput): StuckHit | null {
     i.startedAt,
     i.turnStartedAt,
     i.waitEndedAt ?? 0,
+    i.lastDecisionSettledAt ?? 0,
     i.filesChangedAt ?? 0,
     newCommandFinishedAt(i.events) ?? 0,
     ...seen.values()
@@ -140,7 +145,7 @@ function commandRunning(i: RuleInput): boolean {
 /** No events at all for `silenceMs`, unless a command is still running within its timeout. */
 export function silence(i: RuleInput): StuckHit | null {
   if (commandRunning(i)) return null
-  const since = Math.max(i.lastActivityAt, i.waitEndedAt ?? 0)
+  const since = Math.max(i.lastActivityAt, i.waitEndedAt ?? 0, i.lastDecisionSettledAt ?? 0)
   if (i.now - since < STUCK.silenceMs) return null
   return { rule: 'silence', evidence: [`No events from the agent for ${minutes(i.now - since)} minutes`] }
 }
@@ -150,7 +155,7 @@ export function silence(i: RuleInput): StuckHit | null {
  * criterion, a declared wait (at the moment it was declared) or the end of one. Tool calls and thinking are not.
  */
 export function lastMilestoneAt(i: RuleInput): number {
-  let last = Math.max(i.turnStartedAt, i.committedAt ?? 0, i.waitEndedAt ?? 0)
+  let last = Math.max(i.turnStartedAt, i.committedAt ?? 0, i.waitEndedAt ?? 0, i.lastDecisionSettledAt ?? 0)
   for (const { at, event } of i.events) {
     const t = Date.parse(at)
     if (t <= last) continue
@@ -166,19 +171,54 @@ export function noMilestone(i: RuleInput): StuckHit | null {
   if (i.now - since < STUCK.noMilestoneMs) return null
   return {
     rule: 'no_milestone',
-    evidence: [`No commit, ticked criterion or message for ${minutes(i.now - since)} minutes in a turn that has run ${minutes(i.now - i.turnStartedAt)} minutes`]
+    evidence: [`No commit, ticked criterion or message for ${minutes(i.now - since)} minutes in a turn that has run ${minutes(turnWorkMs(i))} minutes`]
   }
 }
 
-/** One turn running for longer than `maxTurnMs`, whatever its milestones. */
+/** The turn's length without the time decisions were open in it. */
+function turnWorkMs(i: RuleInput): number {
+  return Math.max(0, i.now - i.turnStartedAt - (i.decisionOpenMs ?? 0))
+}
+
+/** One turn running for longer than `maxTurnMs`, whatever its milestones; time spent waiting on the user's answers is left out. */
 export function longTurn(i: RuleInput): StuckHit | null {
-  if (!i.inTurn || i.now - i.turnStartedAt < STUCK.maxTurnMs) return null
-  return { rule: 'long_turn', evidence: [`The current turn has been running for ${minutes(i.now - i.turnStartedAt)} minutes`] }
+  if (!i.inTurn || turnWorkMs(i) < STUCK.maxTurnMs) return null
+  return { rule: 'long_turn', evidence: [`The current turn has been running for ${minutes(turnWorkMs(i))} minutes${(i.decisionOpenMs ?? 0) > 0 ? ', not counting time spent waiting on you' : ''}`] }
 }
 
 /** The rules about the length of a turn; they apply even while files are still changing. */
 export function turnRules(i: RuleInput): StuckHit | null {
   return noMilestone(i) ?? longTurn(i)
+}
+
+/**
+ * What the decisions of a run say about the clock: when the latest was settled (answered or expired), and how long
+ * decisions were open from `from` to `now` (overlaps counted once). An open one (pending or deferred) runs to `now`.
+ */
+export function decisionTimes(
+  decisions: { status: string; createdAt: string; answeredAt: string | null }[],
+  from: number,
+  now: number
+): { settledAt: number | null; openMs: number } {
+  let settledAt = null as number | null
+  const spans: [number, number][] = []
+  for (const d of decisions) {
+    const open = d.status === 'pending' || d.status === 'deferred'
+    const end = open ? now : d.answeredAt === null ? null : Date.parse(d.answeredAt)
+    if (end === null) continue
+    if (!open && (d.status === 'answered' || d.status === 'expired')) settledAt = Math.max(settledAt ?? 0, end)
+    const start = Math.max(Date.parse(d.createdAt), from)
+    if (end > start) spans.push([start, end])
+  }
+  spans.sort((a, b) => a[0] - b[0])
+  let openMs = 0
+  let reach = 0
+  for (const [start, end] of spans) {
+    const s = Math.max(start, reach)
+    if (end > s) openMs += end - s
+    reach = Math.max(reach, end)
+  }
+  return { settledAt, openMs }
 }
 
 /** The first rule that fires, or null. */
