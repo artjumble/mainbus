@@ -31,6 +31,17 @@ test('@ at a word start opens the list; typing filters it', async () => {
   expect(screen.getByRole('option')).toHaveTextContent('hunter')
 })
 
+test('the list is a real dropdown with its own width, and holds every option', async () => {
+  const { box } = setup()
+  await userEvent.type(box, '@')
+  const list = await screen.findByRole('listbox', { name: 'Workspaces' })
+  const dropdown = list.closest<HTMLElement>('.mantine-Combobox-dropdown')!
+  expect(dropdown).not.toBeNull()
+  // jsdom has no layout; Mantine writes the width as calc(<n>rem * scale), 16px to the rem.
+  expect(parseFloat(dropdown.style.width.replace('calc(', '')) * 16).toBeGreaterThanOrEqual(200)
+  for (const option of screen.getAllByRole('option')) expect(dropdown).toContainElement(option)
+})
+
 test('@ opens after a space or newline, not inside an address', async () => {
   const { box } = setup()
   await userEvent.type(box, 'a@')

@@ -66,6 +66,8 @@ interface Props {
 }
 
 /** A message box with Send inside it (not beside it). Ctrl+Enter sends, or Enter with `enterSends`. */
+const MENTION_LIST_WIDTH = 260
+
 export function Composer({
   onSend,
   placeholder = 'Message',
@@ -274,7 +276,8 @@ export function Composer({
   if (!mentions) return box
   return (
     <Box pos="relative" ref={frame}>
-      <Combobox store={combobox} onOptionSubmit={pick} position="bottom-start">
+      <Combobox store={combobox} onOptionSubmit={pick} position="bottom-start" width={MENTION_LIST_WIDTH} withinPortal zIndex={400}>
+        {/* The target is a zero-size caret marker, so the list needs a width of its own rather than the target's. */}
         <Combobox.DropdownTarget>
           <span aria-hidden style={{ position: 'absolute', left: anchor.left, top: anchor.top, width: 0, height: 0 }} />
         </Combobox.DropdownTarget>
@@ -291,7 +294,7 @@ export function Composer({
             {filtered.map((o) => (
               <Combobox.Option key={o.id} value={o.id}>
                 <Group gap="xs" wrap="nowrap">
-                  <Text size="sm" fw={500}>
+                  <Text size="sm" fw={500} truncate style={{ flexShrink: 0, maxWidth: '60%' }}>
                     {o.name}
                   </Text>
                   <Text size="xs" c="dimmed" truncate style={{ flex: 1, minWidth: 0 }}>
