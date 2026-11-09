@@ -560,7 +560,6 @@ export class TicketRunner {
     return this.serial(ticketId, () => this.answerNow(decisionId, a, via))
   }
 
-  /** Takes effect on an in-flight launch as soon as its process starts; the rest waits its turn. */
   /** Records what one of Mainbus's own calls for the ticket used (the promote draft) on its latest run, which has events. */
   async recordCallUsage(ticketId: string, usage: UsageEvent): Promise<void> {
     const run = await this.repos.runs.latest(ticketId)
@@ -568,6 +567,7 @@ export class TicketRunner {
     await this.record(this.target(run, await this.repos.tickets.get(ticketId)), usage)
   }
 
+  /** Takes effect on an in-flight launch as soon as its process starts; the rest waits its turn. */
   async stop(ticketId: string, expect?: RunExpectation): Promise<void> {
     // A stop for a run that has moved on must not mark the ticket as stopping, or it would kill the next role's launch.
     if (expect) await this.assertExpected(ticketId, expect)

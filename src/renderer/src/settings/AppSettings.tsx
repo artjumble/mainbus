@@ -11,9 +11,9 @@ interface Props {
 }
 
 /** One part of the Mainbus settings, under its own heading. */
-function Section({ title, children }: { title: string; children: ReactNode }): ReactElement {
+function Section({ title, label = title, children }: { title: string; label?: string; children: ReactNode }): ReactElement {
   return (
-    <Stack gap="sm" component="section" aria-label={title}>
+    <Stack gap="sm" component="section" aria-label={label}>
       <Title order={3} size="h4">
         {title}
       </Title>
@@ -46,7 +46,7 @@ export function AppSettings({ opened, onClose }: Props): ReactElement {
         <Section title="Appearance">
           <ThemeSettings opened={opened} />
         </Section>
-        <Section title="Usage">
+        <Section title="Usage" label="Orchestrator usage">
           <OrchestratorUsage opened={opened} />
         </Section>
       </Stack>

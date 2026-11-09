@@ -70,11 +70,11 @@ test('the Mainbus settings, with Match Windows open, have no axe violations', as
 test('the Usage section shows what the orchestrator used, with the cost labelled, or Not recorded', async () => {
   const { rerender } = renderWithMantine(<AppSettings opened onClose={() => {}} />)
   const drawer = await screen.findByRole('dialog', { name: 'Mainbus settings' })
-  expect(await within(within(drawer).getByRole('region', { name: 'Usage' })).findByText('Not recorded')).toBeInTheDocument()
+  expect(await within(within(drawer).getByRole('region', { name: 'Orchestrator usage' })).findByText('Not recorded')).toBeInTheDocument()
   rerender(<AppSettings opened={false} onClose={() => {}} />)
   orchestratorUsage = { inputTokens: 1500, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 2, agentMs: 30_000, costUsd: 0.1, models: ['claude-opus-5-5'] }
   rerender(<AppSettings opened onClose={() => {}} />)
-  const usage = within(await screen.findByRole('dialog', { name: 'Mainbus settings' })).getByRole('region', { name: 'Usage' })
+  const usage = within(await screen.findByRole('dialog', { name: 'Mainbus settings' })).getByRole('region', { name: 'Orchestrator usage' })
   await vi.waitFor(() => expect(usage.textContent).toContain('1.5k input'))
   expect(usage.textContent).toContain('API-equivalent cost, not billed on your Claude plan')
 })
