@@ -96,7 +96,7 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     // Open over Review, Done is as tall as the other lanes.
     await expectFullHeightLanes(page)
     await shot(page, 'board-done-expanded')
-    await page.mouse.move(0, 0)
+    await page.mouse.move(700, 2)
     await expect(column('Done')).toHaveAttribute('data-expanded', 'false')
     // All six columns fit beside the rail and the panel, with no sideways scrolling, and no chip is cut off.
     await expect(column('Done')).toBeInViewport({ ratio: 1 })

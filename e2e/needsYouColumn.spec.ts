@@ -49,7 +49,7 @@ async function doneOpensToOneColumn(page: Page): Promise<void> {
   // Open over Review, which stays where it was, under Done.
   expect(done.x).toBeLessThan(review.x + review.width)
   expect(await column(page, 'Review').boundingBox()).toEqual(review)
-  await page.mouse.move(5, 5)
+  await page.mouse.move(700, 2)
   await expect(column(page, 'Done')).toHaveAttribute('data-expanded', 'false')
   await settled(page, 'Done')
 }

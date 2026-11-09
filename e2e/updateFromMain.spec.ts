@@ -92,7 +92,7 @@ test('a ticket that clashes with a merged migration shows Conflicts with main, a
     await page.getByRole('button', { name: /Add migration A/ }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Move to Done' }).click()
     await expect(page.getByRole('region', { name: 'Done' })).toContainText('1')
-    await page.mouse.move(5, 5)
+    await page.mouse.move(700, 2)
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await expect(page.getByRole('region', { name: 'Done' })).toHaveAttribute('data-expanded', 'false')
 

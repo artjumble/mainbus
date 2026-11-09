@@ -112,7 +112,7 @@ test('a Review card dragged onto the closed Done strip opens it over Review and 
     await expect.poll(() => worktrees(home)).toEqual([])
 
     // Once the pointer goes, Done closes and its cards are hidden.
-    await page.mouse.move(5, 5)
+    await page.mouse.move(700, 2)
     await expect(done(page)).toHaveAttribute('data-expanded', 'false')
     await expect(done(page).getByText('Ship it')).toBeHidden()
     await expect.poll(() => width(page)).toBeLessThan(60)
@@ -156,7 +156,7 @@ test("hovering the strip shows Done's cards, and one can be opened", async () =>
     await expect(done(page).getByRole('button', { name: /Ship it/ })).toBeFocused()
     await expect(done(page)).toHaveAttribute('data-expanded', 'true')
     await page.getByRole('main').getByRole('heading', { level: 2 }).click()
-    await page.mouse.move(5, 5)
+    await page.mouse.move(700, 2)
     await expect(done(page)).toHaveAttribute('data-expanded', 'false')
     await expect(done(page).getByText('Ship it')).toBeHidden()
 

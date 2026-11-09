@@ -25,7 +25,7 @@ Columns: **#** · **Area** (layout / content / wording / state / missing) · **W
 
 | # | Area | Wireframe | App before | Action |
 |---|------|-----------|------------|--------|
-| B1 | layout | "Mainbus" at the top of the rail, with a WORKSPACES heading | A full-width header bar above everything | Kept: it is the page's one `h1`, and the layout around it is unchanged. Moving it is optional styling |
+| B1 | layout | "Mainbus" at the top of the rail, with a WORKSPACES heading | A full-width header bar above everything | Changed by ticket #99: the 48 px bar is gone (it only said "Mainbus", which the window's title bar already says), so the rail, board, ticket view and panel start at the top of the window. The page's one `h1` stays, visually hidden at the top of the main area, so headings still go h1 → h2 → h3 |
 | B2 | content | Rail entry has a status line: "• 2 working", "○ Idle", "◆ Waiting on you" | Name, dot and needs-you count only | Fixed: status line under each name (`railStatus`); the summary gained `working`, `waiting`, `idle`. Since ticket #63 it shows in the expanded rail |
 | B3 | layout | "+ Add workspace" is a dashed, full-width button; hint "Pick a local repo folder to add it." | A plain small button | Fixed; since ticket #63 the label and the hint show in the expanded rail |
 | B4 | content | Header: name, then the repo path in monospace and "· local tickets" | The path beside the name, in the body font | Fixed. Empty workspace says "· just added" |

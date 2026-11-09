@@ -45,7 +45,7 @@ async function expectNoScrollAtRest(page: Page, dialog: Locator, button: Locator
   expect(await overflowOf(dialog), `${what}: hovered`).toBeLessThanOrEqual(0)
   await button.focus()
   expect(await overflowOf(dialog), `${what}: focused`).toBeLessThanOrEqual(0)
-  await page.mouse.move(0, 0)
+  await page.mouse.move(700, 2)
 }
 
 /** Has `channel` answer `hang` commands never (a picker left open, a slow removal), and the rest as before. */
