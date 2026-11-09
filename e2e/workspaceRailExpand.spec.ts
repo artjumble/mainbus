@@ -97,8 +97,9 @@ test('hovering the rail opens it over the board without moving the board, and a 
 test('Tab into the rail opens it, Enter switches workspace, and Tab out closes it', async () => {
   await withRail(async (page) => {
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
-    // Nothing focused: the first Tab lands on the rail, which comes first in the page.
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    // A fresh page has nothing focused, so the first Tab lands on the rail, which comes first in the page.
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 2, name: 'alpha-repo' })).toBeVisible()
     await page.keyboard.press('Tab')
     await expect(rail.getByRole('button', { name: /^alpha-repo/ })).toBeFocused()
     await expect(rail).toHaveAttribute('data-expanded', 'true')
