@@ -31,8 +31,11 @@ afterEach(async () => {
 const create = { title: 'From an agent', intent: 'Please do this', source: { agent: 'codex', cwd: '/x' } }
 let cwd = ''
 
-/** Writes raw bytes, then collects every reply line until the server closes the connection (or a timeout). */
-function exchange(endpoint: string, payload: string | Buffer, waitMs = 5_000): Promise<{ replies: unknown[]; closed: boolean }> {
+/**
+ * Writes raw bytes, then collects every reply line until the server closes the connection, `replyCount` replies have
+ * come (for a connection the server keeps open: nothing to wait out), or a timeout.
+ */
+function exchange(endpoint: string, payload: string | Buffer, waitMs = 5_000, replyCount = Infinity): Promise<{ replies: unknown[]; closed: boolean }> {
   return new Promise((resolve, reject) => {
     const socket = net.connect(endpoint)
     let text = ''
@@ -55,7 +58,10 @@ function exchange(endpoint: string, payload: string | Buffer, waitMs = 5_000): P
       reject(error)
     })
     socket.setEncoding('utf8')
-    socket.on('data', (chunk: string) => (text += chunk))
+    socket.on('data', (chunk: string) => {
+      text += chunk
+      if (text.split('\n').filter(Boolean).length >= replyCount && text.endsWith('\n')) done(false)
+    })
     socket.on('end', () => done(true))
     socket.on('connect', () => socket.write(payload))
   })
@@ -69,7 +75,8 @@ describe('intake server', () => {
     const { replies } = await exchange(
       target.endpoint,
       line({ v: 1, id: 'a', method: 'create', params: create }) + line({ v: 1, id: 'b', method: 'list', params: { cwd } }),
-      1_000
+      10_000,
+      2
     )
     expect(replies).toEqual([
       { id: 'a', result: { number: 1, title: 'From an agent', column: 'backlog' } },
@@ -83,7 +90,8 @@ describe('intake server', () => {
     const { replies, closed } = await exchange(
       target.endpoint,
       line({ v: 1, id: 1, method: 'create', params: { ...create, column: 'ready' } }) + line({ v: 1, id: 2, method: 'list', params: { cwd } }),
-      1_000
+      10_000,
+      2
     )
     expect(closed).toBe(false)
     expect(replies).toEqual([

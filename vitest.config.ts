@@ -3,8 +3,8 @@ import { configDefaults, defineConfig } from 'vitest/config'
 import { THEME_IDS } from './src/shared/domain'
 
 const NODE_INCLUDE = ['src/engine/**/*.test.ts', 'src/main/**/*.test.ts', 'src/shared/**/*.test.ts', 'src/cli/**/*.test.ts']
-// Few enough at once that their git processes don't starve each other (see HEAVY_TESTS); more were slower overall.
-const HEAVY_WORKERS = 8
+// Few enough at once that their git processes don't starve each other (8 and 12 ran the full suite in about the same time).
+const HEAVY_WORKERS = 12
 
 /**
  * The test files that start real git or processes (a ticket start alone runs about 20 git processes). Under the full
