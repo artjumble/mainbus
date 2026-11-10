@@ -18,6 +18,7 @@ import { execFileNode, resolveClaude, type ExecFn } from '../engine/runtime/reso
 import { SdkRuntime } from '../engine/runtime/sdkRuntime'
 import type { AgentRuntime } from '../engine/runtime/types'
 import { isAppUrl, isExternalWebUrl } from './appUrl'
+import { attachContextMenu, ensureSpellCheckLanguages } from './contextMenu'
 import { fakeClaudeExec } from './fakeExec'
 import { registerIpc } from './ipc'
 import { agentLauncher } from './launcher'
@@ -165,6 +166,12 @@ function createWindow(): BrowserWindow {
   win.webContents.on('will-redirect', (event, url) => {
     if (!isHome(url)) event.preventDefault()
   })
+
+  // Spelling fixes and the edit actions in text fields. A test run records the menu instead of showing it.
+  ensureSpellCheckLanguages(win.webContents.session, app.getLocale())
+  const menuHook = trayTestHookFromEnv(process.env) ? { last: [] as unknown[] } : null
+  if (menuHook) (globalThis as { __mainbusContextMenu?: unknown }).__mainbusContextMenu = menuHook
+  attachContextMenu(win.webContents, win.webContents.session, menuHook ? (items) => (menuHook.last = items) : undefined)
 
   void win.loadURL(home)
   return win
