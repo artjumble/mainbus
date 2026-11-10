@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/open'
 import { orchestratorWakes } from '../db/schema'
 
-export type WakeKind = 'failure' | 'stuck' | 'released_hold' | 'resurfaced'
+export type WakeKind = 'failure' | 'stuck' | 'released_hold' | 'resurfaced' | 'done_review'
 
 /** One piece of news waiting for the orchestrator's next wake turn. `ref` is the run, episode, hold or decision id. */
 export interface Wake {
@@ -26,6 +26,8 @@ export interface WakeRepo {
   ack(ids: string[]): Promise<void>
   /** The kind and ref of every row presented at or after `since` (every presented one when null). */
   presentedSince(since: string | null): Promise<{ kind: WakeKind; ref: string }[]>
+  /** Whether a row of this kind and ref was presented and then acknowledged at or after `since` (a row dropped as gone does not count). */
+  reviewedSince(kind: WakeKind, ref: string, since: string): Promise<boolean>
 }
 
 export function createWakeRepo(db: Db, now: () => Date): WakeRepo {
@@ -65,6 +67,23 @@ export function createWakeRepo(db: Db, now: () => Date): WakeRepo {
         .update(orchestratorWakes)
         .set({ ackedAt: now().toISOString() })
         .where(and(inArray(orchestratorWakes.id, ids), isNull(orchestratorWakes.ackedAt)))
+    },
+
+    async reviewedSince(kind, ref, since) {
+      const rows = await db
+        .select({ id: orchestratorWakes.id })
+        .from(orchestratorWakes)
+        .where(
+          and(
+            eq(orchestratorWakes.kind, kind),
+            eq(orchestratorWakes.ref, ref),
+            isNotNull(orchestratorWakes.presentedAt),
+            isNotNull(orchestratorWakes.ackedAt),
+            gte(orchestratorWakes.ackedAt, since)
+          )
+        )
+        .limit(1)
+      return rows.length > 0
     },
 
     async presentedSince(since) {

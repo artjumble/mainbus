@@ -381,6 +381,11 @@ export interface EngineCommands {
   /** "Let the orchestrator read web pages": whether it may use WebFetch and WebSearch. Takes effect at its next tool call. Only the renderer can reach it. */
   'settings.setOrchestratorWebAccess'(on: boolean): AppSettings
   /**
+   * "Review finished tickets for follow-ups": `on` turns the orchestrator's review of tickets that reach Done on or off, and
+   * `waitMinutes` (a whole number from 1 to 30) is how long it waits after the last one. Only the renderer can reach it.
+   */
+  'settings.setReviewDone'(v: { on?: boolean; waitMinutes?: number }): AppSettings
+  /**
    * The orchestrator's model: the latest Fable, Opus or Sonnet that the user's `claude` offers. Rejects a family it doesn't
    * offer. Applies from its next turn, in the same conversation. Only the renderer can reach it.
    */

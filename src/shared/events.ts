@@ -87,7 +87,12 @@ export type ThreadEvent =
   /** Something Mainbus did on its own, such as unattended mode allowing a request. */
   | { kind: 'notice'; text: string }
   /** Mainbus started an orchestrator turn itself, for these items (one plain line each): failures, stuck agents, released holds, decisions that came back. */
-  | { kind: 'wake'; items: string[] }
+  | { kind: 'wake'; items: string[]; reviews?: number }
+  /**
+   * The orchestrator reviewed the ticket after it reached Done: `followUps` tickets were proposed (by the proposals
+   * `proposalIds`, none when it found nothing worth a ticket).
+   */
+  | { kind: 'done_reviewed'; followUps: number; proposalIds: string[] }
   /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
   /**

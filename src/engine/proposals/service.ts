@@ -1,7 +1,7 @@
 import type { EngineEvent } from '../../shared/api'
 import type { ImageRef } from '../../shared/attachments'
 import type { Decision, IntentAddition } from '../../shared/domain'
-import type { AnswerPayload, Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
+import type { AnswerPayload, FollowUpOf, Proposal, ProposalFailure, ProposalKindName, ProposalOrigin } from '../../shared/proposals'
 import { oneLine } from '../roles/prompt'
 import type { ProposalRepo } from '../store/proposals'
 import { whyNotPending } from './answer'
@@ -44,6 +44,8 @@ export interface ProposalService {
       /** The images the user sent with the request's messages. */
       images?: ImageRef[]
       origin?: ProposalOrigin
+      /** In a review of a finished ticket: the ticket the proposed tickets follow up. */
+      followUpOf?: FollowUpOf
     }
   ): Promise<ProposeResult>
   /**
@@ -154,7 +156,8 @@ export function createProposalService(deps: ProposalServiceDeps): ProposalServic
           workspaceId: at.workspaceId,
           ...(at.followUps?.length ? { followUps: at.followUps } : {}),
           ...(at.images?.length ? { images: at.images } : {}),
-          ...(at.origin ? { origin: at.origin } : {})
+          ...(at.origin ? { origin: at.origin } : {}),
+          ...(at.followUpOf ? { followUpOf: at.followUpOf } : {})
         }
         payload = await kind.propose(split.payload, turn, deps.exec)
       } catch (err) {

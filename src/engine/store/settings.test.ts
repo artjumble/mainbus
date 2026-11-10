@@ -14,7 +14,7 @@ afterEach(() => cleanup())
 /** The Theme setting of a new user: Light, and Match Windows between Light and Dark. */
 const LIGHT = { choice: 'light', light: 'light', dark: 'dark' } as const
 /** The orchestrator of a new user: Opus at medium effort, as before there was a setting. */
-const ORCHESTRATOR = { orchestratorModel: 'opus', orchestratorEffort: 'medium' } as const
+const ORCHESTRATOR = { orchestratorModel: 'opus', orchestratorEffort: 'medium', reviewDoneTickets: true, reviewDoneWaitMinutes: 2 } as const
 
 describe('settings repo', () => {
   it('allows three agents at once until the user says otherwise', async () => {
@@ -149,5 +149,26 @@ describe('settings repo', () => {
     expect((await createSettingsRepo(db).get()).maxAgents).toBe(10)
     await createSettingsRepo(db).setMaxAgents(1)
     expect((await createSettingsRepo(db).get()).maxAgents).toBe(1)
+  })
+})
+
+describe('the review of finished tickets', () => {
+  it('is on with a two-minute wait until the user says otherwise', async () => {
+    expect(await createSettingsRepo(db).get()).toMatchObject({ reviewDoneTickets: true, reviewDoneWaitMinutes: 2 })
+  })
+
+  it('stores the switch and the wait separately', async () => {
+    expect(await createSettingsRepo(db).setReviewDone({ on: false })).toMatchObject({ reviewDoneTickets: false, reviewDoneWaitMinutes: 2 })
+    expect(await createSettingsRepo(db).setReviewDone({ waitMinutes: 10 })).toMatchObject({ reviewDoneTickets: false, reviewDoneWaitMinutes: 10 })
+    expect(await createSettingsRepo(db).setReviewDone({ on: true })).toMatchObject({ reviewDoneTickets: true, reviewDoneWaitMinutes: 10 })
+  })
+
+  it('rejects anything but a boolean and a whole number of minutes from 1 to 30', async () => {
+    const repo = createSettingsRepo(db)
+    await expect(repo.setReviewDone({ on: 'off' as unknown as boolean })).rejects.toThrow('on or off')
+    for (const bad of [0, 31, 1.5, Number.NaN, '5' as unknown as number]) {
+      await expect(repo.setReviewDone({ waitMinutes: bad })).rejects.toThrow('whole number of minutes from 1 to 30')
+    }
+    expect((await repo.get()).reviewDoneWaitMinutes).toBe(2)
   })
 })

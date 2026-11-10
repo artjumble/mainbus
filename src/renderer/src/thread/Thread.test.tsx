@@ -594,3 +594,20 @@ test('a merge is a dimmed line saying how', () => {
   expect(rows[0]).toHaveTextContent('Merged into main by you (pull request #5)')
   expect(rows[1]).toHaveTextContent('Merged into main by you (local merge)')
 })
+
+test('a wake turn that reviews finished tickets says so', () => {
+  const items = ['#3 "A": reached Done; review it for follow-ups', '#4 "B": reached Done; review it for follow-ups']
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'wake', items, reviews: 2 })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="wake"]')).toHaveTextContent('Mainbus: reviewing 2 finished tickets')
+})
+
+test('a wake turn with a failure and a review says both', () => {
+  const items = ['#3 "A": the Implementer failed', '#4 "B": reached Done; review it for follow-ups']
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'wake', items, reviews: 1 })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="wake"]')).toHaveTextContent('Mainbus: 1 thing to look at, and reviewing 1 finished ticket')
+})
+
+test('says what the orchestrator proposed after reviewing a ticket', () => {
+  const { container } = renderWithMantine(<Thread events={[ev({ kind: 'done_reviewed', followUps: 1, proposalIds: ['p1'] })]} decisions={[]} />)
+  expect(container.querySelector('[data-event="done_reviewed"]')).toHaveTextContent('Reviewed by the orchestrator: 1 follow-up proposed')
+})

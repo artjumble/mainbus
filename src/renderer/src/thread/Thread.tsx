@@ -7,6 +7,8 @@ import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events
 import type { Proposal } from '../../../shared/proposals'
 import { waitingText } from '../../../shared/waiting'
 import { mergedText } from '../../../shared/merge'
+import { wakeEventText } from '../../../shared/wake'
+import { doneReviewedText } from '../../../shared/doneReview'
 import { SentImages } from '../attachments/Attachments'
 import { CodeBlock } from '../code/CodeBlock'
 import { CreatedTicketsReceipt } from '../orchestrator/CreatedTicketsReceipt'
@@ -404,7 +406,13 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
     case 'wake':
       return (
         <Text size="xs" c="dimmed" data-event="wake" className={classes.wrap}>
-          {`Mainbus: ${event.items.length} ${event.items.length === 1 ? 'thing' : 'things'} to look at`}
+          {wakeEventText(event.items, event.reviews)}
+        </Text>
+      )
+    case 'done_reviewed':
+      return (
+        <Text size="xs" c="dimmed" data-event="done_reviewed">
+          {doneReviewedText(event.followUps)}
         </Text>
       )
     case 'notice':
