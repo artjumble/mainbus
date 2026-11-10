@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { win32 } from 'node:path'
 import type {
   createSdkMcpServer,
   HookCallback,
@@ -460,11 +461,20 @@ export class SdkRuntime implements AgentRuntime {
       scratch: spec.tempDir,
       ownBranch: spec.ownBranch
     }
+    // The shell's live folder per tool call: the PreToolUse hook sees it, canUseTool (same toolUseID) passes it on.
+    const cwdByToolUse = new Map<string, string>()
     const guard: HookCallback = async (hookInput) => {
-      const i = hookInput as { tool_name?: unknown; tool_input?: unknown }
+      const i = hookInput as { tool_name?: unknown; tool_input?: unknown; tool_use_id?: unknown; cwd?: unknown }
       const input =
         typeof i.tool_input === 'object' && i.tool_input !== null ? (i.tool_input as Record<string, unknown>) : {}
-      const reason = typeof i.tool_name === 'string' ? guardReason(i.tool_name, input, guardContext) : null
+      const cwd = typeof i.cwd === 'string' && win32.isAbsolute(i.cwd) ? i.cwd : undefined
+      if (cwd !== undefined && typeof i.tool_use_id === 'string') {
+        cwdByToolUse.set(i.tool_use_id, cwd)
+        // Calls that never reach canUseTool leave their entry: keep only the latest few.
+        if (cwdByToolUse.size > 32) cwdByToolUse.delete(cwdByToolUse.keys().next().value as string)
+      }
+      const reason =
+        typeof i.tool_name === 'string' ? guardReason(i.tool_name, input, { ...guardContext, ...(cwd ? { cwd } : {}) }) : null
       if (typeof i.tool_name === 'string' && isBackgroundShell(i.tool_name, input)) {
         return {
           hookSpecificOutput: {
@@ -519,11 +529,14 @@ export class SdkRuntime implements AgentRuntime {
             input,
             reason: o.decisionReason,
             toolUseId: o.toolUseID,
+            ...(cwdByToolUse.get(o.toolUseID) ? { cwd: cwdByToolUse.get(o.toolUseID) } : {}),
             signal: o.signal
           })
         } catch (err) {
           const why = err instanceof Error ? err.message : String(err)
           return { behavior: 'deny', message: `Mainbus could not decide this permission: ${why}` }
+        } finally {
+          cwdByToolUse.delete(o.toolUseID)
         }
         return verdict.allow
           ? { behavior: 'allow', updatedInput: input }

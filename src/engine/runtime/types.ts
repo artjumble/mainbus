@@ -19,6 +19,8 @@ export interface PermissionRequest {
   input: Record<string, unknown>
   reason?: string
   toolUseId: string
+  /** The session's live working folder when the tool was called (Claude Code's hook input), for the guard. */
+  cwd?: string
   signal: AbortSignal
 }
 

@@ -128,7 +128,7 @@ export function isAllowed(rules: AllowRule[], r: Req, folders?: FolderContext): 
   const command = isShellTool(r.toolName) ? commandOf(r.input) : null
   // No rule can allow these.
   if (command !== null && (parseShell(command).opaque || isDestructivePush(command))) return false
-  if (credentialReason(r.toolName, r.input) !== null) return false
+  if (credentialReason(r.toolName, r.input, folders && { worktree: folders.worktree, cwd: folders.cwd }) !== null) return false
   if (own.some((rule) => rule.pattern === null)) return true
   if (command === null) return false
   const cmd = normalize(command)

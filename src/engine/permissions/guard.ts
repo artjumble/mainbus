@@ -1,9 +1,19 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { credentialReason, NAMED_PATH, ntfsName, readArguments } from './credentials'
 import { type Download, DOWNLOAD_COMMANDS, readDownload } from './downloads'
 import { inPlaceFiles } from './interpreters'
 import { commandOf, isShellTool } from './policy'
-import { commandName, isDestructivePushArgs, parseGit, parseShell, type SimpleCommand } from './shell'
+import { fromGitBash, isInside } from './paths'
+import {
+  CD_COMMANDS,
+  commandName,
+  isDestructivePushArgs,
+  parseGit,
+  parseShellDetailed,
+  type ShellVars,
+  type SimpleCommand,
+} from './shell'
 
 /** The folders an agent may work in: the ticket's worktree and any extra ones. */
 export interface FolderContext {
@@ -14,14 +24,33 @@ export interface FolderContext {
    * it is also one of `additionalDirectories`. Absent in tests and in runs from before scratch folders.
    */
   scratch?: string
+  /**
+   * The folder the agent's shell is in when the command runs (Claude Code keeps it between calls). Relative paths
+   * start here; the worktree when absent or not absolute.
+   */
+  cwd?: string
 }
 
 export interface GuardContext extends FolderContext {
   ownBranch: string
+  /** Whether a folder exists (the real file system when absent); a `cd` into one that does is taken to work. */
+  exists?: (folder: string) => boolean
 }
 
-/** The context of one shell command: `tempForms` match the variable reads that name the scratch folder in it. */
-type Ctx = GuardContext & { tempForms?: RegExp[] }
+function folderExists(folder: string): boolean {
+  try {
+    return fs.statSync(folder).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The context of one shell command: `bases` are the folders it may be in (a path is inside only if it is from every
+ * one), `inLoop` that a loop that is not repeated word by word encloses it.
+ */
+type Where = { bases?: string[]; inLoop?: boolean; dialect?: 'bash' | 'powershell' }
+type Ctx = GuardContext & Where
 
 /**
  * How unattended mode treats a reason. A hard stop opens a card and waits for the user; an automatic reason
@@ -99,13 +128,15 @@ const WRITE_COMMANDS = new Set([
   // PowerShell aliases that are not Verb-Noun.
   ...['clc', 'cli', 'clp', 'sp', 'si', 'rp', 'rni', 'ren', 'mi', 'cpp', 'epcsv', 'epal'],
 ])
-const CD_COMMANDS = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location'])
+const FOLDER_COMMANDS = new Set([...CD_COMMANDS, 'popd', 'pop-location'])
 
 // `~`, `$anything` and `%VAR%` point somewhere we cannot resolve: treat as outside.
 // PowerShell registry and similar provider paths are not files in the worktree either.
 const HOME_OR_VARIABLE = /^(~(?=$|[\\/])|\$|%[^%]+%|(?:[\w.]+\\)?(?:HK(?:CU|LM|CR|U|CC)|Registry|Env|Cert|WSMan):)/i
 // FileSystem::C:\x (optionally module-qualified) is just C:\x.
 const FILESYSTEM_PROVIDER = /^(?:[\w.]+\\)?FileSystem::/i
+// A variable read in the middle of a path: its value is not known either.
+const VARIABLE_ANYWHERE = /\$[\w{]|\$env:|%\w+%/i
 const HOME_FORM = /~|\$\{?HOME\}?|\$env:(?:HOME|USERPROFILE)|%(?:USERPROFILE|HOMEPATH|HOMEDRIVE)%/i
 const CLAUDE_WORD = /\.claude(?![\w-])/i
 const CLAUDE_SEGMENT = /(?:^|\\)\.claude(?:\\|$)/i
@@ -154,20 +185,6 @@ function isWriteCommand(name: string): boolean {
   return verbNoun !== null && !READ_ONLY_VERBS.has(verbNoun[1]) && !READ_ONLY_CMDLETS.has(name)
 }
 
-/** Git Bash writes drive C: as /c/...; give it the Windows form. */
-function fromGitBash(p: string): string {
-  const m = /^\/([a-zA-Z])(?=\/|$)(.*)$/.exec(p)
-  return m ? `${m[1].toUpperCase()}:${m[2] === '' ? '\\' : m[2]}` : p
-}
-
-function isInside(resolved: string, roots: string[]): boolean {
-  return roots.some((root) => {
-    // win32.relative compares case-insensitively and across drives.
-    const rel = win.relative(root, resolved)
-    return rel === '' || (rel !== '..' && !rel.startsWith('..\\') && !win.isAbsolute(rel))
-  })
-}
-
 interface Located {
   shown: string
   inside: boolean
@@ -175,39 +192,53 @@ interface Located {
   segments: string[]
 }
 
-function locate(rawPath: string, ctx: FolderContext & { tempForms?: RegExp[] }): Located {
+function locate(rawPath: string, ctx: FolderContext & Where): Located {
   const p = rawPath.replace(FILESYSTEM_PROVIDER, '')
-  const temp = ctx.scratch === undefined ? undefined : ctx.tempForms?.map((f) => f.exec(p)?.[0]).find((m) => m !== undefined)
-  const tail = temp === undefined ? '' : p.slice(temp.length)
-  let resolved: string
-  // join, not resolve: the tail starts with a separator. A tail with a variable of its own can climb anywhere.
-  if (temp !== undefined && ctx.scratch !== undefined && !tail.includes('$')) resolved = win.join(ctx.scratch, tail)
-  else if (HOME_OR_VARIABLE.test(p)) return { shown: p, inside: false, segments: [] }
-  else resolved = win.resolve(ctx.worktree, fromGitBash(p))
-  const root = [ctx.worktree, ...ctx.additionalDirectories].find((r) => isInside(resolved, [r]))
-  return {
-    shown: resolved,
-    inside: root !== undefined,
-    segments: root === undefined ? [] : win.relative(root, resolved).split('\\'),
-  }
+  if (HOME_OR_VARIABLE.test(p) || VARIABLE_ANYWHERE.test(p)) return { shown: p, inside: false, segments: [] }
+  const roots = [ctx.worktree, ...ctx.additionalDirectories]
+  const places = (ctx.bases ?? [ctx.cwd ?? ctx.worktree]).map((base): Located => {
+    const resolved = win.resolve(base, fromGitBash(p))
+    const root = roots.find((r) => isInside(resolved, [r]))
+    return {
+      shown: resolved,
+      inside: root !== undefined,
+      segments: root === undefined ? [] : win.relative(root, resolved).split('\\'),
+    }
+  })
+  // Outside from any of the folders the command may be in is outside.
+  return places.find((l) => !l.inside) ?? places.find((l) => isAgentConfigPath(l.segments)) ?? places[0]
 }
 
-/** The folder a cd-like command (argv[0] is cd, Set-Location, ...) names, if any. */
+/** The folder a cd-like command (argv[0] is cd, Set-Location, ...) names, if any; `-` for `cd -`. */
 function cdTarget(argv: string[]): string | undefined {
   return argv
     .slice(1)
     .map((a) => NAMED_PATH.exec(a)?.[1] ?? a)
-    .find((a) => !isFlag(a))
+    .find((a) => a === '-' || !isFlag(a))
 }
 
 /**
  * True when `argv` is a cd (or chdir, pushd, Set-Location, ...) into the ticket's folder or a folder inside it,
- * resolved as the guard resolves every path. A bare `cd`, which goes home, is not.
+ * resolved as the guard resolves every path. A bare `cd`, which goes home, and `cd -` are not.
  */
 export function isCdInside(argv: string[], context: FolderContext): boolean {
   if (!CD_COMMANDS.has(commandName(argv[0] ?? ''))) return false
   const target = cdTarget(argv)
-  return target !== undefined && locate(target, usable(context)).inside
+  return target !== undefined && target !== '-' && !target.startsWith('~') && locate(target, usable(context)).inside
+}
+
+type Destination = { to: 'path'; value: string } | { to: 'previous' | 'home' | 'stay' | 'unknown' }
+
+/** Where a cd-like command goes, as far as it can be told. */
+function destination(cmd: SimpleCommand, dialect: 'bash' | 'powershell'): Destination {
+  if (!CD_COMMANDS.has(cmd.name)) return { to: 'unknown' } // popd, Pop-Location
+  const target = cdTarget(cmd.argv)
+  if (target === '-') return { to: 'previous' }
+  if (target?.startsWith('~')) return { to: 'home' }
+  if (target !== undefined) return { to: 'path', value: target }
+  if (cmd.name === 'pushd') return { to: 'unknown' }
+  // A bare `cd` goes home in Bash; PowerShell stays where it is.
+  return dialect === 'bash' && (cmd.name === 'cd' || cmd.name === 'chdir') ? { to: 'home' } : { to: 'stay' }
 }
 
 /** Reason to ask before writing to this path, or null. */
@@ -387,9 +418,17 @@ function* commandReasons(cmd: SimpleCommand, ctx: Ctx): Generator<string> {
     if (redirect) yield redirect
     return
   }
-  if (CD_COMMANDS.has(cmd.name)) {
-    const target = cdTarget(cmd.argv)
-    if (target !== undefined && !locate(target, ctx).inside) yield `Leaves the ticket's folder: ${locate(target, ctx).shown}`
+  if (FOLDER_COMMANDS.has(cmd.name)) {
+    const dest = destination(cmd, ctx.dialect ?? 'bash')
+    if (dest.to === 'path') {
+      const { shown, inside } = locate(dest.value, ctx)
+      // In a loop, each round starts where the last ended, so a cd that climbs can walk out.
+      if (!inside || (ctx.inLoop && CLIMBS_OUT.test(dest.value))) yield `Leaves the ticket's folder: ${shown}`
+    } else if (dest.to === 'home') {
+      yield "Leaves the ticket's folder: ~"
+    } else if (ctx.inLoop && dest.to !== 'stay') {
+      yield `Leaves the ticket's folder: ${cmd.argv.join(' ')}`
+    }
   }
   const written = isWriteCommand(cmd.name) ? pathArguments(cmd) : []
   const edited = inPlaceFiles(cmd.name, cmd.argv.slice(1)) ?? []
@@ -409,7 +448,8 @@ function outsidePathIn(cmds: SimpleCommand[], ctx: Ctx, reading = false): string
       if (isFlag(value) || NULL_TARGET.test(value) || VALUE_VARIABLE.test(value)) continue
       // A downloader's bare `$URL` is the address it fetches.
       if (reading && DOWNLOAD_COMMANDS.has(cmd.name) && BARE_VARIABLE.test(value)) continue
-      if (!HOME_OR_VARIABLE.test(value) && !ABSOLUTE.test(value) && !CLIMBS_OUT.test(value)) continue
+      const variable = HOME_OR_VARIABLE.test(value) || (!reading && VARIABLE_ANYWHERE.test(value))
+      if (!variable && !ABSOLUTE.test(value) && !CLIMBS_OUT.test(value)) continue
       const { shown, inside } = locate(value, ctx)
       if (!inside) return shown
     }
@@ -428,91 +468,111 @@ function touchesClaudeFolder(command: string, cmds: SimpleCommand[], ctx: Ctx): 
   )
 }
 
-interface TempForm {
-  /** The read at the start of a path, followed by its end or a separator. */
-  start: RegExp
-  /** The read anywhere in the command (global). */
-  anywhere: RegExp
-}
+// The names of the variables that mean the scratch folder, per shell.
+const BASH_TEMP = ['TEMP', 'TMP', 'TMPDIR']
+const POWERSHELL_TEMP = ['env:temp', 'env:tmp', 'env:tmpdir']
 
-function tempForm(source: string, flags = ''): TempForm {
-  return { start: new RegExp(`^(?:${source})(?=$|[\\\\/])`, flags), anywhere: new RegExp(source, `${flags}g`) }
-}
-
-// The variable reads that name the scratch folder, per shell tool. Each tool gets only its own: Bash `$TEMP` is
-// an unset variable in PowerShell (`$TEMP\x` is the drive root), and `$env:TEMP` is plain text in Bash. Neither
-// shell expands `%TEMP%`: it stays a relative path, so it lands in the worktree with the same tail, and a tail
-// that stays inside the scratch folder stays inside the worktree too, with the same folders for the settings checks.
-const CMD_TEMP = tempForm(String.raw`%(?:TEMP|TMP)%`, 'i')
-const TEMP_FORMS: Record<string, TempForm[]> = {
-  // Bash names are case-sensitive.
-  Bash: [tempForm(String.raw`\$\{(?:TMPDIR|TMP|TEMP)\}|\$(?:TMPDIR|TMP|TEMP)(?!\w)`), CMD_TEMP],
-  // Not followed by an assignment (`$env:TEMP = ...`, `+=`, `??=`).
-  PowerShell: [tempForm(String.raw`\$env:(?:TMPDIR|TMP|TEMP)(?!\w)(?!\s*(?:[-+*/%]|\?\?)?=)`, 'i'), CMD_TEMP],
-}
-// The names anywhere else, in any case and spelling, mean the command may change them. IFS changes how an
-// unquoted `$TEMP` splits into words.
-const TEMP_NAME = /(?<![A-Za-z0-9_])(?:TEMP|TMP|TMPDIR|IFS)(?![A-Za-z0-9_])/i
-// Builtins that set or unset variables by a name they are given, which may be computed (`export "${n}MP=1"`).
-const SETS_VARIABLES = new Set(
-  ['export', 'declare', 'typeset', 'local', 'readonly', 'unset', 'read', 'readarray', 'mapfile', 'let'].concat(
-    ['getopts', 'wait', 'alias'],
-  ),
-)
-// Commands that run code in the shell itself, where it can change the variables. PowerShell dot-sourcing is `.`.
-const RUNS_IN_SHELL = new Set(['source', '.', 'eval', 'trap', 'iex', 'invoke-expression', 'import-module', 'ipmo', 'using'])
-
-/** PowerShell runs a script (`.\x.ps1`, or a path that may resolve to one) in its own process. */
-function runsScriptInProcess(word: string): boolean {
-  return /\.psm?1$/i.test(word) || (/[\\/]/.test(word) && !/\.(?:exe|com|cmd|bat)$/i.test(word))
+/** True when this folder is inside the folders the agent may work in, and not in agent settings. */
+function plainFolder(folder: string, ctx: GuardContext): boolean {
+  const root = [ctx.worktree, ...ctx.additionalDirectories].find((r) => isInside(folder, [r]))
+  return root !== undefined && !isAgentConfigPath(win.relative(root, folder).split('\\'))
 }
 
 /**
- * The read forms that name the scratch folder in this command, or undefined when the command could change what
- * they name: it mentions the names any other way, sets variables by name, or runs code in the shell itself.
- * Kept simple and on the side of asking: a needless card is fine, a misplaced write is not.
+ * The variables a shell command may read: TEMP, TMP and TMPDIR name the scratch folder (childEnv points them there),
+ * PWD the folder the shell starts in. A scratch folder with wildcards would glob, and one with a `$` would not stay a
+ * plain value. `%TEMP%` is expanded by neither shell: it is a relative path, which lands in the folder the command
+ * runs in, so it counts as the scratch folder only while that is plainly inside the folders the agent may use.
  */
-function tempFormsFor(toolName: string, command: string, cmds: SimpleCommand[], scratch: string | undefined): RegExp[] | undefined {
-  const forms = TEMP_FORMS[toolName]
-  if (scratch === undefined || forms === undefined) return undefined
-  // Wildcards in the folder's own name would glob, and Bash splits an unquoted `$TEMP` at spaces.
-  if (/[*?[\]]/.test(scratch) || (toolName === 'Bash' && /\s/.test(scratch))) return undefined
-  // Also without quotes and escapes, which can hide a name from the first look (`export TE""MP=x`).
-  for (const text of [command, command.replace(/["'`\\]/g, '')]) {
-    if (TEMP_NAME.test(forms.reduce((t, f) => t.replace(f.anywhere, ''), text))) return undefined
+function initialVars(dialect: 'bash' | 'powershell', ctx: GuardContext, start: string): ShellVars {
+  const known = new Map<string, string>()
+  known.set(dialect === 'bash' ? 'PWD' : 'pwd', start)
+  let percent: string | undefined
+  const scratch = ctx.scratch
+  if (scratch !== undefined && !/[*?[\]$]/.test(scratch)) {
+    for (const name of dialect === 'bash' ? BASH_TEMP : POWERSHELL_TEMP) known.set(name, scratch)
+    if (plainFolder(start, ctx)) percent = scratch
   }
-  const setsOrRuns = (c: SimpleCommand): boolean =>
-    SETS_VARIABLES.has(c.name) || RUNS_IN_SHELL.has(c.name) || (c.name === 'printf' && c.argv.some((a) => a.startsWith('-v')))
-  if (cmds.some(setsOrRuns)) return undefined
-  if (toolName === 'PowerShell' && (/(?<!\$)\benv:/i.test(command) || cmds.some((c) => runsScriptInProcess(c.argv[0] ?? '')))) {
-    return undefined
-  }
-  return forms.map((f) => f.start)
+  return { dialect, known, ...(percent !== undefined ? { percent } : {}) }
 }
+
+/** The folders a statement that changes folder leaves the shell in, or null when that cannot be told. */
+function movedTo(dest: Destination, bases: string[], previous: string[] | undefined): string[] | null {
+  switch (dest.to) {
+    case 'stay':
+      return bases
+    case 'previous':
+      return previous ?? null
+    case 'path': {
+      const value = dest.value.replace(FILESYSTEM_PROVIDER, '')
+      if (HOME_OR_VARIABLE.test(value) || VARIABLE_ANYWHERE.test(value)) return null
+      const moved = [...new Set(bases.map((b) => win.resolve(b, fromGitBash(value))))]
+      return moved.length > 8 ? null : moved
+    }
+    default:
+      return null
+  }
+}
+
+const union = (a: string[], b: string[]): string[] => [...new Set([...a, ...b])]
 
 /**
  * Every reason to ask before a shell command, in order. `pick` stops at the first hard stop, so an automatic
  * reason early on (git reset --hard) never hides a hard stop later in the command (git push).
  */
 function* shellReasons(toolName: string, command: string, context: GuardContext): Generator<string> {
-  const parsed = parseShell(command)
+  const dialect = toolName === 'PowerShell' ? 'powershell' : 'bash'
+  const start = context.cwd ?? context.worktree
+  const parsed = parseShellDetailed(command, initialVars(dialect, context, start))
   if (parsed.opaque) {
     yield `Runs a command Mainbus can't check: ${parsed.why}`
     return
   }
-  const all = parsed.pipelines.flat()
-  const ctx: Ctx = { ...context, tempForms: tempFormsFor(toolName, command, all, context.scratch) }
-  const secret = credentialReason('Bash', { command })
+  const secret = credentialReason('Bash', { command }, { worktree: context.worktree, cwd: start })
   if (secret) yield secret
-  if (touchesClaudeFolder(command, all, ctx)) yield 'Touches the .claude folder in the home directory'
-  for (const pipeline of parsed.pipelines) {
+  if (touchesClaudeFolder(command, parsed.pipelines.flat(), { ...context, dialect, bases: [start] })) {
+    yield 'Touches the .claude folder in the home directory'
+  }
+  // Where the shell is, statement by statement: every folder it can be in at that point. When that cannot be
+  // told, the folders a command would be judged from without any of this: the worktree and where the shell started.
+  const unknown = [...new Set([context.worktree, start])]
+  let bases = [start]
+  let previous: string[] | undefined
+  // Where the shell is after the right side of `cd x || exit 1` has run.
+  let pending: string[] | null = null
+  const exists = context.exists ?? folderExists
+  let read: string | null = null
+  for (const [i, pipeline] of parsed.pipelines.entries()) {
+    const ctx: Ctx = { ...context, dialect, bases, inLoop: parsed.loops[i] > 0 }
     for (const cmd of pipeline) yield* commandReasons(cmd, ctx)
     // `Get-ChildItem C:\x | Remove-Item`: the path reaches the write command through the pipe.
     const pathless = pipeline.some((c) => isWriteCommand(c.name) && pathArguments(c).length === 0)
     const outside = pathless ? outsidePathIn(pipeline, ctx) : null
     if (outside) yield `Writes outside the ticket's folder: ${outside}`
+    read ??= outsidePathIn(pipeline, ctx, true)
+
+    const changers = pipeline.filter((c) => FOLDER_COMMANDS.has(c.name))
+    const next = parsed.joins[i + 1]
+    if (changers.length === 0) {
+      if (pending !== null && next !== '||') {
+        bases = pending
+        pending = null
+      }
+      continue
+    }
+    // A cd in a pipe or in an `if` may or may not have happened.
+    const single = pipeline.length === 1 && !parsed.compound[i] && changers.length === 1
+    const moved = single ? movedTo(destination(changers[0], dialect), bases, previous) : null
+    const after = moved ?? unknown
+    // Whatever runs regardless of the cd: where it went if the folder is there to go to, else either place.
+    const settled = moved !== null && moved.every(exists) ? moved : union(after, bases)
+    previous = bases
+    pending = null
+    // `a && cd x && b` runs b in x; `a || cd x` may have skipped the cd; `cd x || b` runs b only when the cd failed.
+    if (next === '&&') bases = parsed.joins[i] === '||' ? union(after, bases) : after
+    else if (next === '||') pending = settled
+    else bases = settled
   }
-  const read = outsidePathIn(all, ctx, true)
   if (read !== null) yield `Reads outside the ticket's folder: ${read}`
 }
 
@@ -543,14 +603,18 @@ export function guardReason(toolName: string, input: Record<string, unknown>, co
 
 /** Relative or empty extra folders (and scratch folder) would resolve against the process cwd: drop them. */
 function usable<T extends FolderContext>(context: T): T {
-  const { scratch, ...rest } = context
+  const { scratch, cwd, ...rest } = context
   const folders = { ...rest, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
-  return (scratch !== undefined && scratch !== '' && win.isAbsolute(scratch) ? { ...folders, scratch } : folders) as T
+  return {
+    ...folders,
+    ...(scratch !== undefined && scratch !== '' && win.isAbsolute(scratch) ? { scratch } : {}),
+    ...(cwd !== undefined && win.isAbsolute(cwd) ? { cwd } : {}),
+  } as T
 }
 
 function* reasonsFor(toolName: string, input: Record<string, unknown>, ctx: GuardContext): Generator<string> {
   if (Object.hasOwn(READ_PATH_KEYS, toolName)) {
-    const reason = credentialReason(toolName, input) ?? toolReadReason(toolName, input, ctx)
+    const reason = credentialReason(toolName, input, { worktree: ctx.worktree, cwd: ctx.cwd }) ?? toolReadReason(toolName, input, ctx)
     if (reason) yield reason
     return
   }
