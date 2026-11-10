@@ -12,7 +12,14 @@ const MAX_LINES = 12
  * to run"), the command or input as a code block, and the reason below it. A question, or a permission whose request
  * can't be told apart, is its text.
  */
-export function PermissionAsk({ decision }: { decision: Pick<Decision, 'kind' | 'question' | 'request'> }): ReactElement {
+export function PermissionAsk({
+  decision,
+  maxLines = MAX_LINES
+}: {
+  decision: Pick<Decision, 'kind' | 'question' | 'request'>
+  /** Lines of a command shown before Show all; the narrow orchestrator panel passes fewer. */
+  maxLines?: number
+}): ReactElement {
   const request = decision.kind === 'permission' ? permissionRequestOf(decision) : null
   if (!request) {
     return (
@@ -41,11 +48,11 @@ export function PermissionAsk({ decision }: { decision: Pick<Decision, 'kind' | 
           code={request.command}
           language={request.tool === 'PowerShell' ? 'powershell' : 'bash'}
           copyLabel="Copy command"
-          maxLines={MAX_LINES}
+          maxLines={maxLines}
         />
       )}
       {request.command === null && request.path === null && input !== null && (
-        <CodeBlock code={input} language="json" copyLabel="Copy input" maxLines={MAX_LINES} />
+        <CodeBlock code={input} language="json" copyLabel="Copy input" maxLines={maxLines} />
       )}
       {request.reason && (
         <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
