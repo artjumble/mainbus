@@ -118,6 +118,9 @@ test('the marketing site screenshots, from the demo board', async () => {
     await openTicket(page, 'Retry failed payment webhooks')
     await expect(page.locator('[data-event="handoff"]').first()).toBeVisible()
     await shot('ticket-lineup')
+    // Its own branch and folder: the commits in the thread, the branch in the context pane.
+    await page.getByRole('region', { name: 'Branch' }).evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await shot('worktree')
 
     // 7. A decision in the thread and in the panel (and on the board).
     await openTicket(page, 'Format prices for each currency')

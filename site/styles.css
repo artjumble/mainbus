@@ -1,0 +1,449 @@
+/*
+ * mainbus.app. The colours are the app's own (src/renderer/src/theme.ts): its Light palette, and its Dark palette when
+ * the visitor's system is dark. System fonts, no scripts.
+ */
+
+:root {
+  color-scheme: light dark;
+  --ground: #f4f4f1;
+  --surface: #ffffff;
+  --lane: #eaeae5;
+  --text: #1f1f1f;
+  --dimmed: #5b6168;
+  --border: #cfcfca;
+  --link: #1e3f99;
+  /* Needs-you orange: the darker step for text, the app's own for fills. */
+  --accent: #9a4409;
+  --accent-fill: #b5530f;
+  --button: #1e3f99;
+  --button-hover: #173280;
+  --button-text: #ffffff;
+  --focus: #1e3f99;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, 'Liberation Mono', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #1e1e1c;
+    --surface: #2b2b28;
+    --lane: #252523;
+    --text: #e8e8e3;
+    --dimmed: #ababa4;
+    --border: #4a4a45;
+    --link: #9fb7f7;
+    --accent: #f0a061;
+    --accent-fill: #b5530f;
+    --button: #4370db;
+    --button-hover: #2f52b0;
+    --button-text: #ffffff;
+    --focus: #9fb7f7;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+main:focus {
+  outline: none;
+}
+
+code,
+pre {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+code {
+  background: var(--lane);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  background: var(--lane);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  overflow-wrap: normal;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: clamp(1.6rem, 1.2rem + 1.5vw, 2.2rem);
+  margin: 0 0 1rem;
+}
+
+h3 {
+  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  margin: 0 0 0.75rem;
+}
+
+.wrap {
+  width: min(72rem, 100% - 2 * clamp(1rem, 4vw, 2.5rem));
+  margin-inline: auto;
+}
+
+.narrow {
+  width: min(46rem, 100% - 2 * clamp(1rem, 4vw, 2.5rem));
+}
+
+/* Skip link: off screen until focused. */
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 10;
+  background: var(--surface);
+  color: var(--link);
+  padding: 0.6rem 1rem;
+  border: 2px solid var(--focus);
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.skip:focus {
+  top: 1rem;
+}
+
+/* Header */
+
+.top {
+  border-bottom: 1px solid var(--border);
+  background: var(--ground);
+}
+
+.top-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding-block: 0.75rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 1.2rem;
+  text-decoration: none;
+}
+
+.brand img {
+  width: 32px;
+  height: 32px;
+}
+
+.top ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.top nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 0.6rem;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.top nav a:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+/* Hero */
+
+.hero {
+  padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(2.5rem, 6vw, 4rem);
+}
+
+.hero h1 {
+  font-size: clamp(2.6rem, 1.8rem + 3.5vw, 4.2rem);
+  margin: 0;
+}
+
+.lede {
+  font-size: clamp(1.3rem, 1.1rem + 1vw, 1.75rem);
+  font-weight: 600;
+  margin: 0.25rem 0 1rem;
+  max-width: 36ch;
+  line-height: 1.3;
+}
+
+.hero-text {
+  max-width: 60ch;
+  margin: 0 0 1.5rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  border: 2px solid var(--button);
+  background: var(--button);
+  color: var(--button-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button:hover {
+  background: var(--button-hover);
+  border-color: var(--button-hover);
+}
+
+.button.secondary {
+  background: transparent;
+  color: var(--link);
+  border-color: var(--link);
+}
+
+.button.secondary:hover {
+  background: var(--lane);
+}
+
+.facts {
+  color: var(--dimmed);
+  font-size: 0.95rem;
+  margin: 0 0 2.5rem;
+}
+
+/* Screenshots */
+
+.shot {
+  margin: 1.5rem 0 0;
+}
+
+.shot img {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  background: var(--surface);
+}
+
+.shot figcaption {
+  margin-top: 0.6rem;
+  color: var(--dimmed);
+  font-size: 0.95rem;
+}
+
+.pair {
+  display: grid;
+  gap: 0 1.5rem;
+}
+
+@media (min-width: 760px) {
+  .pair {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Features */
+
+#features {
+  padding-block: clamp(2rem, 5vw, 3.5rem);
+  border-top: 1px solid var(--border);
+}
+
+.note {
+  color: var(--dimmed);
+  max-width: 60ch;
+  margin: 0 0 1rem;
+}
+
+.feature {
+  padding-block: clamp(2rem, 5vw, 3.5rem);
+  border-bottom: 1px solid var(--border);
+}
+
+.feature:last-child {
+  border-bottom: 0;
+}
+
+.feature > p {
+  max-width: 64ch;
+}
+
+.feature h3::before {
+  content: '';
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-right: 0.5em;
+  border-radius: 2px;
+  background: var(--accent-fill);
+  vertical-align: 0.12em;
+}
+
+/* How it works, requirements, built with */
+
+#how-it-works,
+#requirements,
+#built-with-mainbus {
+  padding-block: clamp(2.5rem, 6vw, 4rem);
+  border-top: 1px solid var(--border);
+}
+
+#how-it-works,
+#built-with-mainbus {
+  background: var(--lane);
+}
+
+#how-it-works code,
+#built-with-mainbus code {
+  background: var(--ground);
+}
+
+.flow {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.flow li {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--button);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.flow li + li::before {
+  content: '↓';
+  position: absolute;
+  top: -1.05rem;
+  left: 1rem;
+  color: var(--dimmed);
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.flow strong,
+.flow span {
+  display: block;
+}
+
+.flow span {
+  color: var(--dimmed);
+  font-size: 0.95rem;
+}
+
+#requirements li {
+  margin-bottom: 0.5rem;
+}
+
+#requirements h3 {
+  margin-top: 2rem;
+}
+
+/* Footer */
+
+.foot {
+  border-top: 1px solid var(--border);
+  padding-block: 2rem 3rem;
+  color: var(--dimmed);
+  font-size: 0.95rem;
+}
+
+.foot p {
+  max-width: 72ch;
+}
+
+/* The 404 page */
+
+.lost {
+  padding-block: clamp(3rem, 10vw, 6rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
