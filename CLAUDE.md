@@ -10,6 +10,7 @@ This file is for agents working in this repository: Mainbus's own roles and anyo
 - Type check: `pnpm typecheck`
 - Unit tests (Vitest): `pnpm test`, or `pnpm exec vitest run <test file>` for one file
 - End-to-end tests (Playwright for Electron): `pnpm build`, then `pnpm exec playwright test e2e/<spec>.spec.ts`; `pnpm e2e` builds and runs them all
+- Marketing site (`site/`): `pnpm site:screenshots` rebuilds the app and regenerates `site/img/` from a fictional demo board (FakeRuntime, a temporary data home); `pnpm site:check` checks links, accessibility and layout. See `site/README.md`.
 - Stable build: `pnpm build:stable`, then `pnpm run run:stable`. It installs into the user's `%LOCALAPPDATA%\Mainbus`, so agents don't run it.
 
 ## Testing

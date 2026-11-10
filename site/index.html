@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mainbus: run Claude Code agents on a ticket board</title>
+  <meta name="description" content="Mainbus is a Windows desktop app that runs Claude Code agents on a ticket board. Each ticket gets its own git worktree and a lineup of role agents, and stops at Review for you to merge.">
+  <link rel="canonical" href="https://mainbus.app/">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#F4F4F1" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1E1E1C" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="favicon.ico" sizes="32x32">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Mainbus">
+  <meta property="og:title" content="Mainbus: run Claude Code agents on a ticket board">
+  <meta property="og:description" content="A Windows desktop app that runs Claude Code agents on a ticket board, each ticket in its own git worktree, stopping at Review for you to merge.">
+  <meta property="og:url" content="https://mainbus.app/">
+  <meta property="og:image" content="https://mainbus.app/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Mainbus board for a demo project, with tickets in Backlog, Ready, In progress, Needs you and Review, and the orchestrator panel beside it.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Mainbus: run Claude Code agents on a ticket board">
+  <meta name="twitter:description" content="A Windows desktop app that runs Claude Code agents on a ticket board, each ticket in its own git worktree, stopping at Review for you to merge.">
+  <meta name="twitter:image" content="https://mainbus.app/img/og.png">
+  <meta name="twitter:image:alt" content="The Mainbus board for a demo project, with tickets in Backlog, Ready, In progress, Needs you and Review, and the orchestrator panel beside it.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="wrap top-row">
+      <a class="brand" href="#main"><img src="favicon.svg" alt="" width="32" height="32"> Mainbus</a>
+      <nav aria-label="Site">
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#how-it-works">How it works</a></li>
+          <li><a href="#requirements">Requirements</a></li>
+          <li><a href="https://github.com/artjumble/mainbus">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap">
+        <h1 id="hero-title">Mainbus</h1>
+        <p class="lede">A desktop app that runs Claude Code agents on a ticket board.</p>
+        <p class="hero-text">You write a ticket, and a lineup of agents takes it from plan to a reviewed branch, each ticket in its own git worktree. Anything an agent wants to do outside its lane becomes a card you answer, and every ticket stops at Review for you to merge.</p>
+        <p class="actions">
+          <a class="button" href="https://github.com/artjumble/mainbus">Source on GitHub</a>
+          <a class="button secondary" href="#requirements">Build it from source</a>
+        </p>
+        <p class="facts">Windows 11 · Built from source, no installer yet · MIT licence</p>
+        <figure class="shot hero-shot">
+          <picture>
+            <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/board-dark-1440.webp 1440w, img/board-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+            <source type="image/webp" srcset="img/board-light-1440.webp 1440w, img/board-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+            <img src="img/board.png" width="1440" height="900" fetchpriority="high" decoding="async" alt="The board of a demo web shop, acme-web. Backlog has two tickets, one held until a date; Ready has two; In progress has three, one marked Looks stuck; Needs you has a question and a request to push; Review has one ticket ready for review. Beside it, the orchestrator panel shows the fleet, a question waiting on you and a proposed redirect.">
+          </picture>
+        </figure>
+      </div>
+    </section>
+
+    <section id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <h2 id="features-title">What it does</h2>
+        <p class="note">Every screenshot here is the real app, playing a scripted demo board with two made-up projects: acme-web, a web shop, and field-notes, a notes app.</p>
+
+        <article class="feature" aria-labelledby="f-board">
+          <h3 id="f-board">A board per repository, a worktree per ticket</h3>
+          <p>The columns are Backlog, Ready, In progress, Needs you, Review and Done. Cards show the ticket and its phase, never tokens or timers.</p>
+          <p>Each ticket gets its own branch, <code>mainbus/&lt;n&gt;-&lt;slug&gt;</code>, and a git worktree in Mainbus’s data folder, outside your repository. <strong>Agents never touch your checkout</strong>, and several tickets can run side by side. Moving a ticket to Done removes its worktree, but never one with uncommitted work.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/worktree-dark-1440.webp 1440w, img/worktree-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/worktree-light-1440.webp 1440w, img/worktree-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/worktree.png" width="1440" height="900" loading="lazy" decoding="async" alt="A ticket's view. The side pane shows its branch, mainbus/2-retry-failed-payment-webhooks, up to date with main, and an activity timeline of handoffs. The thread shows the agents' edits, test runs and commits in the ticket's own folder.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-lineups">
+          <h3 id="f-lineups">Lineups of role agents, with handoffs</h3>
+          <p>The default lineup is Planner → Implementer → Reviewer. Each role is a fresh agent that hands off to the next with a summary. A Reviewer can hand work back to the Implementer, up to three round trips, after which the ticket comes to you. Each workspace can reorder, add or edit its roles.</p>
+          <p><strong>Run settings</strong> choose which roles run on a ticket, the model and effort for each, and extra instructions. A ticket can also start from one of the workspace’s presets.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/ticket-lineup-dark-1440.webp 1440w, img/ticket-lineup-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/ticket-lineup-light-1440.webp 1440w, img/ticket-lineup-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/ticket-lineup.png" width="1440" height="900" loading="lazy" decoding="async" alt="Ticket #2, Retry failed payment webhooks, with its lineup strip: Planner and Implementer handed off, the Reviewer working. The thread shows the Reviewer handing the work back to the Implementer because nothing was logged, the Implementer's fix and commit, and the Reviewer running the tests again.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-words">
+          <h3 id="f-words">Your words are the acceptance bar</h3>
+          <p>A ticket’s intent, what you wrote, is kept word for word and given to every role as the standard it may not widen. Anything beyond it has to come back to you as a question. Roles tick the acceptance criteria as they verify them.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/acceptance-bar-dark-1440.webp 1440w, img/acceptance-bar-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/acceptance-bar-light-1440.webp 1440w, img/acceptance-bar-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/acceptance-bar.png" width="1440" height="900" loading="lazy" decoding="async" alt="Ticket #1, Show delivery estimates at checkout, in Review. The side pane shows Your words as written, the spec, and three acceptance criteria, all ticked. The thread records which role checked each one.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-orchestrator">
+          <h3 id="f-orchestrator">An orchestrator beside the board</h3>
+          <p>A docked panel holds one read-only Claude Code session for all your workspaces. It can see every board and read each workspace’s repository. Ask it in plain words: it drafts tickets, creates them in Backlog with your words kept as the intent, edits tickets that haven’t started, and proposes starting, pausing, stopping, redirecting or replacing agents.</p>
+          <p>Each proposal is a card you <strong>confirm, override or reject</strong>. Mainbus, not the model, carries it out.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/orchestrator-dark-1440.webp 1440w, img/orchestrator-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/orchestrator-light-1440.webp 1440w, img/orchestrator-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/orchestrator.png" width="1440" height="900" loading="lazy" decoding="async" alt="The orchestrator panel after the request: We're adding gift cards next, read the checkout code and draft the tickets for it. It looked at the board and the code, and proposes creating three tickets in acme-web's Backlog, each with a checkbox, an Edit button, its spec and its criteria.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-decisions">
+          <h3 id="f-decisions">One decision, three places</h3>
+          <p>Agents ask through a Mainbus tool rather than a terminal prompt. An open question shows on the board card, in the orchestrator panel and inline in the ticket’s thread, and answering it in any one of them resolves all three.</p>
+          <p><strong>Later…</strong> puts a decision off until a date, when it comes back. A ticket can be put on hold, optionally until a date, and is released automatically when that date arrives.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/decisions-dark-1440.webp 1440w, img/decisions-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/decisions-light-1440.webp 1440w, img/decisions-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/decisions.png" width="1440" height="900" loading="lazy" decoding="async" alt="The Planner on ticket #3 asks whether to format prices with the built-in Intl.NumberFormat or a money library, with the first option recommended, a note box, Answer and Later…. The same question appears under Waiting on you in the orchestrator panel.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-safety">
+          <h3 id="f-safety">Permission cards, a safety guard and unattended mode</h3>
+          <p>Agents work in Claude Code’s accept-edits mode inside the ticket’s worktree. Anything else becomes a card: <strong>Allow once</strong>, <strong>Always allow in this workspace</strong> or <strong>Deny</strong>. The always-allow rules live in Mainbus’s database, never in your repository, where an agent might commit them.</p>
+          <p>A guard runs before those rules and always stops for you on any push, reading credential files, writing or working outside the ticket’s folders, touching <code>~/.claude</code> or agent and git settings, deleting or renaming other branches, and changing git or npm config.</p>
+          <p><strong>Unattended mode</strong>, per workspace, starts the lowest-numbered Ready ticket that isn’t held, one at a time. It may allow the guard’s lower-risk reasons on its own, but never the hard stops.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/permission-card-dark-1440.webp 1440w, img/permission-card-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/permission-card-light-1440.webp 1440w, img/permission-card-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/permission-card.png" width="1440" height="900" loading="lazy" decoding="async" alt="Ticket #4, Upgrade the payments SDK to v5. After installing, testing and committing, the Implementer wants to run git push origin mainbus/4-upgrade-the-payments-sdk-to-v5, shown as a card with Allow once, Always allow in this workspace, Deny and Later….">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-stuck">
+          <h3 id="f-stuck">Stuck agents are noticed and recovered</h3>
+          <p>Once a minute, a detector checks every running agent for a stuck pattern: the same command failing five times in a row, fifteen minutes without progress, ten minutes of silence, a long turn with no commit, ticked criterion or message, or a process that has ended.</p>
+          <p>Recovery goes up a ladder, each step a card the orchestrator proposes: <strong>Redirect</strong> sends one corrective message, <strong>Replace</strong> starts a fresh agent from a summary of the last run, and after two replacements the ticket comes to you.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/stuck-redirect-dark-1440.webp 1440w, img/stuck-redirect-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/stuck-redirect-light-1440.webp 1440w, img/stuck-redirect-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/stuck-redirect.png" width="1440" height="900" loading="lazy" decoding="async" alt="Ticket #5, Fix the flaky cart total test, marked Looks stuck: Bash failed 5 times in a row on pnpm test with the same rounding error. In the panel, the orchestrator proposes a corrective message, with Confirm, Override and Reject.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-limits">
+          <h3 id="f-limits">Restarts, usage limits and a concurrency cap</h3>
+          <p>On launch, Mainbus ends any processes a crash left behind and resumes the agents that were working. Paused, queued and waiting runs stay as they were, and holds that came due while it was closed are released.</p>
+          <p>When Claude’s usage limit is hit, every working agent is paused and a banner says when they resume; at the reset they resume in order. <strong>Agents running at once</strong> is capped (1 to 10, 3 by default), and the rest show as Queued and start first in, first out.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/usage-cap-dark-1440.webp 1440w, img/usage-cap-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/usage-cap-light-1440.webp 1440w, img/usage-cap-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/usage-cap.png" width="1440" height="900" loading="lazy" decoding="async" alt="The field-notes board under a banner: Usage limit reached, 4 agents paused, with the time they resume and a Resume now button. In progress, one ticket is paused by the usage limit and another is Queued, first in line.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-investigate">
+          <h3 id="f-investigate">Investigate tickets and reports</h3>
+          <p>An Investigate ticket runs a read-only Investigator that ends with a report instead of a change. Mainbus saves the report as a markdown file in your repository, <code>docs/investigations/&lt;date&gt;-&lt;n&gt;-&lt;slug&gt;.md</code>, and commits it on the ticket’s branch. <strong>Promote</strong> turns the report into a new Change ticket in Ready, with its spec drafted from the report.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/investigate-dark-1440.webp 1440w, img/investigate-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/investigate-light-1440.webp 1440w, img/investigate-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/investigate.png" width="1440" height="900" loading="lazy" decoding="async" alt="An Investigate ticket in field-notes, Why do offline edits go missing after sync?, in Review. Its report ends with a table of options and a recommendation, and a line says where the report was saved and in which commit. The Promote button is in the toolbar.">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="feature" aria-labelledby="f-workspaces">
+          <h3 id="f-workspaces">Workspaces, themes and where the time went</h3>
+          <p>Several repositories can be open at once, each a workspace with its own board, lineup, rules and unattended switch. A rail beside the board lists them with how many agents are working or waiting on you.</p>
+          <p>The app comes in Light, Dark, Night Owl and Light Owl, or follows Windows with a theme for each of its modes. And each ticket shows where its time went, per role: tests, builds, git, reading, editing, the model, and waiting on you.</p>
+          <figure class="shot">
+            <picture>
+              <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/workspaces-dark-1440.webp 1440w, img/workspaces-dark.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <source type="image/webp" srcset="img/workspaces-light-1440.webp 1440w, img/workspaces-light.webp 2880w" sizes="(min-width: 1200px) 1120px, 94vw">
+              <img src="img/workspaces.png" width="1440" height="900" loading="lazy" decoding="async" alt="The workspace rail opened over the board: field-notes with one agent working, acme-web with two needing you and two working, then Add workspace and Mainbus settings.">
+            </picture>
+          </figure>
+          <div class="pair">
+            <figure class="shot">
+              <picture>
+                <source type="image/webp" srcset="img/themes-night-owl-1440.webp 1440w, img/themes-night-owl.webp 2880w" sizes="(min-width: 1200px) 552px, (min-width: 760px) 46vw, 94vw">
+                <img src="img/themes.png" width="1440" height="900" loading="lazy" decoding="async" alt="The acme-web board in the Night Owl theme: deep navy lanes, with the orange and blue chips kept.">
+              </picture>
+              <figcaption>Night Owl</figcaption>
+            </figure>
+            <figure class="shot">
+              <picture>
+                <source type="image/webp" media="(prefers-color-scheme: dark)" srcset="img/time-breakdown-dark-1440.webp 1440w, img/time-breakdown-dark.webp 2880w" sizes="(min-width: 1200px) 552px, (min-width: 760px) 46vw, 94vw">
+                <source type="image/webp" srcset="img/time-breakdown-light-1440.webp 1440w, img/time-breakdown-light.webp 2880w" sizes="(min-width: 1200px) 552px, (min-width: 760px) 46vw, 94vw">
+                <img src="img/time-breakdown.png" width="1440" height="900" loading="lazy" decoding="async" alt="A ticket's Time section: 18 minutes in one run across the Planner, Implementer and Reviewer, each bar split into tests, build and typecheck, git, reading, editing and model time, with the longest commands listed below.">
+              </picture>
+              <figcaption>A ticket’s time, per role</figcaption>
+            </figure>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="how-it-works" aria-labelledby="how-title">
+      <div class="wrap narrow">
+        <h2 id="how-title">How it works</h2>
+        <ol class="flow" aria-label="From the board to the agent">
+          <li><strong>The board and the orchestrator panel</strong> <span>A React app, sending typed commands</span></li>
+          <li><strong>The engine</strong> <span>Runs tickets through their lineups, with the concurrency cap, the stuck detector and the permission guard, and keeps everything in SQLite</span></li>
+          <li><strong>The Claude Agent SDK</strong> <span>One long-lived, headless, streaming session per agent</span></li>
+          <li><strong>The official <code>claude</code> binary</strong> <span>Unmodified, signed in with your own Claude subscription</span></li>
+        </ol>
+        <p>Mainbus drives the official, unmodified <code>claude</code> binary through the <a href="https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk">Claude Agent SDK</a>, on your own subscription. Claude Code handles its own login, and <strong>Mainbus never handles credentials</strong>. Each agent’s events are stored in SQLite and shown as the ticket’s thread.</p>
+        <p>Its rule is that state lives on disk and code owns the mechanics; the models only make judgement calls. Every role gets the same few Mainbus tools: ask you a question, hand off, submit a report, report a problem, tick a criterion and declare a wait. The engine, not the model, moves tickets between columns.</p>
+      </div>
+    </section>
+
+    <section id="requirements" aria-labelledby="req-title">
+      <div class="wrap narrow">
+        <h2 id="req-title">Requirements, honestly</h2>
+        <p>Mainbus is a personal tool: one user, one machine, Windows first. There’s no installer or download yet; you build it from source.</p>
+        <ul>
+          <li><strong>Windows 11.</strong> Mainbus has only been built and run on Windows, and its stable build and command-line launcher are PowerShell and <code>.cmd</code> scripts.</li>
+          <li><strong>Node.js 24, <a href="https://pnpm.io/">pnpm</a> 9 and Git.</strong></li>
+          <li><strong><a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a> on your PATH and signed in.</strong> Mainbus checks this at startup and never runs the login itself.</li>
+          <li>Optional: the <a href="https://cli.github.com/">GitHub CLI</a>, signed in, to open pull requests at Review.</li>
+        </ul>
+        <h3>Run it</h3>
+        <pre><code>git clone https://github.com/artjumble/mainbus.git
+cd mainbus
+pnpm install
+pnpm dev</code></pre>
+        <p>To run a built copy instead, so merging a branch doesn’t reload the app that is driving the agents:</p>
+        <pre><code>pnpm build:stable
+pnpm run run:stable</code></pre>
+        <p>The <a href="https://github.com/artjumble/mainbus#getting-started">getting started steps in the README</a> cover the rest, including letting other Claude Code sessions file tickets on your board.</p>
+        <p>Mainbus is released under the <a href="https://github.com/artjumble/mainbus/blob/main/LICENSE">MIT License</a>.</p>
+      </div>
+    </section>
+
+    <section id="built-with-mainbus" aria-labelledby="built-title">
+      <div class="wrap narrow">
+        <h2 id="built-title">Built with Mainbus</h2>
+        <p>Mainbus is an experiment in building software with AI agents, including the tool that runs them. It started as a design document and a spike that tested each assumption first: the permission guard exists because the spike showed the CLI’s automatic permission mode would allow a force-push and file deletion outside the working folder when the prompt implied it.</p>
+        <p>Since its first self-hosting version, Mainbus has been built by Mainbus. Each feature is a ticket on its own board, worked by its own agents, opened as a <a href="https://github.com/artjumble/mainbus/pulls?q=is%3Apr">pull request</a>, reviewed and merged. Rough edges found while using it go back on the board as tickets. This site was one of them.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <p>Mainbus is released under the <a href="https://github.com/artjumble/mainbus/blob/main/LICENSE">MIT License</a>. Copyright © 2026 artjumble.</p>
+      <p>Night Owl and Light Owl theme colours by Sarah Drasner (MIT), from <a href="https://github.com/sdras/night-owl-vscode-theme">Night Owl for VS Code</a>. Mainbus grew out of using <a href="https://github.com/kunchenguid/firstmate">firstmate</a>, a terminal-based setup where an orchestrator agent supervises coding agents.</p>
+      <p>Mainbus isn’t affiliated with or endorsed by Anthropic. It runs Claude Code, which you install and sign in to yourself.</p>
+    </div>
+  </footer>
+</body>
+</html>

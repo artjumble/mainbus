@@ -261,6 +261,8 @@ src/
   shared/         types and pure rules shared by the engine and the renderer
   cli/            the mainbus CLI and MCP server
 e2e/              Playwright end-to-end tests and fake-runtime scripts
+site/             the marketing site for mainbus.app: static HTML and CSS, and its hosting notes
+scripts/site/     the site's demo board, screenshot script (pnpm site:screenshots) and checks (pnpm site:check)
 docs/             design, spike results, roadmap, plans, proposals and manual test runs
 ```
 
