@@ -82,7 +82,15 @@ export type FakeStep =
    * with an error event and the run closed, unless `allowFail` (a merge that stops on conflicts, say).
    */
   | { git: string[]; allowFail?: boolean }
+  /**
+   * Moves the fake clock on by this many milliseconds, running the timers that come due, so the events after it are
+   * stamped later. Fails the script, with an error event and the run closed, when the runtime has no clock.
+   */
+  | { advanceClock: number }
   | { exit: number | null }
+
+/** A role's steps by role name, as a script file holds them (see FakeScriptFile). */
+type RoleScripts = Record<string, FakeStep[]>
 
 /**
  * A script as a JSON file holds it: the steps for every agent, or the steps for each role by name, with `*`
@@ -90,22 +98,49 @@ export type FakeStep =
  * A resumed session of a role plays `<Role> resumed` when the file has it, so a role handed a problem back,
  * or handed back to, can act differently the second time. A role's nth fresh session (not a resumed one) plays
  * `<Role> #n` when the file has it, for n of 2 or more: a role replaced by a fresh agent acts differently.
+ *
+ * A key `<workspace slug>#<n>` holds a role map of its own for that one ticket, read the same way, with its own
+ * counts of fresh sessions: a ticket's runs play from it first, and from the file's role keys when it has no steps
+ * for the role.
  */
-export type FakeScriptFile = FakeStep[] | Record<string, FakeStep[]>
+export type FakeScriptFile = FakeStep[] | Record<string, FakeStep[] | RoleScripts>
+
+/** The steps a role's run plays from a role map, or undefined when the map has none for it; counts fresh sessions in `fresh`. */
+function pickRole(file: Record<string, unknown>, spec: RunSpec, fresh: Map<string, number>): FakeStep[] | undefined {
+  const own = (key: string): FakeStep[] | undefined => (Object.hasOwn(file, key) && Array.isArray(file[key]) ? (file[key] as FakeStep[]) : undefined)
+  if (spec.role !== undefined && spec.resumeSessionId !== undefined) {
+    const resumed = own(`${spec.role} resumed`)
+    if (resumed) return resumed
+  }
+  if (spec.role !== undefined && spec.resumeSessionId === undefined) {
+    const n = (fresh.get(spec.role) ?? 0) + 1
+    fresh.set(spec.role, n)
+    const nth = own(`${spec.role} #${n}`)
+    if (n >= 2 && nth) return nth
+  }
+  return (spec.role !== undefined ? own(spec.role) : undefined) ?? own('*')
+}
+
+/** `<workspace slug>#<n>` for a run in a ticket's worktree (`work\<workspace slug>\<n>-<slug>`), or null for any other folder. */
+export function ticketScriptKey(cwd: string): string | null {
+  const n = /^(\d+)-/.exec(path.basename(cwd))?.[1]
+  return n === undefined ? null : `${path.basename(path.dirname(cwd))}#${Number(n)}`
+}
 
 export function scriptFromFile(file: FakeScriptFile): FakeStep[] | ((spec: RunSpec) => FakeStep[]) {
   if (Array.isArray(file)) return file
   const fresh = new Map<string, number>()
+  const freshByTicket = new Map<string, Map<string, number>>()
   return (spec) => {
-    const resumed = `${spec.role} resumed`
-    if (spec.role !== undefined && spec.resumeSessionId !== undefined && Object.hasOwn(file, resumed)) return file[resumed]!
-    if (spec.role !== undefined && spec.resumeSessionId === undefined) {
-      const n = (fresh.get(spec.role) ?? 0) + 1
-      fresh.set(spec.role, n)
-      const nth = `${spec.role} #${n}`
-      if (n >= 2 && Object.hasOwn(file, nth)) return file[nth]!
+    const key = ticketScriptKey(spec.cwd)
+    const ticket = key !== null && Object.hasOwn(file, key) ? file[key] : undefined
+    if (ticket !== undefined && !Array.isArray(ticket)) {
+      const counts = freshByTicket.get(key!) ?? new Map<string, number>()
+      freshByTicket.set(key!, counts)
+      const steps = pickRole(ticket, spec, counts)
+      if (steps) return steps
     }
-    return spec.role !== undefined && Object.hasOwn(file, spec.role) ? file[spec.role]! : (file['*'] ?? [])
+    return pickRole(file, spec, fresh) ?? []
   }
 }
 
@@ -114,10 +149,11 @@ export function scriptFromFile(file: FakeScriptFile): FakeStep[] | ((spec: RunSp
  * session, when the file has it). A file with no `Orchestrator` steps leaves it open and silent.
  */
 export function orchestratorScriptFromFile(file: FakeScriptFile): (spec: OrchestratorRunSpec) => FakeStep[] {
+  const own = (key: string): FakeStep[] | undefined =>
+    !Array.isArray(file) && Object.hasOwn(file, key) && Array.isArray(file[key]) ? (file[key] as FakeStep[]) : undefined
   return (spec) => {
-    if (Array.isArray(file)) return []
-    if (spec.resumeSessionId !== undefined && Object.hasOwn(file, 'Orchestrator resumed')) return file['Orchestrator resumed']!
-    return Object.hasOwn(file, 'Orchestrator') ? file['Orchestrator']! : []
+    if (spec.resumeSessionId !== undefined && own('Orchestrator resumed')) return own('Orchestrator resumed')!
+    return own('Orchestrator') ?? []
   }
 }
 
@@ -249,6 +285,8 @@ export class FakeRuntime implements AgentRuntime {
       supportedModels?: SupportedModel[] | { fail: string }
       /** setModelEffort() rejects with this message, as a run that can't change its model would. */
       setModelEffortFails?: string
+      /** The fake clock the `advanceClock` step moves on. */
+      clock?: { advance(ms: number): Promise<void> }
     } = {}
   ) {}
 
@@ -473,6 +511,9 @@ export class FakeRuntime implements AgentRuntime {
           if (run.stopped) return
           run.pendingSends--
           run.reached++
+        } else if ('advanceClock' in step) {
+          if (!this.opts.clock) throw new Error('advanceClock needs a fake clock')
+          await this.opts.clock.advance(step.advanceClock)
         } else {
           this.close(run)
           return

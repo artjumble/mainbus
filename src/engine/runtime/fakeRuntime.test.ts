@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
-import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeStep } from './fakeRuntime'
+import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, ticketScriptKey, type FakeStep } from './fakeRuntime'
 import { ResumeFailedError, type OrchestratorRunSpec, type RoleToolHandlers, type RunSpec } from './types'
 import { eventually } from '../testWait'
 
@@ -344,6 +344,68 @@ describe('a replaced role in a script file', () => {
     // Without "#3" the third plays the role's own steps; other roles count separately.
     expect(pick(makeSpec({ role: 'Implementer' }).spec)).toEqual(steps('first'))
     expect(pick(makeSpec({ role: 'Reviewer' }).spec)).toEqual(steps('review'))
+  })
+})
+
+describe('a script for one ticket in a script file', () => {
+  const steps = (text: string): FakeStep[] => [{ emit: { kind: 'message', text } }]
+  const at = (cwd: string, over: Partial<RunSpec> = {}) => makeSpec({ cwd, ...over }).spec
+
+  test('ticketScriptKey reads the workspace slug and the ticket number from the worktree path', () => {
+    expect(ticketScriptKey(path.join('home', 'work', 'acme-web', '4-fix-the-cart'))).toBe('acme-web#4')
+    expect(ticketScriptKey(path.join('home', 'work', 'acme-web', '012-padded'))).toBe('acme-web#12')
+    expect(ticketScriptKey(path.join('home', 'orchestrator'))).toBeNull()
+  })
+
+  test("a ticket's runs play its own role map first, with its own counts, then the file's role keys", () => {
+    const pick = scriptFromFile({
+      Planner: steps('any planner'),
+      'Planner #2': steps('second planner anywhere'),
+      Implementer: steps('any implementer'),
+      'acme-web#4': {
+        Planner: steps('plan 4'),
+        'Planner #2': steps('plan 4 again'),
+        'Implementer resumed': steps('implementer 4 resumed')
+      }
+    }) as (spec: RunSpec) => FakeStep[]
+    const four = path.join('home', 'work', 'acme-web', '4-fix-the-cart')
+    const five = path.join('home', 'work', 'acme-web', '5-other')
+    expect(pick(at(four, { role: 'Planner' }))).toEqual(steps('plan 4'))
+    // Another ticket's Planner is the file's first, not its second: the ticket's runs counted on their own.
+    expect(pick(at(five, { role: 'Planner' }))).toEqual(steps('any planner'))
+    expect(pick(at(four, { role: 'Planner' }))).toEqual(steps('plan 4 again'))
+    expect(pick(at(five, { role: 'Planner' }))).toEqual(steps('second planner anywhere'))
+    // No Implementer in the ticket's map: the file's own; resumed, the ticket's.
+    expect(pick(at(four, { role: 'Implementer' }))).toEqual(steps('any implementer'))
+    expect(pick(at(four, { role: 'Implementer', resumeSessionId: 's1' }))).toEqual(steps('implementer 4 resumed'))
+    // The same number in another workspace is another ticket.
+    expect(pick(at(path.join('home', 'work', 'field-notes', '4-x'), { role: 'Planner' }))).toEqual(steps('any planner'))
+  })
+
+  test('a file without ticket keys picks as before, wherever the run is', () => {
+    const pick = scriptFromFile({ Planner: steps('plan'), 'Planner #2': steps('again'), '*': steps('other') }) as (spec: RunSpec) => FakeStep[]
+    expect(pick(at(path.join('w', 'a', '1-x'), { role: 'Planner' }))).toEqual(steps('plan'))
+    expect(pick(at(path.join('w', 'b', '7-y'), { role: 'Planner' }))).toEqual(steps('again'))
+    expect(pick(at(path.join('w', 'a', '1-x'), { role: 'Reviewer' }))).toEqual(steps('other'))
+  })
+
+  test('the orchestrator ignores ticket keys', () => {
+    const pick = orchestratorScriptFromFile({ 'acme-web#1': { Orchestrator: steps('no') }, Orchestrator: steps('yes') })
+    expect(pick({ kind: 'orchestrator' } as OrchestratorRunSpec)).toEqual(steps('yes'))
+  })
+})
+
+describe('advanceClock', () => {
+  test('moves the clock on between events, and fails the script without a clock', async () => {
+    const moved: number[] = []
+    const clock = { advance: vi.fn(async (ms: number) => void moved.push(ms)) }
+    const script: FakeStep[] = [{ advanceClock: 180_000 }, { emit: { kind: 'message', text: 'later' } }, { exit: 0 }]
+    const rt = new FakeRuntime(script, { clock })
+    expect(await collect(rt.events(await rt.start(makeSpec().spec)))).toEqual([{ kind: 'message', text: 'later' }])
+    expect(moved).toEqual([180_000])
+
+    const without = new FakeRuntime(script)
+    expect(await collect(without.events(await without.start(makeSpec().spec)))).toEqual([{ kind: 'error', message: 'advanceClock needs a fake clock' }])
   })
 })
 

@@ -184,14 +184,16 @@ function createWindow(): BrowserWindow {
  * opening a pull request never reaches GitHub (git itself still runs, against the test's own repositories).
  * Otherwise the user's own `claude` drives the agents; with no usable `claude`, there is no runtime.
  */
-async function chooseRuntime(): Promise<{ runtime: AgentRuntime | null; exec: ExecFn; commands: CommandRunner }> {
+async function chooseRuntime(clock: FakeClock | undefined): Promise<{ runtime: AgentRuntime | null; exec: ExecFn; commands: CommandRunner }> {
   const fake = process.env['MAINBUS_RUNTIME']
   if (fake?.startsWith('fake:') && process.env['MAINBUS_HOME']) {
     const script = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), fake.slice('fake:'.length)), 'utf8')) as FakeScriptFile
     const runtime = new FakeRuntime(scriptFromFile(script), {
       orchestrator: orchestratorScriptFromFile(script),
       // Sessions outlive the process, so an agent can be resumed after the app was killed.
-      sessionsFile: path.join(home.root, 'fake-sessions.json')
+      sessionsFile: path.join(home.root, 'fake-sessions.json'),
+      // The test clock, when there is one, for scripts that move the time on between their events.
+      ...(clock ? { clock } : {})
     })
     return { runtime, exec: fakeClaudeExec, commands: new FakeGh().runner(runCommand) }
   }
@@ -229,11 +231,11 @@ if (!app.requestSingleInstanceLock()) {
   void app
     .whenReady()
     .then(async () => {
-      const { runtime, exec, commands } = await chooseRuntime()
       // End-to-end tests only: a clock that moves when the test says (`__mainbusClock.advance(ms)` from the main process).
       const clockStart = testClockStartFromEnv(process.env)
       const clock = clockStart ? new FakeClock(clockStart) : undefined
       if (clock) (globalThis as { __mainbusClock?: FakeClock }).__mainbusClock = clock
+      const { runtime, exec, commands } = await chooseRuntime(clock)
       engine = await createEngine({
         paths: home,
         migrationsDir: app.isPackaged
