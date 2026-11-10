@@ -825,6 +825,11 @@ const DraggableTicket = memo(function DraggableTicket({
             Move to In progress…
           </Menu.Item>
         )}
+        {ticket.state.column === 'review' && ticket.branch !== null && (
+          <Menu.Item disabled={moving} onClick={() => onMerge(ticket)}>
+            Merge…
+          </Menu.Item>
+        )}
       </Menu.Dropdown>
     </Menu>
   )

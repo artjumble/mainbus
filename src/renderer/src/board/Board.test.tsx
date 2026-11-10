@@ -895,3 +895,32 @@ describe('accessibility', () => {
     await expectNoAxeViolations()
   })
 })
+
+describe('Merge… in the card menu', () => {
+  test('a Review card with a branch offers Merge…, which opens the dialog', async () => {
+    const ticket = makeTicket({ title: 'Merge me', branch: 'mainbus/4-merge-me' }, { column: 'review', phase: 'ready_for_review' })
+    showBoard(ticket)
+    mockInvoke.mockImplementation(async (command: string) =>
+      command === 'ticket.mergePreview'
+        ? { ok: false, reason: 'Your checkout (/repo) has uncommitted changes: a.txt', suggest: 'commit_or_stash' }
+        : { tickets: [ticket] }
+    )
+    renderWithMantine(<Board />)
+    screen.getByRole('button', { name: /Merge me/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Merge…' }))
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.mergePreview', ticket.id))
+    expect(await screen.findByText(/has uncommitted changes: a\.txt/)).toBeInTheDocument()
+  })
+
+  test('only a Review card with a branch has it', async () => {
+    const backlog = makeTicket({ title: 'Not yet', branch: 'mainbus/5-not-yet' }, { column: 'backlog' })
+    showBoard(backlog)
+    mockInvoke.mockResolvedValue({ tickets: [backlog] })
+    renderWithMantine(<Board />)
+    screen.getByRole('button', { name: /Not yet/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    await screen.findByRole('menuitem', { name: 'Move to Ready' })
+    expect(screen.queryByRole('menuitem', { name: 'Merge…' })).not.toBeInTheDocument()
+  })
+})

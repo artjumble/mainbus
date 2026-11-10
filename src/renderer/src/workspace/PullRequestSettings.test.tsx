@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { GhStatus } from '../../../shared/domain'
 import { invoke } from '../api'
@@ -62,4 +62,22 @@ test('the pull request settings have no axe violations', async () => {
   renderWithMantine(<PullRequestSettings opened />)
   await toggle()
   await expectNoAxeViolations()
+})
+
+test('merges pull requests with a merge commit by default, and saves another method', async () => {
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'workspace.get') return { ...workspace, openPrOnReview: on, mergeMethod: 'merge' }
+    if (command === 'workspace.setMergeMethod') return { ...workspace, mergeMethod: args[0] }
+    return undefined
+  })
+  renderWithMantine(<PullRequestSettings opened />)
+  const group = await screen.findByRole('radiogroup', { name: 'Merge pull requests with' })
+  const merge = within(group).getByRole('radio', { name: 'Merge commit' })
+  await vi.waitFor(() => expect(merge).toBeEnabled())
+  expect(merge).toBeChecked()
+
+  await userEvent.click(within(group).getByRole('radio', { name: 'Squash' }))
+
+  expect(mockInvoke).toHaveBeenCalledWith('workspace.setMergeMethod', 'squash')
+  await vi.waitFor(() => expect(useMainbus.getState().workspace?.mergeMethod).toBe('squash'))
 })

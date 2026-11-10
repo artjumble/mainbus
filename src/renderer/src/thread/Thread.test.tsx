@@ -579,3 +579,18 @@ test('a sent message shows the workspaces it mentions as chips with their stored
   expect(message).toHaveTextContent('create it in Hunter, not @foo')
   expect(message.querySelectorAll('[data-mention]')).toHaveLength(1)
 })
+
+test('a merge is a dimmed line saying how', () => {
+  const { container } = renderWithMantine(
+    <Thread
+      decisions={[]}
+      events={[
+        ev({ kind: 'merged', base: 'main', via: 'pull_request', how: 'squash', number: 5, url: 'https://github.com/o/r/pull/5', commit: null }),
+        ev({ kind: 'merged', base: 'main', via: 'local', how: 'fast_forward', commit: 'abc' })
+      ]}
+    />
+  )
+  const rows = container.querySelectorAll('[data-event="merged"]')
+  expect(rows[0]).toHaveTextContent('Merged into main by you (pull request #5)')
+  expect(rows[1]).toHaveTextContent('Merged into main by you (local merge)')
+})

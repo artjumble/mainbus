@@ -1,7 +1,6 @@
-import type { PullRequest } from './domain'
+import type { MergeMethod, PullRequest } from './domain'
 
-/** How GitHub merges a pull request. */
-export type MergeMethod = 'merge' | 'squash' | 'rebase'
+export type { MergeMethod }
 
 export const MERGE_METHODS: MergeMethod[] = ['merge', 'squash', 'rebase']
 

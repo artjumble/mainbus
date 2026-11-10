@@ -1,6 +1,5 @@
 // Shared by the engine and the renderer: types and a few constants, no Node imports.
 
-import type { MergeMethod } from './merge'
 export type Column = 'backlog' | 'ready' | 'in_progress' | 'needs_you' | 'review' | 'done'
 
 export type Phase =
@@ -94,6 +93,9 @@ export function resolveTheme(setting: ThemeSetting, systemDark: boolean): ThemeI
 }
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/** How GitHub merges a pull request. */
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
 
 export interface Workspace {
   id: string

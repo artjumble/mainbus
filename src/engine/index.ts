@@ -735,9 +735,9 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     const whyNotMergeableNow = async (ticket: Ticket): Promise<string | null> => {
       const n = `#${ticket.number}`
       if (ticket.manualColumn === 'done') return `${n} is Done`
-      if (ticket.branch === null) return `${n} has no branch yet`
       const state = await runner.stateOf(ticket.id)
       if (state.column !== 'review' || state.settingUp || runner.isLaunching(ticket.id)) return `${n} is not in Review`
+      if (ticket.branch === null) return `${n} has no branch yet`
       return null
     }
     const mergePreview = async (ticketId: string): Promise<MergePreview> => {

@@ -908,3 +908,33 @@ test('a done ticket says it is read-only, and its Run settings dialog cannot sav
   await within(dialog).findByText(/Untick a role/)
   expect(within(dialog).queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
 })
+
+describe('Merge…', () => {
+  test('a ticket in Review with a branch has it, and it opens the dialog with the plan from the engine', async () => {
+    const ticket = makeTicket({ title: 'Add dark mode', number: 12, branch: 'mainbus/12-add-dark-mode' }, { column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'thread.get') return thread
+      if (command === 'ticket.mergePreview') {
+        return { ok: true, plan: { kind: 'local', base: 'main', branch: 'mainbus/12-add-dark-mode', head: 'a', how: 'fast_forward', commits: 1, checkout: '/r', currentBranch: 'main', message: null } }
+      }
+      return undefined
+    })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Merge…' }))
+    expect(await screen.findByText(/Fast-forwards main to mainbus\/12-add-dark-mode \(1 commit\)/)).toBeInTheDocument()
+    expect(mockInvoke).toHaveBeenCalledWith('ticket.mergePreview', ticket.id)
+  })
+
+  test.each([
+    ['in progress', { column: 'in_progress', phase: 'implementing', agentStatus: 'working' }, 'mainbus/12-x'],
+    ['in Review with no branch', { column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' }, null],
+    ['Done', { column: 'done', phase: 'done' }, 'mainbus/12-x']
+  ] as const)('a ticket %s has no Merge…', async (_name, state, branch) => {
+    const ticket = makeTicket({ title: 'Add dark mode', number: 12, branch }, state as Partial<TicketState>)
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    await screen.findByRole('heading', { name: 'Add dark mode' })
+    expect(screen.queryByRole('button', { name: 'Merge…' })).not.toBeInTheDocument()
+  })
+})

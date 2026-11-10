@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import type { PullRequest, Ticket, Workspace } from '../../shared/domain'
 import type { MergePlan, MergePreview, MergeSuggestion } from '../../shared/merge'
@@ -211,7 +212,13 @@ export function repoOfUrl(url: PullRequest['url']): string | null {
 
 function samePath(a: string, b: string): boolean {
   const norm = (p: string): string => {
-    const r = path.resolve(p)
+    let r = path.resolve(p)
+    try {
+      // Git reports long, real paths; the workspace's may be a short name or a link.
+      r = fs.realpathSync.native(r)
+    } catch {
+      // A path that can't be resolved is compared as written.
+    }
     return process.platform === 'win32' ? r.toLowerCase() : r
   }
   return norm(a) === norm(b)
