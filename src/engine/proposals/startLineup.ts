@@ -3,8 +3,8 @@ import { PRESET_NAME_MAX, type Effort, type RunSettings } from '../../shared/dom
 import {
   EFFORTS,
   EXTRA_INSTRUCTIONS_MAX,
-  MODEL_OPTIONS,
   modelAllowed,
+  modelOptions,
   resolveModelEffort,
   sameRoleName
 } from '../../shared/models'
@@ -14,14 +14,18 @@ import { notDoneYetText } from '../../shared/dependencies'
 import { listJoin } from './createTickets'
 import { parsePayload, ProposalInvalid, type ProposalKind } from './kind'
 
-const MODELS = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
+/** One of the offered models, read when a payload is checked: the list comes from the user's `claude`. */
+const modelSchema = z.string().superRefine((model, ctx) => {
+  const values = modelOptions().map((o) => o.value)
+  if (!values.includes(model)) ctx.addIssue({ code: 'custom', message: `Invalid option: expected one of ${values.map((v) => JSON.stringify(v)).join('|')}` })
+})
 const effortSchema = z.enum(EFFORTS as [Effort, ...Effort[]])
 const extraSchema = z.string().max(EXTRA_INSTRUCTIONS_MAX, `must be at most ${EXTRA_INSTRUCTIONS_MAX} characters`)
 
 const proposeSchema = z.strictObject({
   ticket: z.number().int().positive(),
   roles: z
-    .array(z.strictObject({ role: z.string().min(1), model: z.enum(MODELS).optional(), effort: effortSchema.optional() }))
+    .array(z.strictObject({ role: z.string().min(1), model: modelSchema.optional(), effort: effortSchema.optional() }))
     .min(1, 'must have at least 1 role')
     .optional(),
   extraInstructions: extraSchema.optional(),

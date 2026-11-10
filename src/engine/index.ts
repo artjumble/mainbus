@@ -55,6 +55,7 @@ import type { StuckReport } from './orchestrator/stuckBlock'
 import { OrchestratorImages } from './orchestrator/images'
 import { OrchestratorSession } from './orchestrator/session'
 import { OrchestratorModels } from './orchestrator/models'
+import { modelOptions, setModelOptions } from '../shared/models'
 import { familyName, isOrchestratorFamily, type OrchestratorModelState } from '../shared/orchestratorModel'
 import { ProposalInvalid, type TicketToCreate } from './proposals/kind'
 import type { BatchItem } from 'drizzle-orm/batch'
@@ -266,6 +267,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit({ type: 'orchestrator.model', state: await orchestratorModelState() })
     }
     void orchestratorModels.load().then(() => emitOrchestratorModel().catch(() => {}))
+    // The roles' models come from the same list. Every select, schema and check reads them through shared/models, so
+    // whatever checks a chosen model waits for them first: a saved Fable isn't refused while the list is being read.
+    const roleModelsReady = orchestratorModels.roleOptions().then((options) => {
+      setModelOptions(options)
+      emit({ type: 'models.changed', options: modelOptions() })
+    })
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
     const merger = new BranchMerger(cfg.commands ?? runCommand)
     // Created beside the runner it drives; it reads its stored state before anything can start (see below).
@@ -710,6 +717,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      */
     const startChecked = async (ticketId: string, opts: StartOptions | undefined, via: 'ticket' | 'proposal'): Promise<void> => {
       requireRuntime()
+      await roleModelsReady
       const { startAnyway, ...rest } = opts ?? {}
       const open = openBlockers(await repos.dependencies.blockersOf(ticketId))
       if (open.length > 0 && !startAnyway) throw new Error(`${notDoneYetText(open)}, so it can't start yet`)
@@ -926,6 +934,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const ticket = await assertNotDone(id)
       const latest = await repos.runs.latest(id)
       if ((latest && latest.endReason === null) || runner.isLaunching(id)) throw new Error("Run settings can't be changed while a run is open")
+      await roleModelsReady
       const settings = input === null ? null : checkRunSettings(input, await repos.lineups.get(ticket.workspaceId, ticket.kind))
       const saved = await repos.tickets.setRunSettings(id, settings)
       emit({ type: 'board.changed', workspaceId: saved.workspaceId })
@@ -1145,6 +1154,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       emit,
       webAccess: async () => (await repos.settings.get()).orchestratorWebAccess,
       modelEffort: async () => {
+        // Before its session starts: its tool schemas offer the roles' models.
+        await roleModelsReady
         const s = await orchestratorModelState()
         return { model: s.current.model, effort: s.effort }
       },
@@ -1520,6 +1531,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'preset.save': async (preset, workspaceId) => {
         const ws = await requireWorkspace(workspaceId)
         if (typeof preset !== 'object' || preset === null || typeof preset.name !== 'string') throw new Error('The preset is not valid')
+        await roleModelsReady
         const settings = checkRunSettings(preset.settings, await repos.lineups.get(ws.id, 'change'))
         return repos.presets.save(ws.id, { ...(preset.id !== undefined ? { id: preset.id } : {}), name: preset.name, settings })
       },
@@ -1592,6 +1604,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'orchestrator.get': () => orchestrator.get(),
       'orchestrator.usage': async () => orchestratorUsage((await orchestrator.get()).events),
       'orchestrator.model': () => orchestratorModelState(),
+      'models.list': async () => {
+        await roleModelsReady
+        return modelOptions()
+      },
       'orchestrator.send': (text, images, mentions) => {
         requireRuntime()
         return orchestrator.send(text, images, mentions)
@@ -1599,10 +1615,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'orchestrator.image': (id) => orchestratorImages.dataUrl(id),
       'orchestrator.stop': () => orchestrator.stop(),
       // They act on the ticket's own workspace, whichever one is focused.
-      'ticket.proposeStart': async (ticketId) => orchestrator.proposeStartFromDrag(await repos.tickets.get(ticketId)),
+      'ticket.proposeStart': async (ticketId) => {
+        await roleModelsReady
+        return orchestrator.proposeStartFromDrag(await repos.tickets.get(ticketId))
+      },
       'ticket.proposeReplace': async (ticketId) => orchestrator.proposeReplaceFromButton(await repos.tickets.get(ticketId)),
       // Reached only through `invoke` (the renderer's IPC): only the user decides a proposal. No runtime needed.
-      'proposal.confirm': (id, override) => proposals.confirm(id, override),
+      'proposal.confirm': async (id, override) => {
+        await roleModelsReady
+        return proposals.confirm(id, override)
+      },
       'proposal.reject': (id) => proposals.reject(id)
     }
 

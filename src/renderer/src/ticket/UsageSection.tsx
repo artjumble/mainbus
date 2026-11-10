@@ -10,6 +10,12 @@ import {
   ticketUsage,
   type UsageTotals
 } from '../../../shared/usageTotals'
+import { modelLabel } from '../../../shared/models'
+
+/** "Haiku 5.5, Fable 5.2": the models some usage ran on, by name and version. */
+function modelsText(u: UsageTotals): string {
+  return u.models.map(modelLabel).join(', ')
+}
 
 /** Tokens by kind, then turns and agent time when there were agent turns. */
 function tokenText(u: UsageTotals): string {
@@ -25,7 +31,7 @@ export function UsageTotalsView({ usage }: { usage: UsageTotals | null }): React
       <Text size="sm">{tokenText(usage)}</Text>
       {usage.models.length > 0 && (
         <Text size="xs" c="dimmed">
-          {usage.models.join(', ')}
+          {modelsText(usage)}
         </Text>
       )}
       <Text size="sm">
@@ -49,7 +55,7 @@ function Row({ label, usage }: { label: string; usage: UsageTotals | null }): Re
         {usage ? (
           <Text size="sm" c="dimmed">
             {tokenText(usage)}
-            {usage.models.length > 0 ? ` · ${usage.models.join(', ')}` : ''}
+            {usage.models.length > 0 ? ` · ${modelsText(usage)}` : ''}
             {usage.costUsd !== null ? ` · ${formatCost(usage.costUsd)}` : ''}
           </Text>
         ) : (

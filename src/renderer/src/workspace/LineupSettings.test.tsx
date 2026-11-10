@@ -2,7 +2,8 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LineupRole, LineupRoleInput } from '../../../shared/domain'
 import { invoke } from '../api'
-import { expectNoAxeViolations, makeLineup, optionLabels, renderWithMantine } from '../test-utils'
+import { useMainbus } from '../store'
+import { DISCOVERED, expectNoAxeViolations, makeLineup, optionLabels, renderWithMantine } from '../test-utils'
 import { firstSentence, LineupEditor, LineupSettings } from './LineupSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -84,6 +85,20 @@ test('shows the lineup in order, with the first role open for editing', async ()
     )
   ).toBeInTheDocument()
   expect(saveButton()).toBeDisabled()
+})
+
+test("offers Fable with its version once the engine has read the user's claude, and saves it as the role's model", async () => {
+  useMainbus.getState().setModelOptions(DISCOVERED)
+  try {
+    await renderLoaded()
+    await openModels()
+    expect(optionLabels(screen.getByLabelText('Model'))).toEqual(['Orchestrator decides', 'Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5'])
+    await userEvent.selectOptions(screen.getByLabelText('Model'), 'Fable 5.2')
+    await userEvent.click(saveButton())
+    expect(lastSaved()[0]).toMatchObject({ name: 'Planner', model: 'claude-fable-5-2' })
+  } finally {
+    useMainbus.getState().setModelOptions([])
+  }
 })
 
 test('edits a role and saves the whole lineup', async () => {

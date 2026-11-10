@@ -1,0 +1,17 @@
+{
+  "Planner": [
+    { "emit": { "kind": "error", "message": "The Planner ran, but the run settings left it out." } }
+  ],
+  "Implementer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-implementer" } },
+    { "expectModel": { "model": "claude-fable-5-2", "effort": "medium" } },
+    { "emit": { "kind": "message", "text": "Implementer running on Fable." } },
+    { "callTool": "handoff", "args": { "summary": "Added hello.txt", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ],
+  "Reviewer": [
+    { "emit": { "kind": "session", "sessionId": "e2e-reviewer" } },
+    { "callTool": "handoff", "args": { "summary": "Reviewed: looks right", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } }
+  ]
+}

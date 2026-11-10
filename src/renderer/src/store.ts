@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { BoardTicket, PrepareOptions, WorkspaceSummary } from '../../shared/api'
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
+import { modelOptions, setModelOptions, type ModelOption } from '../../shared/models'
 import { invoke, onEngineEvent } from './api'
 import { asOwnChange, isOwnChange } from './board/ownChanges'
 import { errorMessage } from './notify'
@@ -49,8 +50,12 @@ interface MainbusState {
   recentlyChanged: Record<string, number>
   /** Text for the orchestrator's message box: the panel expands, fills the box and focuses it. `n` counts asks. */
   orchestratorPrefill: { text: string; n: number } | null
+  /** The models offered for agents' roles, as the engine read them from the user's `claude`; the aliases until then. */
+  modelOptions: ModelOption[]
 
   setSearch(query: string): void
+  /** Keeps the offered models, here (for the selects) and in shared/models (for every label and check). */
+  setModelOptions(options: ModelOption[]): void
   askOrchestrator(text: string): void
   clearOrchestratorPrefill(): void
   /** The first load: setup check, then workspace and board. Never rejects; a failure lands in `loadError`. */
@@ -179,8 +184,13 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   search: '',
   recentlyChanged: {},
   orchestratorPrefill: null,
+  modelOptions: modelOptions(),
 
   setSearch: (search) => set({ search }),
+  setModelOptions: (options) => {
+    setModelOptions(options)
+    set({ modelOptions: modelOptions() })
+  },
   askOrchestrator: (text) => set((s) => ({ orchestratorPrefill: { text, n: (s.orchestratorPrefill?.n ?? 0) + 1 } })),
   clearOrchestratorPrefill: () => set({ orchestratorPrefill: null }),
 
@@ -326,6 +336,10 @@ export function startSync(onError: (err: unknown) => void): () => void {
     }
     if (e.type === 'usage.changed') {
       useMainbus.setState({ usage: e.state })
+      return
+    }
+    if (e.type === 'models.changed') {
+      useMainbus.getState().setModelOptions(e.options)
       return
     }
     // The rail counts every workspace.

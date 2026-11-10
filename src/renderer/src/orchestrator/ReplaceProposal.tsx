@@ -1,9 +1,10 @@
 import { Anchor, NativeSelect, Stack, Text, Textarea } from '@mantine/core'
 import type { ReactElement } from 'react'
 import type { Effort } from '../../../shared/domain'
-import { EFFORT_OPTIONS, EXTRA_INSTRUCTIONS_MAX, MODEL_OPTIONS, effortLabel, modelLabel } from '../../../shared/models'
+import { EFFORT_OPTIONS, EXTRA_INSTRUCTIONS_MAX, effortLabel, modelLabel } from '../../../shared/models'
 import type { ReplaceOverride, ReplacePayload, ReplaceResult } from '../../../shared/proposals'
 import { useMainbus } from '../store'
+import { useModelOptions } from '../useModelOptions'
 import { withCurrent } from '../ticket/RoleChoice'
 import type { ProposalView } from './proposalView'
 
@@ -49,6 +50,7 @@ function Body({ payload }: { payload: ReplacePayload }): ReactElement {
 
 /** Override: the new run's model and effort, and extra instructions for it. */
 function Editor({ value, onChange, payload }: { value: ReplaceEdit; onChange: (v: ReplaceEdit) => void; payload: ReplacePayload }): ReactElement {
+  const models = useModelOptions()
   const efforts = withCurrent(EFFORT_OPTIONS, value.effort).map((o) => ({ ...o, label: effortLabel(o.value) }))
   return (
     <Stack gap="sm">
@@ -56,7 +58,7 @@ function Editor({ value, onChange, payload }: { value: ReplaceEdit; onChange: (v
         <NativeSelect
           size="xs"
           label="Model"
-          data={withCurrent(MODEL_OPTIONS, value.model)}
+          data={withCurrent(models, value.model, modelLabel)}
           value={value.model}
           onChange={(e) => onChange({ ...value, model: e.currentTarget.value })}
         />

@@ -36,7 +36,7 @@ test('expanded: the totals, the breakdown by run and role, and the cost label', 
   await vi.waitFor(() => expect(within(section).getByText('Run 1')).toBeVisible())
   expect(within(section).getByText('Planner')).toBeVisible()
   expect(within(section).getByText('Implementer')).toBeVisible()
-  expect(within(section).getAllByText(/claude-haiku-5-5/).length).toBeGreaterThan(0)
+  expect(within(section).getAllByText(/Haiku 5\.5/).length).toBeGreaterThan(0)
   expect(section.textContent).toContain(COST_LABEL)
   expect(section.textContent).toContain('$0.84')
   await expectNoAxeViolations(container)

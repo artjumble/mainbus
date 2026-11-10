@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { Hold, Lineup, LineupRole, StartOptions, Ticket, Workspace } from '../../shared/domain'
+import { ALIAS_MODEL_OPTIONS, setModelOptions } from '../../shared/models'
 import type { StartLineupPayload } from '../../shared/proposals'
 import { testRole } from '../store/testDb'
 import { ProposalInvalid, type ExecContext } from './kind'
@@ -70,6 +71,19 @@ describe('start_lineup: propose', () => {
       ],
       extraInstructions: null
     })
+  })
+
+  test('the orchestrator may propose Fable for a role once the binary offers it, and not before', async () => {
+    const input = { ticket: 12, roles: [{ role: 'Reviewer', model: 'claude-fable-5-2', effort: 'high' }] }
+    await expect(propose(input)).rejects.toThrow(/^roles\.0\.model: Invalid option: expected one of "opus"\|"sonnet"\|"haiku"$/)
+    setModelOptions([{ value: 'claude-fable-5-2', label: 'Fable 5.2' }, ...ALIAS_MODEL_OPTIONS])
+    try {
+      expect((await propose(input)).roles).toEqual([
+        { roleId: 'r', name: 'Reviewer', model: 'claude-fable-5-2', effort: 'high', source: 'orchestrator' }
+      ])
+    } finally {
+      setModelOptions([])
+    }
   })
 
   test("puts the roles in lineup order; a role's own setting beats the orchestrator's choice", async () => {
@@ -209,6 +223,20 @@ describe('start_lineup: override', () => {
       extraInstructions: 'New words.'
     })
     expect(startLineup.override!(s, { roles: [{ roleId: 'p', model: 'opus', effort: 'high' }], extraInstructions: ' ' }).extraInstructions).toBeNull()
+  })
+
+  test('accepts Fable once the binary offers it, and refuses it while it is not offered', async () => {
+    const s = await stored()
+    const fable = { roles: [{ roleId: 'i', model: 'claude-fable-5-2', effort: 'high' }], extraInstructions: '' }
+    expect(() => startLineup.override!(s, fable)).toThrow('roles: Implementer has an unknown model')
+    setModelOptions([{ value: 'claude-fable-5-2', label: 'Fable 5.2' }, ...ALIAS_MODEL_OPTIONS])
+    try {
+      expect(startLineup.override!(s, fable).roles).toEqual([
+        { roleId: 'i', name: 'Implementer', model: 'claude-fable-5-2', effort: 'high', source: 'user' }
+      ])
+    } finally {
+      setModelOptions([])
+    }
   })
 
   test('accepts a model the role already had, even if it is not offered', async () => {
