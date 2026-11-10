@@ -59,7 +59,9 @@ function ctx(decision: Decision | null = QUESTION, over: { ticket?: Ticket } = {
     answerDecision: vi.fn(async (_id: string, _a: DecisionAnswer) => {}),
     whyNotUpdatable: async () => null,
     freshnessOf: () => null,
-    updateFromMain: async () => {}
+    updateFromMain: async () => {},
+    mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+    mergeTicket: async () => { throw new Error('n/a') }
   } satisfies ExecContext
 }
 

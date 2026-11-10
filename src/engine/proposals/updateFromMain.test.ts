@@ -37,7 +37,9 @@ function ctx(over: { open?: Workspace | null; why?: string | null; fresh?: Branc
     answerDecision: async () => {},
     whyNotUpdatable: vi.fn(async () => (over.why === undefined ? null : over.why)),
     freshnessOf: vi.fn(() => (over.fresh === undefined ? FRESH : over.fresh)),
-    updateFromMain: vi.fn(async () => {})
+    updateFromMain: vi.fn(async () => {}),
+    mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+    mergeTicket: async () => { throw new Error('n/a') }
   } satisfies ExecContext
 }
 

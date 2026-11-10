@@ -13,6 +13,7 @@ const ws: Workspace = {
   baseBranch: 'main',
   slug: 'repo',
   openPrOnReview: false,
+  mergeMethod: 'merge',
   saveReports: true,
   reportsFolder: 'docs/investigations',
   setupCommand: '',

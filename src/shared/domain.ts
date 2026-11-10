@@ -94,6 +94,9 @@ export function resolveTheme(setting: ThemeSetting, systemDark: boolean): ThemeI
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+/** How GitHub merges a pull request. */
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
+
 export interface Workspace {
   id: string
   name: string
@@ -102,6 +105,8 @@ export interface Workspace {
   slug: string
   /** Push the ticket's branch and open a pull request when it reaches Review. Off unless the user turns it on. */
   openPrOnReview: boolean
+  /** How Merge… merges a ticket's pull request on GitHub. A merge commit unless the user picks another. */
+  mergeMethod: MergeMethod
   /** "Save investigation reports in the repo": Mainbus commits an Investigate ticket's report on its branch. On unless the user turns it off. */
   saveReports: boolean
   /** The folder, relative to the repo, investigation reports are saved in (see reportsFolderProblem). */

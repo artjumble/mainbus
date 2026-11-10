@@ -703,7 +703,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       proposeRedirect: vi.fn(async () => 'Proposed p8.'),
       proposeReplace: vi.fn(async () => 'Proposed p9.'),
       proposePromote: vi.fn(async () => 'Proposed p10.'),
-      proposeUpdateFromMain: vi.fn(async () => 'Proposed p11.')
+      proposeUpdateFromMain: vi.fn(async () => 'Proposed p11.'),
+      proposeMerge: vi.fn(async () => 'Proposed p12.')
     }
     return {
       kind: 'orchestrator',
@@ -777,7 +778,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__propose_redirect',
       'mcp__mainbus__propose_replace',
       'mcp__mainbus__propose_promote',
-      'mcp__mainbus__propose_update_from_main'
+      'mcp__mainbus__propose_update_from_main',
+      'mcp__mainbus__propose_merge'
     ])
     expect(o.settingSources).toEqual([])
     expect(o.permissionMode).toBe('default')
@@ -819,7 +821,8 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'propose_redirect',
       'propose_replace',
       'propose_promote',
-      'propose_update_from_main'
+      'propose_update_from_main',
+      'propose_merge'
     ])
     const byName = new Map(f.tools.map((t) => [t.name, t]))
     expect(await byName.get('get_recent_events')!.handler({ number: 3, limit: 5 }, {})).toEqual({

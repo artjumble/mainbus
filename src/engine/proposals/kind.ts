@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type { ImageRef } from '../../shared/attachments'
+import type { MergeOptions, MergeOutcome, MergePlan, MergePreview } from '../../shared/merge'
 import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
 import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupPreset, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
@@ -84,6 +85,13 @@ export interface ExecContext {
    * it fails, changing nothing, if the run has moved on.
    */
   updateFromMain(ticketId: string, expect: { agentRunId: string } | null): Promise<void>
+  /** What Merge… would do to the ticket now, or why it can't (the ticket view's dialog shows the same). */
+  mergePreview(ticketId: string): Promise<MergePreview>
+  /**
+   * The same path as the ticket view's Merge…. `expect` is the plan the proposal showed: it fails, changing nothing, if the
+   * plan is now different.
+   */
+  mergeTicket(ticketId: string, opts: MergeOptions & { expect: MergePlan; proposalId: string }): Promise<MergeOutcome>
   /** A decision and its ticket, or null when there is none. */
   decision(id: string): Promise<{ decision: Decision; ticket: Ticket } | null>
   /** The shared answer path (the board's and the thread's too), from the orchestrator panel; refuses a decision already answered. */

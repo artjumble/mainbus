@@ -43,6 +43,7 @@ export const workspace: Workspace = {
   baseBranch: 'main',
   slug: 'mainbus',
   openPrOnReview: false,
+  mergeMethod: 'merge',
   saveReports: true,
   reportsFolder: 'docs/investigations',
   setupCommand: '',

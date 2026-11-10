@@ -14,6 +14,8 @@ export const workspaces = sqliteTable(
     slug: text('slug').notNull(),
     /** Push the branch and open a pull request when a ticket reaches Review. */
     openPrOnReview: integer('open_pr_on_review', { mode: 'boolean' }).notNull().default(false),
+    /** How Merge… merges a pull request: 'merge', 'squash' or 'rebase'. */
+    mergeMethod: text('merge_method').notNull().default('merge'),
     /** "Save investigation reports in the repo": Mainbus commits an Investigate ticket's report on its branch. */
     saveReports: integer('save_reports', { mode: 'boolean' }).notNull().default(true),
     /** The folder, relative to the repo, that investigation reports are saved in. */

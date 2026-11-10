@@ -79,7 +79,8 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_redirect',
   'mcp__mainbus__propose_replace',
   'mcp__mainbus__propose_promote',
-  'mcp__mainbus__propose_update_from_main'
+  'mcp__mainbus__propose_update_from_main',
+  'mcp__mainbus__propose_merge'
 ]
 const PRESET_DESCRIPTION = "A preset of the workspace, by name, as list_workspaces shows: sets the ticket's run settings (which roles run, and their models)"
 const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
@@ -821,6 +822,16 @@ export class SdkRuntime implements AgentRuntime {
             reason: z.string().describe('Why the branch should be updated now, shown to the user')
           },
           async (a) => toolText(await t.proposeUpdateFromMain(a))
+        ),
+        sdk.tool(
+          'propose_merge',
+          "Propose merging a ticket that is in Review: through its pull request on GitHub with the workspace's merge method, or, with no remote or no pull request, into the local base branch (only when the user's checkout is clean and on the base, or the base isn't checked out, and nothing conflicts). Then the ticket moves to Done. The card tells the user exactly what will happen. Never merge on your own: the user confirms or rejects it, and nothing changes until then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
+            reason: z.string().describe('Why the ticket is ready to merge, shown to the user')
+          },
+          async (a) => toolText(await t.proposeMerge(a))
         )
       ]
     })

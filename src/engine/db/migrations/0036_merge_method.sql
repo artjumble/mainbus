@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `merge_method` text DEFAULT 'merge' NOT NULL;

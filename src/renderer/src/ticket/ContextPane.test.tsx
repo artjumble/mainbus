@@ -398,3 +398,17 @@ describe('a Done ticket', () => {
     expect(screen.getByRole('textbox', { name: 'Spec' })).not.toHaveAttribute('readonly')
   })
 })
+
+test('the activity timeline records a merge, with a link to the proposal that asked for it', () => {
+  const events = [
+    makeEvent({ kind: 'message', text: 'hi' }, { runId: 'a', at: '2026-10-30T10:00:00.000Z' }),
+    makeEvent({ kind: 'merged', base: 'main', via: 'pull_request', how: 'merge', number: 9, url: 'https://github.com/o/r/pull/9', commit: null }, { runId: 'a', at: '2026-10-30T11:00:00.000Z' }),
+    makeEvent({ kind: 'merged', base: 'main', via: 'local', how: 'fast_forward', commit: 'abc', proposalId: 'p1' }, { runId: 'a', at: '2026-10-30T12:00:00.000Z' })
+  ]
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} runs={{ a: { id: 'a', ticketRunId: 't', role: 'Implementer' } }} />)
+  const activity = screen.getByRole('region', { name: 'Activity' })
+  const items = within(activity).getAllByRole('listitem').map((li) => li.textContent ?? '')
+  expect(items.some((i) => i.includes('Merged into main by you (pull request #9)'))).toBe(true)
+  const local = items.find((i) => i.includes('Merged into main by you (local merge)'))
+  expect(local).toContain('View proposal')
+})

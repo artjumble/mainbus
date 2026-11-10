@@ -1,0 +1,20 @@
+{
+  "Planner": [
+    { "callTool": "handoff", "args": { "summary": "Planned", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Implementer": [
+    { "writeFile": { "path": "hello.txt", "content": "hello from the ticket\n" } },
+    { "git": ["add", "-A"] },
+    { "git": ["commit", "-m", "Add hello.txt"] },
+    { "callTool": "handoff", "args": { "summary": "Added hello.txt", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Reviewer": [
+    { "callTool": "handoff", "args": { "summary": "Reviewed", "notesForNext": "none" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

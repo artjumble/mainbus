@@ -3,6 +3,7 @@ import { answer } from './answer'
 import { createTickets } from './createTickets'
 import { hold } from './hold'
 import type { ProposalKind } from './kind'
+import { merge } from './merge'
 import { redirect } from './redirect'
 import { promote } from './promote'
 import { replace } from './replace'
@@ -22,5 +23,6 @@ export const KINDS: Record<ProposalKindName, ProposalKind<any, any>> = {
   redirect,
   replace,
   promote,
-  update_from_main: updateFromMain
+  update_from_main: updateFromMain,
+  merge
 }

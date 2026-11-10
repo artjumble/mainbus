@@ -13,6 +13,7 @@ const ws: Workspace = {
   baseBranch: 'main',
   slug: 'repo',
   openPrOnReview: false,
+  mergeMethod: 'merge',
   saveReports: true,
   reportsFolder: 'docs/investigations',
   setupCommand: '',
@@ -117,7 +118,9 @@ describe('create_tickets: execute and outcome', () => {
       answerDecision: async () => {},
       whyNotUpdatable: async () => null,
       freshnessOf: () => null,
-      updateFromMain: async () => {}
+      updateFromMain: async () => {},
+      mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+      mergeTicket: async () => { throw new Error('n/a') }
     }
   }
 

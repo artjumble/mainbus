@@ -22,6 +22,7 @@ import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
 import { RunSettingsModal, runSettingsEditable } from './RunSettingsModal'
 import { SkipModal } from './SkipModal'
+import { MergeModal } from './MergeModal'
 import { UpdateFromMainModal } from './UpdateFromMainModal'
 import { StartBlockedModal } from './StartBlockedModal'
 import { openBlockers } from '../../../shared/dependencies'
@@ -162,6 +163,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const started = useRef(false)
   const [skipping, setSkipping] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [merging, setMerging] = useState(false)
   // Start was asked for while a blocker isn't Done: the question is showing.
   const [askingStart, setAskingStart] = useState(false)
   const openBlocked = openBlockers(ticket.blockedBy)
@@ -198,6 +200,9 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     ticket.worktreePath !== null &&
     settingUp !== true &&
     (agentStatus === null || agentStatus === 'handed_off' || agentStatus === 'failed' || agentStatus === 'paused' || agentStatus === 'waiting_on_you')
+
+  // "Merge…": a ticket in Review with a branch.
+  const canMerge = !isDone && ticket.state.column === 'review' && ticket.branch !== null && settingUp !== true
 
   useEffect(() => {
     started.current = false
@@ -367,6 +372,11 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                   {`Update from ${ticket.freshness?.baseBranch ?? 'main'}`}
                 </Button>
               )}
+              {canMerge && (
+                <Button size="compact-sm" disabled={busy || moving} onClick={() => setMerging(true)}>
+                  Merge…
+                </Button>
+              )}
               {runOpen && activeRole && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
                   {`Skip to ${ticket.skipTo ?? 'next role'}`}
@@ -426,6 +436,7 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
               void control('agent.start', 'Could not start', true)
             }}
           />
+          <MergeModal opened={merging && canMerge} ticket={ticket} onClose={() => setMerging(false)} />
           <UpdateFromMainModal
             opened={updating && canUpdate}
             base={ticket.freshness?.baseBranch ?? 'main'}

@@ -50,6 +50,7 @@ import { useExpandOnHover } from '../expandOnHover'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
+import { MergeModal } from '../ticket/MergeModal'
 import { matchesSearch } from './search'
 import { TicketCard } from './TicketCard'
 import { UnattendedSwitch } from './UnattendedSwitch'
@@ -237,6 +238,8 @@ export function Board(): ReactElement {
   const recentlyChanged = useMainbus((s) => s.recentlyChanged)
   const askOrchestrator = useMainbus((s) => s.askOrchestrator)
   const [creating, setCreating] = useState(false)
+  // The ticket in Review whose Merge… dialog is open.
+  const [mergeTarget, setMergeTarget] = useState<BoardTicket | null>(null)
   const openSettings = useMainbus((s) => s.openSettings)
   // A small drag distance keeps a plain click on a card a click.
   const sensors = useSensors(
@@ -476,7 +479,8 @@ export function Board(): ReactElement {
                 filtering,
                 onOpen: openTicket,
                 onMove,
-                onPropose
+                onPropose,
+                onMerge: setMergeTarget
               }
               return c.id === 'done' ? (
                 <DoneColumn key={c.id} {...props} />
@@ -489,6 +493,7 @@ export function Board(): ReactElement {
       )}
 
       <NewTicketModal opened={creating} onClose={closeNewTicket} />
+      {mergeTarget !== null && <MergeModal opened ticket={mergeTarget} onClose={() => setMergeTarget(null)} />}
     </Stack>
   )
 }
@@ -504,6 +509,8 @@ interface ColumnProps {
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
   onPropose: (ticket: BoardTicket) => void
+  /** Opens Merge… for a ticket in Review. */
+  onMerge: (ticket: BoardTicket) => void
 }
 
 const BoardColumn = memo(function BoardColumn({
@@ -516,6 +523,7 @@ const BoardColumn = memo(function BoardColumn({
   onOpen,
   onMove,
   onPropose,
+  onMerge,
   collapsed = false
 }: ColumnProps & {
   /** Needs you with no tickets: a narrow strip with its title and count, like Done's, that never opens. */
@@ -551,6 +559,7 @@ const BoardColumn = memo(function BoardColumn({
         onOpen={onOpen}
         onMove={onMove}
         onPropose={onPropose}
+        onMerge={onMerge}
       />
     </Paper>
   )
@@ -566,6 +575,7 @@ function ColumnCards({
   onOpen,
   onMove,
   onPropose,
+  onMerge,
   hidden = false
 }: Omit<ColumnProps, 'id' | 'title'> & { hidden?: boolean }): ReactElement {
   return (
@@ -586,6 +596,7 @@ function ColumnCards({
           onOpen={onOpen}
           onMove={onMove}
           onPropose={onPropose}
+          onMerge={onMerge}
         />
       ))}
     </Stack>
@@ -691,6 +702,8 @@ interface DraggableProps {
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
   onPropose: (ticket: BoardTicket) => void
+  /** Opens Merge… for a ticket in Review. */
+  onMerge: (ticket: BoardTicket) => void
 }
 
 /**
@@ -704,7 +717,8 @@ const DraggableTicket = memo(function DraggableTicket({
   changedAt,
   onOpen,
   onMove,
-  onPropose
+  onPropose,
+  onMerge
 }: DraggableProps): ReactElement {
   const moving = movingTo !== null
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
@@ -809,6 +823,11 @@ const DraggableTicket = memo(function DraggableTicket({
         {(ticket.state.column === 'backlog' || ticket.state.column === 'ready') && (
           <Menu.Item disabled={moving} onClick={() => onPropose(ticket)}>
             Move to In progress…
+          </Menu.Item>
+        )}
+        {ticket.state.column === 'review' && ticket.branch !== null && (
+          <Menu.Item disabled={moving} onClick={() => onMerge(ticket)}>
+            Merge…
           </Menu.Item>
         )}
       </Menu.Dropdown>

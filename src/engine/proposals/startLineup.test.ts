@@ -5,7 +5,7 @@ import { testRole } from '../store/testDb'
 import { ProposalInvalid, type ExecContext } from './kind'
 import { startLineup } from './startLineup'
 
-const ws: Workspace = { id: 'ws1', name: 'repo', repoPath: '/repo', baseBranch: 'main', slug: 'repo', openPrOnReview: false, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [] }
+const ws: Workspace = { id: 'ws1', name: 'repo', repoPath: '/repo', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [] }
 
 const LINEUP: LineupRole[] = [
   testRole({ id: 'p', name: 'Planner', position: 1 }),
@@ -43,6 +43,8 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
     whyNotUpdatable: async () => null,
     freshnessOf: () => null,
     updateFromMain: async () => {},
+    mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+    mergeTicket: async () => { throw new Error('n/a') },
     /** Changes what whyNotStartable says from now on. */
     setWhy: (w: string | null) => (why = w)
   }

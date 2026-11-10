@@ -695,7 +695,8 @@ export class OrchestratorSession {
         proposeRedirect: (a) => this.propose('redirect', a),
         proposeReplace: (a) => this.propose('replace', a),
         proposePromote: (a) => this.propose('promote', a),
-        proposeUpdateFromMain: (a) => this.propose('update_from_main', a)
+        proposeUpdateFromMain: (a) => this.propose('update_from_main', a),
+        proposeMerge: (a) => this.propose('merge', a)
       },
       onPermission: async (req) =>
         orchestratorVerdict(req.toolName, req.input, { cwd, readable }, { allowed: await this.deps.webAccess() })

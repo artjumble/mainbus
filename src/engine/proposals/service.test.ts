@@ -62,7 +62,9 @@ beforeEach(async () => {
     answerDecision: async () => {},
     whyNotUpdatable: async () => null,
     freshnessOf: () => null,
-    updateFromMain: async () => {}
+    updateFromMain: async () => {},
+    mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+    mergeTicket: async () => { throw new Error('n/a') }
   }
   service = createProposalService({ repo: repos.proposals, emit: (e) => events.push(e), exec })
 })

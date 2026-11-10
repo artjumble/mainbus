@@ -8,6 +8,7 @@ export interface FakePr extends PullRequest {
   title: string
   body: string
   draft: boolean
+  state: 'OPEN' | 'MERGED'
 }
 
 /**
@@ -20,6 +21,10 @@ export class FakeGh {
   readonly calls: string[][] = []
   /** 'missing' acts as if gh is not installed; 'signed_out' as if `gh auth status` fails. */
   state: 'ok' | 'missing' | 'signed_out' = 'ok'
+  /** When set, `gh pr merge` fails with this text, as GitHub refuses a merge (checks failing, review required, conflicts). */
+  mergeRefusal: string | null = null
+  /** When true, `gh pr merge` succeeds without merging, as a merge queue does. */
+  mergeQueued = false
 
   constructor(private readonly repoUrl = 'https://github.com/example/repo') {}
 
@@ -37,11 +42,24 @@ export class FakeGh {
       return this.state === 'signed_out' ? fail('You are not logged into any GitHub hosts. To log in, run: gh auth login') : ok('')
     }
     if (command === 'pr' && sub === 'create') return this.create(args.slice(2))
+    if (command === 'pr' && sub === 'merge') return this.merge(args.slice(2))
+    if (command === 'pr' && sub === 'view' && args.includes('state')) {
+      const pr = this.prs.find((p) => String(p.number) === args[2])
+      return pr ? ok(JSON.stringify({ state: pr.state })) : fail(`no pull request #${args[2]}`)
+    }
     if (command === 'pr' && sub === 'view') {
       const pr = this.prs.find((p) => p.head === args[2])
       return pr ? ok(JSON.stringify({ url: pr.url, number: pr.number })) : fail(`no pull requests found for branch "${args[2]}"`)
     }
     return fail(`fake gh: unexpected call gh ${args.join(' ')}`)
+  }
+
+  private merge(args: string[]): CommandOutput {
+    const pr = this.prs.find((p) => String(p.number) === args[0])
+    if (!pr) return fail(`no pull request #${args[0]}`)
+    if (this.mergeRefusal !== null) return fail(this.mergeRefusal)
+    if (!this.mergeQueued) pr.state = 'MERGED'
+    return ok('')
   }
 
   private async create(args: string[]): Promise<CommandOutput> {
@@ -63,7 +81,8 @@ export class FakeGh {
       head,
       title,
       body: await fs.readFile(bodyFile, 'utf8'),
-      draft: args.includes('--draft') || args.some((a) => a.startsWith('--draft='))
+      draft: args.includes('--draft') || args.some((a) => a.startsWith('--draft=')),
+      state: 'OPEN'
     }
     this.prs.push(pr)
     return ok(`\nCreating pull request for ${head} into ${base}\n\n${pr.url}\n`)

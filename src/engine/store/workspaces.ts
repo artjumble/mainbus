@@ -12,6 +12,7 @@ import {
   type TestCommand,
   type Workspace
 } from '../../shared/domain'
+import { MERGE_METHODS, type MergeMethod } from '../../shared/merge'
 import type { Db } from '../db/open'
 import { appSettings, workspaces } from '../db/schema'
 import { slugify } from '../git/slug'
@@ -39,6 +40,7 @@ export interface WorkspaceRepo {
   markRemoved(id: string): Promise<void>
   restore(id: string): Promise<void>
   setOpenPrOnReview(id: string, on: boolean): Promise<Workspace>
+  setMergeMethod(id: string, method: MergeMethod): Promise<Workspace>
   /** Saves the settings given; a reports folder that leaves the repo is refused with the reason, and nothing is saved. */
   setReportSettings(id: string, settings: ReportSettingsInput): Promise<Workspace>
   /** Saves the setup settings given; a command or timeout that is refused throws with the reason, and nothing is saved. */
@@ -50,6 +52,10 @@ export interface WorkspaceRepo {
   setUnattendedOn(id: string, on: boolean): Promise<void>
 }
 
+function toMergeMethod(value: string): MergeMethod {
+  return (MERGE_METHODS as string[]).includes(value) ? (value as MergeMethod) : 'merge'
+}
+
 function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
   return {
     id: row.id,
@@ -58,6 +64,7 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
     baseBranch: row.baseBranch,
     slug: row.slug,
     openPrOnReview: row.openPrOnReview,
+    mergeMethod: toMergeMethod(row.mergeMethod),
     saveReports: row.saveReports,
     reportsFolder: row.reportsFolder,
     setupCommand: row.setupCommand,
@@ -105,6 +112,7 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         baseBranch,
         slug: unique,
         openPrOnReview: false,
+        mergeMethod: 'merge',
         saveReports: true,
         reportsFolder: REPORTS_FOLDER_DEFAULT,
         setupCommand: '',
@@ -151,6 +159,13 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
 
     async setOpenPrOnReview(id, on) {
       await db.update(workspaces).set({ openPrOnReview: on }).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setMergeMethod(id, method) {
+      await db.update(workspaces).set({ mergeMethod: method }).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)

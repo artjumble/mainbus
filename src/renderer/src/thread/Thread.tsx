@@ -6,6 +6,7 @@ import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { waitingText } from '../../../shared/waiting'
+import { mergedText } from '../../../shared/merge'
 import { SentImages } from '../attachments/Attachments'
 import { CodeBlock } from '../code/CodeBlock'
 import { CreatedTicketsReceipt } from '../orchestrator/CreatedTicketsReceipt'
@@ -432,6 +433,12 @@ function renderEvent(event: ThreadEvent, lookup: Lookup): ReactElement | null {
           <Anchor href={event.url} target="_blank" rel="noopener noreferrer" size="xs">
             PR #{event.number}
           </Anchor>
+        </Text>
+      )
+    case 'merged':
+      return (
+        <Text size="xs" c="dimmed" data-event="merged">
+          {mergedText(event)}
         </Text>
       )
     case 'error':
