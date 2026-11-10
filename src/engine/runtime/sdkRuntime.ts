@@ -15,7 +15,7 @@ import type {
 import { z } from 'zod'
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
-import { EFFORTS, MODEL_OPTIONS } from '../../shared/models'
+import { EFFORTS, modelOptions } from '../../shared/models'
 import type { SupportedModel } from '../../shared/orchestratorModel'
 import { guardReason, type GuardContext } from '../permissions/guard'
 import { BACKGROUND_DENIED, isBackgroundShell } from '../permissions/policy'
@@ -85,7 +85,6 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_merge'
 ]
 const PRESET_DESCRIPTION = "A preset of the workspace, by name, as list_workspaces shows: sets the ticket's run settings (which roles run, and their models)"
-const MODEL_VALUES = MODEL_OPTIONS.map((o) => o.value) as [string, ...string[]]
 const EFFORT_VALUES = EFFORTS as [Effort, ...Effort[]]
 
 /** The only built-in tools the orchestrator has: it reads files and, unless the user turns it off, web pages. */
@@ -652,6 +651,8 @@ export class SdkRuntime implements AgentRuntime {
       .describe(
         'A plain summary of the conversation that led to the request (what the user asked, what you found, what was agreed), up to 4,000 characters. Mainbus adds it to each ticket as written by you, not the user'
       )
+    // The models the user's `claude` offers, as Mainbus read them before the orchestrator started.
+    const modelValues = modelOptions().map((o) => o.value) as [string, ...string[]]
     const server = sdk.createSdkMcpServer({
       name: 'mainbus',
       alwaysLoad: true,
@@ -776,7 +777,7 @@ export class SdkRuntime implements AgentRuntime {
               .array(
                 z.strictObject({
                   role: z.string().describe('A role name in the lineup, as get_ticket shows it'),
-                  model: z.enum(MODEL_VALUES).optional().describe('The model; left out, Mainbus picks'),
+                  model: z.enum(modelValues).optional().describe('The model; left out, Mainbus picks'),
                   effort: z.enum(EFFORT_VALUES).optional().describe('The effort; left out, Mainbus picks')
                 })
               )

@@ -5,7 +5,7 @@ import type { Decision, RoleStatus, StripRole, TicketState } from '../../../shar
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus } from '../store'
-import { expectNoAxeViolations, makeDecision, makeEvent, makeLineup, makeTicket, optionLabels, renderWithMantine, workspace } from '../test-utils'
+import { DISCOVERED, expectNoAxeViolations, makeDecision, makeEvent, makeLineup, makeTicket, optionLabels, renderWithMantine, workspace } from '../test-utils'
 import { TicketView } from './TicketView'
 
 vi.mock('../api', () => ({
@@ -563,6 +563,25 @@ describe('Run settings', () => {
     ])
     expect(agentCalls()).toEqual([])
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  test("offers Fable with its version when the user's claude has it, and saves the Implementer on it", async () => {
+    useMainbus.getState().setModelOptions(DISCOVERED)
+    try {
+      const ticket = show({ column: 'backlog' })
+      renderWithMantine(<TicketView />)
+      const dialog = await openDialog()
+      await userEvent.click(await within(dialog).findByRole('button', { name: /Models and effort per role/ }))
+      const model = await within(dialog).findByRole('combobox', { name: 'Model for Implementer' })
+      expect(optionLabels(model)).toEqual(['Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5'])
+      await userEvent.selectOptions(model, 'Fable 5.2')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+      expect(setCalls()).toEqual([
+        ['ticket.setRunSettings', ticket.id, { excludedRoleIds: [], roles: { i: { model: 'claude-fable-5-2' } }, extraInstructions: '' }]
+      ])
+    } finally {
+      useMainbus.getState().setModelOptions([])
+    }
   })
 
   test('Reset to defaults clears the saved settings and closes', async () => {

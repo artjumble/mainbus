@@ -26,8 +26,9 @@ import {
 } from '@mantine/core'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { ROLE_PHASES, type Effort, type Lineup, type LineupRole, type RolePhase, type ToolProfile } from '../../../shared/domain'
-import { DEFAULT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS, OTHER_ROLE_DEFAULT, modelLabel } from '../../../shared/models'
+import { DEFAULT_MODELS, EFFORT_OPTIONS, OTHER_ROLE_DEFAULT, modelLabel } from '../../../shared/models'
 import { invoke } from '../api'
+import { useModelOptions } from '../useModelOptions'
 import { phaseLabel } from '../board/TicketCard'
 import { withCurrent } from '../ticket/RoleChoice'
 import { errorMessage, showError } from '../notify'
@@ -36,13 +37,14 @@ import { moveRole, newRole, removeRole, sameLineup, toDraft, type DraftRole } fr
 
 /** "" stands for null ("Orchestrator decides", "Previous role"), which a native select cannot hold as a value. */
 const DEFAULT = ''
-const MODELS = [{ value: DEFAULT, label: 'Orchestrator decides' }, ...MODEL_OPTIONS]
 const EFFORTS = [{ value: DEFAULT, label: 'Orchestrator decides' }, ...EFFORT_OPTIONS]
 
 /** "Planner Opus, high effort; …; any other role Sonnet, medium effort", from the default table. */
-const DEFAULTS_TEXT = [...DEFAULT_MODELS, { name: 'any other role', ...OTHER_ROLE_DEFAULT }]
-  .map((d) => `${d.name} ${modelLabel(d.model)}, ${d.effort} effort`)
-  .join('; ')
+function defaultsText(): string {
+  return [...DEFAULT_MODELS, { name: 'any other role', ...OTHER_ROLE_DEFAULT }]
+    .map((d) => `${d.name} ${modelLabel(d.model)}, ${d.effort} effort`)
+    .join('; ')
+}
 const PHASES = ROLE_PHASES.map((p) => ({ value: p, label: phaseLabel(p) }))
 const TOOL_PROFILES: { value: ToolProfile; label: string }[] = [
   { value: 'read_only', label: 'Read only (no file edits)' },
@@ -373,6 +375,8 @@ const PREVIOUS = 'previous'
 
 function RoleForm({ role, index, earlier, canRemove, onRemove, onChange }: FormProps): ReactElement {
   const [modelsOpen, setModelsOpen] = useState(false)
+  const offered = useModelOptions()
+  const models = [{ value: DEFAULT, label: 'Orchestrator decides' }, ...offered]
   const model = role.model ?? DEFAULT
   const effort = role.effort ?? DEFAULT
   const previous = earlier.at(-1)
@@ -436,7 +440,7 @@ function RoleForm({ role, index, earlier, canRemove, onRemove, onChange }: FormP
             <Stack gap="sm">
               <NativeSelect
                 label="Model"
-                data={withCurrent(MODELS, model)}
+                data={withCurrent(models, model, modelLabel)}
                 value={model}
                 onChange={(e) => onChange({ model: e.currentTarget.value === DEFAULT ? null : e.currentTarget.value })}
               />
@@ -450,7 +454,7 @@ function RoleForm({ role, index, earlier, canRemove, onRemove, onChange }: FormP
               />
               <Text size="sm" c="dimmed">
                 "Orchestrator decides" lets the orchestrator choose when it proposes a start. Otherwise Mainbus's
-                defaults apply: {DEFAULTS_TEXT}.
+                defaults apply: {defaultsText()}.
               </Text>
             </Stack>
           </Collapse>

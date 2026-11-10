@@ -151,6 +151,7 @@ describe('the read tools list the presets', () => {
     const ticket = await tools.getTicket({ number: 1 })
     expect(ticket).toContain('## Presets')
     expect(ticket).toContain('- Quick fix: Implementer, Reviewer')
-    expect(ticket).toContain('- Docs: Implementer · Implementer on Sonnet, medium')
+    // Labelled with the version the fake's `sonnet` alias names.
+    expect(ticket).toContain('- Docs: Implementer · Implementer on Sonnet 5.5, medium')
   })
 })

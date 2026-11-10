@@ -2,7 +2,8 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LineupPreset, LineupPresetInput, RunSettings } from '../../../shared/domain'
 import { invoke } from '../api'
-import { expectNoAxeViolations, makeLineup, renderWithMantine } from '../test-utils'
+import { useMainbus } from '../store'
+import { DISCOVERED, expectNoAxeViolations, makeLineup, optionLabels, renderWithMantine } from '../test-utils'
 import { PresetSettings } from './PresetSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -75,6 +76,28 @@ test('edits a preset in the Run settings form: unticking a role and renaming it'
   await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   expect(lastSave()).toEqual({ id: 'b', name: 'Small fix', settings: { excludedRoleIds: ['p', 'r'], roles: {}, extraInstructions: '' } })
   expect(await screen.findByRole('button', { name: 'Edit Small fix' })).toBeInTheDocument()
+})
+
+test("a preset may put a role on Fable when the user's claude has it, and lists it with its version", async () => {
+  useMainbus.getState().setModelOptions(DISCOVERED)
+  try {
+    await renderLoaded()
+    await userEvent.click(screen.getByRole('button', { name: /Add preset/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'New preset' })
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'Fable')
+    await userEvent.click(within(dialog).getByRole('button', { name: /Models and effort per role/ }))
+    const model = await within(dialog).findByRole('combobox', { name: 'Model for Implementer' })
+    expect(optionLabels(model)).toEqual(['Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5'])
+    await userEvent.selectOptions(model, 'Fable 5.2')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save preset' }))
+
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(lastSave()).toEqual({ name: 'Fable', settings: { excludedRoleIds: [], roles: { i: { model: 'claude-fable-5-2' } }, extraInstructions: '' } })
+    const row = (await screen.findAllByRole('listitem')).find((r) => r.getAttribute('data-preset') === 'Fable')!
+    expect(within(row).getByText('Planner, Implementer, Reviewer · Implementer on Fable 5.2')).toBeInTheDocument()
+  } finally {
+    useMainbus.getState().setModelOptions([])
+  }
 })
 
 test('adds a preset', async () => {

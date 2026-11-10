@@ -5,6 +5,7 @@ import path, { resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { z } from 'zod'
 import type { AgentEvent } from '../../shared/events'
+import { ALIAS_MODEL_OPTIONS, setModelOptions } from '../../shared/models'
 import { Normalizer } from './normalize'
 import { SdkRuntime, type SdkApi } from './sdkRuntime'
 import { orchestratorVerdict } from '../orchestrator/permissions'
@@ -979,6 +980,24 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const roles = start.shape.roles as z.ZodType
     expect(roles.safeParse([{ role: 'Planner', model: 'haiku', effort: 'max' }]).success).toBe(true)
     expect(roles.safeParse([{ role: 'Planner', model: 'gpt' }]).success).toBe(false)
+  })
+
+  test("propose_start's models are the ones offered when the orchestrator starts: Fable once the binary offers it", async () => {
+    const startRoles = async (): Promise<z.ZodType> => {
+      const f = fakeSdk()
+      await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeOrchestratorSpec())
+      return f.tools.find((t) => t.name === 'propose_start')!.shape.roles as z.ZodType
+    }
+    const fable = [{ role: 'Implementer', model: 'claude-fable-5-2' }]
+    expect((await startRoles()).safeParse(fable).success).toBe(false)
+    setModelOptions([{ value: 'claude-fable-5-2', label: 'Fable 5.2' }, ...ALIAS_MODEL_OPTIONS])
+    try {
+      const roles = await startRoles()
+      expect(roles.safeParse(fable).success).toBe(true)
+      expect(roles.safeParse([{ role: 'Implementer', model: 'sonnet' }]).success).toBe(true)
+    } finally {
+      setModelOptions([])
+    }
   })
 
   test('the PreToolUse hook denies a credential file inside the repo and allows other reads there', async () => {

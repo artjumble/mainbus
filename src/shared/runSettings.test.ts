@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { RunSettings } from './domain'
+import { ALIAS_MODEL_OPTIONS, setModelOptions } from './models'
 import { applyRunSettings, checkRunSettings, choicesFromSettings, inputFromChoices, runSettingsSummary } from './runSettings'
 
 const role = (id: string, name: string, over: { model?: string | null; effort?: 'low' | 'medium' | 'high' | null } = {}) => ({
@@ -47,6 +48,24 @@ describe('applyRunSettings', () => {
       'Docs writer is no longer in the lineup, so its saved setting was dropped.'
     ])
     expect(applied.effective).toMatchObject({ excludedRoleIds: [], roles: {} })
+  })
+
+  test('saved Opus, Sonnet and Haiku are kept as they are once the binary offers Fable, and a saved Fable is kept too', () => {
+    setModelOptions([{ value: 'claude-fable-5-2', label: 'Fable 5.2' }, ...ALIAS_MODEL_OPTIONS])
+    try {
+      const roles = { p: { model: 'opus' }, i: { model: 'claude-fable-5-2', effort: 'high' as const }, r: { model: 'haiku' } }
+      const applied = applyRunSettings(settings({ roles }), LINEUP)
+      expect(applied.options.roles).toEqual(roles)
+      expect(applied.notices).toEqual([])
+      expect(runSettingsSummary(applied.options, LINEUP)).toBe('Planner, Implementer, Reviewer · Planner on Opus, Implementer on Fable 5.2, high, Reviewer on Haiku')
+    } finally {
+      setModelOptions([])
+    }
+  })
+
+  test('a saved Fable the binary no longer offers falls back to the default, named with its version', () => {
+    const applied = applyRunSettings(settings({ roles: { i: { model: 'claude-fable-5-2' } } }), LINEUP)
+    expect(applied.notices).toEqual(["Implementer's saved model Fable 5.2 is no longer available, so it uses the default."])
   })
 
   test('a model or effort no longer allowed falls back to the default, with a notice', () => {

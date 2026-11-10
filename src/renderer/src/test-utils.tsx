@@ -6,6 +6,7 @@ import { render, within, type RenderResult } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
 import type { Decision, LineupRole, TicketState, Workspace } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
+import type { ModelOption } from '../../shared/models'
 import type { BoardTicket } from './store'
 import { isThemeId, type ThemeId } from '../../shared/domain'
 import { highlightAdapter } from './code/highlighter'
@@ -151,6 +152,14 @@ export function transfer(files: File[], text = ''): Partial<DataTransfer> {
     getData: (type: string) => (type === 'text/plain' ? text : '')
   }
 }
+
+/** The models offered for roles when the user's `claude` lists Fable 5.2, as the engine reports them. */
+export const DISCOVERED: ModelOption[] = [
+  { value: 'claude-fable-5-2', label: 'Fable 5.2' },
+  { value: 'opus', label: 'Opus 5.5' },
+  { value: 'sonnet', label: 'Sonnet 5.5' },
+  { value: 'haiku', label: 'Haiku 5.5' }
+]
 
 /** The text of each option of a native select, in order. */
 export function optionLabels(select: HTMLElement): string[] {

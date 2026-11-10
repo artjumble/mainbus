@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal, ReplacePayload } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { expectNoAxeViolations, makeTicket, renderWithMantine } from '../test-utils'
+import { DISCOVERED, expectNoAxeViolations, makeTicket, optionLabels, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -105,6 +105,25 @@ test('Override changes the new run’s model, effort and extra instructions', as
   await userEvent.type(screen.getByRole('textbox', { name: 'Extra instructions' }), 'Check the fixtures first')
   await userEvent.click(screen.getByRole('button', { name: 'Replace Implementer with changes' }))
   expect(mockInvoke).toHaveBeenCalledWith('proposal.confirm', 'p1', { model: 'haiku', effort: 'low', extraInstructions: 'Check the fixtures first' })
+})
+
+test('Override offers Fable with its version when the user’s claude has it, and the receipt names it', async () => {
+  useMainbus.getState().setModelOptions(DISCOVERED)
+  try {
+    const { unmount } = renderWithMantine(<ProposalCard proposal={proposal()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Override' }))
+    const model = screen.getByRole('combobox', { name: 'Model' })
+    expect(optionLabels(model)).toEqual(['Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5'])
+    await userEvent.selectOptions(model, 'Fable 5.2')
+    await userEvent.click(screen.getByRole('button', { name: 'Replace Implementer with changes' }))
+    expect(mockInvoke).toHaveBeenCalledWith('proposal.confirm', 'p1', { model: 'claude-fable-5-2', effort: 'high', extraInstructions: '' })
+    unmount()
+    const result = { ticketId: 't3', number: 3, title: 'Add login', role: 'Implementer', model: 'claude-fable-5-2', effort: 'high' }
+    renderWithMantine(<ProposalCard proposal={proposal({ status: 'overridden', result })} />)
+    expect(screen.getByText(/Replaced the Implementer on/)).toHaveTextContent('Replaced the Implementer on #3 (Fable 5.2 · High)')
+  } finally {
+    useMainbus.getState().setModelOptions([])
+  }
 })
 
 test('Override can be cancelled, back to the card as it was', async () => {

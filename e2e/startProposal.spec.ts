@@ -72,7 +72,8 @@ test('the orchestrator proposes starting a Backlog ticket; the user drops the Pl
     await card.getByRole('button', { name: /Models and effort per role/ }).click()
     await expect(card.getByRole('combobox', { name: 'Model for Planner' })).toHaveValue('opus')
     await expect(card.getByRole('combobox', { name: 'Model for Reviewer' })).toHaveValue('haiku')
-    await card.getByRole('combobox', { name: 'Model for Implementer' }).selectOption('Opus')
+    // By value: the label carries the version the user's `claude` names (Opus 5.5 with the fake runtime).
+    await card.getByRole('combobox', { name: 'Model for Implementer' }).selectOption('opus')
     await card.getByRole('button', { name: 'Start', exact: true }).click()
 
     const receipt = panel.locator('[data-proposal="receipt"]')

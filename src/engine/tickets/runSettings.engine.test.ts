@@ -7,7 +7,8 @@ import { runGit } from '../git/git'
 import { resolveHome, type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
-import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
+import { ALIAS_MODEL_OPTIONS, setModelOptions } from '../../shared/models'
+import { FAKE_SUPPORTED_MODELS, FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import { eventually } from '../testWait'
 
@@ -232,5 +233,51 @@ describe('when the lineup changes later', () => {
 
     await engine.invoke('agent.start', t.id)
     await eventually(async () => expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Tester']))
+  })
+})
+
+describe('Fable', () => {
+  afterEach(() => setModelOptions([]))
+
+  test('is offered with its version when the binary lists it, and a start runs the Implementer on it', async () => {
+    const runtime = new FakeRuntime(WORKING)
+    const engine = await makeEngine(runtime)
+    expect(await engine.invoke('models.list')).toEqual([
+      { value: 'claude-fable-5-2', label: 'Fable 5.2' },
+      { value: 'opus', label: 'Opus 5.5' },
+      { value: 'sonnet', label: 'Sonnet 5.5' },
+      { value: 'haiku', label: 'Haiku 5.5' }
+    ])
+    const t = await newTicket(engine, 'ready')
+    const id = await ids(engine)
+    await engine.invoke('ticket.setRunSettings', t.id, {
+      excludedRoleIds: [id['Planner']!, id['Reviewer']!],
+      roles: { [id['Implementer']!]: { model: 'claude-fable-5-2' } },
+      extraInstructions: ''
+    })
+    expect((await boardTicket(engine, t.id)).runSettingsNotices).toEqual([])
+    await engine.invoke('agent.start', t.id)
+    await runtime.started(1)
+    expect(runtime.specs[0]).toMatchObject({ model: 'claude-fable-5-2', effort: 'medium' })
+  })
+
+  test("is left out when the binary doesn't list it, and a start can't choose it", async () => {
+    const runtime = new FakeRuntime(WORKING, { supportedModels: FAKE_SUPPORTED_MODELS.filter((m) => !(m.resolvedModel ?? m.value).includes('fable')) })
+    const engine = await makeEngine(runtime)
+    expect((await engine.invoke('models.list')).map((o) => o.value)).toEqual(['opus', 'sonnet', 'haiku'])
+    const t = await newTicket(engine, 'ready')
+    const id = await ids(engine)
+    await expect(
+      engine.invoke('ticket.setRunSettings', t.id, { excludedRoleIds: [], roles: { [id['Implementer']!]: { model: 'claude-fable-5-2' } }, extraInstructions: '' })
+    ).rejects.toThrow('Implementer has an unknown model')
+  })
+
+  test('when the list cannot be read, the aliases are offered and saved models keep working', async () => {
+    const runtime = new FakeRuntime(WORKING, { supportedModels: { fail: 'claude crashed' } })
+    const engine = await makeEngine(runtime)
+    expect(await engine.invoke('models.list')).toEqual(ALIAS_MODEL_OPTIONS)
+    const t = await newTicket(engine, 'ready')
+    const saved = (await saveTypical(engine, t.id)).runSettings
+    expect(saved?.roles).toEqual({ [(await ids(engine))['Implementer']!]: { model: 'opus', effort: 'high' } })
   })
 })
