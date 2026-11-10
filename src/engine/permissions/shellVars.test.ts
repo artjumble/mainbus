@@ -288,6 +288,13 @@ describe('heredocs', () => {
     expect(cmd('cat <<EOF | bash\nls\nEOF')).toMatch(/standard input/)
   })
 
+  test('a delimiter that is partly quoted or escaped stays opaque', () => {
+    for (const d of ['E"OF"', "E'OF'", "'E'OF", 'E\\OF', 'EOF"x"', 'EOF\\x']) {
+      expect(cmd(`cat <<${d} > f\nbody\nEOF\nrm -rf /c/Users/x\nE`), d).toBe('opaque: a heredoc')
+    }
+    expect(cmd('cat <<EOF>f\nx\nEOF')).toEqual([[['cat']]])
+  })
+
   test('a heredoc keeps the command out of allow rules', () => {
     expect(plainStages("cat <<'EOF'\nx\nEOF")).toBeNull()
   })

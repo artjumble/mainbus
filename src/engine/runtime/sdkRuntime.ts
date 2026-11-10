@@ -468,7 +468,11 @@ export class SdkRuntime implements AgentRuntime {
       const input =
         typeof i.tool_input === 'object' && i.tool_input !== null ? (i.tool_input as Record<string, unknown>) : {}
       const cwd = typeof i.cwd === 'string' && win32.isAbsolute(i.cwd) ? i.cwd : undefined
-      if (cwd !== undefined && typeof i.tool_use_id === 'string') cwdByToolUse.set(i.tool_use_id, cwd)
+      if (cwd !== undefined && typeof i.tool_use_id === 'string') {
+        cwdByToolUse.set(i.tool_use_id, cwd)
+        // Calls that never reach canUseTool leave their entry: keep only the latest few.
+        if (cwdByToolUse.size > 32) cwdByToolUse.delete(cwdByToolUse.keys().next().value as string)
+      }
       const reason =
         typeof i.tool_name === 'string' ? guardReason(i.tool_name, input, { ...guardContext, ...(cwd ? { cwd } : {}) }) : null
       if (typeof i.tool_name === 'string' && isBackgroundShell(i.tool_name, input)) {

@@ -309,7 +309,7 @@ function scan(command: string, vars?: ShellVars): Scanned {
         return { why: 'braces' }
       case '<': {
         if (next === '<') {
-          const m = /^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\)?([A-Za-z0-9_.-]+))/.exec(command.slice(i))
+          const m = /^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|(\\)?([A-Za-z0-9_.-]+))(?=[\s;&|<>]|$)/.exec(command.slice(i))
           if (!m || command[i + 2] === '<') return { why: 'a heredoc' }
           if (inToken && /^\d+$/.test(token)) {
             token = ''
