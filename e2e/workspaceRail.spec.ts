@@ -59,7 +59,7 @@ test('the rail adds a second workspace, switches between them, and counts a deci
     await rail.getByRole('button', { name: 'Add workspace' }).click()
     const dialog = page.getByRole('dialog')
     await expect(dialog).toContainText('treats the folder you pick as')
-    await expect(dialog).toContainText('own copies of the repo')
+    await expect(dialog).toContainText('own copy of the project')
     await dialog.getByRole('button', { name: 'Choose folder…' }).click()
     await expect(dialog).toHaveCount(0)
     await expect(entryB).toHaveAttribute('aria-current', 'true')
