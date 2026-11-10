@@ -6,7 +6,7 @@ import { invoke } from '../api'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { AppSettings } from './AppSettings'
 
-vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
+vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(() => () => {}), openFolder: vi.fn() }))
 vi.mock('../notify', () => ({ showError: vi.fn() }))
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>

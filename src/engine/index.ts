@@ -54,6 +54,8 @@ import type { ResurfacedDecision } from './orchestrator/resurfacedBlock'
 import type { StuckReport } from './orchestrator/stuckBlock'
 import { OrchestratorImages } from './orchestrator/images'
 import { OrchestratorSession } from './orchestrator/session'
+import { OrchestratorModels } from './orchestrator/models'
+import { familyName, isOrchestratorFamily, type OrchestratorModelState } from '../shared/orchestratorModel'
 import { ProposalInvalid, type TicketToCreate } from './proposals/kind'
 import type { BatchItem } from 'drizzle-orm/batch'
 import { insertDependencyStatements, replaceDependencyStatements } from './store/dependencies'
@@ -247,6 +249,23 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       workspace: (id) => repos.workspaces.get(id)
     })
     const orchestratorImages = new OrchestratorImages({ repo: repos.orchestratorImages, homeRoot: cfg.paths.root })
+    // Read from the user's own `claude` once per launch, in the orchestrator's folder; the aliases stand in without one.
+    const runtimeModels = cfg.runtime?.supportedModels?.bind(cfg.runtime)
+    const orchestratorModels = new OrchestratorModels(
+      runtimeModels
+        ? async () => {
+            const folder = orchestratorFolder(cfg.paths.root)
+            await fs.mkdir(folder, { recursive: true })
+            return runtimeModels(folder)
+          }
+        : null
+    )
+    const orchestratorModelState = async (): Promise<OrchestratorModelState> =>
+      orchestratorModels.state(await repos.settings.get())
+    const emitOrchestratorModel = async (): Promise<void> => {
+      emit({ type: 'orchestrator.model', state: await orchestratorModelState() })
+    }
+    void orchestratorModels.load().then(() => emitOrchestratorModel().catch(() => {}))
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
     const merger = new BranchMerger(cfg.commands ?? runCommand)
     // Created beside the runner it drives; it reads its stored state before anything can start (see below).
@@ -1125,6 +1144,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       now,
       emit,
       webAccess: async () => (await repos.settings.get()).orchestratorWebAccess,
+      modelEffort: async () => {
+        const s = await orchestratorModelState()
+        return { model: s.current.model, effort: s.effort }
+      },
       focused: () => repos.workspaces.focused(),
       workspaces: () => repos.workspaces.list(),
       decisionWorkspace: async (id) => {
@@ -1527,6 +1550,22 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'settings.setWhenClosed': (v) => repos.settings.setWhenClosed(v),
       'settings.setOrchestratorWebAccess': (on) => repos.settings.setOrchestratorWebAccess(on),
+      // Read at the start of each orchestrator turn: a turn under way keeps the model and effort it started with.
+      'settings.setOrchestratorModel': async (family) => {
+        // A family the binary doesn't offer is refused; the repo refuses anything that is no family at all.
+        const { options } = await orchestratorModels.load()
+        if (isOrchestratorFamily(family) && !options.some((o) => o.family === family)) {
+          throw new Error(`${familyName(family)} isn't offered by your claude`)
+        }
+        const settings = await repos.settings.setOrchestratorModel(family)
+        await emitOrchestratorModel()
+        return settings
+      },
+      'settings.setOrchestratorEffort': async (effort) => {
+        const settings = await repos.settings.setOrchestratorEffort(effort)
+        await emitOrchestratorModel()
+        return settings
+      },
       'settings.setTheme': async (v) => {
         const settings = await repos.settings.setTheme(v)
         emit({ type: 'theme.changed', theme: settings.theme })
@@ -1552,6 +1591,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       // Reached only through `invoke` (the renderer's IPC). Like Stop, stopping and reading need no runtime.
       'orchestrator.get': () => orchestrator.get(),
       'orchestrator.usage': async () => orchestratorUsage((await orchestrator.get()).events),
+      'orchestrator.model': () => orchestratorModelState(),
       'orchestrator.send': (text, images, mentions) => {
         requireRuntime()
         return orchestrator.send(text, images, mentions)

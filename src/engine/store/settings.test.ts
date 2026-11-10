@@ -13,21 +13,23 @@ afterEach(() => cleanup())
 
 /** The Theme setting of a new user: Light, and Match Windows between Light and Dark. */
 const LIGHT = { choice: 'light', light: 'light', dark: 'dark' } as const
+/** The orchestrator of a new user: Opus at medium effort, as before there was a setting. */
+const ORCHESTRATOR = { orchestratorModel: 'opus', orchestratorEffort: 'medium' } as const
 
 describe('settings repo', () => {
   it('allows three agents at once until the user says otherwise', async () => {
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
   })
 
   it('stores the number of agents, and a second repo over the same database reads it', async () => {
-    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
+    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
     await createSettingsRepo(db).setMaxAgents(1)
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
   })
 
   it.each([0, 11, 2.5, -1, Number.NaN, '3' as unknown as number])('refuses %s', async (n) => {
     await expect(createSettingsRepo(db).setMaxAgents(n)).rejects.toThrow('from 1 to 10')
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
   })
 
   it('keeps the usage limit across a second repo, and clears it', async () => {
@@ -39,12 +41,12 @@ describe('settings repo', () => {
     await createSettingsRepo(db).setUsageLimit(null)
     expect(await createSettingsRepo(db).usageLimit()).toBeNull()
     // The agent cap is untouched.
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
   })
 
   it('keeps running in the tray when the window closes until the user says otherwise, and remembers the choice', async () => {
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
-    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', orchestratorWebAccess: true, theme: LIGHT })
+    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('quit')
     await createSettingsRepo(db).setWhenClosed('tray')
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
@@ -64,9 +66,37 @@ describe('settings repo', () => {
     await expect(createSettingsRepo(db).setOrchestratorWebAccess('off' as unknown as boolean)).rejects.toThrow('on or off')
   })
 
+  it("runs the orchestrator on Opus at medium effort until the user says otherwise, and remembers each choice", async () => {
+    expect(await createSettingsRepo(db).get()).toMatchObject(ORCHESTRATOR)
+    expect(await createSettingsRepo(db).setOrchestratorModel('fable')).toMatchObject({ orchestratorModel: 'fable', orchestratorEffort: 'medium' })
+    expect(await createSettingsRepo(db).setOrchestratorEffort('max')).toMatchObject({ orchestratorModel: 'fable', orchestratorEffort: 'max' })
+    expect(await createSettingsRepo(db).get()).toMatchObject({ orchestratorModel: 'fable', orchestratorEffort: 'max' })
+    await createSettingsRepo(db).setOrchestratorModel('sonnet')
+    await createSettingsRepo(db).setOrchestratorEffort('xhigh')
+    expect(await createSettingsRepo(db).get()).toMatchObject({ orchestratorModel: 'sonnet', orchestratorEffort: 'xhigh' })
+  })
+
+  it.each(['haiku', 'claude-opus-5-5', '', 3])("refuses %s as the orchestrator's model", async (m) => {
+    await expect(createSettingsRepo(db).setOrchestratorModel(m as 'opus')).rejects.toThrow("The orchestrator's model must be 'fable', 'opus', 'sonnet'")
+    expect((await createSettingsRepo(db).get()).orchestratorModel).toBe('opus')
+  })
+
+  it.each(['none', 'High', '', null])("refuses %s as the orchestrator's effort", async (e) => {
+    await expect(createSettingsRepo(db).setOrchestratorEffort(e as 'high')).rejects.toThrow("The orchestrator's effort must be 'low', 'medium', 'high', 'xhigh', 'max'")
+    expect((await createSettingsRepo(db).get()).orchestratorEffort).toBe('medium')
+  })
+
+  it('reads an orchestrator model or effort it does not know as the default', async () => {
+    await db.insert(appSettings).values([
+      { key: 'orchestrator_model', value: 'haiku' },
+      { key: 'orchestrator_effort', value: 'turbo' }
+    ])
+    expect(await createSettingsRepo(db).get()).toMatchObject(ORCHESTRATOR)
+  })
+
   it('draws the app in Light until the user picks, and remembers each theme and Match Windows', async () => {
     expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
-    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: { ...LIGHT, choice: 'dark' } })
+    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: { ...LIGHT, choice: 'dark' } })
     for (const choice of ['night-owl', 'light-owl', 'system', 'dark', 'light'] as const) {
       await createSettingsRepo(db).setTheme(choice)
       expect((await createSettingsRepo(db).get()).theme).toEqual({ ...LIGHT, choice })

@@ -12,6 +12,7 @@ import type {
   ClaudeSetup,
   Decision,
   DecisionAnswer,
+  Effort,
   GhStatus,
   Hold,
   HoldOptions,
@@ -48,6 +49,7 @@ import type { UsageTotals } from './usageTotals'
 import type { MergeMethod, MergeOptions, MergeOutcome, MergePlan, MergePreview } from './merge'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
+import type { OrchestratorFamily, OrchestratorModelState } from './orchestratorModel'
 
 /** Whether a chosen folder can open as a workspace, and if not, why.  is the repository root (the folder itself when there is no repository). */
 export interface FolderReadiness {
@@ -147,6 +149,8 @@ export type EngineEvent =
   /** An event of the orchestrator's thread; partial ones carry seq 0, as in a ticket's thread. */
   | { type: 'orchestrator.appended'; event: StoredEvent }
   | { type: 'orchestrator.status'; status: OrchestratorStatus }
+  /** The orchestrator's model or effort setting changed, or its model list was read: what its next turn uses. */
+  | { type: 'orchestrator.model'; state: OrchestratorModelState }
   /** A proposal was made, decided, carried out or failed. */
   | { type: 'proposal.changed'; proposal: Proposal }
   /** The orchestrator edited a ticket, or the edit was undone. */
@@ -373,6 +377,13 @@ export interface EngineCommands {
   'settings.setWhenClosed'(v: WhenClosed): AppSettings
   /** "Let the orchestrator read web pages": whether it may use WebFetch and WebSearch. Takes effect at its next tool call. Only the renderer can reach it. */
   'settings.setOrchestratorWebAccess'(on: boolean): AppSettings
+  /**
+   * The orchestrator's model: the latest Fable, Opus or Sonnet that the user's `claude` offers. Rejects a family it doesn't
+   * offer. Applies from its next turn, in the same conversation. Only the renderer can reach it.
+   */
+  'settings.setOrchestratorModel'(family: OrchestratorFamily): AppSettings
+  /** The orchestrator's effort, low to max. Applies from its next turn, in the same conversation. Only the renderer can reach it. */
+  'settings.setOrchestratorEffort'(effort: Effort): AppSettings
   /** "Theme": a theme id, or 'system' (Match Windows). Applied live, through a theme.changed event. Only the renderer can reach it. */
   'settings.setTheme'(v: ThemeChoice): AppSettings
   /** The light or the dark theme Match Windows uses. Applied live, through a theme.changed event. Only the renderer can reach it. */
@@ -394,6 +405,8 @@ export interface EngineCommands {
   'orchestrator.get'(): OrchestratorThread
   /** What the orchestrator's turns used, over all its runs; null when none was recorded. */
   'orchestrator.usage'(): UsageTotals | null
+  /** The model and effort its next turn uses, the models the setting offers, and a notice when the saved one isn't offered. */
+  'orchestrator.model'(): OrchestratorModelState
   /**
    * Starts the conversation on the first message, or resumes it after a restart. `images` go with it (at most 5,
    * checked like attachments); a message with neither text nor images is rejected. `mentions` are the ids of

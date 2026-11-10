@@ -11,11 +11,21 @@ import {
   themeOf,
   WHEN_CLOSED_DEFAULT,
   type AppSettings,
+  type Effort,
   type ThemeChoice,
   type ThemeId,
   type ThemeScheme,
   type WhenClosed
 } from '../../shared/domain'
+import { EFFORTS } from '../../shared/models'
+import {
+  isEffort,
+  isOrchestratorFamily,
+  ORCHESTRATOR_EFFORT_DEFAULT,
+  ORCHESTRATOR_FAMILIES,
+  ORCHESTRATOR_MODEL_DEFAULT,
+  type OrchestratorFamily
+} from '../../shared/orchestratorModel'
 import type { Db } from '../db/open'
 import { appSettings } from '../db/schema'
 
@@ -23,6 +33,8 @@ const MAX_AGENTS = 'max_agents'
 const USAGE_LIMIT = 'usage_limit'
 const WHEN_CLOSED = 'when_closed'
 const ORCHESTRATOR_WEB = 'orchestrator_web'
+const ORCHESTRATOR_MODEL = 'orchestrator_model'
+const ORCHESTRATOR_EFFORT = 'orchestrator_effort'
 // The choice: a theme id or 'system'. Before named themes it held 'light', 'dark' or 'system', which are still choices.
 const THEME = 'theme'
 // The light and the dark theme Match Windows uses; with no row, Light and Dark, as before named themes.
@@ -55,6 +67,10 @@ export interface SettingsRepo {
   setWhenClosed(v: WhenClosed): Promise<AppSettings>
   /** Stores whether the orchestrator may read web pages; rejects anything but a boolean. */
   setOrchestratorWebAccess(on: boolean): Promise<AppSettings>
+  /** Stores the orchestrator's model family; rejects anything but 'fable', 'opus' or 'sonnet'. */
+  setOrchestratorModel(family: OrchestratorFamily): Promise<AppSettings>
+  /** Stores the orchestrator's effort; rejects anything but low, medium, high, xhigh or max. */
+  setOrchestratorEffort(effort: Effort): Promise<AppSettings>
   /** Stores the theme choice; rejects anything but a theme id or 'system'. */
   setTheme(v: ThemeChoice): Promise<AppSettings>
   /** Stores the light or the dark theme Match Windows uses; rejects an unknown id or a theme of the other scheme. */
@@ -71,16 +87,20 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     const rows = await db
       .select()
       .from(appSettings)
-      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
+      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, ORCHESTRATOR_MODEL, ORCHESTRATOR_EFFORT, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
     const value = (key: string): string | undefined => rows.find((r) => r.key === key)?.value
     const stored = Number(value(MAX_AGENTS) ?? NaN)
     const choice = value(THEME)
     const light = value(MATCH_WINDOWS.light)
     const dark = value(MATCH_WINDOWS.dark)
+    const model = value(ORCHESTRATOR_MODEL)
+    const effort = value(ORCHESTRATOR_EFFORT)
     return {
       maxAgents: validAgentCap(stored) ? stored : AGENT_CAP_DEFAULT,
       whenClosed: value(WHEN_CLOSED) === 'quit' ? 'quit' : WHEN_CLOSED_DEFAULT,
       orchestratorWebAccess: value(ORCHESTRATOR_WEB) === 'off' ? false : ORCHESTRATOR_WEB_ACCESS_DEFAULT,
+      orchestratorModel: isOrchestratorFamily(model) ? model : ORCHESTRATOR_MODEL_DEFAULT,
+      orchestratorEffort: isEffort(effort) ? effort : ORCHESTRATOR_EFFORT_DEFAULT,
       theme: {
         choice: isThemeChoice(choice) ? choice : THEME_SETTING_DEFAULT.choice,
         light: isThemeOf('light', light) ? light : THEME_SETTING_DEFAULT.light,
@@ -133,6 +153,16 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     async setOrchestratorWebAccess(on) {
       if (typeof on !== 'boolean') throw new Error('Let the orchestrator read web pages must be on or off')
       await put(ORCHESTRATOR_WEB, on ? 'on' : 'off')
+      return get()
+    },
+    async setOrchestratorModel(family) {
+      if (!isOrchestratorFamily(family)) throw new Error(`The orchestrator's model must be ${ORCHESTRATOR_FAMILIES.map((f) => `'${f}'`).join(', ')}`)
+      await put(ORCHESTRATOR_MODEL, family)
+      return get()
+    },
+    async setOrchestratorEffort(effort) {
+      if (!isEffort(effort)) throw new Error(`The orchestrator's effort must be ${EFFORTS.map((e) => `'${e}'`).join(', ')}`)
+      await put(ORCHESTRATOR_EFFORT, effort)
       return get()
     },
     async setTheme(v) {

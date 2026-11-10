@@ -42,13 +42,16 @@ interface ToolCall {
 
 /** A fake SDK: records query options and tools, and plays back the given messages. */
 function fakeSdk(
-  opts: { messages?: unknown[]; failBeforeInit?: boolean; slowExit?: 'after-abort' | 'never' } = {}
+  opts: { messages?: unknown[]; failBeforeInit?: boolean; slowExit?: 'after-abort' | 'never'; models?: unknown[] | 'hang' } = {}
 ) {
   const state = { finished: false }
   const calls: QueryCall[] = []
   const tools: ToolCall[] = []
   const servers: Record<string, any>[] = []
   const interrupt = vi.fn(async () => undefined)
+  const setModel = vi.fn(async (_model?: string) => undefined)
+  const applyFlagSettings = vi.fn(async (_settings: Record<string, unknown>) => undefined)
+  const supportedModels = vi.fn(() => (opts.models === 'hang' ? new Promise<unknown[]>(() => {}) : Promise.resolve(opts.models ?? [])))
   const sdk = {
     query: (params: QueryCall) => {
       calls.push(params)
@@ -67,7 +70,7 @@ function fakeSdk(
           throw new Error('The operation was aborted')
         }
       })()
-      return Object.assign(gen, { interrupt })
+      return Object.assign(gen, { interrupt, setModel, applyFlagSettings, supportedModels })
     },
     tool: (name: string, description: string, shape: Record<string, unknown>, handler: ToolCall['handler']) => {
       const def = { name, description, shape, handler }
@@ -79,7 +82,7 @@ function fakeSdk(
       return { type: 'sdk', name: o.name, instance: {} }
     }
   }
-  return { sdk: sdk as unknown as SdkApi, calls, tools, servers, interrupt, state }
+  return { sdk: sdk as unknown as SdkApi, calls, tools, servers, interrupt, setModel, applyFlagSettings, supportedModels, state }
 }
 
 function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
@@ -699,6 +702,58 @@ function gitBashes(): string[] {
 }
 
 const BASHES = gitBashes()
+
+describe('SdkRuntime: the orchestrator model', () => {
+  test("reads the binary's model list without sending a message, with its own login and no tools, then ends the session", async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'should-not-leak')
+    const listed = [
+      { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', description: 'x', supportsEffort: true },
+      { value: 'claude-fable-5-2', resolvedModel: 'claude-fable-5-2', displayName: 'Fable 5.2', description: 'y' },
+      { value: 'haiku', displayName: 'Haiku', description: 'z' }
+    ]
+    const f = fakeSdk({ models: listed })
+    try {
+      const models = await new SdkRuntime(CLAUDE_PATH, f.sdk, { agentHome: 'C:\\home' }).supportedModels('C:\\home\\orchestrator')
+      expect(models).toEqual([
+        { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5' },
+        { value: 'claude-fable-5-2', resolvedModel: 'claude-fable-5-2', displayName: 'Fable 5.2' },
+        { value: 'haiku', displayName: 'Haiku' }
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(f.calls).toHaveLength(1)
+    const o = f.calls[0].options
+    expect(o.pathToClaudeCodeExecutable).toBe(CLAUDE_PATH)
+    expect(o.cwd).toBe('C:\\home\\orchestrator')
+    expect(o.tools).toEqual([])
+    expect(o.mcpServers).toEqual({})
+    expect(o.settingSources).toEqual([])
+    expect(o.persistSession).toBe(false)
+    expect(o.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect((o.abortController as AbortController).signal.aborted).toBe(true)
+    // Nothing was sent: the prompt stream ended without a message.
+    const sent: unknown[] = []
+    for await (const m of f.calls[0].prompt) sent.push(m)
+    expect(sent).toEqual([])
+  })
+
+  test('gives up on a list that never comes', async () => {
+    const f = fakeSdk({ models: 'hang' })
+    await expect(new SdkRuntime(CLAUDE_PATH, f.sdk, { modelListTimeoutMs: 30 }).supportedModels('C:\\o')).rejects.toThrow('No model list within 30 ms')
+    expect((f.calls[0].options.abortController as AbortController).signal.aborted).toBe(true)
+  })
+
+  test("changes a live run's model and effort through the SDK, for its next turns", async () => {
+    const f = fakeSdk({ slowExit: 'never' })
+    const runtime = new SdkRuntime(CLAUDE_PATH, f.sdk)
+    const handle = await runtime.start(makeSpec())
+    await runtime.setModelEffort(handle, 'claude-fable-5-2', 'xhigh')
+    expect(f.setModel).toHaveBeenCalledWith('claude-fable-5-2')
+    expect(f.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: 'xhigh' })
+    await expect(runtime.setModelEffort({ id: 'gone' }, 'opus', 'low')).rejects.toThrow('Unknown run gone')
+  })
+})
 
 describe('SdkRuntime: the orchestrator spec', () => {
   const ORCH_CWD = 'C:\\home\\orchestrator'

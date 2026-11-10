@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent, UsageEvent } from '../../shared/events'
+import type { SupportedModel } from '../../shared/orchestratorModel'
 import {
   ResumeFailedError,
   type AgentRuntime,
@@ -22,6 +23,17 @@ import {
 export type FakeSummary = string | { fail: string } | { hang: true }
 
 export const FAKE_SUMMARY = 'A summary the fake runtime wrote.'
+
+/** The fake's model list, shaped like the real binary's: the `fable` alias lags behind the newest Fable it lists by id. */
+export const FAKE_SUPPORTED_MODELS: SupportedModel[] = [
+  { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)' },
+  { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5' },
+  { value: 'claude-fable-5-2', resolvedModel: 'claude-fable-5-2', displayName: 'Fable 5.2' },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5' },
+  { value: 'haiku', resolvedModel: 'claude-haiku-5-5', displayName: 'Haiku 5.5' },
+  { value: 'fable', resolvedModel: 'claude-fable-5-1', displayName: 'Fable 5.1' },
+  { value: 'claude-opus-4-8', resolvedModel: 'claude-opus-4-8', displayName: 'Opus 4.8' }
+]
 
 /** One scripted step. Plain data only, so a script can be loaded from a JSON file. */
 export type FakeStep =
@@ -46,7 +58,10 @@ export type FakeStep =
    * relative to it) when the step is reached: put it first to prove something happened before the run's first event.
    */
   | { expectFile: string }
-  /** Fails the script, with an error event and the run closed, unless the run was launched with this model and effort. */
+  /**
+   * Fails the script, with an error event and the run closed, unless the run was launched with this model and effort,
+   * or, for the orchestrator, was changed to them since.
+   */
   | { expectModel: { model: string; effort: Effort } }
   /**
    * Reads a file whose path is the first group of a pattern, matched in the run's system prompt (`fromPrompt`) or in
@@ -172,6 +187,9 @@ interface Run {
   stopped: boolean
   /** The fake `claude` process, until it has exited. */
   proc: { claude: SpawnedClaude; spec: RunSpec } | null
+  /** The model and effort its next turn runs with: the launch's, or the last setModelEffort(). */
+  model?: string
+  effort?: Effort
 }
 
 /**
@@ -194,6 +212,10 @@ export class FakeRuntime implements AgentRuntime {
   readonly interrupted: string[] = []
   /** Every request passed to summarize(). */
   readonly summaries: SummaryRequest[] = []
+  /** Every setModelEffort() call, by run handle id. */
+  readonly modelChanges: { run: string; model: string; effort: Effort }[] = []
+  /** Every folder passed to supportedModels(). */
+  readonly modelListReads: string[] = []
   private readonly runs = new Map<string, Run>()
   private nextId = 1
   private startWaiters: { count: number; resolve: () => void }[] = []
@@ -223,8 +245,27 @@ export class FakeRuntime implements AgentRuntime {
        * works, one that isn't fails like a lost session. Without it every id resumes.
        */
       sessionsFile?: string
+      /** What supportedModels() answers (FAKE_SUPPORTED_MODELS by default), or `{ fail }` to reject with that message. */
+      supportedModels?: SupportedModel[] | { fail: string }
+      /** setModelEffort() rejects with this message, as a run that can't change its model would. */
+      setModelEffortFails?: string
     } = {}
   ) {}
+
+  async supportedModels(cwd: string): Promise<SupportedModel[]> {
+    this.modelListReads.push(cwd)
+    const list = this.opts.supportedModels ?? FAKE_SUPPORTED_MODELS
+    if ('fail' in list) throw new Error(list.fail)
+    return list
+  }
+
+  async setModelEffort(handle: RunHandle, model: string, effort: Effort): Promise<void> {
+    const run = this.get(handle)
+    if (this.opts.setModelEffortFails) throw new Error(this.opts.setModelEffortFails)
+    this.modelChanges.push({ run: handle.id, model, effort })
+    run.model = model
+    run.effort = effort
+  }
 
   async summarize(req: SummaryRequest): Promise<string> {
     this.summaries.push(req)
@@ -257,7 +298,9 @@ export class FakeRuntime implements AgentRuntime {
       reached: 0,
       sendWaiter: null,
       stopped: false,
-      proc: null
+      proc: null,
+      ...(spec.model !== undefined ? { model: spec.model } : {}),
+      ...(spec.effort !== undefined ? { effort: spec.effort } : {})
     }
     this.runs.set(handle.id, run)
     if (spec.kind !== 'orchestrator' && this.opts.nextPid) {
@@ -419,7 +462,7 @@ export class FakeRuntime implements AgentRuntime {
         } else if ('expectFile' in step) {
           if (!fs.existsSync(path.resolve(spec.cwd, step.expectFile))) throw new Error(`The run's folder lacks "${step.expectFile}"`)
         } else if ('expectModel' in step) {
-          const launched = spec.kind === 'orchestrator' ? {} : { model: spec.model, effort: spec.effort }
+          const launched = spec.kind === 'orchestrator' ? { model: run.model, effort: run.effort } : { model: spec.model, effort: spec.effort }
           if (launched.model !== step.expectModel.model || launched.effort !== step.expectModel.effort) {
             throw new Error(`The launch has model ${launched.model ?? 'none'}, effort ${launched.effort ?? 'none'}`)
           }

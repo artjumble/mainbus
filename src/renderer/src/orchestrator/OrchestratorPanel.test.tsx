@@ -4,6 +4,7 @@ import { useState, type ReactElement } from 'react'
 import type { EngineEvent } from '../../../shared/api'
 import type { Decision } from '../../../shared/domain'
 import type { OrchestratorThread, StoredEvent, ThreadEvent } from '../../../shared/events'
+import { latestOfEachFamily, orchestratorModelState } from '../../../shared/orchestratorModel'
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { useMainbus, type BoardTicket } from '../store'
@@ -80,9 +81,12 @@ beforeEach(() => {
   useMainbus.setState(initial, true)
   mockInvoke.mockReset()
   localStorage.clear()
+  // The thread and the model line each listen.
+  const listeners = new Set<(e: EngineEvent) => void>()
+  emit = (e) => listeners.forEach((l) => l(e))
   vi.mocked(onEngineEvent).mockImplementation((listener) => {
-    emit = listener
-    return () => {}
+    listeners.add(listener)
+    return () => listeners.delete(listener)
   })
 })
 
@@ -110,6 +114,29 @@ test('the header says which workspace is focused, and the Fleet line counts agen
     'placeholder',
     'Ask for status, create tickets, start or stop agents'
   )
+})
+
+test('the header shows the model and effort of the next turn quietly, follows a change, and shows the notice of a fallback', async () => {
+  const offered = latestOfEachFamily([
+    { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5' },
+    { value: 'claude-fable-5-2', resolvedModel: 'claude-fable-5-2', displayName: 'Fable 5.2' },
+    { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5' }
+  ])
+  history()
+  const thread = mockInvoke.getMockImplementation() as (command: string, ...args: unknown[]) => Promise<unknown>
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) =>
+    command === 'orchestrator.model' ? orchestratorModelState({ family: 'opus', effort: 'medium' }, offered, true) : thread(command, ...args)
+  )
+  renderWithMantine(<Panel />)
+  expect(await screen.findByText('Opus 5.5 · Medium effort')).toBeInTheDocument()
+
+  act(() => emit({ type: 'orchestrator.model', state: orchestratorModelState({ family: 'sonnet', effort: 'high' }, offered, true) }))
+  expect(screen.getByText('Sonnet 5.5 · High effort')).toBeInTheDocument()
+
+  const withoutFable = offered.filter((o) => o.family !== 'fable')
+  act(() => emit({ type: 'orchestrator.model', state: orchestratorModelState({ family: 'fable', effort: 'max' }, withoutFable, true) }))
+  expect(screen.getByText('Opus 5.5 · Max effort')).toBeInTheDocument()
+  expect(screen.getByText("Fable isn't offered by your claude, so the orchestrator uses Opus 5.5.")).toBeInTheDocument()
 })
 
 test('it collapses to a strip with the needs-you count, expands on click, and remembers which it was', async () => {

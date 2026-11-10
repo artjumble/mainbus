@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import type { NewAttachment, WorkspaceSummary } from '../../../shared/api'
 import { IMAGES_PER_MESSAGE, whyNotSendable } from '../../../shared/attachments'
 import type { Decision } from '../../../shared/domain'
+import { effortLabel } from '../../../shared/models'
 import { invoke } from '../api'
 import { IMAGE_ACCEPT, MessageImages } from '../attachments/Attachments'
 import { readImages } from '../attachments/files'
@@ -11,6 +12,7 @@ import { useMainbus } from '../store'
 import { Composer } from '../thread/Composer'
 import { Thread } from '../thread/Thread'
 import { DEFAULT_PANEL_WIDTH } from './panelState'
+import { useOrchestratorModel } from './useOrchestratorModel'
 import { useOrchestratorThread } from './useOrchestratorThread'
 import { WaitingOnYou } from './WaitingOnYou'
 
@@ -43,6 +45,7 @@ interface Props {
  */
 export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
   const thread = useOrchestratorThread()
+  const model = useOrchestratorModel()
   const reveal = useMainbus((s) => s.revealedProposal)
   const prefill = useMainbus((s) => s.orchestratorPrefill)
   const clearPrefill = useMainbus((s) => s.clearOrchestratorPrefill)
@@ -124,6 +127,16 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           <Text size="xs" c="dimmed">
             All workspaces · focused on {workspaceName}
           </Text>
+          {model && (
+            <Text size="xs" c="dimmed" data-orchestrator-model>
+              {`${model.current.label} · ${effortLabel(model.effort)} effort`}
+            </Text>
+          )}
+          {model?.notice && (
+            <Text size="xs" c="needs" data-model-notice>
+              {model.notice}
+            </Text>
+          )}
         </Stack>
         <ActionIcon variant="subtle" color="gray" aria-label="Collapse orchestrator panel" onClick={() => onOpenChange(false)}>
           <span aria-hidden>›</span>

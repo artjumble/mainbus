@@ -16,6 +16,7 @@ import { z } from 'zod'
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent } from '../../shared/events'
 import { EFFORTS, MODEL_OPTIONS } from '../../shared/models'
+import type { SupportedModel } from '../../shared/orchestratorModel'
 import { guardReason, type GuardContext } from '../permissions/guard'
 import { BACKGROUND_DENIED, isBackgroundShell } from '../permissions/policy'
 import { InputQueue } from './inputQueue'
@@ -202,14 +203,17 @@ export class SdkRuntime implements AgentRuntime {
   private readonly resumeInitTimeoutMs: number
   /** The data home of the app running the agents, passed to them as MAINBUS_AGENT_HOME. */
   private readonly agentHome: string | null
+  /** How long supportedModels() waits for the binary's model list. */
+  private readonly modelListTimeoutMs: number
 
   constructor(
     private readonly claudePath: string,
     private readonly sdk: SdkApi,
-    options: { stopTimeoutMs?: number; resumeInitTimeoutMs?: number; agentHome?: string } = {}
+    options: { stopTimeoutMs?: number; resumeInitTimeoutMs?: number; agentHome?: string; modelListTimeoutMs?: number } = {}
   ) {
     this.stopTimeoutMs = options.stopTimeoutMs ?? 7000
     this.resumeInitTimeoutMs = options.resumeInitTimeoutMs ?? 60_000
+    this.modelListTimeoutMs = options.modelListTimeoutMs ?? 30_000
     this.agentHome = options.agentHome ?? null
   }
 
@@ -336,6 +340,58 @@ export class SdkRuntime implements AgentRuntime {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * The binary's own model list, read from a session that is started and never sent a message, so no turn runs: with
+   * its own login (childEnv drops any API key), no tools, no MCP servers and no settings files. Ended at once after.
+   */
+  async supportedModels(cwd: string): Promise<SupportedModel[]> {
+    const abortController = new AbortController()
+    const input = new InputQueue<SDKUserMessage>()
+    const q = this.sdk.query({
+      prompt: input,
+      options: {
+        pathToClaudeCodeExecutable: this.claudePath,
+        cwd,
+        tools: [],
+        allowedTools: [],
+        mcpServers: {},
+        strictMcpConfig: true,
+        settingSources: [],
+        persistSession: false,
+        canUseTool: async () => ({ behavior: 'deny', message: 'No tools are available here' }),
+        env: childEnv(this.agentHome, cwd),
+        abortController
+      }
+    })
+    let timer: NodeJS.Timeout | undefined
+    const timedOut = new Promise<never>(
+      (_resolve, reject) =>
+        (timer = setTimeout(() => reject(new Error(`No model list within ${this.modelListTimeoutMs} ms`)), this.modelListTimeoutMs))
+    )
+    const listed = q.supportedModels()
+    // Aborted after a timeout, it rejects with nobody waiting.
+    listed.catch(() => {})
+    try {
+      const models = await Promise.race([listed, timedOut])
+      return models.map((m) => ({
+        value: m.value,
+        displayName: m.displayName,
+        ...(m.resolvedModel !== undefined ? { resolvedModel: m.resolvedModel } : {})
+      }))
+    } finally {
+      clearTimeout(timer)
+      input.end()
+      abortController.abort()
+    }
+  }
+
+  /** The SDK's model change, and the effort as a session-only flag setting: both apply from the next turn. */
+  async setModelEffort(handle: RunHandle, model: string, effort: Effort): Promise<void> {
+    const run = this.get(handle)
+    await run.q.setModel(model)
+    await run.q.applyFlagSettings({ effortLevel: effort })
   }
 
   private register(run: Run): RunHandle {
