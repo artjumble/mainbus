@@ -1,0 +1,41 @@
+{
+  "*": [
+    { "emit": { "kind": "session", "sessionId": "e2e-done-review-role" } },
+    { "callTool": "handoff", "args": { "summary": "Did the work", "notesForNext": "nothing left over" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "repo#1": {
+    "*": [
+      { "emit": { "kind": "session", "sessionId": "e2e-done-review-role-1" } },
+      { "callTool": "handoff", "args": { "summary": "Did the work", "notesForNext": "worth its own ticket: flaky vitest startup" } },
+      { "emit": { "kind": "turn_end", "ok": true } },
+      { "waitForSend": true }
+    ]
+  },
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-done-review-orchestrator" } },
+    { "expectPrompt": "[Mainbus] Things to look at" },
+    { "expectPrompt": "#1 <ticket-data field=\"title\">Alpha</ticket-data>" },
+    { "expectPrompt": "#2 <ticket-data field=\"title\">Beta</ticket-data>" },
+    { "expectPrompt": "worth its own ticket: flaky vitest startup" },
+    { "expectPrompt": "At most 3 follow-up tickets" },
+    {
+      "callTool": "proposeCreateTickets",
+      "args": {
+        "follow_up_of": 1,
+        "tickets": [
+          {
+            "title": "Make vitest start reliably",
+            "spec": "The Implementer of #1 saw vitest fail to start now and then. Find out why and fix it.",
+            "criteria": ["vitest starts every time in a fresh worktree"]
+          }
+        ],
+        "context": "From #1 Alpha, the Implementer's handoff: \"worth its own ticket: flaky vitest startup\".",
+        "evidence": "#1's handoff notes."
+      }
+    },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

@@ -62,6 +62,13 @@ test('a folder without commits offers to set git up, and changes nothing until c
   expect(useMainbus.getState().workspace).toBeNull()
 })
 
+test('the welcome text asks for a project folder and says Mainbus can set git up', () => {
+  renderWithMantine(<OpenWorkspace />)
+  expect(screen.getByText(/Add the project folder you want to work on/)).toBeInTheDocument()
+  expect(screen.getByText(/any other\s+folder, Mainbus can set up/)).toBeInTheDocument()
+  expect(screen.queryByText(/Add the git repository/)).not.toBeInTheDocument()
+})
+
 test('the screen has no axe violations', async () => {
   renderWithMantine(<OpenWorkspace />)
   await expectNoAxeViolations()

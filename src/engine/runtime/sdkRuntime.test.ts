@@ -916,7 +916,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(await propose.handler(args, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p1.' }] })
     expect(spec.tools.proposeCreateTickets).toHaveBeenCalledWith(args)
     // Its schema has no intent: a ticket's intent is the user's message, and one from the agent is refused.
-    expect(Object.keys(propose.shape)).toEqual(['workspace', 'tickets', 'request_messages_back', 'context', 'column', 'evidence'])
+    expect(Object.keys(propose.shape)).toEqual(['workspace', 'tickets', 'request_messages_back', 'context', 'column', 'evidence', 'follow_up_of'])
     const tickets = propose.shape.tickets as z.ZodType
     expect(tickets.safeParse([{ title: 'Add login', intent: 'The user said so' }]).success).toBe(false)
     expect(tickets.safeParse([{ title: 'Add login', spec: 'Details' }]).success).toBe(true)

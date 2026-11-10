@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
-import type { Proposal } from '../../shared/proposals'
+import type { CreateTicketsPayload, Proposal } from '../../shared/proposals'
 import type { ImageRef } from '../../shared/attachments'
 import type { EditedField, Effort, IntentAddition, Ticket, TicketEdit, Workspace } from '../../shared/domain'
 import { describeEdit } from '../../shared/ticketEdit'
@@ -14,7 +14,7 @@ import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
 import { unblockedBlock, type UnblockedTicket } from './unblockedBlock'
 import { resurfacedBlock, type ResurfacedDecision } from './resurfacedBlock'
 import { stuckBlock, type StuckReport } from './stuckBlock'
-import { wakeDigest, wakeLine, type OpenDecision, type WakeItem } from './wakeDigest'
+import { wakeDigest, wakeLine, type OpenDecision, type OpenTickets, type WakeItem } from './wakeDigest'
 import { attachmentFoldersFor, orchestratorFolder, ticketFoldersFor, type HomePaths } from '../home'
 import { createInBacklog, imagesAttached, listJoin, type PresetSource } from '../proposals/createTickets'
 import { ProposalInvalid, type TicketToCreate } from '../proposals/kind'
@@ -60,6 +60,9 @@ export function pendingText(id: string): string {
 export const NO_TURN_MESSAGE = 'Mainbus could not tell which message of the user this turn answers, so nothing was stored.'
 
 export const WAKE_CREATE_MESSAGE = 'Tickets can only be created in answer to a message of the user. Nothing was created.'
+
+/** The most follow-up tickets one review turn may propose. */
+export const MAX_FOLLOW_UPS = 3
 
 export const WAKE_EDIT_MESSAGE = 'Tickets can only be edited in answer to a message of the user. Nothing was changed.'
 
@@ -157,7 +160,12 @@ export interface OrchestratorDeps {
    */
   wakeItems: (
     rows: Wake[]
-  ) => Promise<{ presented: { row: Wake; item: WakeItem }[]; gone: Wake[]; open: OpenDecision[] }>
+  ) => Promise<{ presented: { row: Wake; item: WakeItem }[]; gone: Wake[]; open: OpenDecision[]; openTickets?: OpenTickets[] }>
+  /**
+   * A review turn of finished tickets ended well: for each ticket it reviewed, how many follow-up tickets it proposed and
+   * their proposals. Not called when the turn failed or was interrupted (the rows are then presented again).
+   */
+  onReviewed?: (results: { ticketId: string; followUps: number; proposalIds: string[] }[]) => Promise<void>
   /**
    * The model and effort the user chose for it, read at the start of every turn: a change applies from the next turn.
    * Without it, Opus at medium effort.
@@ -168,7 +176,16 @@ export interface OrchestratorDeps {
 }
 
 /** What the current turn answers: a message of the user (with the images sent with it), or the wake rows Mainbus presented. */
-type Turn = { kind: 'user'; message: string; images: ImageRef[] } | { kind: 'wake'; rowIds: string[] }
+type Turn =
+  | { kind: 'user'; message: string; images: ImageRef[] }
+  | {
+      kind: 'wake'
+      rowIds: string[]
+      /** The finished tickets this turn reviews; follow-ups may be proposed for these only. */
+      reviews: { ticketId: string; workspaceId: string; number: number; title: string }[]
+      /** The follow-up proposals made so far, for the cap and the tickets' Activity. */
+      followUps: { ticketId: string; proposalId: string; drafts: number }[]
+    }
 
 interface Live {
   runId: string
@@ -205,6 +222,15 @@ function splitMessagesBack(input: unknown): { back: unknown; rest: unknown } {
   }
   const { request_messages_back: back, ...rest } = input as Record<string, unknown>
   return { back, rest }
+}
+
+/** Takes the optional `follow_up_of` off a propose tool's input. */
+function splitFollowUpOf(input: unknown): { followUpOf: unknown; rest: unknown } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input) || !('follow_up_of' in input)) {
+    return { followUpOf: undefined, rest: input }
+  }
+  const { follow_up_of: followUpOf, ...rest } = input as Record<string, unknown>
+  return { followUpOf, rest }
 }
 
 function errorText(err: unknown): string {
@@ -343,15 +369,24 @@ export class OrchestratorSession {
     if (this.shuttingDown || this.status === 'working') return
     const ws = await this.deps.focused()
     if (!ws) return
-    const { presented, gone, open } = await this.deps.wakeItems(rows)
+    const { presented, gone, open, openTickets } = await this.deps.wakeItems(rows)
     // News whose ticket is gone has nothing to say.
     await this.deps.wakes.ack(gone.map((r) => r.id))
     if (presented.length === 0) return
     const rowIds = presented.map((p) => p.row.id)
     await this.deps.wakes.markPresented(rowIds)
     const items = presented.map((p) => p.item)
-    const prompt = withHeader(ws, this.deps.now(), wakeDigest(items, open))
-    await this.beginTurn(ws, { kind: 'wake', items: items.map(wakeLine) }, { kind: 'wake', rowIds }, prompt, (body) => body)
+    const reviews = items.flatMap((i) =>
+      i.kind === 'done_review' ? [{ ticketId: i.review.ticketId, workspaceId: i.review.workspaceId, number: i.review.number, title: i.review.title }] : []
+    )
+    const prompt = withHeader(ws, this.deps.now(), wakeDigest(items, open, openTickets))
+    await this.beginTurn(
+      ws,
+      { kind: 'wake', items: items.map(wakeLine), ...(reviews.length > 0 ? { reviews: reviews.length } : {}) },
+      { kind: 'wake', rowIds, reviews, followUps: [] },
+      prompt,
+      (body) => body
+    )
   }
 
   /**
@@ -487,6 +522,25 @@ export class OrchestratorSession {
     let images: ImageRef[] | undefined
     // `workspace` names the ticket's workspace (or where new tickets go); the kinds' own schemas do not know it.
     let { workspace: ref, rest } = splitWorkspace(input)
+    let followUpOf: { ticketId: string; number: number; title: string } | undefined
+    if (kind === 'create_tickets') {
+      const split = splitFollowUpOf(rest)
+      rest = split.rest
+      if (turn.kind === 'wake' && turn.reviews.length > 0) {
+        const found = await this.followUpTarget(turn, split.followUpOf, ref)
+        if (typeof found === 'string') return `Invalid proposal: ${found}. Nothing was stored; fix it and propose again.`
+        followUpOf = { ticketId: found.ticketId, number: found.number, title: found.title }
+        ref ??= found.workspaceId
+        const drafts = (rest as { tickets?: unknown } | null)?.tickets
+        const proposed = Array.isArray(drafts) ? drafts.length : 0
+        const sofar = turn.followUps.reduce((n, f) => n + f.drafts, 0)
+        if (sofar + proposed > MAX_FOLLOW_UPS) {
+          return `Not stored: a review turn proposes at most ${MAX_FOLLOW_UPS} follow-up tickets and ${sofar} ${sofar === 1 ? 'is' : 'are'} already proposed. Summarise the rest in one message, ranked.`
+        }
+      } else if (split.followUpOf !== undefined) {
+        return 'Invalid proposal: follow_up_of: only in a review of finished tickets. Nothing was stored; fix it and propose again.'
+      }
+    }
     if (kind === 'create_tickets') {
       // Only drafts carry the user's words; the other kinds' strict schemas refuse request_messages_back.
       const split = splitMessagesBack(rest)
@@ -519,12 +573,41 @@ export class OrchestratorSession {
       orchestratorRunId: live.runId,
       userMessage,
       ...(followUps ? { followUps } : {}),
-      ...(images?.length ? { images } : {})
+      ...(images?.length ? { images } : {}),
+      ...(followUpOf ? { followUpOf } : {})
     })
     if (!made.ok) return `Invalid proposal: ${made.error}. Nothing was stored; fix it and propose again.`
     if (made.existing) return pendingText(made.proposal.id)
+    if (followUpOf && turn.kind === 'wake') {
+      turn.followUps.push({ ticketId: followUpOf.ticketId, proposalId: made.proposal.id, drafts: (made.proposal.payload as CreateTicketsPayload).tickets.length })
+    }
     await this.record(live.runId, { kind: 'proposal', proposalId: made.proposal.id })
     return proposedText(made.proposal.id)
+  }
+
+  /**
+   * The finished ticket a follow-up is for: `given` is its number, and it must be one under review in the workspace
+   * (`ref`, or the review's own when only one has that number). The reason why not, as text, when it isn't.
+   */
+  private async followUpTarget(
+    turn: Extract<Turn, { kind: 'wake' }>,
+    given: unknown,
+    ref: string | undefined
+  ): Promise<{ ticketId: string; workspaceId: string; number: number; title: string } | string> {
+    const list = listJoin(turn.reviews.map((r) => `#${r.number}`))
+    const why = `follow_up_of: required, and must be the number of one of the finished tickets under review (${list})`
+    if (typeof given !== 'number' || !Number.isInteger(given)) return why
+    let candidates = turn.reviews.filter((r) => r.number === given)
+    if (ref !== undefined) {
+      const focused = await this.deps.focused()
+      if (!focused) return this.deps.workspaceRequired
+      const resolved = resolveWorkspaceRef(await this.deps.workspaces(), focused, ref)
+      if (!resolved.ok) return resolved.text
+      candidates = candidates.filter((r) => r.workspaceId === resolved.ws.id)
+    }
+    if (candidates.length === 0) return why
+    if (candidates.length > 1) return `follow_up_of: #${given} is under review in more than one workspace; name the workspace`
+    return candidates[0]!
   }
 
   /**
@@ -801,7 +884,17 @@ export class OrchestratorSession {
       if (!event.ok && isUsageLimitText(event.error)) this.deps.usage?.hit({ resetsAt: null }, null)
       const finished = event.ok && !event.interrupted
       // Acknowledged only now that the turn finished: a failed or interrupted one leaves its rows to be presented again.
-      if (turn?.kind === 'wake' && finished) await this.deps.wakes.ack(turn.rowIds)
+      if (turn?.kind === 'wake' && finished) {
+        await this.deps.wakes.ack(turn.rowIds)
+        if (turn.reviews.length > 0) {
+          const results = turn.reviews.map((r) => {
+            const made = turn.followUps.filter((f) => f.ticketId === r.ticketId)
+            return { ticketId: r.ticketId, followUps: made.reduce((n, f) => n + f.drafts, 0), proposalIds: made.map((f) => f.proposalId) }
+          })
+          // Losing the note in the ticket's Activity must not undo the turn.
+          await this.deps.onReviewed?.(results).catch(() => {})
+        }
+      }
       if (turn?.kind === 'wake' || finished) this.deps.onTurnEnded?.(finished)
     }
   }

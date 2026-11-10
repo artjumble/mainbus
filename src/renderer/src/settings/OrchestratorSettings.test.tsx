@@ -134,3 +134,31 @@ test('has no accessibility violations', async () => {
   await vi.waitFor(() => expect(screen.getByRole('combobox', { name: 'Model' })).toBeEnabled())
   await expectNoAxeViolations(container)
 })
+
+test('reviewing finished tickets is on with a two-minute wait, and both save', async () => {
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'settings.get') return { orchestratorWebAccess: true, reviewDoneTickets: true, reviewDoneWaitMinutes: 2 }
+    if (command === 'orchestrator.model') return model
+    if (command === 'settings.setReviewDone') {
+      const v = args[0] as { on?: boolean; waitMinutes?: number }
+      return { orchestratorWebAccess: true, reviewDoneTickets: v.on ?? true, reviewDoneWaitMinutes: v.waitMinutes ?? 2 }
+    }
+    return undefined
+  })
+  renderWithMantine(<OrchestratorSettings opened />)
+  const toggle = screen.getByRole('switch', { name: /^Review finished tickets for follow-ups/ })
+  const wait = screen.getByRole('textbox', { name: /^Wait before reviewing/ })
+  await vi.waitFor(() => expect(toggle).toBeEnabled())
+  expect(toggle).toBeChecked()
+  expect(wait).toHaveValue('2')
+  expect(wait).toBeEnabled()
+
+  await userEvent.clear(wait)
+  await userEvent.type(wait, '5')
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setReviewDone', { waitMinutes: 5 }))
+
+  await userEvent.click(toggle)
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setReviewDone', { on: false }))
+  await vi.waitFor(() => expect(toggle).not.toBeChecked())
+  expect(wait).toBeDisabled()
+})

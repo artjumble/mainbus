@@ -43,7 +43,16 @@ export interface AppSettings {
   orchestratorEffort: Effort
   /** "Voice input": the mic buttons in long-form fields, and how they turn speech into text. */
   voice: VoiceSettings
+  /** "Review finished tickets for follow-ups": whether the orchestrator looks at each ticket that ran when it reaches Done. On by default. */
+  reviewDoneTickets: boolean
+  /** How many minutes after the last ticket reached Done the review turn waits, so a run of merges is one review. */
+  reviewDoneWaitMinutes: number
 }
+
+export const REVIEW_DONE_DEFAULT = true
+export const REVIEW_DONE_WAIT_MIN = 1
+export const REVIEW_DONE_WAIT_MAX = 30
+export const REVIEW_DONE_WAIT_DEFAULT = 2
 
 export const ORCHESTRATOR_WEB_ACCESS_DEFAULT = true
 

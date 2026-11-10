@@ -412,3 +412,17 @@ test('the activity timeline records a merge, with a link to the proposal that as
   const local = items.find((i) => i.includes('Merged into main by you (local merge)'))
   expect(local).toContain('View proposal')
 })
+
+test('the Activity says what the orchestrator found when it reviewed the finished ticket, with a link to each proposal', () => {
+  const events = [
+    makeEvent({ kind: 'message', text: 'hi' }, { runId: 'a', at: '2026-10-30T10:00:00.000Z' }),
+    makeEvent({ kind: 'done_reviewed', followUps: 2, proposalIds: ['p1'] }, { runId: 'a', at: '2026-10-30T11:00:00.000Z' }),
+    makeEvent({ kind: 'done_reviewed', followUps: 0, proposalIds: [] }, { runId: 'a', at: '2026-10-31T11:00:00.000Z' })
+  ]
+  renderWithMantine(<ContextPane ticket={ticket} events={events} decisions={[]} runs={{ a: { id: 'a', ticketRunId: 't', role: 'Implementer' } }} />)
+  const items = within(screen.getByRole('region', { name: 'Activity' })).getAllByRole('listitem').map((li) => li.textContent ?? '')
+  const proposed = items.find((i) => i.includes('2 follow-ups proposed'))
+  expect(proposed).toContain('Reviewed by the orchestrator: 2 follow-ups proposed')
+  expect(proposed).toContain('View proposal')
+  expect(items.some((i) => i.includes('Reviewed by the orchestrator: no follow-ups proposed'))).toBe(true)
+})

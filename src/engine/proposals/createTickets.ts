@@ -144,6 +144,11 @@ function contextOf(context: string | undefined): { context?: string } {
   return text ? { context: text } : {}
 }
 
+/** The note a follow-up ticket starts with in place of the user's words. */
+export function followUpIntent(of: { number: number; title: string }): string {
+  return `Follow-up to #${of.number} ${JSON.stringify(of.title)}, proposed by the orchestrator when #${of.number} reached Done.`
+}
+
 /** What the orchestrator proposes and what the user's override sends: the same rules for both. */
 const editableSchema = z.strictObject({
   tickets: draftsSchema,
@@ -173,11 +178,14 @@ function ticketInputs(
   context: { text: string; cwd: string } | undefined,
   blockers: Blockers[],
   runSettings: (RunSettings | null)[],
-  via?: 'orchestrator'
+  via?: 'orchestrator',
+  /** Set for a follow-up the orchestrator proposed: the intent is its note, so it is written by the orchestrator, from this folder. */
+  agentFiledFrom?: string
 ): TicketToCreate[] {
   return drafts.map((d, i) => ({
     title: d.title,
     intent,
+    ...(agentFiledFrom ? { source: { kind: 'agent' as const, agent: 'orchestrator', cwd: agentFiledFrom } } : {}),
     ...(intentAdded?.length ? { intentAdded } : {}),
     spec: d.spec,
     criteria: d.criteria,
@@ -208,11 +216,16 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
   atomicWithResult: true,
 
   propose(input, turn, ctx) {
-    if (turn.userMessage === null) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
+    // A review of a finished ticket has no message of the user: the follow-up's intent is Mainbus's own note about it.
+    if (turn.userMessage === null && !turn.followUpOf) throw new ProposalInvalid('Tickets can only be drafted in answer to a message of the user')
     const { context, tickets, ...rest } = parsePayload(editableSchema, input)
+    if (turn.followUpOf && !context?.trim()) {
+      throw new ProposalInvalid(`context: required for a follow-up: cite #${turn.followUpOf.number} and the handoff or note it comes from`)
+    }
     const payload: CreateTicketsPayload = {
-      intent: turn.userMessage,
-      ...(turn.followUps?.length ? { intentAdded: turn.followUps } : {}),
+      intent: turn.followUpOf ? followUpIntent(turn.followUpOf) : turn.userMessage!,
+      ...(turn.followUps?.length && !turn.followUpOf ? { intentAdded: turn.followUps } : {}),
+      ...(turn.followUpOf ? { followUpOf: turn.followUpOf } : {}),
       tickets: withImages(tickets, turn.images ?? [], 'filename'),
       ...rest,
       ...contextOf(context)
@@ -241,6 +254,7 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
     return {
       intent: stored.intent,
       ...(stored.intentAdded ? { intentAdded: stored.intentAdded } : {}),
+      ...(stored.followUpOf ? { followUpOf: stored.followUpOf } : {}),
       tickets: withImages(tickets, proposed, 'id'),
       ...rest,
       ...contextOf(context)
@@ -255,7 +269,17 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
     const presets = await resolvePresets(p.tickets, ws, presetSourceOf(ctx))
     const created = await ctx.createTickets(
       ws,
-      ticketInputs(p.intent, p.intentAdded, p.tickets, p.column, p.context ? { text: p.context, cwd: ctx.orchestratorFolder } : undefined, blockers, presets.settings),
+      ticketInputs(
+        p.intent,
+        p.intentAdded,
+        p.tickets,
+        p.column,
+        p.context ? { text: p.context, cwd: ctx.orchestratorFolder } : undefined,
+        blockers,
+        presets.settings,
+        undefined,
+        p.followUpOf ? ctx.orchestratorFolder : undefined
+      ),
       { proposalId: target.proposalId, column: p.column }
     )
     return {

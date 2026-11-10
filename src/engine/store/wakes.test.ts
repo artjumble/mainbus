@@ -20,6 +20,28 @@ beforeEach(async () => {
 })
 afterEach(() => cleanup())
 
+describe('reviewedSince', () => {
+  const only = async () => (await wakes.pending())[0]!
+
+  it('is true for a review row that was presented and acknowledged since then', async () => {
+    await wakes.add(wsId, 'done_review', 't-1')
+    await wakes.markPresented([(await only()).id])
+    clock = at(60)
+    await wakes.ack([(await only()).id])
+    expect(await wakes.reviewedSince('done_review', 't-1', at(0).toISOString())).toBe(true)
+    expect(await wakes.reviewedSince('done_review', 't-1', at(61).toISOString())).toBe(false)
+    expect(await wakes.reviewedSince('done_review', 't-2', at(0).toISOString())).toBe(false)
+    expect(await wakes.reviewedSince('failure', 't-1', at(0).toISOString())).toBe(false)
+  })
+
+  it('is false for a row dropped as gone (acknowledged without being presented) or still waiting', async () => {
+    await wakes.add(wsId, 'done_review', 't-1')
+    expect(await wakes.reviewedSince('done_review', 't-1', at(0).toISOString())).toBe(false)
+    await wakes.ack([(await only()).id])
+    expect(await wakes.reviewedSince('done_review', 't-1', at(0).toISOString())).toBe(false)
+  })
+})
+
 describe('the wake queue', () => {
   it('adds a row per kind and ref, oldest first', async () => {
     expect(await wakes.add(wsId, 'failure', 'run-1')).toBe(true)

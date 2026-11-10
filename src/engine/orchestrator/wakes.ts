@@ -15,6 +15,8 @@ export interface WakeSchedulerDeps {
   usageLimitedUntil: () => number | null
   /** False when no turn can be started at all (no runtime, no workspace): the rows then stay pending. */
   canWake: () => Promise<boolean>
+  /** How long rows that are only reviews of finished tickets wait after the newest one, so a run of merges is one turn. Absent: no extra wait. */
+  doneReviewWaitMs?: () => Promise<number>
 }
 
 /**
@@ -25,6 +27,8 @@ export interface WakeSchedulerDeps {
  */
 export class WakeScheduler {
   private timer: unknown = null
+  /** The timer is the longer wait for reviews only: any other row cuts it short. */
+  private reviewWait = false
   private started = false
   private disposed = false
   private blocked = false
@@ -42,6 +46,12 @@ export class WakeScheduler {
   /** A row was added. */
   added(): void {
     this.blocked = false
+    // An urgent row must not wait out the reviews' longer wait: back to the usual debounce, the reviews riding along.
+    if (this.reviewWait && this.timer !== null) {
+      this.deps.clock.clearTimeout(this.timer)
+      this.timer = null
+      this.reviewWait = false
+    }
     this.arm()
   }
 
@@ -55,6 +65,7 @@ export class WakeScheduler {
   limitLifted(): Promise<void> {
     if (this.timer !== null) this.deps.clock.clearTimeout(this.timer)
     this.timer = null
+    this.reviewWait = false
     return this.armIfPending()
   }
 
@@ -62,6 +73,7 @@ export class WakeScheduler {
     this.disposed = true
     if (this.timer !== null) this.deps.clock.clearTimeout(this.timer)
     this.timer = null
+    this.reviewWait = false
   }
 
   private async armIfPending(): Promise<void> {
@@ -80,6 +92,7 @@ export class WakeScheduler {
 
   private async fire(): Promise<void> {
     this.timer = null
+    this.reviewWait = false
     if (this.disposed || this.blocked || this.deps.busy()) return
     const limit = this.deps.usageLimitedUntil()
     if (limit !== null && limit > this.deps.clock.now().getTime()) {
@@ -90,6 +103,18 @@ export class WakeScheduler {
       if (!(await this.deps.canWake())) return
       const rows = await this.deps.repo.pending()
       if (rows.length === 0 || this.disposed) return
+      // Only reviews: wait until the newest one has been quiet for the wait, so a run of Done moves is one turn.
+      if (this.deps.doneReviewWaitMs && rows.every((r) => r.kind === 'done_review')) {
+        const now = this.deps.clock.now().getTime()
+        const due = Math.max(...rows.map((r) => Date.parse(r.createdAt))) + (await this.deps.doneReviewWaitMs())
+        if (due > now) {
+          if (this.timer === null) {
+            this.reviewWait = true
+            this.timer = this.deps.clock.setTimeout(() => this.fire(), due - now)
+          }
+          return
+        }
+      }
       this.lastStartedAt = this.deps.clock.now().getTime()
       await this.deps.wake(rows)
     } catch {

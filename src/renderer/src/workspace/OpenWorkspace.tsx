@@ -34,7 +34,8 @@ export function OpenWorkspace(): ReactElement {
         <Title order={2}>Welcome to Mainbus</Title>
         <Text>
           Mainbus runs Claude Code agents on your tickets, each in its own folder, and asks you only when it needs a
-          decision. Add the git repository you want to work on to begin.
+          decision. Add the project folder you want to work on to begin. A git repository works as it is; any other
+          folder, Mainbus can set up.
         </Text>
         <Text size="sm" c="dimmed">
           Claude Code can't ask you to trust a folder while Mainbus runs it, so Mainbus treats the folder you pick as

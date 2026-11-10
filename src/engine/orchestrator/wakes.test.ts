@@ -174,3 +174,60 @@ describe('the wake scheduler', () => {
     expect(clock.pending).toBe(0)
   })
 })
+
+describe('the wake scheduler, with reviews of finished tickets', () => {
+  const WAIT = 120_000
+  const review = (n: number, at: Date): Wake => ({ id: `d${n}`, workspaceId: 'ws', kind: 'done_review', ref: `t${n}`, createdAt: at.toISOString(), presentedAt: null })
+  const at = (): Date => clock.now()
+  const waiting = (): WakeScheduler =>
+    new WakeScheduler({
+      repo: { pending: async () => pending },
+      clock,
+      wake: async (rows) => {
+        woken.push(rows)
+      },
+      busy: () => busy,
+      usageLimitedUntil: () => limitedUntil,
+      canWake: async () => canWake,
+      doneReviewWaitMs: async () => WAIT
+    })
+
+  it('waits the longer time after the newest review row, and gives a run of them one turn', async () => {
+    scheduler = waiting()
+    await scheduler.start()
+    pending = [review(1, at())]
+    scheduler.added()
+    await clock.advance(WAIT - 1000)
+    expect(woken).toEqual([])
+    // A second one a minute in pushes the turn back.
+    await clock.advance(1000 - 1000)
+    pending = [...pending, review(2, at())]
+    scheduler.added()
+    await clock.advance(WAIT - 1)
+    expect(woken).toEqual([])
+    await clock.advance(1)
+    expect(woken.map((rows) => rows.map((r) => r.id))).toEqual([['d1', 'd2']])
+  })
+
+  it('lets an urgent row cut the wait short, the reviews riding along', async () => {
+    scheduler = waiting()
+    await scheduler.start()
+    pending = [review(1, at())]
+    scheduler.added()
+    await clock.advance(60_000)
+    pending = [...pending, row(1)]
+    scheduler.added()
+    await clock.advance(WAKE_DEBOUNCE_MS)
+    expect(woken).toHaveLength(1)
+    expect(woken[0]!.map((r) => r.kind)).toEqual(['done_review', 'failure'])
+  })
+
+  it('does not wait for rows that are not reviews', async () => {
+    scheduler = waiting()
+    await scheduler.start()
+    pending = [row(1)]
+    scheduler.added()
+    await clock.advance(WAKE_DEBOUNCE_MS)
+    expect(woken).toHaveLength(1)
+  })
+})

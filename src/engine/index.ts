@@ -64,7 +64,8 @@ import { checkBlockers } from './tickets/dependencies'
 import { notDoneYetText, openBlockers } from '../shared/dependencies'
 import type { UnblockedTicket } from './orchestrator/unblockedBlock'
 import { WakeScheduler } from './orchestrator/wakes'
-import type { OpenDecision, WakeItem } from './orchestrator/wakeDigest'
+import type { OpenDecision, OpenTickets, WakeItem } from './orchestrator/wakeDigest'
+import { doneReviewOf } from './orchestrator/doneReview'
 import type { Wake, WakeKind } from './store/wakes'
 import { createProposalService, type ProposalService } from './proposals/service'
 import { ProcessSweeper } from './processes/sweep'
@@ -227,7 +228,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       wake: (rows) => orchestratorSession?.wake(rows) ?? Promise.resolve(),
       busy: () => orchestratorSession?.busy ?? true,
       usageLimitedUntil: () => usageGate?.limitedUntil() ?? null,
-      canWake: async () => cfg.runtime !== null && (await repos.workspaces.list()).length > 0
+      canWake: async () => cfg.runtime !== null && (await repos.workspaces.list()).length > 0,
+      doneReviewWaitMs: async () => (await repos.settings.get()).reviewDoneWaitMinutes * 60_000
     })
     wakeSchedulerRef = wakeScheduler
     const addWake = async (workspaceId: string, kind: WakeKind, ref: string): Promise<void> => {
@@ -705,8 +707,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       // A Done ticket has nothing left to hold back.
       await holds.unhold(id)
       if (!wasDone) await noteUnblocked(id)
+      if (!wasDone) await queueDoneReview(id).catch(() => {})
       // Main may have just moved: the open tickets are measured against it again.
       void freshness.refresh((await repos.tickets.get(id)).workspaceId).catch(() => {})
+    }
+    /**
+     * After a ticket reached Done: the orchestrator is woken to review it for follow-ups. Not when the setting is off, when the
+     * ticket never ran, or when it was reviewed in the last day (it went out of Done and back in).
+     */
+    async function queueDoneReview(id: string): Promise<void> {
+      if (!(await repos.settings.get()).reviewDoneTickets) return
+      if ((await repos.runs.latest(id)) === null) return
+      const since = new Date(now().getTime() - 24 * 60 * 60 * 1000).toISOString()
+      if (await repos.wakes.reviewedSince('done_review', id, since)) return
+      await addWake((await repos.tickets.get(id)).workspaceId, 'done_review', id)
     }
     /** After a ticket reached Done: each ticket it was the last open blocker of is noted as unblocked (its Activity, the orchestrator's next turn). */
     async function noteUnblocked(doneId: string): Promise<void> {
@@ -1110,6 +1124,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       if (workspace === undefined) return null
       const item = await wakeItemIn(row)
       if (item === null) return null
+      if (item.kind === 'done_review') return { ...item, review: { ...item.review, workspace } }
       return item.kind === 'stuck' ? { ...item, report: { ...item.report, workspace } } : { ...item, workspace }
     }
     async function wakeItemIn(row: Wake): Promise<WakeItem | null> {
@@ -1132,6 +1147,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           const hold = await repos.holds.get(row.ref)
           const ticket = hold && (await repos.tickets.get(hold.targetId).catch(() => null))
           return hold && ticket ? { kind: 'released_hold', number: ticket.number, title: ticket.title, until: hold.until } : null
+        }
+        case 'done_review': {
+          const ticket = await repos.tickets.get(row.ref).catch(() => null)
+          // Moved back out of Done, or the setting turned off since: nothing to review.
+          if (!ticket || ticket.manualColumn !== 'done' || !(await repos.settings.get()).reviewDoneTickets) return null
+          return { kind: 'done_review', review: await doneReviewOf(repos, ticket) }
         }
         case 'resurfaced': {
           const decision = await repos.decisions.get(row.ref).catch(() => null)
@@ -1277,7 +1298,25 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             })
           }
         }
-        return { presented, gone, open }
+        // What a review compares its ideas with: each reviewed ticket's workspace's open tickets and its newest Done ones.
+        const openTickets: OpenTickets[] = []
+        const reviewed = new Set(presented.flatMap((p) => (p.item.kind === 'done_review' ? [p.item.review.workspaceId] : [])))
+        for (const ws of await repos.workspaces.list()) {
+          if (!reviewed.has(ws.id)) continue
+          const board = await boardView(ws)
+          const isDone = (t: BoardTicket): boolean => t.state.column === 'done'
+          const recentDone = board.filter(isDone).sort((a, b) => b.number - a.number).slice(0, 15)
+          openTickets.push({
+            workspace: ws.name,
+            tickets: [...board.filter((t) => !isDone(t)), ...recentDone]
+              .sort((a, b) => a.number - b.number)
+              .map((t) => ({ number: t.number, title: t.title, column: t.state.column }))
+          })
+        }
+        return { presented, gone, open, openTickets }
+      },
+      onReviewed: async (results) => {
+        for (const r of results) await runner.recordDoneReviewed(r.ticketId, { kind: 'done_reviewed', followUps: r.followUps, proposalIds: r.proposalIds })
       },
       onTurnEnded: (finished) => void wakeScheduler.turnEnded(finished)
     }))
@@ -1574,6 +1613,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'settings.setWhenClosed': (v) => repos.settings.setWhenClosed(v),
       'settings.setOrchestratorWebAccess': (on) => repos.settings.setOrchestratorWebAccess(on),
+      'settings.setReviewDone': (v) => repos.settings.setReviewDone(v),
       // Read at the start of each orchestrator turn: a turn under way keeps the model and effort it started with.
       'settings.setOrchestratorModel': async (family) => {
         // A family the binary doesn't offer is refused; the repo refuses anything that is no family at all.

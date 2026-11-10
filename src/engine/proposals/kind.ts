@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 import type { ImageRef } from '../../shared/attachments'
 import type { MergeOptions, MergeOutcome, MergePlan, MergePreview } from '../../shared/merge'
-import type { DraftColumn, ProposalOrigin } from '../../shared/proposals'
+import type { DraftColumn, FollowUpOf, ProposalOrigin } from '../../shared/proposals'
 import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupPreset, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
@@ -125,6 +125,8 @@ export interface Turn {
   workspaceId: string
   /** Who makes it; the orchestrator when absent. */
   origin?: ProposalOrigin
+  /** Set in a review of a finished ticket, which has no message of the user: the ticket the proposed tickets follow up. */
+  followUpOf?: FollowUpOf
 }
 
 /**

@@ -72,6 +72,8 @@ test('a permission for a heredoc command shows as a code block, and an orchestra
     await expect(card.getByRole('button', { name: 'Copy command' })).toBeVisible()
     await expect(card.getByRole('button', { name: 'Show all' })).toBeVisible()
     await expect(card.getByText('Writes a file with a heredoc')).toBeVisible()
+    // The command is capped at 6 lines in the panel, so the answer buttons are in view without scrolling the group.
+    await expect(card.getByRole('button', { name: 'Allow once' })).toBeInViewport({ ratio: 1 })
     await expectNoAxeViolations(page, 'the permission card with a code block')
     await card.getByRole('button', { name: 'Show all' }).click()
     await expect(card.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true')

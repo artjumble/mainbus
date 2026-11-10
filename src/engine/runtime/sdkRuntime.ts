@@ -762,7 +762,12 @@ export class SdkRuntime implements AgentRuntime {
             request_messages_back: requestMessagesBack,
             context,
             column: z.enum(['backlog', 'ready']).optional().describe('Where they land: backlog (the default) or ready'),
-            evidence: z.string().optional().describe('What you read that led to this proposal, shown to the user')
+            evidence: z.string().optional().describe('What you read that led to this proposal, shown to the user'),
+            follow_up_of: z
+              .number()
+              .int()
+              .optional()
+              .describe('Only in a review of finished tickets: the number of the Done ticket these follow up. Required there, refused elsewhere; the context must cite that ticket')
           },
           // The engine validates it again, strictly: the SDK passes what the agent sent.
           async (a) => toolText(await t.proposeCreateTickets(a))
