@@ -470,7 +470,7 @@ export const orchestratorWakes = sqliteTable(
     workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: ['failure', 'stuck', 'released_hold', 'resurfaced'] }).notNull(),
+    kind: text('kind', { enum: ['failure', 'stuck', 'released_hold', 'resurfaced', 'done_review'] }).notNull(),
     ref: text('ref').notNull(),
     createdAt: text('created_at').notNull(),
     presentedAt: text('presented_at'),

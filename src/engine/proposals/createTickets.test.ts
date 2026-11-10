@@ -367,3 +367,42 @@ describe('create_tickets: blocked_by', () => {
     expect(create).not.toHaveBeenCalled()
   })
 })
+
+describe('create_tickets: a follow-up proposed in a review of a finished ticket', () => {
+  const followUpOf = { ticketId: 't9', number: 9, title: 'Login' }
+  const turn = { userMessage: null, workspaceId: ws.id, followUpOf }
+  const followUp = (input: unknown): CreateTicketsPayload => createTickets.propose(input, turn, {} as ExecContext) as CreateTicketsPayload
+  const context = 'From #9, the Reviewer note: "worth its own ticket: flaky startup".'
+
+  test('stores an engine-written intent that is not the user words, and the source', () => {
+    const p = followUp({ tickets: [{ title: 'Fix flaky startup' }], context })
+    expect(p).toMatchObject({ intent: 'Follow-up to #9 "Login", proposed by the orchestrator when #9 reached Done.', followUpOf, context })
+    expect(p).not.toHaveProperty('intentAdded')
+  })
+
+  test('needs a context that cites the source', () => {
+    expect(() => followUp({ tickets: [{ title: 'A' }] })).toThrow('context: required for a follow-up')
+    expect(() => followUp({ tickets: [{ title: 'A' }], context: '  ' })).toThrow(ProposalInvalid)
+  })
+
+  test('without a follow-up or a message of the user, drafting is still refused', () => {
+    expect(() => createTickets.propose({ tickets: [{ title: 'A' }] }, { userMessage: null, workspaceId: ws.id }, {} as ExecContext)).toThrow('answer to a message of the user')
+  })
+
+  test('an override keeps it', () => {
+    const stored = followUp({ tickets: [{ title: 'A' }], context })
+    const edited = createTickets.override!(stored, { tickets: [{ title: 'B' }], column: 'ready', context })
+    expect(edited).toMatchObject({ intent: stored.intent, followUpOf })
+  })
+
+  test('creates tickets whose first intent entry is written by the orchestrator, with the context as its own entry', async () => {
+    const create = vi.fn(async (_ws: Workspace, inputs: { title: string }[]) => inputs.map((i) => ({ id: 't1', number: 1, title: i.title }) as Ticket))
+    const c = { orchestratorFolder: '/home/orchestrator', workspace: async () => ws, createTickets: create, ticketByNumber: async () => null } as unknown as ExecContext
+    await createTickets.execute(followUp({ tickets: [{ title: 'A' }], context }), { workspaceId: 'ws1', proposalId: 'p1' }, c)
+    expect(create.mock.calls[0]![1][0]).toMatchObject({
+      intent: 'Follow-up to #9 "Login", proposed by the orchestrator when #9 reached Done.',
+      source: { kind: 'agent', agent: 'orchestrator', cwd: '/home/orchestrator' },
+      agentContext: { text: context }
+    })
+  })
+})

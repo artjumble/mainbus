@@ -15,6 +15,7 @@ import { AgentText } from '../thread/Thread'
 import { TimeSection } from './TimeSection'
 import { UsageSection } from './UsageSection'
 import { mergedText } from '../../../shared/merge'
+import { doneReviewedText } from '../../../shared/doneReview'
 
 interface Props {
   ticket: BoardTicket
@@ -435,6 +436,8 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
         title: mergedText(event),
         ...(event.proposalId ? { links: [go.proposal(event.proposalId)] } : {})
       })
+    } else if (event.kind === 'done_reviewed') {
+      entries.push({ at, title: doneReviewedText(event.followUps), links: event.proposalIds.map((id) => go.proposal(id)) })
     } else if (event.kind === 'stuck_failed') {
       const times = event.replacements === 1 ? 'once' : `${event.replacements} times`
       entries.push({ at, title: `${event.role} marked Failed: stuck again after being replaced ${times} (by Mainbus)`, links: [go.run('View run', runId)] })

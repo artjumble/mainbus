@@ -5,6 +5,10 @@ import {
   AGENT_CAP_MIN,
   isThemeId,
   ORCHESTRATOR_WEB_ACCESS_DEFAULT,
+  REVIEW_DONE_DEFAULT,
+  REVIEW_DONE_WAIT_DEFAULT,
+  REVIEW_DONE_WAIT_MAX,
+  REVIEW_DONE_WAIT_MIN,
   THEME_CHOICES,
   THEME_IDS,
   THEME_SETTING_DEFAULT,
@@ -35,6 +39,8 @@ const WHEN_CLOSED = 'when_closed'
 const ORCHESTRATOR_WEB = 'orchestrator_web'
 const ORCHESTRATOR_MODEL = 'orchestrator_model'
 const ORCHESTRATOR_EFFORT = 'orchestrator_effort'
+const REVIEW_DONE = 'review_done'
+const REVIEW_DONE_WAIT = 'review_done_wait'
 // The choice: a theme id or 'system'. Before named themes it held 'light', 'dark' or 'system', which are still choices.
 const THEME = 'theme'
 // The light and the dark theme Match Windows uses; with no row, Light and Dark, as before named themes.
@@ -59,6 +65,11 @@ export function validAgentCap(n: unknown): n is number {
   return typeof n === 'number' && Number.isInteger(n) && n >= AGENT_CAP_MIN && n <= AGENT_CAP_MAX
 }
 
+/** True for a whole number of minutes the review wait accepts. */
+export function validReviewWait(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= REVIEW_DONE_WAIT_MIN && n <= REVIEW_DONE_WAIT_MAX
+}
+
 export interface SettingsRepo {
   get(): Promise<AppSettings>
   /** Stores the number of role agents that may run at once; rejects anything but a whole number from 1 to 10. */
@@ -71,6 +82,8 @@ export interface SettingsRepo {
   setOrchestratorModel(family: OrchestratorFamily): Promise<AppSettings>
   /** Stores the orchestrator's effort; rejects anything but low, medium, high, xhigh or max. */
   setOrchestratorEffort(effort: Effort): Promise<AppSettings>
+  /** Stores whether finished tickets are reviewed and the wait in whole minutes (1 to 30); rejects anything else. */
+  setReviewDone(v: { on?: boolean; waitMinutes?: number }): Promise<AppSettings>
   /** Stores the theme choice; rejects anything but a theme id or 'system'. */
   setTheme(v: ThemeChoice): Promise<AppSettings>
   /** Stores the light or the dark theme Match Windows uses; rejects an unknown id or a theme of the other scheme. */
@@ -87,7 +100,7 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     const rows = await db
       .select()
       .from(appSettings)
-      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, ORCHESTRATOR_MODEL, ORCHESTRATOR_EFFORT, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
+      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, ORCHESTRATOR_MODEL, ORCHESTRATOR_EFFORT, REVIEW_DONE, REVIEW_DONE_WAIT, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark]))
     const value = (key: string): string | undefined => rows.find((r) => r.key === key)?.value
     const stored = Number(value(MAX_AGENTS) ?? NaN)
     const choice = value(THEME)
@@ -95,12 +108,15 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     const dark = value(MATCH_WINDOWS.dark)
     const model = value(ORCHESTRATOR_MODEL)
     const effort = value(ORCHESTRATOR_EFFORT)
+    const wait = Number(value(REVIEW_DONE_WAIT) ?? NaN)
     return {
       maxAgents: validAgentCap(stored) ? stored : AGENT_CAP_DEFAULT,
       whenClosed: value(WHEN_CLOSED) === 'quit' ? 'quit' : WHEN_CLOSED_DEFAULT,
       orchestratorWebAccess: value(ORCHESTRATOR_WEB) === 'off' ? false : ORCHESTRATOR_WEB_ACCESS_DEFAULT,
       orchestratorModel: isOrchestratorFamily(model) ? model : ORCHESTRATOR_MODEL_DEFAULT,
       orchestratorEffort: isEffort(effort) ? effort : ORCHESTRATOR_EFFORT_DEFAULT,
+      reviewDoneTickets: value(REVIEW_DONE) === 'off' ? false : REVIEW_DONE_DEFAULT,
+      reviewDoneWaitMinutes: validReviewWait(wait) ? wait : REVIEW_DONE_WAIT_DEFAULT,
       theme: {
         choice: isThemeChoice(choice) ? choice : THEME_SETTING_DEFAULT.choice,
         light: isThemeOf('light', light) ? light : THEME_SETTING_DEFAULT.light,
@@ -163,6 +179,15 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     async setOrchestratorEffort(effort) {
       if (!isEffort(effort)) throw new Error(`The orchestrator's effort must be ${EFFORTS.map((e) => `'${e}'`).join(', ')}`)
       await put(ORCHESTRATOR_EFFORT, effort)
+      return get()
+    },
+    async setReviewDone({ on, waitMinutes }) {
+      if (on !== undefined && typeof on !== 'boolean') throw new Error('Review finished tickets for follow-ups must be on or off')
+      if (waitMinutes !== undefined && !validReviewWait(waitMinutes)) {
+        throw new Error(`The wait before reviewing must be a whole number of minutes from ${REVIEW_DONE_WAIT_MIN} to ${REVIEW_DONE_WAIT_MAX}`)
+      }
+      if (on !== undefined) await put(REVIEW_DONE, on ? 'on' : 'off')
+      if (waitMinutes !== undefined) await put(REVIEW_DONE_WAIT, String(waitMinutes))
       return get()
     },
     async setTheme(v) {

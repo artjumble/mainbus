@@ -84,6 +84,11 @@ function Editor({
     onChange({ ...value, drafts: value.drafts.map((d, j) => (j === i ? { ...d, ...patch } : d)) })
   return (
     <Stack gap="xs">
+      {payload.followUpOf && (
+        <Text size="xs" c="dimmed" data-follow-up-of>
+          Follow-up to #{payload.followUpOf.number} {payload.followUpOf.title}
+        </Text>
+      )}
       {payload.context !== undefined && (
         <Paper withBorder p="xs" radius="sm" role="region" aria-label="Summary from the orchestrator" data-context>
           <Stack gap={6}>

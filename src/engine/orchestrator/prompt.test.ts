@@ -75,7 +75,7 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).toContain('Write it as background in the third person')
     expect(prompt).toContain("Never present it as the user's words")
     expect(prompt).toContain('The detailed plan goes in the spec, not in the context')
-    expect(prompt).toContain('propose_create_tickets(tickets, column?, request_messages_back?, context?, evidence?)')
+    expect(prompt).toContain('propose_create_tickets(tickets, column?, request_messages_back?, context?, evidence?, follow_up_of?)')
   })
 
   test('explains request_messages_back: which message was the request, and that the intent is it and every later one', () => {

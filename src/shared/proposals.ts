@@ -57,6 +57,13 @@ export type TicketDraftOverride = Omit<TicketDraft, 'images'> & { images?: strin
 
 export type DraftColumn = 'backlog' | 'ready'
 
+/** The finished ticket the tickets of a proposal follow up (the orchestrator's review of it proposed them). */
+export interface FollowUpOf {
+  ticketId: string
+  number: number
+  title: string
+}
+
 /** The payload of a create_tickets proposal. `intent` is filled in by Mainbus: the user's message, verbatim. */
 export interface CreateTicketsPayload {
   intent: string
@@ -66,6 +73,8 @@ export interface CreateTicketsPayload {
   column: DraftColumn
   /** The orchestrator's summary of the conversation: background, not the user's words; absent when none was given. */
   context?: string
+  /** Set when the orchestrator proposed these after reviewing a ticket that reached Done: the intent is then Mainbus's note, not the user's words. */
+  followUpOf?: FollowUpOf
 }
 
 /** What the user's Override sends for create_tickets: the drafts they kept, as edited, and the column. */

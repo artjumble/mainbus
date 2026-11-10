@@ -1,5 +1,6 @@
 import type { Decision } from '../../shared/domain'
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
+import { wakeEventText } from '../../shared/wake'
 import { data } from '../roles/prompt'
 
 const DIGEST_EVENTS = 20
@@ -19,7 +20,7 @@ function digestLine(text: string, max = DIGEST_LINE_MAX): string {
 const CHOICES = { allow_once: 'Allowed once', always_allow: 'Always allowed', deny: 'Denied' } as const
 
 /** What the user chose, in words, or why there is no answer. */
-function outcome(d: Decision): string {
+export function outcome(d: Decision): string {
   if (d.status !== 'answered' || d.answer === null) return d.status === 'pending' || d.status === 'deferred' ? 'not answered yet' : `no answer (${d.status})`
   const a = d.answer
   if (a.kind === 'message') return `Answered in a message: ${a.text}`
@@ -42,7 +43,9 @@ function describe(event: ThreadEvent, decisions: Map<string, Decision>, roleName
     case 'notice':
       return `Mainbus: ${event.text}`
     case 'wake':
-      return `Mainbus: ${event.items.length} ${event.items.length === 1 ? 'thing' : 'things'} to look at`
+      return wakeEventText(event.items, event.reviews)
+    case 'done_reviewed':
+      return null
     case 'handoff':
       return `Handoff: ${event.summary}`
     case 'hand_back':
