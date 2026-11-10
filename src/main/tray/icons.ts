@@ -1,4 +1,9 @@
-/** Raw BGRA pixels, as Electron's nativeImage.createFromBitmap takes them. Drawn in code: the repo has no icon files. */
+import { TRAY_SIZES } from '../appIcon'
+
+/**
+ * Raw BGRA pixels, as Electron's nativeImage.toBitmap gives them and createFromBitmap takes them. The tray glyph comes
+ * from the app's icon files (resources/icons); the needs-you dot and the taskbar badge are drawn here.
+ */
 export interface Bitmap {
   width: number
   height: number
@@ -7,7 +12,6 @@ export interface Bitmap {
 
 type Rgb = readonly [number, number, number]
 
-const THEME: Rgb = [0x34, 0x6b, 0xd8]
 const DOT: Rgb = [0xf0, 0x5a, 0x1a]
 const BADGE: Rgb = [0xd9, 0x2d, 0x20]
 const WHITE: Rgb = [255, 255, 255]
@@ -39,20 +43,19 @@ export function pixelAt(bm: Bitmap, x: number, y: number): [number, number, numb
   return [bm.buffer[i + 2]!, bm.buffer[i + 1]!, bm.buffer[i]!, bm.buffer[i + 3]!]
 }
 
-/** The tray icon: a filled rounded square in the theme colour; with `dot`, an orange dot in the bottom right. */
-export function trayIcon(size: number, dot: boolean): Bitmap {
-  const bm = blank(size)
-  const radius = size * 0.22
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      // Distance outside the inner rectangle, for the rounded corners.
-      const dx = Math.max(radius - (x + 0.5), 0, x + 0.5 - (size - radius))
-      const dy = Math.max(radius - (y + 0.5), 0, y + 0.5 - (size - radius))
-      if (dx * dx + dy * dy <= radius * radius) put(bm, x, y, THEME)
-    }
-  }
-  if (dot) disc(bm, size * 0.72, size * 0.72, size * 0.26, DOT)
+/** The tray icon: the app's tray glyph; with `dot`, an orange dot over its bottom right. `glyph` is left as it is. */
+export function trayIcon(glyph: Bitmap, dot: boolean): Bitmap {
+  const bm: Bitmap = { width: glyph.width, height: glyph.height, buffer: Buffer.from(glyph.buffer) }
+  if (dot) disc(bm, bm.width * 0.72, bm.height * 0.72, bm.width * 0.26, DOT)
   return bm
+}
+
+/**
+ * The tray icon at every size in TRAY_SIZES, each with the display scale it is for (16 px is 100%), so Windows shows
+ * a sharp one at any scale. `load` gives the glyph at a size.
+ */
+export function trayIconSet(load: (size: number) => Bitmap, dot: boolean): { scaleFactor: number; bitmap: Bitmap }[] {
+  return TRAY_SIZES.map((size) => ({ scaleFactor: size / 16, bitmap: trayIcon(load(size), dot) }))
 }
 
 // A 3x5 pixel font, one string per row, for 1 to 9 and "+".

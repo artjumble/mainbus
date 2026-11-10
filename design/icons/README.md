@@ -1,6 +1,24 @@
 # Mainbus icon concepts
 
-Seven concepts for the Mainbus application icon, to choose from. None of them is wired into the app yet; adopting one (the `.ico`, the tray, the favicon) is a later ticket.
+## The app icon in use
+
+The app's own icon is drawn separately from the concepts below. Its sources are here:
+
+- `mainbus.svg`: the full-colour app icon.
+- `mainbus-tray-black.svg` and `mainbus-tray-white.svg`: the monochrome tray glyph, for light and dark taskbars.
+
+What's built from them:
+
+- `pnpm icons:build` (`scripts/icons-build.mjs`) renders the PNGs the running app loads into `resources/icons/`, and that output is committed:
+  - a 256 px window, taskbar and notification icon;
+  - the tray glyph at 16, 20, 24, 32, 40 and 48 px.
+- electron-builder copies `resources/icons/` into the packaged app.
+- The packager's own files stay in `build/` and are not shipped: `icon.ico` for the exe, `icon.icns` and the 1024 px `icon.png`. Re-export them by hand when the icon changes.
+- The renderer's favicon is `src/renderer/public/favicon.ico`.
+
+## The #110 concepts
+
+Seven concepts for the Mainbus application icon, from #110. They were not adopted: the custom icon above was used instead.
 
 - **Contact sheet:** [`preview.png`](preview.png). Every concept at 256, 64, 32 and 16 px, then the 16 px rendering blown up 4× so you can see the real pixels. Each is shown on Windows 11's light (`#F3F3F3`) and dark (`#202020`) taskbar colours, and as a Night Owl variant on Night Owl's ground.
 - **Taskbar and tray mock-ups:** [`taskbar.png`](taskbar.png). Each concept at 16 px in a taskbar button and in the tray, light and dark, without and with the orange "needs you" dot. The dot has the tray's current geometry (`src/main/tray/icons.ts`: centre at 72%, radius 26%).
