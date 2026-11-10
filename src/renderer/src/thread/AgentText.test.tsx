@@ -67,3 +67,44 @@ test('a message with code has no axe violations', async () => {
   await waitFor(() => expect(container.querySelector('.hljs-keyword')).not.toBeNull())
   await expectNoAxeViolations()
 })
+
+const TABLE = '| Name | Qty | Note |\n|:---|:---:|---:|\n| **a** | 1 | `x` |\n| b | 2 | [l](https://example.com) |'
+
+test('a markdown table renders as a table with headers and alignment, and inline formatting', () => {
+  const { container } = renderWithMantine(<AgentText text={TABLE} />)
+  expect(container.querySelector('table')).not.toBeNull()
+  expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Name', 'Qty', 'Note'])
+  expect(screen.getByRole('columnheader', { name: 'Qty' })).toHaveStyle({ textAlign: 'center' })
+  expect(screen.getByRole('columnheader', { name: 'Note' })).toHaveStyle({ textAlign: 'right' })
+  expect(screen.getByText('a').tagName).toBe('STRONG')
+  expect(screen.getByText('x').tagName).toBe('CODE')
+  expect(screen.getByRole('link', { name: 'l' })).toHaveAttribute('target', '_blank')
+})
+
+test('a table sits in its own scrollable box', () => {
+  const { container } = renderWithMantine(<AgentText text={TABLE} />)
+  const box = container.querySelector('table')?.parentElement
+  expect(box?.getAttribute('role')).toBe('region')
+  expect(box?.className).toMatch(/tableScroll/)
+})
+
+test('task lists show read-only checkboxes', () => {
+  renderWithMantine(<AgentText text={'- [x] done\n- [ ] todo'} />)
+  const boxes = screen.getAllByRole('checkbox')
+  expect(boxes).toHaveLength(2)
+  boxes.forEach((b) => expect(b).toBeDisabled())
+  expect(boxes[0]).toBeChecked()
+  expect(boxes[1]).not.toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'Done' })).toBeInTheDocument()
+})
+
+test('strikethrough and autolinks render', () => {
+  const { container } = renderWithMantine(<AgentText text="~~gone~~ see https://example.com/x" />)
+  expect(container.querySelector('del')?.textContent).toBe('gone')
+  expect(screen.getByRole('link', { name: 'https://example.com/x' })).toHaveAttribute('target', '_blank')
+})
+
+test('a table and a task list have no axe violations', async () => {
+  renderWithMantine(<AgentText text={TABLE + '\n\n- [x] done\n- [ ] todo'} />)
+  await expectNoAxeViolations()
+})
