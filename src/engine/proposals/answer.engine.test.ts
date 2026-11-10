@@ -9,6 +9,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -63,10 +64,10 @@ async function setup() {
   const ticket = await engine.invoke('ticket.create', { title: 'Login', intent: 'Add a login form', spec: '', criteria: [], labels: [], column: 'ready' })
   await engine.invoke('agent.start', ticket.id)
   const board = async () => (await engine.invoke('board.get')).tickets.find((t) => t.id === ticket.id)!
-  await vi.waitFor(async () => expect((await board()).pendingDecisions).toHaveLength(1))
+  await eventually(async () => expect((await board()).pendingDecisions).toHaveLength(1))
   const decision = (await board()).pendingDecisions[0]!
   await engine.invoke('orchestrator.send', 'Use the new API for login')
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   const tools = runtime.orchestratorSpecs[0]!.tools
   const proposals = async () => (await engine.invoke('orchestrator.get')).proposals
   const heard = () => runtime.sent.filter((s) => s.includes('Answer:'))
@@ -86,7 +87,7 @@ describe('propose_answer', () => {
     expect((await board()).pendingDecisions).toHaveLength(0)
     const thread = await engine.invoke('thread.get', (await board()).id)
     expect(thread.decisions[0]).toMatchObject({ status: 'answered', answer: { kind: 'option', index: 1 }, answeredVia: 'orchestrator' })
-    await vi.waitFor(() => expect(heard()).toEqual(['Answer: New API']))
+    await eventually(() => expect(heard()).toEqual(['Answer: New API']))
   })
 
   test('an override answers with the other option and note', async () => {
@@ -95,7 +96,7 @@ describe('propose_answer', () => {
     const [p] = await proposals()
     const done = await engine.invoke('proposal.confirm', p!.id, { choice: 0, note: 'Keep it simple' })
     expect(done).toMatchObject({ status: 'overridden', result: { answer: 'Old API', note: 'Keep it simple' } })
-    await vi.waitFor(() => expect(heard()).toEqual(['Answer: Old API\nNote: Keep it simple']))
+    await eventually(() => expect(heard()).toEqual(['Answer: Old API\nNote: Keep it simple']))
   })
 
   test('an invalid proposal stores nothing and says why', async () => {
@@ -112,9 +113,9 @@ describe('propose_answer', () => {
     const [p] = await proposals()
     await engine.invoke('decision.answer', decision.id, { kind: 'option', index: 0 }, 'board')
 
-    await vi.waitFor(async () => expect((await proposals())[0]).toMatchObject({ status: 'failed', result: { error: 'Already answered from the board' } }))
+    await eventually(async () => expect((await proposals())[0]).toMatchObject({ status: 'failed', result: { error: 'Already answered from the board' } }))
     await expect(engine.invoke('proposal.confirm', p!.id)).rejects.toThrow(/not pending/)
-    await vi.waitFor(() => expect(heard()).toEqual(['Answer: Old API']))
+    await eventually(() => expect(heard()).toEqual(['Answer: Old API']))
     expect(await tools.proposeAnswer({ decision: decision.id, choice: 2, reasoning: 'Again' })).toMatch(/Already answered from the board/)
   })
 
@@ -122,7 +123,7 @@ describe('propose_answer', () => {
     const { engine, tools, decision, proposals } = await setup()
     await tools.proposeAnswer({ decision: decision.id, choice: 2, reasoning: 'Because' })
     await engine.invoke('decision.defer', decision.id, new Date(START.getTime() + 24 * 60 * 60 * 1000).toISOString())
-    await vi.waitFor(async () => expect((await proposals())[0]).toMatchObject({ status: 'failed' }))
+    await eventually(async () => expect((await proposals())[0]).toMatchObject({ status: 'failed' }))
     expect(((await proposals())[0]!.result as { error: string }).error).toMatch(/^Deferred until /)
   })
 
@@ -143,6 +144,6 @@ describe('propose_answer', () => {
     const [p] = await proposals()
     expect(p!.payload).toMatchObject({ choice: null })
     expect(await engine.invoke('proposal.confirm', p!.id, { choice: 1 })).toMatchObject({ status: 'overridden', result: { answer: 'New API' } })
-    await vi.waitFor(() => expect(heard()).toEqual(['Answer: New API']))
+    await eventually(() => expect(heard()).toEqual(['Answer: New API']))
   })
 })

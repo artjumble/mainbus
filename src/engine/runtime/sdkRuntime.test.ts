@@ -15,6 +15,7 @@ import {
   type RoleToolHandlers,
   type RunSpec
 } from './types'
+import { eventually } from '../testWait'
 
 const CLAUDE_PATH = 'C:\\Users\\x\\.local\\bin\\claude.exe'
 
@@ -138,7 +139,7 @@ describe('SdkRuntime', () => {
     } finally {
       child.kill()
     }
-    await vi.waitFor(() => expect(exited).toEqual([child.pid]))
+    await eventually(() => expect(exited).toEqual([child.pid]))
   })
 
   test('passes the official binary path, cwd, model, effort, disallowed tools, additional directories and appended system prompt', async () => {

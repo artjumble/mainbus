@@ -11,6 +11,7 @@ import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { AgentRuntime } from '../runtime/types'
 import { RESUME_FAILED_NOTICE } from './session'
+import { eventually } from '../testWait'
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
@@ -126,7 +127,7 @@ describe('orchestrator.send', () => {
     const runtime = new FakeRuntime([], { orchestrator: TWO_TURNS })
     const { engine, events } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'First')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
 
     const pushed = events.filter((e) => e.type === 'orchestrator.appended').map((e) => e.event)
     expect(pushed.map((e) => [e.seq, e.event.kind])).toEqual([
@@ -140,7 +141,7 @@ describe('orchestrator.send', () => {
     expect(statuses).toEqual(['working', 'idle'])
 
     await engine.invoke('orchestrator.send', 'Next one')
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       const thread = await engine.invoke('orchestrator.get')
       expect(thread.events.at(-1)?.event.kind).toBe('turn_end')
       expect(thread.events.map((e) => e.event.kind)).toContain('user_message')
@@ -168,9 +169,9 @@ describe('orchestrator.send', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'Hi')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('failed'))
+    await eventually(async () => expect(await status(engine)).toBe('failed'))
     await engine.invoke('orchestrator.send', 'Again')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
   })
 
   test('a process that ends mid-turn leaves it failed, and the next message resumes the session', async () => {
@@ -180,12 +181,12 @@ describe('orchestrator.send', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'Hi')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('failed'))
+    await eventually(async () => expect(await status(engine)).toBe('failed'))
     const kinds = (await engine.invoke('orchestrator.get')).events.map((e) => e.event.kind)
     expect(kinds).toEqual(['user_message', 'session', 'process_exit'])
 
     await engine.invoke('orchestrator.send', 'Still there?')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     expect(runtime.orchestratorSpecs.map((s) => s.resumeSessionId)).toEqual([undefined, 'sess-1'])
   })
 })
@@ -202,11 +203,11 @@ describe('orchestrator usage', () => {
     const { engine } = await makeEngine(runtime)
     expect(await engine.invoke('orchestrator.usage')).toBeNull()
     await engine.invoke('orchestrator.send', 'Hi')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('failed'))
+    await eventually(async () => expect(await status(engine)).toBe('failed'))
     expect(await engine.invoke('orchestrator.usage')).toMatchObject({ inputTokens: 5, outputTokens: 2, turns: 1, costUsd: 0.1 })
 
     await engine.invoke('orchestrator.send', 'Still there?')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     expect(runtime.orchestratorSpecs[0]!.usageBaseline).toBeUndefined()
     expect(runtime.orchestratorSpecs[1]!.usageBaseline).toEqual({ m: model })
   })
@@ -224,10 +225,10 @@ describe('orchestrator.stop', () => {
     expect(await status(engine)).toBe('working')
     await engine.invoke('orchestrator.stop')
     expect(runtime.interrupted).toHaveLength(1)
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
 
     await engine.invoke('orchestrator.send', 'Never mind')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     expect(runtime.orchestratorSpecs).toHaveLength(1)
     expect(runtime.sent).toHaveLength(1)
   })
@@ -237,7 +238,7 @@ describe('after a restart', () => {
   async function firstSession(): Promise<void> {
     const { engine } = await makeEngine(new FakeRuntime([], { orchestrator: TWO_TURNS }))
     await engine.invoke('orchestrator.send', 'Plan the week')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.dispose()
   }
 
@@ -250,7 +251,7 @@ describe('after a restart', () => {
     expect(before.events.map((e) => e.event.kind)).toEqual(['user_message', 'session', 'message', 'turn_end'])
 
     await engine.invoke('orchestrator.send', 'Where were we?')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     expect(runtime.orchestratorSpecs).toHaveLength(1)
     expect(runtime.orchestratorSpecs[0]!.resumeSessionId).toBe('sess-1')
     expect(runtime.orchestratorSpecs[0]!.prompt).toMatch(/\n\nWhere were we\?$/)
@@ -264,7 +265,7 @@ describe('after a restart', () => {
     const runtime = new FakeRuntime([], { rejectResume: true, orchestrator: [say('Fresh start'), turnEnd()] })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'Where were we?')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
 
     expect(runtime.orchestratorSpecs.map((s) => s.resumeSessionId)).toEqual(['sess-1', undefined])
     const fresh = runtime.orchestratorSpecs[1]!.prompt
@@ -286,7 +287,7 @@ describe('after a restart', () => {
       new FakeRuntime([], { orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, say('Thinking about it')] })
     )
     await engine.invoke('orchestrator.send', 'Big question')
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect((await engine.invoke('orchestrator.get')).events.at(-1)?.event).toEqual({ kind: 'message', text: 'Thinking about it' })
     )
     await engine.dispose()
@@ -310,7 +311,7 @@ describe('proposals', () => {
 
   /** The live session's tools, once the first message has started it. */
   async function liveTools(runtime: FakeRuntime) {
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     return runtime.orchestratorSpecs[0]!.tools
   }
 
@@ -382,9 +383,9 @@ describe('proposals', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', ASK)
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
     const [proposal] = (await engine.invoke('orchestrator.get')).proposals
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
 
     const done = await engine.invoke('proposal.confirm', proposal!.id)
     expect(done.status).toBe('confirmed')
@@ -396,7 +397,7 @@ describe('proposals', () => {
     await expect(engine.invoke('proposal.confirm', proposal!.id)).rejects.toThrow('not pending')
 
     await engine.invoke('orchestrator.send', 'Thanks')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     expect(runtime.sent[0]!.startsWith(
       [
         '[Mainbus] Since your last turn, the user decided on your proposals:',
@@ -410,9 +411,9 @@ describe('proposals', () => {
     const messages = (await engine.invoke('orchestrator.get')).events.filter((e) => e.event.kind === 'user_message')
     expect(messages.at(-1)?.event).toEqual({ kind: 'user_message', text: 'Thanks' })
 
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'And now?')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
+    await eventually(() => expect(runtime.sent).toHaveLength(2))
     expect(runtime.sent[1]).toMatch(/^\[Mainbus\] Focused workspace: repo .*\n\nAnd now\?$/)
   })
 
@@ -422,15 +423,15 @@ describe('proposals', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', ASK)
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(1))
     const [proposal] = (await engine.invoke('orchestrator.get')).proposals
     expect((await engine.invoke('proposal.reject', proposal!.id)).status).toBe('rejected')
     await expect(engine.invoke('proposal.reject', proposal!.id)).rejects.toThrow('not pending')
     expect((await engine.invoke('board.get')).tickets).toEqual([])
 
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Ok')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     expect(runtime.sent[0]).toContain(`- Proposal ${proposal!.id} (create tickets): rejected by the user.`)
   })
 
@@ -467,9 +468,9 @@ describe('proposals', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'First ask')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Second ask')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(2))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).proposals).toHaveLength(2))
     expect((await engine.invoke('orchestrator.get')).proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual([
       'First ask',
       'Second ask'
@@ -484,7 +485,7 @@ describe('proposals', () => {
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'First ask')
     await engine.invoke('orchestrator.stop')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Second ask')
     await (await liveTools(runtime)).proposeCreateTickets({ tickets: [{ title: 'After stop' }] })
     expect((await engine.invoke('orchestrator.get')).proposals.map((p) => (p.payload as { intent: string }).intent)).toEqual(['Second ask'])
@@ -530,7 +531,8 @@ describe('proposals', () => {
       extraInstructions: 'Keep it very small.'
     })
     expect(confirmed).toMatchObject({ status: 'overridden', result: { roles: [{ name: 'Implementer', model: 'opus', effort: 'low' }] } })
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]).toMatchObject({ role: 'Implementer', model: 'opus', effort: 'low' })
     expect(runtime.specs[0]!.appendSystemPrompt).toContain('Keep it very small.')
     const ticket = (await engine.invoke('board.get')).tickets.find((x) => x.id === t.id)!
@@ -549,7 +551,7 @@ describe('proposals', () => {
     })
     const { engine } = await makeEngine(first)
     await engine.invoke('orchestrator.send', ASK)
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     const [proposal] = (await engine.invoke('orchestrator.get')).proposals
     await engine.dispose()
 
@@ -567,7 +569,7 @@ describe('proposals', () => {
     expect((await next.invoke('board.get')).tickets[0]!.state.column).toBe('ready')
 
     await next.invoke('orchestrator.send', 'Done?')
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     expect(runtime.orchestratorSpecs[0]!.resumeSessionId).toBe('sess-1')
     expect(runtime.orchestratorSpecs[0]!.prompt).toMatch(
       new RegExp(`^\\[Mainbus\\] Since your last turn.*\\n- Proposal ${proposal!.id} \\(create tickets\\): changed by the user, then confirmed\\. Created #1 "Sign in" in Ready\\.\\n\\n\\[Mainbus\\] Focused workspace`)
@@ -578,7 +580,7 @@ describe('proposals', () => {
 describe('create_tickets', () => {
   /** The live session's tools, once the first message has started it. */
   async function liveTools(runtime: FakeRuntime) {
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     return runtime.orchestratorSpecs[0]!.tools
   }
 
@@ -638,10 +640,10 @@ describe('create_tickets', () => {
     const { engine } = await makeEngine(runtime)
     const { website } = await openWebsite(engine)
     await engine.invoke('orchestrator.send', 'Can images be attached?')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Yes, create a ticket')
     const tools = await liveTools(runtime)
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
 
     await tools.createTickets({ workspace: 'website', tickets: [{ title: 'Images' }], request_messages_back: 1, context: 'The user asked about images.' })
     const [t] = await boardOf(engine, website.id)
@@ -726,12 +728,12 @@ describe('create_tickets', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', '  Add a login page\nwith SSO  ')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'And a logout button')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'repo')
     const tools = await liveTools(runtime)
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
+    await eventually(() => expect(runtime.sent).toHaveLength(2))
     const [, second, third] = await userMessages(engine)
 
     await tools.createTickets({ tickets: [{ title: 'Zero' }] })
@@ -776,12 +778,12 @@ describe('create_tickets', () => {
     })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'Draft a login ticket')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'With SSO')
-    await vi.waitFor(async () => expect(await status(engine)).toBe('idle'))
+    await eventually(async () => expect(await status(engine)).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Put it in Ready')
     const tools = await liveTools(runtime)
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(2))
+    await eventually(() => expect(runtime.sent).toHaveLength(2))
     const [, second, third] = await userMessages(engine)
 
     expect(await tools.proposeCreateTickets({ tickets: [{ title: 'Login' }], column: 'ready', request_messages_back: 2 })).toMatch(/^Proposed /)

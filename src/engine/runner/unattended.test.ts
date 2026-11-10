@@ -13,6 +13,8 @@ import { defaultLineup } from '../store/lineups'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { RunSpec } from '../runtime/types'
 import { UnattendedMode, type UnattendedDeps } from './unattended'
+import { eventually } from '../testWait'
+import { FakeClock } from '../holds/clock'
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
@@ -90,7 +92,7 @@ interface Harness {
   tickets: Ticket[]
 }
 
-async function harness(runtime: FakeRuntime, columns: ('ready' | 'backlog')[]): Promise<Harness> {
+async function harness(runtime: FakeRuntime, columns: ('ready' | 'backlog')[], clock?: FakeClock): Promise<Harness> {
   const awake = { starts: 0, stops: 0, held: () => awake.starts > awake.stops }
   const engine = await createEngine({
     paths,
@@ -98,6 +100,7 @@ async function harness(runtime: FakeRuntime, columns: ('ready' | 'backlog')[]): 
     runtime,
     git: runGit,
     exec,
+    ...(clock ? { clock } : {}),
     keepAwake: { start: () => void awake.starts++, stop: () => void awake.stops++ }
   })
   engines.push(engine)
@@ -122,11 +125,11 @@ async function columnOf(h: Harness, n: number): Promise<Column> {
 }
 
 async function waitForColumn(h: Harness, n: number, column: Column): Promise<void> {
-  await vi.waitFor(async () => expect(await columnOf(h, n)).toBe(column), { timeout: 10_000 })
+  await eventually(async () => expect(await columnOf(h, n)).toBe(column), { timeout: 10_000 })
 }
 
 async function waitForState(h: Harness, match: Partial<UnattendedState> | ((s: UnattendedState) => boolean)): Promise<void> {
-  await vi.waitFor(
+  await eventually(
     async () => {
       const s = await h.engine.invoke('unattended.get')
       if (typeof match === 'function') expect(match(s)).toBe(true)
@@ -267,7 +270,7 @@ describe('unattended mode', () => {
 
     // Moved to Ready by the user, it is started like any other.
     await h.engine.invoke('ticket.move', h.tickets[0]!.id, 'ready')
-    await vi.waitFor(() => expect(started(h)).toEqual([1, 2, 3, 1]), { timeout: 10_000 })
+    await eventually(() => expect(started(h)).toEqual([1, 2, 3, 1]), { timeout: 10_000 })
   }, 20_000)
 
   it('starts one ticket at a time: the next waits until the first settles', async () => {
@@ -416,14 +419,16 @@ describe('unattended mode', () => {
   })
 
   it('a usage limit pauses the ticket, waits for the reset, and continues the same ticket', async () => {
-    const resetsAt = Math.ceil(Date.now() / 1000) + 1
+    // A fake clock, so the wait for the reset lasts until the test moves it: a real 1 s wait can pass unobserved under load.
+    const clock = new FakeClock(new Date())
+    const resetsAt = Math.ceil(clock.now().getTime() / 1000) + 60
     const limited: FakeStep[] = [
       { emit: { kind: 'session', sessionId: 's1' } },
       { emit: { kind: 'rate_limit', status: 'rejected', resetsAt, windows: {} } },
       { emit: { kind: 'turn_end', ok: false, error: "You've hit your limit · resets 3pm" } },
       { waitForSend: true }
     ]
-    const h = await harness(runtimeFor({ 1: limited }), ['ready', 'ready'])
+    const h = await harness(runtimeFor({ 1: limited }), ['ready', 'ready'], clock)
     await h.engine.invoke('unattended.set', true)
 
     await waitForState(h, {
@@ -436,6 +441,7 @@ describe('unattended mode', () => {
     expect(await threadOf(h, 1)).toContainEqual({ kind: 'notice', text: expect.stringContaining('Usage limit; resumes at') })
 
     // After the reset the same ticket is continued, and the queue goes on from there.
+    await clock.advance(61_000)
     await waitForState(h, { on: true, status: { kind: 'idle' } })
     expect(h.runtime.specs.filter((s) => s.resumeSessionId === 's1')).toHaveLength(1)
     expect(started(h)).toEqual([1, 2])

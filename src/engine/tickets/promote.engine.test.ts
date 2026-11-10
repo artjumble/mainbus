@@ -8,6 +8,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, FAKE_SUMMARY, scriptFromFile, type FakeStep, type FakeSummary } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -59,13 +60,13 @@ async function setup(summary?: FakeSummary, promoteSummaryTimeoutMs?: number, or
   const investigate = async (title = 'Why is login slow') => {
     const t = await engine.invoke('ticket.create', { title, intent: 'Find out why login is slow', spec: '', criteria: [], labels: ['perf'], column: 'ready', kind: 'investigate' })
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await find(t.id)).state.column).toBe('review'))
+    await eventually(async () => expect((await find(t.id)).state.column).toBe('review'))
     // Mainbus commits the report's file just after.
-    await vi.waitFor(async () => expect((await find(t.id)).reportCommit).not.toBeNull(), { timeout: 15_000 })
+    await eventually(async () => expect((await find(t.id)).reportCommit).not.toBeNull(), { timeout: 15_000 })
     return find(t.id)
   }
   await engine.invoke('orchestrator.send', 'Look at the investigation')
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   const tools = runtime.orchestratorSpecs[0]!.tools
   const proposals = async () => (await engine.invoke('orchestrator.get')).proposals
   return { engine, runtime, board, find, investigate, tools, proposals }
@@ -101,7 +102,7 @@ describe('usage', () => {
     const s = await setup()
     const t = await s.investigate()
     await s.engine.invoke('ticket.draftPromotion', t.id)
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       const { events } = await s.engine.invoke('thread.get', t.id)
       expect(events.filter((e) => e.event.kind === 'usage' && e.event.call === 'promote')).toHaveLength(1)
     })
@@ -109,7 +110,7 @@ describe('usage', () => {
 
   test("orchestrator.usage adds up the orchestrator's turns, and is null before any", async () => {
     const s = await setup(undefined, undefined, [{ emit: { kind: 'session', sessionId: 's' } }, { emit: USAGE }, { emit: { kind: 'turn_end', ok: true } }, { waitForSend: true }])
-    await vi.waitFor(async () => expect(await s.engine.invoke('orchestrator.usage')).toMatchObject({ inputTokens: 7, turns: 1 }))
+    await eventually(async () => expect(await s.engine.invoke('orchestrator.usage')).toMatchObject({ inputTokens: 7, turns: 1 }))
   })
 })
 

@@ -10,6 +10,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -64,7 +65,7 @@ const newTicket = (engine: Engine, column: 'backlog' | 'ready' = 'backlog'): Pro
 /** The live session's tools, once the first message has started it. */
 async function liveTools(engine: Engine, runtime: FakeRuntime, first = 'Hello') {
   await engine.invoke('orchestrator.send', first)
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   return runtime.orchestratorSpecs[0]!.tools
 }
 
@@ -115,9 +116,9 @@ describe('update_ticket', () => {
       ['Make the title shorter', undefined, undefined]
     ])
 
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Drop the Run settings part')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     const answer = await tools.updateTicket({ ticket: 1, spec: 'A form', add_user_words: true, request_messages_back: 1 })
     expect(answer).toBe('Updated #1 "Login" in repo: spec, the user\'s words (+2). The user can Undo it. Tell the user what changed.')
     const intent = (await ticketOf(engine, t.id)).intent
@@ -165,7 +166,7 @@ describe('update_ticket', () => {
     const ready = await newTicket(engine, 'ready')
     const review = await newTicket(engine, 'ready')
     await engine.invoke('agent.start', review.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, review.id)).state.column).toBe('review'), { timeout: 10_000 })
+    await eventually(async () => expect((await ticketOf(engine, review.id)).state.column).toBe('review'), { timeout: 10_000 })
     const tools = await liveTools(engine, runtime)
 
     for (const t of [backlog, ready, review]) {
@@ -180,7 +181,7 @@ describe('update_ticket', () => {
     const done = await newTicket(engine)
     await engine.invoke('ticket.move', done.id, 'done')
     await engine.invoke('agent.start', running.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, running.id)).state.column).toBe('in_progress'))
+    await eventually(async () => expect((await ticketOf(engine, running.id)).state.column).toBe('in_progress'))
     const tools = await liveTools(engine, runtime)
 
     expect(await tools.updateTicket({ ticket: running.number, title: 'Other' })).toBe(
@@ -273,7 +274,7 @@ describe('Undo', () => {
     const { engine, t, edit } = await edited()
     await engine.invoke('ticket.move', t.id, 'ready')
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, t.id)).state.column).toBe('in_progress'))
+    await eventually(async () => expect((await ticketOf(engine, t.id)).state.column).toBe('in_progress'))
     await expect(engine.invoke('ticket.undoEdit', edit.id)).rejects.toThrow("Can't undo: #1 has a run open")
     expect((await ticketOf(engine, t.id)).title).toBe('Login v2')
   })

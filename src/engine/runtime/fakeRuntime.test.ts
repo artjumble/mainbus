@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { AgentEvent } from '../../shared/events'
 import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeStep } from './fakeRuntime'
 import { ResumeFailedError, type OrchestratorRunSpec, type RoleToolHandlers, type RunSpec } from './types'
+import { eventually } from '../testWait'
 
 function makeSpec(over: Partial<RunSpec> = {}) {
   const roleTools = {
@@ -440,7 +441,7 @@ describe('FakeRuntime: sessions kept across processes', () => {
     try {
       const first = new FakeRuntime([{ emit: { kind: 'session', sessionId: 'abc' } }, { waitForSend: true }], { sessionsFile: file })
       const h = await first.start(makeSpec().spec)
-      await vi.waitFor(async () => expect(JSON.parse(await fsm.readFile(file, 'utf8'))).toEqual(['abc']))
+      await eventually(async () => expect(JSON.parse(await fsm.readFile(file, 'utf8'))).toEqual(['abc']))
       await first.stop(h)
 
       const second = new FakeRuntime([], { sessionsFile: file })

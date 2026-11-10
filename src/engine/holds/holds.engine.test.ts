@@ -10,6 +10,7 @@ import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import { FakeClock } from './clock'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -110,7 +111,7 @@ describe('ticket.hold and ticket.unhold', () => {
     const engine = await makeEngine(runtime)
     const t = await newTicket(engine)
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await boardOf(engine))[0]!.state.agentStatus).toBe('working'))
+    await eventually(async () => expect((await boardOf(engine))[0]!.state.agentStatus).toBe('working'))
     await engine.invoke('ticket.hold', t.id)
     expect((await boardOf(engine))[0]).toMatchObject({ state: { agentStatus: 'working', column: 'in_progress' }, hold: { until: null } })
     expect(runtime.interrupted).toEqual([])
@@ -209,7 +210,7 @@ describe('what a hold blocks', () => {
     const engine = await makeEngine(runtime)
     const t = await newTicket(engine)
     await engine.invoke('orchestrator.send', 'Start the login ticket')
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     const tools = runtime.orchestratorSpecs[0]!.tools
 
     expect(await tools.proposeStart({ ticket: t.number })).toMatch(/^Proposed /)
@@ -233,7 +234,7 @@ describe('what a hold blocks', () => {
     await engine.invoke('ticket.hold', held.id)
 
     await engine.invoke('unattended.set', true)
-    await vi.waitFor(async () => expect((await boardOf(engine)).find((t) => t.id === open.id)!.state.column).toBe('in_progress'))
+    await eventually(async () => expect((await boardOf(engine)).find((t) => t.id === open.id)!.state.column).toBe('in_progress'))
     expect((await boardOf(engine)).find((t) => t.id === held.id)!.state.column).toBe('ready')
     expect(runtime.specs).toHaveLength(1)
   })
@@ -245,11 +246,11 @@ describe('what a hold blocks', () => {
     await engine.invoke('ticket.hold', held.id, { until: iso(1) })
 
     await engine.invoke('unattended.set', true)
-    await vi.waitFor(async () => expect((await engine.invoke('unattended.get')).status.kind).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('unattended.get')).status.kind).toBe('idle'))
     expect(runtime.specs).toEqual([])
 
     await clock.advance(DAY)
-    await vi.waitFor(async () => expect((await boardOf(engine))[0]!.state.column).toBe('in_progress'))
+    await eventually(async () => expect((await boardOf(engine))[0]!.state.column).toBe('in_progress'))
     expect(runtime.specs).toHaveLength(1)
     expect(await holdOf(engine, held.id)).toBeNull()
   })
@@ -265,7 +266,7 @@ describe('the orchestrator hears of released holds', () => {
     const byHand = await newTicket(engine, 'ready', 'By hand')
     const still = await newTicket(engine, 'ready', 'Still held')
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
 
     await clock.advance(1000)
     await engine.invoke('ticket.hold', byDate.id, { until: iso(1) })
@@ -275,7 +276,7 @@ describe('the orchestrator hears of released holds', () => {
     await clock.advance(DAY)
 
     await engine.invoke('orchestrator.send', 'Anything new?')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     const message = runtime.sent[0]!
     expect(message).toContain('[Mainbus] Since your last turn, these held tickets were released:')
     expect(message).toContain(`- #${byDate.number} "By date" (workspace "repo") is no longer held (its date, 2026-11-03, came). It can be started again.`)
@@ -289,9 +290,9 @@ describe('the orchestrator hears of released holds', () => {
     const t = await newTicket(engine)
     await engine.invoke('ticket.hold', t.id)
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await engine.invoke('orchestrator.send', 'Again')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     expect(runtime.sent[0]).not.toContain('held tickets were released')
   })
 })
@@ -302,7 +303,7 @@ describe('propose_hold', () => {
     const engine = await makeEngine(runtime)
     const t = await newTicket(engine)
     await engine.invoke('orchestrator.send', 'Hold the login ticket until Wednesday')
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     return { engine, t, tools: runtime.orchestratorSpecs[0]!.tools }
   }
 

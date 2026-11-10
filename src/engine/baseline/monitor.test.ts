@@ -8,6 +8,7 @@ import { FakeClock } from '../holds/clock'
 import type { SetupCommandRequest, SetupCommandResult } from '../setup/setupCommand'
 import type { BaseTestRun } from '../store/baseTests'
 import { BaseTestMonitor } from './monitor'
+import { eventually } from '../testWait'
 
 let tmp: string
 
@@ -220,11 +221,11 @@ describe('BaseTestMonitor', () => {
     const a = t.monitor.runNow('w1')
     const again = t.monitor.runNow('w1')
     const b = t.monitor.runNow('w2')
-    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    await eventually(() => expect(gates).toHaveLength(1))
     expect((await t.monitor.viewOf('w1')).running).toMatchObject({ baseSha: 'aaa1111', command: 'Unit' })
     expect((await t.monitor.viewOf('w2')).running).toBeNull()
     gates.shift()!()
-    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    await eventually(() => expect(gates).toHaveLength(1))
     gates.shift()!()
     await Promise.all([a, again, b])
     expect(most).toBe(1)
@@ -283,7 +284,7 @@ describe('BaseTestMonitor', () => {
       }
     })
     const done = t.monitor.runNow('w1')
-    await vi.waitFor(() => expect(signal).toBeDefined())
+    await eventually(() => expect(signal).toBeDefined())
     t.monitor.dispose()
     await done
     expect(signal!.aborted).toBe(true)

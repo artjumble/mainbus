@@ -9,6 +9,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -49,7 +50,7 @@ const newTicket = (engine: Engine): Promise<Ticket> =>
 
 async function liveTools(engine: Engine, runtime: FakeRuntime, first = 'Hello') {
   await engine.invoke('orchestrator.send', first)
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   return runtime.orchestratorSpecs[0]!.tools
 }
 

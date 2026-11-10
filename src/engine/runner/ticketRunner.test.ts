@@ -23,6 +23,7 @@ import { defaultLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb, testRole } from '../store/testDb'
 import { MOVED_ON, TicketRunner } from './ticketRunner'
 import { testUsage, type TestUsage } from './testUsage'
+import { eventually } from '../testWait'
 
 const NUDGE =
   'You ended your turn without asking the user or handing off. If you are done, commit and call mcp__mainbus__handoff. If you need the user, call mcp__mainbus__ask_user. Otherwise continue.'
@@ -85,11 +86,11 @@ async function thread(): Promise<ThreadEvent[]> {
 }
 
 async function waitForThread(match: (e: ThreadEvent) => boolean): Promise<void> {
-  await vi.waitFor(async () => expect((await thread()).some(match)).toBe(true))
+  await eventually(async () => expect((await thread()).some(match)).toBe(true))
 }
 
 async function waitForPending(): Promise<Decision> {
-  return vi.waitFor(async () => {
+  return eventually(async () => {
     const [d] = await repos.decisions.pending(ticket.id)
     expect(d).toBeDefined()
     return d
@@ -105,6 +106,9 @@ const keepAlive: FakeStep[] = [{ waitForSend: true }]
 /** A FakeRuntime whose start() waits until the test opens the gate, like a resume waiting for system/init. */
 class SlowRuntime extends FakeRuntime {
   startCalls = 0
+  private notifyStart: () => void = () => {}
+  /** Resolves when start() is first called (it then waits at the gate): an event to await instead of polling startCalls. */
+  readonly firstStart = new Promise<void>((resolve) => (this.notifyStart = resolve))
   readonly stoppedHandles: string[] = []
   private release: () => void = () => {}
   private readonly gate = new Promise<void>((resolve) => (this.release = resolve))
@@ -123,6 +127,7 @@ class SlowRuntime extends FakeRuntime {
 
   override async start(spec: RunSpec): Promise<RunHandle> {
     this.startCalls++
+    this.notifyStart()
     await this.gate
     if (this.resumeTimesOut && spec.resumeSessionId) {
       throw new ResumeFailedError('Could not resume the previous session: no system/init within 60000 ms')
@@ -549,7 +554,7 @@ describe('TicketRunner', () => {
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
 
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect(await runner.stateOf(ticket.id)).toMatchObject({
         column: 'review',
         phase: 'ready_for_review',
@@ -586,8 +591,8 @@ describe('TicketRunner', () => {
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
 
-    await vi.waitFor(() => expect(runtime.sent).toEqual([NUDGE]))
-    await vi.waitFor(async () =>
+    await eventually(() => expect(runtime.sent).toEqual([NUDGE]))
+    await eventually(async () =>
       expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'needs_you', agentStatus: 'failed' })
     )
     expect(await thread()).toContainEqual({ kind: 'nudge', text: NUDGE })
@@ -629,11 +634,11 @@ describe('TicketRunner', () => {
     ])
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(() => expect(runtime.sent).toEqual([NUDGE]))
+    await eventually(() => expect(runtime.sent).toEqual([NUDGE]))
 
     await runner.send(ticket.id, 'Try the other approach')
 
-    await vi.waitFor(() => expect(runtime.sent).toEqual([NUDGE, 'Try the other approach', NUDGE]))
+    await eventually(() => expect(runtime.sent).toEqual([NUDGE, 'Try the other approach', NUDGE]))
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
     expect(await repos.runs.latest(ticket.id)).toMatchObject({ endReason: null })
   })
@@ -808,7 +813,7 @@ describe('TicketRunner', () => {
     // The SDK's totals carry over a resume, so the new process starts from what the session had used.
     expect(resumed.specs[0].usageBaseline).toEqual(SUMMARY_USAGE.models)
     expect(resumed.specs[0].cwd).toBe((await repos.tickets.get(ticket.id)).worktreePath)
-    await vi.waitFor(async () => expect(await second.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused' }))
+    await eventually(async () => expect(await second.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused' }))
 
     // The resume fallback: the session cannot be resumed, so a fresh agent gets a digest.
     const fresh = new FakeRuntime(keepAlive, { rejectResume: true })
@@ -865,7 +870,7 @@ describe('TicketRunner', () => {
     await runner.start(ticket.id)
     const decision = await waitForPending()
     await runner.answer(decision.id, { kind: 'option', index: 1, note: 'keep it small' }, 'thread')
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
     const earlier = await repos.runs.latest(ticket.id)
 
     const again = new FakeRuntime(keepAlive)
@@ -938,7 +943,7 @@ describe('TicketRunner', () => {
     ])
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'failed' }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'failed' }))
 
     await expect(runner.moveToColumn(ticket.id, 'backlog')).rejects.toThrow('Start again or move to Done')
     expect((await repos.tickets.get(ticket.id)).manualColumn).toBe('ready')
@@ -952,7 +957,7 @@ describe('TicketRunner', () => {
       ])
     )
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
     const { worktreePath, branch } = await repos.tickets.get(ticket.id)
     const stray = path.join(worktreePath as string, 'stray.txt')
     await fs.writeFile(stray, 'x')
@@ -995,7 +1000,7 @@ describe('TicketRunner', () => {
       })
       runners.push(runner)
       await runner.start(ticket.id)
-      await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
+      await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
       const { worktreePath, branch } = await repos.tickets.get(ticket.id)
       const wt = worktreePath as string
       await git(['worktree', 'remove', '--force', wt])
@@ -1048,7 +1053,7 @@ describe('TicketRunner', () => {
     ])
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' }))
     expect(await runner.moveToDone(ticket.id)).toBe('done')
     const events = vi.spyOn(repos.runs, 'events')
     const latest = vi.spyOn(repos.runs, 'latest')
@@ -1074,7 +1079,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(slow)
 
       const resuming = runner.continue(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
       const answering = runner.answer(decision.id, { kind: 'option', index: 1 }, 'thread')
       // Long enough for an unserialized answer to be saved and its delivery attempted mid-launch.
       await new Promise((resolve) => setTimeout(resolve, 100))
@@ -1094,7 +1099,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(slow)
 
       const starting = runner.start(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
       const stopping = runner.stop(ticket.id)
       slow.open()
       await starting
@@ -1112,7 +1117,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(slow)
 
       const starting = runner.start(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
       const shuttingDown = runner.shutdown()
       slow.open()
       await starting
@@ -1138,7 +1143,7 @@ describe('TicketRunner', () => {
       })
 
       const starting = runner.start(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
       const shuttingDown = runner.shutdown()
       await expect(runner.start(other.id)).rejects.toThrow(/shutting down/i)
       slow.open()
@@ -1176,7 +1181,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(slow)
 
       const starting = runner.start(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
       const moving = runner.moveToColumn(ticket.id, 'backlog')
       slow.open()
       await starting
@@ -1190,7 +1195,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(slow)
 
       const starting = runner.start(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
 
       expect(await runner.stateOf(ticket.id)).toMatchObject({
         column: 'in_progress',
@@ -1348,7 +1353,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(slow)
 
       const resuming = runner.continue(ticket.id)
-      await vi.waitFor(() => expect(slow.startCalls).toBe(1))
+      await slow.firstStart
       const stopping = runner.stop(ticket.id)
       slow.open()
       await resuming
@@ -1367,7 +1372,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(new FakeRuntime(keepAlive), slowWorktrees)
 
       const resuming = runner.continue(ticket.id)
-      await vi.waitFor(() => expect(slowWorktrees.ensureCalls).toBe(1))
+      await eventually(() => expect(slowWorktrees.ensureCalls).toBe(1))
 
       try {
         expect(await runner.stateOf(ticket.id)).toMatchObject({
@@ -1395,7 +1400,7 @@ describe('TicketRunner', () => {
 
       expect(await verdict).toMatchObject({ allow: false })
       expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'expired' })
-      await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused' }))
+      await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused' }))
     })
 
     it('a guarded Write outside the worktree gets no Always allow, and always_allow on it is rejected', async () => {
@@ -1432,7 +1437,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(runtime)
       await runner.start(ticket.id)
 
-      await vi.waitFor(async () =>
+      await eventually(async () =>
         expect(await runner.stateOf(ticket.id)).toMatchObject({
           column: 'needs_you',
           agentStatus: 'failed',
@@ -1453,7 +1458,7 @@ describe('TicketRunner', () => {
       const runner = makeRunner(runtime)
       await runner.start(ticket.id)
 
-      await vi.waitFor(async () =>
+      await eventually(async () =>
         expect(await runner.stateOf(ticket.id)).toMatchObject({
           column: 'needs_you',
           agentStatus: 'failed',
@@ -1585,7 +1590,7 @@ describe('TicketRunner in unattended mode', () => {
     ])
     const runner = makeRunner(runtime, worktrees, false, usage)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, canContinue: false }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, canContinue: false }))
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', summary: expect.stringMatching(/^Usage limit; resumes at \d\d:\d\d$/) })
     expect((await repos.runs.latest(ticket.id))?.endReason).toBeNull()
     const kinds = (await thread()).map((e) => e.kind)
@@ -1603,7 +1608,7 @@ describe('TicketRunner in unattended mode', () => {
     ])
     const runner = makeRunner(runtime, worktrees, false, usage)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
     expect(await usage.gate.state()).toMatchObject({ kind: 'limited', resetsAt: null })
     expect((await thread()).map((e) => e.kind)).not.toContain('nudge')
   })
@@ -1663,7 +1668,7 @@ describe('TicketRunner through a lineup', () => {
 
   /** Waits until the `i`th agent the runtime started is the ticket's working agent; returns its spec. */
   async function active(runner: TicketRunner, runtime: FakeRuntime, i: number): Promise<RunSpec> {
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       expect(runtime.specs[i]).toBeDefined()
       expect(runner.isLaunching(ticket.id)).toBe(false)
       expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working')
@@ -1762,7 +1767,7 @@ describe('TicketRunner through a lineup', () => {
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', phase: 'reviewing' })
 
     await runner.send(ticket.id, 'go')
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect(await runner.stateOf(ticket.id)).toMatchObject({
         column: 'review',
         phase: 'ready_for_review',
@@ -1795,7 +1800,7 @@ describe('TicketRunner through a lineup', () => {
       await active(runner, runtime, i)
       await runner.send(ticket.id, 'go')
     }
-    await vi.waitFor(async () => expect((await runner.stateOf(ticket.id)).agentStatus).toBe('handed_off'))
+    await eventually(async () => expect((await runner.stateOf(ticket.id)).agentStatus).toBe('handed_off'))
 
     const appended = emitted.flatMap((e) => (e.type === 'thread.appended' ? [e] : []))
     const runs = await repos.runs.listForTicket(ticket.id)
@@ -1820,7 +1825,7 @@ describe('TicketRunner through a lineup', () => {
     await active(runner, runtime, 3)
     // The Reviewer's last turn may still end meanwhile; its events keep their own run.
     const fresh = () => emitted.flatMap((e) => (e.type === 'thread.appended' && !runs.some((r) => r.id === e.run.id) ? [e.run] : []))
-    await vi.waitFor(() => expect(fresh().length).toBeGreaterThan(0))
+    await eventually(() => expect(fresh().length).toBeGreaterThan(0))
     const again = fresh()
     expect(again.every((r) => r.role === 'Planner' && r.ticketRunId !== runs[0]!.ticketRunId)).toBe(true)
   })
@@ -1843,7 +1848,7 @@ describe('TicketRunner through a lineup', () => {
     expect(second.prompt).toBe(firstMessage(ticket, 'Planner'))
     await runner.send(ticket.id, 'go')
 
-    await vi.waitFor(async () => expect((await runner.stateOf(ticket.id)).column).toBe('review'))
+    await eventually(async () => expect((await runner.stateOf(ticket.id)).column).toBe('review'))
     expect(runtime.specs).toHaveLength(2)
     expect(await runsOfTicket()).toEqual([
       ['Planner', 'handoff'],
@@ -1936,7 +1941,7 @@ describe('TicketRunner through a lineup', () => {
     await after.send(ticket.id, 'go')
     expect((await active(after, runtime, 1)).appendSystemPrompt).toContain(extra)
     await after.send(ticket.id, 'go')
-    await vi.waitFor(async () => expect((await after.stateOf(ticket.id)).column).toBe('review'))
+    await eventually(async () => expect((await after.stateOf(ticket.id)).column).toBe('review'))
 
     await after.start(ticket.id)
     expect((await active(after, runtime, 2)).appendSystemPrompt).not.toContain(EXTRA_INSTRUCTIONS_HEADING)
@@ -2094,7 +2099,7 @@ describe('TicketRunner through a lineup', () => {
     expect(reviewer.appendSystemPrompt).toContain('## Your role: Reviewer\n')
     expect(reviewer.resumeSessionId).toBeUndefined()
     await after.send(ticket.id, 'go')
-    await vi.waitFor(async () => expect((await after.stateOf(ticket.id)).column).toBe('review'))
+    await eventually(async () => expect((await after.stateOf(ticket.id)).column).toBe('review'))
   })
 
   it('Continue after a restart between roles starts the next role in a fresh session', async () => {
@@ -2162,7 +2167,7 @@ describe('TicketRunner hand-backs', () => {
 
   /** Waits until the runtime has started agent number `n` (counting from 1) and it is the ticket's working agent. */
   async function nth(runner: TicketRunner, runtime: FakeRuntime, n: number): Promise<RunSpec> {
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       expect(runtime.specs.length).toBeGreaterThanOrEqual(n)
       expect(runner.isLaunching(ticket.id)).toBe(false)
       expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working')
@@ -2238,7 +2243,7 @@ describe('TicketRunner hand-backs', () => {
     )
 
     await handOff(back)
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review', phase: 'ready_for_review' })
     )
     // The Planner never ran again.
@@ -2447,7 +2452,8 @@ describe('TicketRunner hand-backs', () => {
     const reviewer = await upToReviewer(runner, runtime)
 
     await reviewer.roleTools.reportProblem({ details: 'Missing tests' })
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(5))
+    await runtime.started(5)
+    expect(runtime.specs).toHaveLength(5)
     const implementer = await nth(runner, runtime, 5)
     expect(runtime.specs[3]!.resumeSessionId).toBe('session-Implementer')
     expect(implementer.resumeSessionId).toBeUndefined()
@@ -2479,7 +2485,8 @@ describe('TicketRunner check_criterion', () => {
     const runtime = new FakeRuntime(keepAlive)
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     const { checkCriterion } = runtime.specs[0]!.roleTools
     expect(runtime.specs[0]!.appendSystemPrompt).toContain('- [ ] 0: Six attempts are refused\n- [ ] 1: The limit resets')
 
@@ -2507,7 +2514,8 @@ describe('TicketRunner check_criterion', () => {
     const runtime = new FakeRuntime(keepAlive)
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(await runtime.specs[0]!.roleTools.checkCriterion({ index: 0 })).toBe(
       'Not checked: this ticket has no acceptance criteria.'
     )
@@ -2600,7 +2608,7 @@ describe('TicketRunner Pause and Resume', () => {
     const runtime = new FakeRuntime([{ waitForSend: true }])
     const runner = makeRunner(runtime)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working'))
+    await eventually(async () => expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working'))
     await runner.pause(ticket.id)
 
     await runner.resumePaused(ticket.id)
@@ -2630,13 +2638,13 @@ describe('TicketRunner Pause and Resume', () => {
     const runtime = new FakeRuntime((spec) => (spec.resumeSessionId ? working : limited))
     const runner = makeRunner(runtime, worktrees, false, usage)
     await runner.start(ticket.id)
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, pausedByUser: false }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, pausedByUser: false }))
 
     await expect(runner.continue(ticket.id)).rejects.toThrow('Paused by the usage limit: use Resume to continue it now')
     expect(runtime.specs).toHaveLength(1)
     await runner.resumePaused(ticket.id)
     expect(runtime.specs[1]).toMatchObject({ resumeSessionId: 's1', prompt: 'Continue.' })
-    await vi.waitFor(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
+    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
   })
 })
 
@@ -2682,7 +2690,7 @@ describe('TicketRunner Skip to next role', () => {
 
   /** Waits until the runtime has started agent number `n` (counting from 1) and it is the ticket's working agent. */
   async function nth(runner: TicketRunner, runtime: FakeRuntime, n: number): Promise<RunSpec> {
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       expect(runtime.specs.length).toBeGreaterThanOrEqual(n)
       expect(runner.isLaunching(ticket.id)).toBe(false)
       expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working')
@@ -2751,7 +2759,7 @@ describe('TicketRunner Skip to next role', () => {
     expect(runtime.summaries[0]!.prompt).toContain('for the Implementer, who takes over next')
     // The call's usage is recorded on the skipped run, as a Mainbus call.
     const planner = (await repos.runs.listForTicket(ticket.id)).find((r) => r.role === 'Planner')!
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect((await repos.runs.events(planner.id)).map((e) => e.event)).toContainEqual({ ...SUMMARY_USAGE, call: 'summary' })
     )
     expect(publishes).toEqual([])
@@ -2919,7 +2927,7 @@ describe('TicketRunner Skip to next role', () => {
     await nth(runner, runtime, 1)
 
     const skipping = runner.skip(ticket.id)
-    await vi.waitFor(() => expect(runtime.summaries).toHaveLength(1))
+    await eventually(() => expect(runtime.summaries).toHaveLength(1))
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
     const stopping = runner.stop(ticket.id)
     await skipping
@@ -2965,7 +2973,7 @@ describe('TicketRunner Replace', () => {
 
   /** Waits until the runtime has started agent number `n` (counting from 1) and it is the ticket's working agent. */
   async function nth(runner: TicketRunner, runtime: FakeRuntime, n: number): Promise<RunSpec> {
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       expect(runtime.specs.length).toBeGreaterThanOrEqual(n)
       expect(runner.isLaunching(ticket.id)).toBe(false)
       expect((await runner.stateOf(ticket.id)).agentStatus).toBe('working')
@@ -3013,7 +3021,7 @@ describe('TicketRunner Replace', () => {
     expect(runtime.summaries).toHaveLength(2)
     expect(runtime.summaries[1]!.prompt).toContain('replaced')
     expect(runtime.summaries[1]!.prompt).toContain('Implementer at work')
-    await vi.waitFor(async () =>
+    await eventually(async () =>
       expect((await repos.runs.events(old.id)).filter((e) => e.event.kind === 'usage' && e.event.call === 'summary')).toHaveLength(1)
     )
     const logged = (await repos.runs.events(old.id)).map((e) => e.event).find((e) => e.kind === 'replaced')
@@ -3089,7 +3097,7 @@ describe('TicketRunner Replace', () => {
     const runtime = new FakeRuntime(script, { summary: { hang: true } })
     const runner = await atImplementer(runtime)
     const replacing = runner.replace(ticket.id, { agentRunId: (await latest()).id }, SAME)
-    await vi.waitFor(() => expect(runtime.summaries.length).toBeGreaterThanOrEqual(2))
+    await eventually(() => expect(runtime.summaries.length).toBeGreaterThanOrEqual(2))
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
     await replacing
   })

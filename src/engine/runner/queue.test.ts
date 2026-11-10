@@ -15,6 +15,7 @@ import { defaultLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { testUsage, type TestUsage } from './testUsage'
 import { TicketRunner } from './ticketRunner'
+import { eventually } from '../testWait'
 
 let tmp: string
 let repoPath: string
@@ -68,7 +69,7 @@ const stateOf = (runner: TicketRunner, t: Ticket) => runner.stateOf(t.id)
 
 /** Waits for the ticket to be in the given agent status. */
 async function waitForStatus(runner: TicketRunner, t: Ticket, agentStatus: string | null): Promise<void> {
-  await vi.waitFor(async () => {
+  await eventually(async () => {
     expect((await runner.stateOf(t.id)).agentStatus).toBe(agentStatus)
     // A launch under way shows as working before its process exists.
     expect(runner.isLaunching(t.id)).toBe(false)
@@ -290,7 +291,7 @@ describe('what uses a slot', () => {
     const runner = makeRunner(runtime, { usage })
     const [a, b] = [await newTicket('A'), await newTicket('B')]
     await runner.start(a.id)
-    await vi.waitFor(async () => expect(await stateOf(runner, a)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
+    await eventually(async () => expect(await stateOf(runner, a)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
     await runner.start(b.id)
 
     expect(await stateOf(runner, b)).toMatchObject({ agentStatus: 'queued' })
@@ -305,7 +306,7 @@ describe('every start path goes through the queue', () => {
     const before = makeRunner(new FakeRuntime([{ emit: { kind: 'session', sessionId: 's-1' } }, { emit: { kind: 'turn_end', ok: true } }, { exit: 0 }]))
     const a = await newTicket('A')
     await before.start(a.id)
-    await vi.waitFor(async () => expect((await repos.runs.events((await repos.runs.latest(a.id))!.id)).some((e) => e.event.kind === 'process_exit')).toBe(true))
+    await eventually(async () => expect((await repos.runs.events((await repos.runs.latest(a.id))!.id)).some((e) => e.event.kind === 'process_exit')).toBe(true))
 
     const runtime = new FakeRuntime(handsOffWhenSent)
     const runner = makeRunner(runtime)
@@ -342,7 +343,7 @@ describe('every start path goes through the queue', () => {
     const before = makeRunner(new FakeRuntime([{ emit: { kind: 'session', sessionId: 's-1' } }, { emit: { kind: 'turn_end', ok: true } }, { exit: 0 }]))
     const a = await newTicket('A')
     await before.start(a.id)
-    await vi.waitFor(async () => expect((await repos.runs.events((await repos.runs.latest(a.id))!.id)).some((e) => e.event.kind === 'process_exit')).toBe(true))
+    await eventually(async () => expect((await repos.runs.events((await repos.runs.latest(a.id))!.id)).some((e) => e.event.kind === 'process_exit')).toBe(true))
 
     const runtime = new FakeRuntime(handsOffWhenSent)
     const runner = makeRunner(runtime)
@@ -402,12 +403,13 @@ describe('handoffs, hand-backs and Stop', () => {
 
     // The Planner hands off to the Implementer, which starts at once; B is still waiting.
     await runner.send(a.id, 'go')
-    await vi.waitFor(() => expect(runtime.specs.map((s) => /## Your role: (.+)/.exec(s.appendSystemPrompt)![1])).toEqual(['Planner', 'Implementer']))
+    await eventually(() => expect(runtime.specs.map((s) => /## Your role: (.+)/.exec(s.appendSystemPrompt)![1])).toEqual(['Planner', 'Implementer']))
     await waitForStatus(runner, a, 'working')
     expect(await stateOf(runner, b)).toMatchObject({ agentStatus: 'queued', queuePosition: 1 })
 
     await runner.send(a.id, 'go')
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(3))
+    await runtime.started(3)
+    expect(runtime.specs).toHaveLength(3)
     expect(await stateOf(runner, b)).toMatchObject({ agentStatus: 'queued' })
 
     // The Reviewer is last: when it hands off, B finally gets the slot.
@@ -437,11 +439,11 @@ describe('handoffs, hand-backs and Stop', () => {
     await runner.send(a.id, 'go')
 
     // The Implementer hands the problem back to the Planner, which resumes in the same slot; B stays queued.
-    await vi.waitFor(async () => {
+    await eventually(async () => {
       const runs = await repos.runs.listForTicket(a.id)
       expect(runs.map((r) => r.role)).toEqual(['Planner', 'Implementer', 'Planner'])
     })
-    await vi.waitFor(() => expect(runtime.specs.at(-1)!.resumeSessionId).toBe('planner-session'))
+    await eventually(() => expect(runtime.specs.at(-1)!.resumeSessionId).toBe('planner-session'))
     await waitForStatus(runner, a, 'working')
     expect(await stateOf(runner, b)).toMatchObject({ agentStatus: 'queued', queuePosition: 1 })
   })

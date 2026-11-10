@@ -9,6 +9,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -70,13 +71,14 @@ async function setup(opts: { stuck?: boolean } = {}) {
   await engine.invoke('workspace.open', repoPath)
   const ticket = await engine.invoke('ticket.create', { title: 'Login', intent: 'Add a login form', spec: '', criteria: [], labels: [], column: 'ready' })
   await engine.invoke('agent.start', ticket.id)
-  await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
-  await vi.waitFor(async () =>
+  await runtime.started(1)
+  expect(runtime.specs).toHaveLength(1)
+  await eventually(async () =>
     expect((await engine.invoke('thread.get', ticket.id)).events.filter((e) => e.event.kind === 'tool_result')).toHaveLength(5)
   )
   const board = async () => (await engine.invoke('board.get')).tickets.find((t) => t.id === ticket.id)!
   await engine.invoke('orchestrator.send', 'Login looks stuck')
-  await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+  await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
   const tools = runtime.orchestratorSpecs[0]!.tools
   const proposals = async () => (await engine.invoke('orchestrator.get')).proposals
   if (opts.stuck !== false) {
@@ -114,7 +116,7 @@ describe('propose_redirect', () => {
     const done = await engine.invoke('proposal.confirm', p!.id)
     expect(done).toMatchObject({ status: 'confirmed', result: { role: 'Planner', message: MESSAGE } })
     expect(runtime.interrupted).toHaveLength(1)
-    await vi.waitFor(() => expect(runtime.sent).toContain(MESSAGE))
+    await eventually(() => expect(runtime.sent).toContain(MESSAGE))
     expect(runtime.sent.filter((s) => s === MESSAGE)).toHaveLength(1)
 
     // Recorded as Mainbus's own entry, not as the user's message.
@@ -123,7 +125,7 @@ describe('propose_redirect', () => {
     // The detector told the thread when the episode opened.
     expect(events).toContainEqual(expect.objectContaining({ kind: 'stuck', change: 'opened', rule: 'repeated_failure', role: 'Planner', count: 5 }))
     expect(events.filter((e) => e.kind === 'user_message')).toEqual([])
-    await vi.waitFor(async () => expect(await thread()).toContainEqual({ kind: 'message', text: 'Checking the fixtures.' }))
+    await eventually(async () => expect(await thread()).toContainEqual({ kind: 'message', text: 'Checking the fixtures.' }))
 
     expect((await board()).stuck).toMatchObject({ redirectedAt: expect.any(String) })
   })
@@ -135,7 +137,7 @@ describe('propose_redirect', () => {
     await expect(engine.invoke('proposal.confirm', p!.id, { message: '  ' })).rejects.toThrow()
     const done = await engine.invoke('proposal.confirm', p!.id, { message: 'Look at the fixtures in test/shared.' })
     expect(done).toMatchObject({ status: 'overridden', result: { message: 'Look at the fixtures in test/shared.' } })
-    await vi.waitFor(() => expect(runtime.sent).toContain('Look at the fixtures in test/shared.'))
+    await eventually(() => expect(runtime.sent).toContain('Look at the fixtures in test/shared.'))
     expect(runtime.sent).not.toContain(MESSAGE)
   })
 

@@ -20,7 +20,7 @@ This file is for agents working in this repository: Mainbus's own roles and anyo
   - `git diff --name-only main...HEAD` lists what the branch changed; add your uncommitted files (`git status --short`).
 - **End-to-end tests:** while working, run only the spec you touched, with `pnpm exec playwright test e2e/<spec>.spec.ts` after `pnpm build`. Never run the whole e2e suite while working.
 - **Before handing off as Implementer,** run `pnpm typecheck`.
-- **Don't run the full suites as Implementer:** no `pnpm test`, no `pnpm exec vitest run` without paths, no `pnpm e2e`. They take several minutes, and some engine timing tests are known to fail intermittently under full-suite load. The Reviewer runs the full suites.
+- **Don't run the full suites as Implementer:** no `pnpm test`, no `pnpm exec vitest run` without paths, no `pnpm e2e`. They take several minutes. The Reviewer runs the full suites.
 - **Testing safety:** tests never touch the user's stable board or data home (`%LOCALAPPDATA%\Mainbus`). Unit tests open their database in a temporary `MAINBUS_HOME` (see `openTestDb` in `src/engine/store/testDb.ts`), and e2e tests start the app with the scripted FakeRuntime, a temporary `MAINBUS_HOME` and throwaway git repositories. New tests must do the same.
 
 ## Code map

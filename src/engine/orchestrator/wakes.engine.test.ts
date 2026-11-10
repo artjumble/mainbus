@@ -12,6 +12,7 @@ import type { ExecFn } from '../runtime/resolveClaude'
 import { RELEASED_HEADING } from './releasedHoldsBlock'
 import { WAKE_DEBOUNCE_MS } from './wakes'
 import { WAKE_HEADING } from './wakeDigest'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -70,7 +71,7 @@ const newTicket = (engine: Engine, title = 'Login') =>
   engine.invoke('ticket.create', { title, intent: 'Add a login form', spec: '', criteria: [], labels: [], column: 'ready' })
 const ticketOf = async (engine: Engine, id: string) => (await engine.invoke('board.get')).tickets.find((t) => t.id === id)!
 const orchestratorOf = (engine: Engine) => engine.invoke('orchestrator.get')
-const idle = (engine: Engine) => vi.waitFor(async () => expect((await orchestratorOf(engine)).status).toBe('idle'))
+const idle = (engine: Engine) => eventually(async () => expect((await orchestratorOf(engine)).status).toBe('idle'))
 
 /** An engine with a started ticket whose agent failed. */
 async function failed(orchestrator: FakeStep[] = ANSWERING) {
@@ -78,7 +79,7 @@ async function failed(orchestrator: FakeStep[] = ANSWERING) {
   const engine = await makeEngine(runtime)
   const ticket = await newTicket(engine)
   await engine.invoke('agent.start', ticket.id)
-  await vi.waitFor(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
+  await eventually(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
   return { engine, runtime, ticket }
 }
 
@@ -95,7 +96,7 @@ describe('a failure', () => {
     await clock.advance(WAKE_DEBOUNCE_MS - 1)
     expect(runtime.orchestratorSpecs).toHaveLength(0)
     await clock.advance(1)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
 
     const prompt = runtime.orchestratorSpecs[0]!.prompt
@@ -116,7 +117,7 @@ describe('a failure', () => {
     const hold = { callTool: 'proposeHold', args: { ticket: 1, reason: 'Wait for the API to come back' } } as const
     const { engine, runtime } = await failed([session('orch'), hold, hold, turnEnd()])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
     const thread = await orchestratorOf(engine)
     expect(thread.proposals).toHaveLength(1)
@@ -128,7 +129,7 @@ describe('a failure', () => {
     const draft = { callTool: 'proposeCreateTickets', args: { tickets: [{ title: 'Another' }] } } as const
     const { engine, runtime } = await failed([session('orch'), draft, turnEnd()])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
     expect((await orchestratorOf(engine)).proposals).toEqual([])
   })
@@ -136,7 +137,7 @@ describe('a failure', () => {
   test('cannot create tickets either', async () => {
     const { engine, runtime } = await failed([session('orch')])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     expect(await runtime.orchestratorSpecs[0]!.tools.createTickets({ tickets: [{ title: 'Another' }] })).toBe(
       'Tickets can only be created in answer to a message of the user. Nothing was created.'
     )
@@ -146,7 +147,7 @@ describe('a failure', () => {
   test('cannot edit tickets either', async () => {
     const { engine, runtime, ticket } = await failed([session('orch')])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     expect(await runtime.orchestratorSpecs[0]!.tools.updateTicket({ ticket: ticket.number, title: 'Other' })).toBe(
       'Tickets can only be edited in answer to a message of the user. Nothing was changed.'
     )
@@ -156,7 +157,7 @@ describe('a failure', () => {
   test('is acknowledged once the turn finished: the next launch presents nothing', async () => {
     const { engine, ticket } = await failed()
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(async () => expect((await orchestratorOf(engine)).events.map((e) => e.event.kind)).toContain('turn_end'))
+    await eventually(async () => expect((await orchestratorOf(engine)).events.map((e) => e.event.kind)).toContain('turn_end'))
     await idle(engine)
 
     const second = await relaunch(engine)
@@ -168,7 +169,7 @@ describe('a failure', () => {
   test('is not presented while a turn is running, and the same failure is never added twice', async () => {
     const { engine, runtime } = await failed([session('orch')])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await clock.advance(10 * MINUTE)
     // The turn never ended, and the row was not added again: nothing else was sent to it.
     expect(runtime.orchestratorSpecs).toHaveLength(1)
@@ -181,14 +182,14 @@ describe('a wake turn that does not finish', () => {
   test('that fails leaves the rows pending, does not start another by itself, and is presented again at the next launch', async () => {
     const { engine, runtime, ticket } = await failed([session('orch'), { emit: { kind: 'turn_end', ok: false, error: 'boom' } }])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(async () => expect((await orchestratorOf(engine)).status).toBe('failed'))
+    await eventually(async () => expect((await orchestratorOf(engine)).status).toBe('failed'))
     await clock.advance(30 * MINUTE)
     expect(runtime.orchestratorSpecs).toHaveLength(1)
     expect(runtime.sent).toEqual([])
 
     const second = await relaunch(engine)
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
     await idle(second.engine)
     expect(second.runtime.orchestratorSpecs[0]!.prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed`)
     // Resumed, as any later message would: the same run of the orchestrator.
@@ -198,12 +199,12 @@ describe('a wake turn that does not finish', () => {
   test('that the app was closed in the middle of is presented again, the same row, at the next launch', async () => {
     const { engine, runtime, ticket } = await failed([session('orch')])
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     const digest = runtime.orchestratorSpecs[0]!.prompt.slice(runtime.orchestratorSpecs[0]!.prompt.indexOf(WAKE_HEADING))
 
     const second = await relaunch(engine)
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
     await idle(second.engine)
     const again = second.runtime.orchestratorSpecs[0]!.prompt
     expect(again).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed`)
@@ -222,9 +223,9 @@ describe('a wake turn that does not finish', () => {
     const engine = await makeEngine(runtime)
     const ticket = await newTicket(engine)
     await engine.invoke('agent.start', ticket.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
+    await eventually(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await engine.invoke('orchestrator.stop')
     await idle(engine)
     await clock.advance(30 * MINUTE)
@@ -232,7 +233,7 @@ describe('a wake turn that does not finish', () => {
 
     const second = await relaunch(engine)
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(second.runtime.orchestratorSpecs).toHaveLength(1))
     expect(second.runtime.orchestratorSpecs[0]!.prompt).toContain('the Planner\'s run failed')
   })
 })
@@ -248,7 +249,7 @@ describe('a hold released by its date', () => {
 
     await clock.advance(DAY)
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
     expect(runtime.orchestratorSpecs[0]!.prompt).toContain(`#${byDate.number} "By date" (workspace "repo") is no longer held (its date, ${iso(1).slice(0, 10)}, came). It can be started again.`)
 
@@ -258,7 +259,7 @@ describe('a hold released by its date', () => {
     expect(runtime.sent).toEqual([])
 
     await engine.invoke('orchestrator.send', 'Anything new?')
-    await vi.waitFor(() => expect(runtime.sent).toHaveLength(1))
+    await eventually(() => expect(runtime.sent).toHaveLength(1))
     const message = runtime.sent[0]!
     expect(message).toContain(RELEASED_HEADING)
     expect(message).toContain(`#${byHand.number} "By hand" (workspace "repo") is no longer held`)
@@ -272,7 +273,7 @@ describe('a deferred decision that comes back on its date', () => {
     const engine = await makeEngine(runtime)
     const ticket = await newTicket(engine)
     await engine.invoke('agent.start', ticket.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, ticket.id)).pendingDecisions).toHaveLength(1))
+    await eventually(async () => expect((await ticketOf(engine, ticket.id)).pendingDecisions).toHaveLength(1))
     const [decision] = (await ticketOf(engine, ticket.id)).pendingDecisions
     await engine.invoke('decision.defer', decision!.id, iso(1))
     return { engine, runtime, ticket, decision: decision! }
@@ -282,7 +283,7 @@ describe('a deferred decision that comes back on its date', () => {
     const { engine, runtime, ticket, decision } = await deferred()
     await clock.advance(DAY)
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
     const prompt = runtime.orchestratorSpecs[0]!.prompt
     expect(prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): <ticket-data field="question">Which API?</ticket-data> is waiting on the user again (decision ${decision.id}).`)
@@ -294,10 +295,10 @@ describe('a deferred decision that comes back on its date', () => {
     const { engine, runtime } = await deferred()
     await clock.advance(DAY)
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     await idle(engine)
     await engine.invoke('orchestrator.send', 'And now?')
-    await vi.waitFor(() => expect(runtime.sent.some((s) => s.includes('And now?'))).toBe(true))
+    await eventually(() => expect(runtime.sent.some((s) => s.includes('And now?'))).toBe(true))
     expect(runtime.sent.find((s) => s.includes('And now?'))).not.toContain('these decisions the user put off came back')
   })
 
@@ -325,12 +326,12 @@ describe('two workspaces', () => {
     const engine = await makeEngine(runtime)
     const ticket = await newTicket(engine)
     await engine.invoke('agent.start', ticket.id)
-    await vi.waitFor(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
+    await eventually(async () => expect((await ticketOf(engine, ticket.id)).state.agentStatus).toBe('failed'))
     // Another repo is opened and focused while the failure waits for the debounce.
     await engine.invoke('workspace.open', await makeRepo(path.join(tmp, 'other')))
 
     await clock.advance(WAKE_DEBOUNCE_MS)
-    await vi.waitFor(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
+    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
     const prompt = runtime.orchestratorSpecs[0]!.prompt
     expect(prompt).toContain('Focused workspace: other')
     expect(prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): the Planner's run failed`)

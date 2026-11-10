@@ -10,6 +10,7 @@ import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import { FakeClock } from './clock'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -71,7 +72,7 @@ async function asked() {
   engine.on((e) => events.push(e))
   const ticket = await newTicket(engine)
   await engine.invoke('agent.start', ticket.id)
-  await vi.waitFor(async () => expect((await ticketOf(engine, ticket.id)).pendingDecisions).toHaveLength(1))
+  await eventually(async () => expect((await ticketOf(engine, ticket.id)).pendingDecisions).toHaveLength(1))
   const [decision] = (await ticketOf(engine, ticket.id)).pendingDecisions
   return { engine, runtime, events, ticket, decision: decision! }
 }
@@ -132,7 +133,7 @@ describe('decision.defer', () => {
     const { engine, runtime, ticket, decision } = await asked()
     await engine.invoke('decision.defer', decision.id, iso(1))
     await engine.invoke('decision.answer', decision.id, { kind: 'option', index: 1 }, 'orchestrator')
-    await vi.waitFor(() => expect(runtime.sent).toEqual(['Answer: New API']))
+    await eventually(() => expect(runtime.sent).toEqual(['Answer: New API']))
     const t = await ticketOf(engine, ticket.id)
     expect(t.deferredDecisions).toEqual([])
     expect(t.state).toMatchObject({ column: 'in_progress', agentStatus: 'working', deferredUntil: null })
@@ -165,13 +166,13 @@ describe('the orchestrator hears of decisions that came back', () => {
   test('its next message lists a decision whose date came', async () => {
     const { engine, runtime, decision } = await asked()
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await clock.advance(1000)
     await engine.invoke('decision.defer', decision.id, iso(1))
     await clock.advance(DAY)
 
     await engine.invoke('orchestrator.send', 'Anything new?')
-    await vi.waitFor(() => expect(runtime.sent.length).toBeGreaterThan(0))
+    await eventually(() => expect(runtime.sent.length).toBeGreaterThan(0))
     const message = runtime.sent.at(-1)!
     expect(message).toContain('[Mainbus] Since your last turn, these decisions the user put off came back:')
     expect(message).toContain('"Which API?"')
@@ -181,12 +182,12 @@ describe('the orchestrator hears of decisions that came back', () => {
   test('says nothing for a decision brought back by hand', async () => {
     const { engine, runtime, decision } = await asked()
     await engine.invoke('orchestrator.send', 'Hello')
-    await vi.waitFor(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
+    await eventually(async () => expect((await engine.invoke('orchestrator.get')).status).toBe('idle'))
     await clock.advance(1000)
     await engine.invoke('decision.defer', decision.id, iso(5))
     await engine.invoke('decision.bringBack', decision.id)
     await engine.invoke('orchestrator.send', 'Anything new?')
-    await vi.waitFor(() => expect(runtime.sent.length).toBeGreaterThan(0))
+    await eventually(() => expect(runtime.sent.length).toBeGreaterThan(0))
     expect(runtime.sent.at(-1)).not.toContain('put off came back')
   })
 })

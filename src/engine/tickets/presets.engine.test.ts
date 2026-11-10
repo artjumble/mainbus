@@ -8,6 +8,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -160,7 +161,8 @@ describe('ticket.create with a preset', () => {
     const engine = await makeEngine(runtime)
     const t = await newTicket(engine, { preset: 'Docs', column: 'ready' })
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]).toMatchObject({ role: 'Implementer', model: 'sonnet', effort: 'medium' })
     expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer'])
   })

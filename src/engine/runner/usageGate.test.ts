@@ -5,6 +5,7 @@ import type { AgentEvent } from '../../shared/events'
 import { FakeClock } from '../holds/clock'
 import type { StoredUsageLimit } from '../store/settings'
 import { UsageGate, USAGE_RETRY_MS } from './usageGate'
+import { eventually } from '../testWait'
 
 const START = new Date('2026-11-02T09:00:00.000Z')
 const HOUR = 3_600_000
@@ -75,7 +76,7 @@ describe('UsageGate entering the limited state', () => {
     expect(gate.blocksStarts()).toBe(true)
     expect(gate.limitedUntil()).toBe(reset)
     expect(gate.pauseReason()).toMatch(/^Usage limit; resumes at \d\d:\d\d$/)
-    await vi.waitFor(() => expect(events.at(-1)).toEqual({ kind: 'limited', resetsAt: new Date(reset).toISOString(), retryAt: null, paused: 2 }))
+    await eventually(() => expect(events.at(-1)).toEqual({ kind: 'limited', resetsAt: new Date(reset).toISOString(), retryAt: null, paused: 2 }))
     expect(stored).toEqual({ since: START.toISOString(), resetsAt: new Date(reset).toISOString() })
   })
 
@@ -84,7 +85,7 @@ describe('UsageGate entering the limited state', () => {
     gate.hit({ resetsAt: null }, null)
     expect(gate.limitedUntil()).toBe(START.getTime() + USAGE_RETRY_MS)
     expect(gate.pauseReason()).toMatch(/^Usage limit; trying again at \d\d:\d\d$/)
-    await vi.waitFor(() => expect(stored).toEqual({ since: START.toISOString(), resetsAt: null }))
+    await eventually(() => expect(stored).toEqual({ since: START.toISOString(), resetsAt: null }))
   })
 
   it('a reset time already past counts as unknown', () => {
@@ -131,7 +132,7 @@ describe('UsageGate leaving it', () => {
     expect(r.probe).toHaveBeenCalledTimes(2)
 
     gate.gotThrough()
-    await vi.waitFor(() => expect(r.releaseLimitPaused).toHaveBeenCalledTimes(1))
+    await eventually(() => expect(r.releaseLimitPaused).toHaveBeenCalledTimes(1))
     expect(gate.isLimited()).toBe(false)
     await clock.advance(USAGE_RETRY_MS)
     expect(r.probe).toHaveBeenCalledTimes(2)
@@ -235,12 +236,12 @@ describe('UsageGate early warning', () => {
     gate.rateLimit(window(0.9, reset), 'a')
     expect(gate.blocksStarts()).toBe(true)
     expect(gate.isLimited()).toBe(false)
-    await vi.waitFor(() => expect(events.at(-1)).toEqual({ kind: 'warning', resetsAt: new Date(reset).toISOString() }))
+    await eventually(() => expect(events.at(-1)).toEqual({ kind: 'warning', resetsAt: new Date(reset).toISOString() }))
 
     gate.rateLimit(window(0.5, reset), 'a')
     expect(gate.blocksStarts()).toBe(false)
     expect(r.kickQueue).toHaveBeenCalled()
-    await vi.waitFor(() => expect(events.at(-1)).toEqual({ kind: 'ok' }))
+    await eventually(() => expect(events.at(-1)).toEqual({ kind: 'ok' }))
   })
 
   it('clears when the window resets', async () => {
@@ -250,7 +251,7 @@ describe('UsageGate early warning', () => {
     await clock.advance(HOUR)
     expect(gate.blocksStarts()).toBe(false)
     expect(r.kickQueue).toHaveBeenCalled()
-    await vi.waitFor(() => expect(events.at(-1)).toEqual({ kind: 'ok' }))
+    await eventually(() => expect(events.at(-1)).toEqual({ kind: 'ok' }))
   })
 
   it('allowed_warning without a window blocks until the SDK says allowed, or its reset', async () => {

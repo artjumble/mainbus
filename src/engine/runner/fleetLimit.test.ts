@@ -15,6 +15,7 @@ import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { testUsage, type TestUsage } from './testUsage'
 import { TicketRunner, USAGE_RESUME_TEXT } from './ticketRunner'
+import { eventually } from '../testWait'
 
 let tmp: string
 let repoPath: string
@@ -132,7 +133,7 @@ afterEach(async () => {
 vi.setConfig({ testTimeout: 30_000 })
 
 /** vi.waitFor with room for a loaded machine: a launch makes a git worktree. */
-const waitFor: typeof vi.waitFor = (fn, options) => vi.waitFor(fn, { timeout: 10_000, ...(typeof options === 'object' ? options : {}) })
+const waitFor: typeof vi.waitFor = (fn, options) => eventually(fn, { timeout: 10_000, ...(typeof options === 'object' ? options : {}) })
 
 describe('a usage limit pauses the whole fleet', () => {
   it('pauses every working agent with the reason, in the order they were paused, and nothing needs the user', async () => {

@@ -9,6 +9,7 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
+import { eventually } from '../testWait'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -111,13 +112,13 @@ describe('ticket.setRunSettings', () => {
     const t = await newTicket(engine, 'ready')
     const saved = (await saveTypical(engine, t.id)).runSettings
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).state.agentStatus).toBe('working'))
+    await eventually(async () => expect((await boardTicket(engine, t.id)).state.agentStatus).toBe('working'))
 
     await expect(engine.invoke('ticket.setRunSettings', t.id, null)).rejects.toThrow("Run settings can't be changed while a run is open")
     expect((await boardTicket(engine, t.id)).runSettings).toEqual(saved)
 
     await engine.invoke('agent.stop', t.id)
-    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).state.column).toBe('ready'))
+    await eventually(async () => expect((await boardTicket(engine, t.id)).state.column).toBe('ready'))
     expect((await boardTicket(engine, t.id)).runSettings).toEqual(saved)
     expect((await engine.invoke('ticket.setRunSettings', t.id, null)).runSettings).toBeNull()
   })
@@ -133,11 +134,11 @@ describe('ticket.setRunSettings', () => {
     const id = await ids(engine)
     await engine.invoke('ticket.setRunSettings', t.id, { excludedRoleIds: [id['Planner']!, id['Reviewer']!], roles: {}, extraInstructions: '' })
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).state.column).toBe('review'))
+    await eventually(async () => expect((await boardTicket(engine, t.id)).state.column).toBe('review'))
 
     await engine.invoke('ticket.setRunSettings', t.id, { excludedRoleIds: [id['Planner']!], roles: {}, extraInstructions: '' })
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Reviewer']))
+    await eventually(async () => expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Reviewer']))
   })
 
   test("an Investigate ticket's settings are checked against the Investigate lineup", async () => {
@@ -164,7 +165,8 @@ describe('every way of starting uses them', () => {
     const t = await newTicket(engine, 'ready')
     await saveTypical(engine, t.id)
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]).toMatchObject({ role: 'Implementer', model: 'opus', effort: 'high' })
     expect(runtime.specs[0]!.appendSystemPrompt).toContain('Keep the diff small.')
     expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Reviewer'])
@@ -177,7 +179,8 @@ describe('every way of starting uses them', () => {
     await saveTypical(engine, t.id)
     const id = await ids(engine)
     await engine.invoke('agent.start', t.id, { roleIds: [id['Planner']!], roles: { [id['Planner']!]: { model: 'haiku', effort: 'low' } } })
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]).toMatchObject({ role: 'Planner', model: 'haiku', effort: 'low' })
   })
 
@@ -187,7 +190,8 @@ describe('every way of starting uses them', () => {
     const t = await newTicket(engine, 'ready')
     await saveTypical(engine, t.id)
     await engine.invoke('unattended.set', true)
-    await vi.waitFor(() => expect(runtime.specs).toHaveLength(1))
+    await runtime.started(1)
+    expect(runtime.specs).toHaveLength(1)
     expect(runtime.specs[0]).toMatchObject({ role: 'Implementer', model: 'opus', effort: 'high' })
     await engine.invoke('unattended.set', false)
   })
@@ -227,6 +231,6 @@ describe('when the lineup changes later', () => {
     expect((await boardTicket(engine, t.id)).runSettingsNotices).toEqual(['Reviewer is no longer in the lineup, so its saved setting was dropped.'])
 
     await engine.invoke('agent.start', t.id)
-    await vi.waitFor(async () => expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Tester']))
+    await eventually(async () => expect((await boardTicket(engine, t.id)).lineup.map((r) => r.name)).toEqual(['Implementer', 'Tester']))
   })
 })
