@@ -10,8 +10,13 @@ files:
   - package.json
 win:
   target: dir
+  # The exe's icon. build/ is the packager's alone: the running app loads its icons from resources/icons (below).
+  icon: build/icon.ico
 extraResources:
   - from: src/engine/db/migrations
     to: migrations
   - from: out/cli
     to: cli
+  # The window, tray and notification icons, rendered from design/icons by `pnpm icons:build`.
+  - from: resources/icons
+    to: icons

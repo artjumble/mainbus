@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, Menu, nativeImage, Notification, shell, Tray, type NativeImage } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Notification, shell, Tray, type NativeImage } from 'electron'
 import { NAVIGATE_CHANNEL, type AppNavigation } from '../../shared/api'
+import { trayIconFile, type TrayShade } from '../appIcon'
 import type { MenuEntry, Notifier, Prefs, TrayView, WindowPort } from './controller'
-import { badgeIcon, trayIcon, type Bitmap } from './icons'
+import { badgeIcon, trayIconSet, type Bitmap } from './icons'
 import { shortcutNeedsWrite, type ShortcutDetails } from './shortcut'
 import type { Timer } from './toasts'
 
@@ -21,14 +22,49 @@ export const realTimer: Timer = (fn, ms) => {
   return () => clearTimeout(id)
 }
 
-/** The real tray icon. */
-export function electronTrayView(): TrayView {
-  const plain = image((s) => trayIcon(s, false))
-  const withDot = image((s) => trayIcon(s, true))
-  const tray = new Tray(plain)
+/** The tray icon from the glyph's PNGs in `dir`, at every display scale, with or without the needs-you dot. */
+function trayImage(dir: string, shade: TrayShade, dot: boolean): NativeImage {
+  const load = (size: number): Bitmap => {
+    const png = nativeImage.createFromPath(trayIconFile(dir, shade, size))
+    if (png.isEmpty()) throw new Error(`Mainbus has no tray icon at ${trayIconFile(dir, shade, size)}`)
+    const { width, height } = png.getSize()
+    return { width, height, buffer: png.toBitmap() }
+  }
+  const img = nativeImage.createEmpty()
+  for (const { scaleFactor, bitmap } of trayIconSet(load, dot)) {
+    img.addRepresentation({ scaleFactor, width: bitmap.width, height: bitmap.height, buffer: bitmap.buffer })
+  }
+  return img
+}
+
+/**
+ * The real tray icon, from the app's icons in `dir`: the white glyph on a dark taskbar, the black one on a light one,
+ * following Windows' taskbar setting as it changes.
+ */
+export function electronTrayView(dir: string): TrayView {
+  const shade = (): TrayShade => (nativeTheme.shouldUseDarkColorsForSystemIntegratedUI ? 'white' : 'black')
+  const images = new Map<string, NativeImage>()
+  const imageFor = (dot: boolean): NativeImage => {
+    const key = `${shade()}:${dot}`
+    let img = images.get(key)
+    if (!img) {
+      img = trayImage(dir, shade(), dot)
+      images.set(key, img)
+    }
+    return img
+  }
+  let dotShown = false
+  const tray = new Tray(imageFor(false))
   tray.setToolTip('Mainbus')
+  const repaint = (): void => {
+    if (!tray.isDestroyed()) tray.setImage(imageFor(dotShown))
+  }
+  nativeTheme.on('updated', repaint)
   return {
-    setDot: (dot) => tray.setImage(dot ? withDot : plain),
+    setDot: (dot) => {
+      dotShown = dot
+      repaint()
+    },
     setToolTip: (text) => tray.setToolTip(text),
     setMenu: (items: MenuEntry[]) =>
       tray.setContextMenu(
@@ -39,7 +75,10 @@ export function electronTrayView(): TrayView {
     onClick: (cb) => {
       tray.on('click', cb)
     },
-    destroy: () => tray.destroy()
+    destroy: () => {
+      nativeTheme.removeListener('updated', repaint)
+      tray.destroy()
+    }
   }
 }
 
@@ -78,13 +117,16 @@ export function electronWindowPort(getWindow: () => BrowserWindow | null, create
   }
 }
 
-/** Windows toasts. Each notification is kept until it is clicked or closed: its click handler is collected otherwise. */
-export function electronNotifier(): Notifier {
+/**
+ * Windows toasts, showing the app icon at `icon` (a file path, as Windows needs). Each notification is kept until it is
+ * clicked or closed: its click handler is collected otherwise.
+ */
+export function electronNotifier(icon: string): Notifier {
   const shown = new Set<Notification>()
   return {
     show: ({ title, body, onClick }) => {
       if (!Notification.isSupported()) return
-      const note = new Notification({ title, body })
+      const note = new Notification({ title, body, icon })
       shown.add(note)
       note.on('click', () => {
         shown.delete(note)

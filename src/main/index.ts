@@ -17,6 +17,7 @@ import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeScrip
 import { execFileNode, resolveClaude, type ExecFn } from '../engine/runtime/resolveClaude'
 import { SdkRuntime } from '../engine/runtime/sdkRuntime'
 import type { AgentRuntime } from '../engine/runtime/types'
+import { iconDir, windowIconFile } from './appIcon'
 import { isAppUrl, isExternalWebUrl } from './appUrl'
 import { fakeClaudeExec } from './fakeExec'
 import { registerIpc } from './ipc'
@@ -25,6 +26,7 @@ import { TrayController } from './tray/controller'
 import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenuShortcut, filePrefs, realTimer } from './tray/electron'
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
 import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
+import { mainWindowOptions } from './windowOptions'
 import { WindowTheme } from './windowTheme'
 
 // Electron's fs treats a .asar file as a folder, so deleting a ticket's scratch folder that holds an agent's
@@ -53,8 +55,8 @@ function startTray(running: Engine): void {
     const testing = trayTestHookFromEnv(process.env)
     // Windows shows toasts only for an app with a Start Menu shortcut: the installed app keeps one. Never in development or tests.
     if (app.isPackaged && !process.env['MAINBUS_HOME']) ensureStartMenuShortcut()
-    let view = electronTrayView()
-    let notifier = electronNotifier()
+    let view = electronTrayView(icons)
+    let notifier = electronNotifier(windowIcon)
     const hook: Partial<TrayTestHook> = {}
     if (testing) {
       const trayView = recordTrayView(view)
@@ -114,20 +116,18 @@ function openMainWindow(): BrowserWindow {
 }
 
 function createWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    title: 'Mainbus',
-    autoHideMenuBar: true,
-    // The ground of the chosen scheme, so a dark window shows no white before the page has painted.
-    ...(windowTheme ? { backgroundColor: windowTheme.background() } : {}),
-    webPreferences: {
+  const win = new BrowserWindow(
+    mainWindowOptions({
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  })
+      icon: windowIcon,
+      background: windowTheme?.background() ?? null
+    })
+  )
+  if (trayTestHookFromEnv(process.env)) {
+    // End-to-end tests only: the icon each window was given, since Electron can't read it back.
+    const given = ((globalThis as { __mainbusWindowIcons?: Record<number, string> }).__mainbusWindowIcons ??= {})
+    given[win.id] = windowIcon
+  }
   // Opens maximized; 1280×800 is the size it restores to.
   if (launchMaximizedFromEnv(process.env)) win.maximize()
 
@@ -205,6 +205,9 @@ const home = resolveHome(
   invocationDir(process.env, 'dev', process.cwd())
 )
 app.setPath('userData', path.join(home.root, 'electron'))
+
+const icons = iconDir({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
+const windowIcon = windowIconFile(icons)
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
