@@ -51,6 +51,7 @@ import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } f
 import type { Proposal } from './proposals'
 import type { OrchestratorFamily, OrchestratorModelState } from './orchestratorModel'
 import type { ModelOption } from './models'
+import type { VoiceModelId, VoiceModelStatus, VoiceSettings } from './voice'
 
 /** Whether a chosen folder can open as a workspace, and if not, why.  is the repository root (the folder itself when there is no repository). */
 export interface FolderReadiness {
@@ -160,6 +161,10 @@ export type EngineEvent =
   | { type: 'ticketEdit.changed'; edit: TicketEdit }
   /** The Theme setting changed: the window and the page switch theme without a restart. */
   | { type: 'theme.changed'; theme: ThemeSetting }
+  /** The Voice input setting changed. */
+  | { type: 'voice.changed'; voice: VoiceSettings }
+  /** A voice model's download progressed, finished, failed, or the model was removed. */
+  | { type: 'voice.models'; models: VoiceModelStatus[] }
 
 /** Every command the renderer can send to the engine. A thrown error reaches the renderer as a rejected promise. */
 export interface EngineCommands {
@@ -391,6 +396,16 @@ export interface EngineCommands {
   'settings.setTheme'(v: ThemeChoice): AppSettings
   /** The light or the dark theme Match Windows uses. Applied live, through a theme.changed event. Only the renderer can reach it. */
   'settings.setMatchWindowsTheme'(scheme: ThemeScheme, id: ThemeId): AppSettings
+  /** "Voice input": changes the given settings; rejects an unknown model or language. Applied live, through a voice.changed event. Only the renderer can reach it. */
+  'settings.setVoice'(patch: Partial<VoiceSettings>): AppSettings
+  /** Whether each voice model is on disk, and the progress of one being downloaded. Only the renderer can reach it. */
+  'voice.models'(): VoiceModelStatus[]
+  /** Downloads the model once, from its pinned address, into the data folder; resolves when it is installed. Only called after the user agrees. */
+  'voice.downloadModel'(id: VoiceModelId): VoiceModelStatus[]
+  /** Stops the model's download and removes what was fetched. */
+  'voice.cancelDownload'(id: VoiceModelId): VoiceModelStatus[]
+  /** Deletes the downloaded model. */
+  'voice.removeModel'(id: VoiceModelId): VoiceModelStatus[]
   /**
    * Unattended mode: works through Ready one ticket at a time. Only the renderer can reach these: the agent
    * intake (pipe, CLI, MCP) has no way to switch it on. Each workspace has its own, remembered across a restart; the focused workspace unless given.

@@ -46,3 +46,12 @@ export function trayTestHookFromEnv(env: NodeJS.ProcessEnv): boolean {
 export function launchMaximizedFromEnv(env: NodeJS.ProcessEnv): boolean {
   return !trayTestHookFromEnv(env) || env['MAINBUS_TEST_MAXIMIZED'] === '1'
 }
+
+/**
+ * Whether voice dictation runs with a fake transcriber and Chromium's fake microphone (`MAINBUS_TEST_VOICE=fake`), so an
+ * end-to-end test can dictate without a real microphone or a model download. Honored on the same terms as
+ * `MAINBUS_TEST_REPO`: only with MAINBUS_HOME set and a fake runtime.
+ */
+export function voiceFakeFromEnv(env: NodeJS.ProcessEnv): boolean {
+  return trayTestHookFromEnv(env) && env['MAINBUS_TEST_VOICE'] === 'fake'
+}

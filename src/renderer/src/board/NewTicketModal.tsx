@@ -1,4 +1,5 @@
 import { Alert, Badge, Button, Checkbox, Group, Modal, NativeSelect, Radio, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { DictationTextarea } from '../voice/DictationTextarea'
 import { useEffect, useState, type ClipboardEvent, type FormEvent, type ReactElement } from 'react'
 import type { NewAttachment } from '../../../shared/api'
 import type { LineupPreset, LineupRole, TicketKind } from '../../../shared/domain'
@@ -141,23 +142,23 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             </Group>
           </Radio.Group>
           <TextInput label="Title" required data-autofocus placeholder="What needs doing" value={title} onChange={(e) => setTitle(e.currentTarget.value)} />
-          <Textarea
+          <DictationTextarea
             label="In your words"
             description="Kept exactly as you write it."
             required
             autosize
             minRows={3}
             value={intent}
-            onChange={(e) => setIntent(e.currentTarget.value)}
+            onValueChange={setIntent}
           />
-          <Textarea
+          <DictationTextarea
             label="Spec"
             description="Optional."
             placeholder="Context the agent will need"
             autosize
             minRows={2}
             value={spec}
-            onChange={(e) => setSpec(e.currentTarget.value)}
+            onValueChange={setSpec}
           />
           <Textarea
             label="Acceptance criteria"

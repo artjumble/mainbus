@@ -9,6 +9,8 @@ export type HomePaths = {
   attachments: string
   /** The baseline folders: one per workspace, where its tests run on the newest base branch. */
   baselines: string
+  /** The downloaded speech models of voice dictation, one folder each. */
+  models: string
 }
 
 /** The folder the orchestrator works in. */
@@ -52,7 +54,8 @@ export function resolveHome(
     scratch: path.join(root, 'scratch'),
     backups: path.join(root, 'backups'),
     attachments: path.join(root, 'attachments'),
-    baselines: path.join(root, 'base')
+    baselines: path.join(root, 'base'),
+    models: path.join(root, 'models')
   }
 }
 

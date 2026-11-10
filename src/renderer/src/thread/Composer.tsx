@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { activeMention, findMentions, mentionText } from '../../../shared/mentions'
 import { dragHasFiles, filesOf } from '../attachments/files'
+import { useDictation } from '../voice/useDictation'
 import { caretPosition } from './caretPosition'
 
 export interface MentionOption {
@@ -92,6 +93,7 @@ export function Composer({
   const [activeId, setActiveId] = useState<string | null>(null)
   const caretAfter = useRef<number | null>(null)
   const combobox = useCombobox()
+  const dictation = useDictation({ inputRef: input, setValue: setText, label: label ?? placeholder })
   const filtered = useMemo(
     () => (mentions && active ? filterMentionOptions(mentions.options, active.query) : []),
     [mentions, active]
@@ -191,6 +193,8 @@ export function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent): void {
+    // Dictation first: Enter while recording stops it, and never sends.
+    if (dictation?.onKeyDown(e)) return
     if (open && !e.nativeEvent.isComposing) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
@@ -259,23 +263,34 @@ export function Composer({
       onPaste={onPaste}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      rightSectionWidth={sendLabel === 'Send' ? 72 : 130}
+      rightSectionWidth={(sendLabel === 'Send' ? 72 : 130) + (dictation ? 36 : 0)}
       rightSectionProps={{ style: { alignItems: 'flex-end', padding: 6 } }}
       rightSection={
-        showStop ? (
-          <Button size="compact-sm" variant="default" loading={stopping} onClick={() => void stop()}>
-            Stop
-          </Button>
-        ) : (
-          <Button size="compact-sm" disabled={!canSend} loading={sending} onClick={() => void send()}>
-            {sendLabel}
-          </Button>
-        )
+        /* 8 px apart: each control's 44 px hit area runs 8 px past its edge. */
+        <Group gap={8} wrap="nowrap">
+          {dictation?.mic}
+          {showStop ? (
+            <Button size="compact-sm" variant="default" loading={stopping} onClick={() => void stop()}>
+              Stop
+            </Button>
+          ) : (
+            <Button size="compact-sm" disabled={!canSend} loading={sending} onClick={() => void send()}>
+              {sendLabel}
+            </Button>
+          )}
+        </Group>
       }
     />
   )
 
-  if (!mentions) return box
+  if (!mentions) {
+    return (
+      <>
+        {box}
+        {dictation?.status}
+      </>
+    )
+  }
   return (
     <Box pos="relative" ref={frame}>
       <Combobox store={combobox} onOptionSubmit={pick} position="top-start"
@@ -319,6 +334,7 @@ export function Composer({
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>
+      {dictation?.status}
     </Box>
   )
 }

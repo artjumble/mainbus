@@ -1,4 +1,5 @@
-import { Checkbox, Collapse, Stack, Text, Textarea, UnstyledButton } from '@mantine/core'
+import { Checkbox, Collapse, Stack, Text, UnstyledButton } from '@mantine/core'
+import { DictationTextarea } from '../voice/DictationTextarea'
 import { useState, type ReactElement } from 'react'
 import { EXTRA_INSTRUCTIONS_MAX } from '../../../shared/models'
 import { useMainbus } from '../store'
@@ -70,7 +71,7 @@ export function StartOverrideForm({
           </Stack>
         </Collapse>
       </Stack>
-      <Textarea
+      <DictationTextarea
         label="Extra instructions for this agent"
         description={extraHint}
         placeholder="Optional"
@@ -80,7 +81,7 @@ export function StartOverrideForm({
         maxLength={EXTRA_INSTRUCTIONS_MAX}
         value={extraInstructions}
         disabled={disabled}
-        onChange={(e) => onExtraInstructionsChange(e.currentTarget.value)}
+        onValueChange={onExtraInstructionsChange}
       />
     </Stack>
   )

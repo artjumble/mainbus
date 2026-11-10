@@ -14,6 +14,7 @@ describe('resolveHome', () => {
     expect(home.worktrees).toBe(p.join(mb, 'work'))
     expect(home.scratch).toBe(p.join(mb, 'scratch'))
     expect(home.backups).toBe(p.join(mb, 'backups'))
+    expect(home.models).toBe(p.join(mb, 'models'))
   })
 
   it('resolves a relative MAINBUS_HOME against the given directory', () => {
