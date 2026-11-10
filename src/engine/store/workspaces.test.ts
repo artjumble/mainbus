@@ -27,6 +27,7 @@ describe('workspace repo', () => {
       baseBranch: 'main',
       slug: 'my-app',
       openPrOnReview: false,
+      mergeMethod: 'merge',
       saveReports: true,
       reportsFolder: 'docs/investigations',
       setupCommand: '',

@@ -1,5 +1,6 @@
 // Shared by the engine and the renderer: types and a few constants, no Node imports.
 
+import type { MergeMethod } from './merge'
 export type Column = 'backlog' | 'ready' | 'in_progress' | 'needs_you' | 'review' | 'done'
 
 export type Phase =
@@ -102,6 +103,8 @@ export interface Workspace {
   slug: string
   /** Push the ticket's branch and open a pull request when it reaches Review. Off unless the user turns it on. */
   openPrOnReview: boolean
+  /** How Merge… merges a ticket's pull request on GitHub. A merge commit unless the user picks another. */
+  mergeMethod: MergeMethod
   /** "Save investigation reports in the repo": Mainbus commits an Investigate ticket's report on its branch. On unless the user turns it off. */
   saveReports: boolean
   /** The folder, relative to the repo, investigation reports are saved in (see reportsFolderProblem). */

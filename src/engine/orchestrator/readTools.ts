@@ -17,6 +17,7 @@ import { ticketTimeFor, workspaceTimeFor, TIME_REPORT_DEFAULT, TIME_REPORT_MAX }
 import { categoryLine, commandLine, formatMinutes, TIME_LABELS, TIME_CATEGORIES, type CategoryMs, type CommandTime } from '../../shared/timeBreakdown'
 import { STUCK_RULE_TEXT } from '../stuck/config'
 import { firedAgainAfterRedirect } from '../stuck/ladder'
+import { mergedText } from '../../shared/merge'
 
 export interface ReadToolDeps {
   repos: Pick<Repos, 'runs' | 'decisions' | 'stuck' | 'lineups' | 'presets' | 'tickets'>
@@ -303,6 +304,8 @@ function describe(e: ThreadEvent, role: string, decisions: Map<string, Decision>
       return `Mainbus saved the report as ${oneLine(e.path)} and committed it on ${oneLine(e.branch)} (${e.commit.slice(0, 7)})`
     case 'pull_request':
       return `Mainbus pushed ${oneLine(e.branch)}${e.opened ? ' and opened' : ' for'} pull request #${e.number}: ${oneLine(e.url)}`
+    case 'merged':
+      return `${mergedText(e)}${e.commit ? `, ${e.base} is now at ${e.commit.slice(0, 7)}` : ''}`
     default:
       // thinking, usage, session, rate_limit, status, needs_input, vcs_changed: nothing the user needs.
       return null

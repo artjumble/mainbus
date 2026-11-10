@@ -1,6 +1,7 @@
-import { Stack, Switch, Text, Title } from '@mantine/core'
+import { SegmentedControl, Stack, Switch, Text, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
 import type { GhStatus, Workspace } from '../../../shared/domain'
+import { MERGE_METHOD_LABELS, MERGE_METHODS, type MergeMethod } from '../../../shared/merge'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
@@ -55,6 +56,19 @@ export function PullRequestSettings({ opened }: { opened: boolean }): ReactEleme
     }
   }
 
+  async function setMethod(method: MergeMethod): Promise<void> {
+    setSaving(true)
+    try {
+      const ws = await invoke('workspace.setMergeMethod', method)
+      setWorkspace(ws)
+      useMainbus.setState({ workspace: ws })
+    } catch (err) {
+      showError(err, 'Could not save the settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Stack gap="sm" component="section" aria-label="Pull requests">
       <Title order={3} size="h4">
@@ -69,6 +83,21 @@ export function PullRequestSettings({ opened }: { opened: boolean }): ReactEleme
         disabled={workspace === null || saving}
         onChange={(e) => void toggle(e.currentTarget.checked)}
       />
+      <Stack gap={4}>
+        <Text size="sm" fw={500}>
+          Merge pull requests with
+        </Text>
+        <SegmentedControl
+          aria-label="Merge pull requests with"
+          data={MERGE_METHODS.map((m) => ({ value: m, label: MERGE_METHOD_LABELS[m] }))}
+          value={workspace?.mergeMethod ?? 'merge'}
+          disabled={workspace === null || saving}
+          onChange={(v) => void setMethod(v as MergeMethod)}
+        />
+        <Text size="xs" c="dimmed">
+          How Merge… merges a ticket's pull request on GitHub, with your own gh login.
+        </Text>
+      </Stack>
       {gh !== null && !gh.ok && (
         <Text size="sm" c="needs.7">
           {`No PR can be opened: ${gh.reason}.`}

@@ -35,7 +35,9 @@ function ctx(over: { open?: Workspace | null; ticket?: Ticket | null; why?: stri
     answerDecision: async () => {},
     whyNotUpdatable: async () => null,
     freshnessOf: () => null,
-    updateFromMain: async () => {}
+    updateFromMain: async () => {},
+    mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+    mergeTicket: async () => { throw new Error('n/a') }
   }
   return c satisfies ExecContext
 }

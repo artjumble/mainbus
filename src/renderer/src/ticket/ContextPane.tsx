@@ -14,6 +14,7 @@ import { PERMISSION_ANSWERS } from '../thread/PermissionCard'
 import { AgentText } from '../thread/Thread'
 import { TimeSection } from './TimeSection'
 import { UsageSection } from './UsageSection'
+import { mergedText } from '../../../shared/merge'
 
 interface Props {
   ticket: BoardTicket
@@ -427,6 +428,12 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
         title: `${event.role} replaced${headline ? `: ${headline}` : ''}`,
         detail: by,
         links: [go.run('View previous run', runId), ...(event.proposalId ? [go.proposal(event.proposalId)] : [])]
+      })
+    } else if (event.kind === 'merged') {
+      entries.push({
+        at,
+        title: mergedText(event),
+        ...(event.proposalId ? { links: [go.proposal(event.proposalId)] } : {})
       })
     } else if (event.kind === 'stuck_failed') {
       const times = event.replacements === 1 ? 'once' : `${event.replacements} times`

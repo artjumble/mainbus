@@ -45,6 +45,7 @@ import type {
 } from './domain'
 import type { TicketTime, WorkspaceTimeReport } from './timeBreakdown'
 import type { UsageTotals } from './usageTotals'
+import type { MergeMethod, MergeOptions, MergeOutcome, MergePlan, MergePreview } from './merge'
 import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
 
@@ -195,6 +196,8 @@ export interface EngineCommands {
    * the agent intake (pipe, CLI, MCP) has no way to make Mainbus push.
    */
   'workspace.setOpenPrOnReview'(on: boolean, workspaceId?: string): Workspace
+  /** How Merge… merges a pull request: a merge commit (the default), a squash or a rebase. Renderer only, like the switch above. */
+  'workspace.setMergeMethod'(method: MergeMethod, workspaceId?: string): Workspace
   /**
    * "Save investigation reports in the repo" and its folder; what is left out stays as it is. A folder that leaves the
    * repo is refused with the reason. Like the switch above, only the renderer can reach it.
@@ -293,6 +296,17 @@ export interface EngineCommands {
    * into the branch. Refused unless the branch is behind and no role is working. Only the renderer can reach it.
    */
   'ticket.updateFromMain'(id: string): void
+  /**
+   * What Merge… would do to a ticket in Review, or why it can't: through its pull request on GitHub, or, with no remote or
+   * no pull request, into the local base branch. Changes nothing. Only the renderer can reach it.
+   */
+  'ticket.mergePreview'(id: string): MergePreview
+  /**
+   * Merge…: merges the ticket's pull request (gh, the workspace's merge method) or its branch into the local base, then
+   * moves it to Done unless `moveToDone` is false. Works the plan out again and refuses, changing nothing, if it differs
+   * from `expect`, the one the user saw. Only the renderer can reach it, and the orchestrator can only propose it.
+   */
+  'ticket.merge'(id: string, opts: MergeOptions & { expect: MergePlan }): MergeOutcome
   /** Where the ticket's time went, per run and role, from its stored events. */
   'ticket.time'(ticketId: string): TicketTime
   /**

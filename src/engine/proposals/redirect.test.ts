@@ -49,7 +49,9 @@ function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; 
     answerDecision: async () => {},
     whyNotUpdatable: async () => null,
     freshnessOf: () => null,
-    updateFromMain: async () => {}
+    updateFromMain: async () => {},
+    mergePreview: async () => ({ ok: false as const, reason: 'n/a', suggest: null }),
+    mergeTicket: async () => { throw new Error('n/a') }
   }
   return c satisfies ExecContext
 }

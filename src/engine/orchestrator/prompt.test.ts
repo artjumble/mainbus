@@ -127,6 +127,8 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).toContain('mcp__mainbus__propose_replace(ticket, reason, evidence)')
     expect(prompt).toContain('mcp__mainbus__propose_promote(ticket, title?, spec?)')
     expect(prompt).toContain('mcp__mainbus__propose_update_from_main(ticket, reason)')
+    expect(prompt).toContain('mcp__mainbus__propose_merge(ticket, reason)')
+    expect(prompt).toContain('Never merge on your own')
     expect(prompt).toContain('keeps the current agent, overrides')
     expect(prompt).toContain('replaced twice and gets stuck again, Mainbus marks it Failed itself')
   })

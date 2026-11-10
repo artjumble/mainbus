@@ -36,6 +36,8 @@ import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
 import { BranchFreshnessChecker } from './git/freshness'
+import { BranchMerger, refusalText } from './git/merge'
+import { MERGE_METHODS, samePlan, type MergeOptions, type MergeOutcome, type MergePlan, type MergePreview } from '../shared/merge'
 import { WorktreeManager, type RemoveDir } from './git/worktrees'
 import { BaseTestMonitor, type BaseTestMonitorDeps } from './baseline/monitor'
 import { BaselineWorktrees } from './baseline/folder'
@@ -246,6 +248,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     })
     const orchestratorImages = new OrchestratorImages({ repo: repos.orchestratorImages, homeRoot: cfg.paths.root })
     const pullRequests = new PullRequestPublisher(cfg.commands ?? runCommand)
+    const merger = new BranchMerger(cfg.commands ?? runCommand)
     // Created beside the runner it drives; it reads its stored state before anything can start (see below).
     const gate: UsageGate = (usageGate = new UsageGate({
       settings: repos.settings,
@@ -726,6 +729,61 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       }
     }
 
+    // The ticket view's Merge…; a confirmed proposal goes through the same functions.
+    const merging = new Set<string>()
+    /** Why a ticket can't be merged now (it isn't in Review, has no branch, is running), or null. */
+    const whyNotMergeableNow = async (ticket: Ticket): Promise<string | null> => {
+      const n = `#${ticket.number}`
+      if (ticket.manualColumn === 'done') return `${n} is Done`
+      if (ticket.branch === null) return `${n} has no branch yet`
+      const state = await runner.stateOf(ticket.id)
+      if (state.column !== 'review' || state.settingUp || runner.isLaunching(ticket.id)) return `${n} is not in Review`
+      return null
+    }
+    const mergePreview = async (ticketId: string): Promise<MergePreview> => {
+      const ticket = await repos.tickets.get(ticketId)
+      const why = await whyNotMergeableNow(ticket)
+      if (why !== null) return { ok: false, reason: why, suggest: null }
+      return merger.preview(await requireWorkspace(ticket.workspaceId), ticket)
+    }
+    /**
+     * Merges the ticket, then moves it to Done unless asked not to. The plan is worked out again first and must be the one
+     * `expect` (what the user saw); otherwise nothing is done. A refusal from GitHub or git throws and leaves the ticket in Review.
+     */
+    const mergeTicket = async (ticketId: string, opts: MergeOptions & { expect: MergePlan; proposalId?: string }): Promise<MergeOutcome> => {
+      if (merging.has(ticketId)) throw new Error('This ticket is already being merged')
+      merging.add(ticketId)
+      try {
+        const ticket = await repos.tickets.get(ticketId)
+        const ws = await requireWorkspace(ticket.workspaceId)
+        const preview = await mergePreview(ticketId)
+        if (!preview.ok) throw new Error(refusalText(preview))
+        if (!samePlan(preview.plan, opts.expect)) {
+          throw new Error('Something changed since you looked at this; look at what Merge… will do again')
+        }
+        const plan = preview.plan
+        const commit = await merger.merge(ws, plan, { deleteBranch: opts.deleteBranch === true && plan.kind === 'pull_request' })
+        await runner.recordMerged(ticketId, {
+          kind: 'merged',
+          base: ws.baseBranch,
+          via: plan.kind,
+          how: plan.kind === 'pull_request' ? plan.method : plan.how,
+          ...(plan.kind === 'pull_request' ? { number: plan.pr.number, url: plan.pr.url } : {}),
+          commit,
+          ...(opts.proposalId === undefined ? {} : { proposalId: opts.proposalId })
+        })
+        // A pull request merge happened on GitHub: fetch the base (as Update from main does). The user's checkout is not touched.
+        let fetchError: string | null = null
+        if (plan.kind === 'pull_request') fetchError = (await freshnessChecker.newestBase(ws, { fetch: true })).fetchError
+        void freshness.refresh(ws.id, { fetch: false }).catch(() => {})
+        const moved = opts.moveToDone === false ? 'not_asked' : await moveTicketToDone(ticketId)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return { plan, commit, moved, fetchError }
+      } finally {
+        merging.delete(ticketId)
+      }
+    }
+
     // Confirmed proposals are carried out here, by engine code, never by the orchestrator.
     const proposals = (proposalService = createProposalService({
       repo: repos.proposals,
@@ -781,6 +839,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         whyNotUpdatable: whyNotUpdatableNow,
         freshnessOf: (ticket) => freshness.statusOf(ticket.id),
         updateFromMain: (ticketId, expect) => updateFromMain(ticketId, expect),
+        mergePreview,
+        mergeTicket,
         draftPromotionSpec: draftPromotion,
         promoteTicket,
         async decision(id) {
@@ -1226,6 +1286,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
       },
+      'workspace.setMergeMethod': async (method, workspaceId) => {
+        const input = z.enum(MERGE_METHODS).parse(method)
+        const ws = await repos.workspaces.setMergeMethod((await requireWorkspace(workspaceId)).id, input)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return ws
+      },
       // Renderer-only too: the agent intake has no way to make Mainbus commit.
       'workspace.setReportSettings': async (settings, workspaceId) => {
         const input = z
@@ -1370,6 +1436,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.saveReport': (id) => runner.saveReport(id),
       'ticket.runSetup': (id) => runner.runSetupAgain(id),
       'ticket.updateFromMain': (id) => updateFromMain(id),
+      // Reached only through `invoke` (the renderer's IPC): the intake has no way to make Mainbus merge, and the orchestrator can only propose it.
+      'ticket.mergePreview': (id) => mergePreview(id),
+      'ticket.merge': (id, opts) => {
+        const input = z
+          .strictObject({ deleteBranch: z.boolean().optional(), moveToDone: z.boolean().optional(), expect: z.custom<MergePlan>((v) => typeof v === 'object' && v !== null) })
+          .parse(opts)
+        return mergeTicket(id, input)
+      },
 
       // Every run of the ticket, oldest first, so Start again keeps the earlier runs in view.
       'thread.get': async (ticketId) => {

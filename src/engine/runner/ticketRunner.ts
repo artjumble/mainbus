@@ -757,6 +757,15 @@ export class TicketRunner {
     return this.serial(ticketId, () => this.saveReportNow(ticketId, true))
   }
 
+  /** Records in the ticket's Activity that the user merged its branch (Merge…); in the latest run's thread, like its pull request. */
+  recordMerged(ticketId: string, event: Extract<ThreadEvent, { kind: 'merged' }>): Promise<void> {
+    return this.serial(ticketId, async () => {
+      const run = await this.repos.runs.latest(ticketId)
+      if (!run) return
+      await this.record(this.target(run, await this.repos.tickets.get(ticketId)), event)
+    })
+  }
+
   moveToDone(ticketId: string): Promise<'done' | 'dirty' | 'asked'> {
     return this.serial(ticketId, () => this.moveToDoneNow(ticketId))
   }

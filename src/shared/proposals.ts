@@ -1,6 +1,7 @@
 // Shared by the engine and the renderer: types only, no Node imports.
 import type { ImageRef } from './attachments'
 import type { Effort, IntentAddition, TicketKind } from './domain'
+import type { MergeOutcome, MergePlan } from './merge'
 import type { ModelSource } from './models'
 
 /**
@@ -9,7 +10,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace' | 'promote' | 'update_from_main'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace' | 'promote' | 'update_from_main' | 'merge'
 
 /**
  * Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress
@@ -208,6 +209,27 @@ export interface UpdateFromMainResult {
   base: string
   behind: number
   conflicts: string[]
+}
+
+/** The payload of a merge proposal: the ticket and exactly what merging it would do, as the user sees it on the card. */
+export interface MergePayload {
+  ticketId: string
+  number: number
+  title: string
+  plan: MergePlan
+  /** Always true: a confirmed merge moves the ticket to Done. */
+  moveToDone: boolean
+  /** Always false: the card has no way to delete the branch on GitHub. */
+  deleteBranch: boolean
+}
+
+export interface MergeResult {
+  ticketId: string
+  number: number
+  title: string
+  plan: MergePlan
+  commit: string | null
+  moved: MergeOutcome['moved']
 }
 
 /** What an answer proposal picks: a question's option by index (from 0), or a permission's choice. */

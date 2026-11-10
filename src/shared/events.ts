@@ -1,6 +1,7 @@
 // Shared by the engine and the renderer: types only, no Node imports.
 import type { ImageRef } from './attachments'
 import type { MentionRef } from './mentions'
+import type { LocalMergeHow, MergeMethod } from './merge'
 import type { AgentStatus, StuckRule, TicketEdit } from './domain'
 import type { Proposal } from './proposals'
 
@@ -89,6 +90,20 @@ export type ThreadEvent =
   | { kind: 'wake'; items: string[] }
   /** Mainbus pushed the ticket's branch; `opened` when it opened (or adopted) the pull request this time. */
   | { kind: 'pull_request'; branch: string; number: number; url: string; opened: boolean }
+  /**
+   * The user merged the ticket's branch into the base with Merge… (or by confirming a merge proposal): through its pull
+   * request on GitHub (`number`, `url`), or locally. `how` is the pull request's method or what the local merge did.
+   */
+  | {
+      kind: 'merged'
+      base: string
+      via: 'pull_request' | 'local'
+      how: MergeMethod | LocalMergeHow
+      number?: number
+      url?: string
+      commit: string | null
+      proposalId?: string
+    }
   /**
    * Mainbus ran the workspace's setup command in the ticket's folder. `tail` is the last 50 lines of its output and `log`
    * the file in the scratch folder that has all of it; `again` when the user asked for it with Run setup again.
