@@ -24,6 +24,7 @@
     "src/engine/**/*",
     "src/shared/**/*",
     "src/cli/**/*",
-    "e2e/**/*"
+    "e2e/**/*",
+    "scripts/site/**/*"
   ]
 }
