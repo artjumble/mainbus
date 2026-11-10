@@ -1,5 +1,5 @@
 import { Anchor, Box, Button, Collapse, Group, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
-import { useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { Decision } from '../../../shared/domain'
 import { shortDay } from '../../../shared/hold'
 import { invoke } from '../api'
@@ -10,6 +10,9 @@ import { QuestionForm } from '../thread/DecisionCard'
 import { showAgentError } from '../thread/agentError'
 import { PermissionChoices } from '../thread/PermissionCard'
 import { PermissionAsk } from '../thread/PermissionAsk'
+
+/** A permission command in the panel is capped at this many lines before Show all (the thread allows more). */
+const PANEL_MAX_LINES = 6
 
 interface Waiting {
   ticket: BoardTicket
@@ -80,7 +83,35 @@ export function WaitingOnYou(): ReactElement | null {
   const [receipts, setReceipts] = useState<Receipt[]>([])
   const waiting = useMemo(() => waitingOn(tickets), [tickets])
   const deferred = useMemo(() => deferredOn(tickets), [tickets])
+  const boxRef = useRef<HTMLDivElement>(null)
+  const seen = useRef<Set<string> | null>(null)
+  const lastTouched = useRef(0)
+  const [newId, setNewId] = useState<string | null>(null)
+
+  const reveal = (id: string) => {
+    const card = boxRef.current?.querySelector(`[data-decision-id="${id}"]`)
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    card?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }
+
+  // A decision that arrives after the panel is up is scrolled into view, unless the user is working in the group:
+  // then a pill offers it. Focus never moves.
+  useEffect(() => {
+    const ids = new Set(waiting.map((w) => w.decision.id))
+    const before = seen.current
+    seen.current = ids
+    setNewId((n) => (n && ids.has(n) ? n : null))
+    if (!before) return
+    const arrived = waiting.filter((w) => !before.has(w.decision.id)).at(-1)
+    if (!arrived) return
+    const box = boxRef.current
+    const busy = !!box && (box.contains(document.activeElement) || Date.now() - lastTouched.current < 4000)
+    if (busy) setNewId(arrived.decision.id)
+    else reveal(arrived.decision.id)
+  }, [waiting])
   if (waiting.length === 0 && deferred.length === 0 && receipts.length === 0) return null
+
+  const arrivedTicket = newId ? waiting.find((w) => w.decision.id === newId)?.ticket : undefined
 
   // A put-off decision calls this with no option; only an answer leaves a receipt.
   const answered = (ticket: BoardTicket, decision: Decision) => (option?: string) => {
@@ -90,23 +121,27 @@ export function WaitingOnYou(): ReactElement | null {
 
   return (
     <Box
+      ref={boxRef}
       px="sm"
       py="xs"
       mah="45%"
-      style={{ overflowY: 'auto', flexShrink: 0, borderBottom: '1px solid var(--mantine-color-default-border)' }}
+      data-waiting-box
+      onWheel={() => (lastTouched.current = Date.now())}
+      onTouchMove={() => (lastTouched.current = Date.now())}
+      style={{ overflowY: 'auto', flexShrink: 0, borderBottom: '1px solid var(--mantine-color-default-border)', position: 'relative' }}
     >
-      {receipts.length > 0 && (
-        <Stack gap={4} mb={waiting.length > 0 || deferred.length > 0 ? 'xs' : 0} role="status">
-          {receipts.map((r) => {
-            // The ticket's live phase: where the answer took it.
-            const phase = tickets.find((t) => t.id === r.ticketId)?.state.phase
-            return (
-              <Text key={r.id} size="sm" data-receipt>
-                {`✓ Answered: ${r.option}. ${r.title}${phase ? ` is back in ${phaseLabel(phase)}.` : ''}`}
-              </Text>
-            )
-          })}
-        </Stack>
+      {arrivedTicket && (
+        <Button
+          size="compact-xs"
+          radius="xl"
+          style={{ position: 'sticky', top: 0, zIndex: 2, display: 'block', margin: '0 auto 6px' }}
+          onClick={() => {
+            if (newId) reveal(newId)
+            setNewId(null)
+          }}
+        >
+          {`New: #${arrivedTicket.number} is waiting on you ↓`}
+        </Button>
       )}
       {waiting.length > 0 && (
         <Box role="region" aria-label="Waiting on you">
@@ -121,6 +156,7 @@ export function WaitingOnYou(): ReactElement | null {
                 p="sm"
                 radius="md"
                 data-event="waiting-decision"
+                data-decision-id={decision.id}
                 bd="1px solid var(--mantine-color-needs-6)"
               >
                 <Stack gap="xs">
@@ -130,8 +166,14 @@ export function WaitingOnYou(): ReactElement | null {
                   <Text size="xs" c="dimmed">
                     {`#${ticket.number}${ticket.lineup.find((r) => r.active)?.name ? ` · ${ticket.lineup.find((r) => r.active)!.name}` : ''}`}
                   </Text>
-                  <PermissionAsk decision={decision} />
-                  <Controls decision={decision} onAnswered={answered(ticket, decision)} />
+                  <PermissionAsk decision={decision} maxLines={PANEL_MAX_LINES} />
+                  {/* Sticky, so the answer buttons stay reachable when the card is taller than the group's box. */}
+                  <Box
+                    data-decision-actions
+                    style={{ position: 'sticky', bottom: 0, zIndex: 1, background: 'var(--mantine-color-body)' }}
+                  >
+                    <Controls decision={decision} onAnswered={answered(ticket, decision)} />
+                  </Box>
                   <Button variant="subtle" size="compact-sm" w="fit-content" mt={10} onClick={() => openTicket(ticket.id)}>
                     Open ticket for full context
                   </Button>
@@ -141,8 +183,21 @@ export function WaitingOnYou(): ReactElement | null {
           </Stack>
         </Box>
       )}
+      {receipts.length > 0 && (
+        <Stack gap={4} mt={waiting.length > 0 ? 'xs' : 0} mb={deferred.length > 0 ? 'xs' : 0} role="status">
+          {receipts.map((r) => {
+            // The ticket's live phase: where the answer took it.
+            const phase = tickets.find((t) => t.id === r.ticketId)?.state.phase
+            return (
+              <Text key={r.id} size="sm" data-receipt>
+                {`✓ Answered: ${r.option}. ${r.title}${phase ? ` is back in ${phaseLabel(phase)}.` : ''}`}
+              </Text>
+            )
+          })}
+        </Stack>
+      )}
       {deferred.length > 0 && (
-        <Box role="region" aria-label="Deferred" mt={waiting.length > 0 ? 'xs' : 0}>
+        <Box role="region" aria-label="Deferred" mt={waiting.length > 0 && receipts.length === 0 ? 'xs' : 0}>
           <UnstyledButton
             aria-expanded={showDeferred}
             onClick={() => setShowDeferred((o) => !o)}

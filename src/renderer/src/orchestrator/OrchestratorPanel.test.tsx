@@ -365,6 +365,88 @@ describe('Waiting on you', () => {
     act(() => useMainbus.setState({ tickets: [{ ...a, pendingDecisions: [] }, { ...b, pendingDecisions: [] }] }))
     expect(screen.queryByRole('region', { name: 'Waiting on you' })).not.toBeInTheDocument()
   })
+
+  describe('a new card', () => {
+    const longCommand = Array.from({ length: 40 }, (_, i) => `echo line ${i}`).join('\n')
+    const bashRequest = { role: 'Implementer', tool: 'Bash', command: longCommand, path: null, input: null, reason: null }
+    const realScroll = Element.prototype.scrollIntoView
+    afterEach(() => {
+      Element.prototype.scrollIntoView = realScroll
+    })
+
+    /** The board with one pending question, then a new long-command permission arriving on it. */
+    async function arrive(): Promise<{ t: BoardTicket; scroll: ReturnType<typeof vi.fn> }> {
+      history()
+      const t = makeTicket({ title: 'Login', pendingDecisions: [decision('q', '2026-11-01T10:00:00.000Z')] }, { column: 'needs_you' })
+      useMainbus.setState({ tickets: [t] })
+      const scroll = vi.fn()
+      Element.prototype.scrollIntoView = scroll
+      renderWithMantine(<Panel />)
+      await screen.findByRole('region', { name: 'Waiting on you' })
+      return { t, scroll }
+    }
+    const newPermission = (t: BoardTicket): BoardTicket => ({
+      ...t,
+      pendingDecisions: [
+        ...t.pendingDecisions,
+        decision('p', '2026-11-01T11:00:00.000Z', { kind: 'permission', options: [], request: bashRequest })
+      ]
+    })
+
+    test('is scrolled into view, its command capped at 6 lines with Show all, and its buttons in a sticky row', async () => {
+      const { t, scroll } = await arrive()
+      expect(scroll).not.toHaveBeenCalled()
+      act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+      await vi.waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
+      expect(scroll.mock.contexts[0]).toHaveAttribute('data-decision-id', 'p')
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' })
+      const group = screen.getByRole('region', { name: 'Waiting on you' })
+      expect(within(group).getByRole('button', { name: 'Show all' })).toBeInTheDocument()
+      const actions = group.querySelector('[data-decision-id="p"] [data-decision-actions]')!
+      expect(within(actions as HTMLElement).getByRole('button', { name: 'Allow once' })).toBeInTheDocument()
+      expect(screen.queryByText(/New: #/)).not.toBeInTheDocument()
+    })
+
+    test('jumps instead of smooth scrolling under reduced motion', async () => {
+      const realMatch = window.matchMedia
+      window.matchMedia = ((q: string) => ({ ...realMatch(q), matches: q.includes('reduce') })) as typeof window.matchMedia
+      try {
+        const { t, scroll } = await arrive()
+        act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+        await vi.waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' }))
+      } finally {
+        window.matchMedia = realMatch
+      }
+    })
+
+    test('does not scroll while focus is in the group; a New pill offers it instead', async () => {
+      const { t, scroll } = await arrive()
+      const group = screen.getByRole('region', { name: 'Waiting on you' })
+      within(group).getByRole('radio', { name: 'Yes' }).focus()
+      act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+      const pill = await screen.findByRole('button', { name: /New: #\d+ is waiting on you/ })
+      expect(scroll).not.toHaveBeenCalled()
+      await userEvent.click(pill)
+      expect(scroll).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /New: #/ })).not.toBeInTheDocument()
+    })
+
+    test('pending cards come before receipts', async () => {
+      const { t } = await arrive()
+      await userEvent.click(screen.getByRole('radio', { name: 'No' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+      act(() => useMainbus.setState({ tickets: [{ ...newPermission(t), pendingDecisions: newPermission(t).pendingDecisions.slice(1) }] }))
+      const card = document.querySelector('[data-decision-id="p"]')!
+      const receipt = document.querySelector('[data-receipt]')!
+      expect(card.compareDocumentPosition(receipt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    test('has no axe violations', async () => {
+      const { t } = await arrive()
+      act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+      await expectNoAxeViolations(document.body)
+    })
+  })
 })
 
 describe('Deferred group', () => {
