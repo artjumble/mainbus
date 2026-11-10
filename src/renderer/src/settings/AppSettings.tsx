@@ -5,6 +5,7 @@ import { invoke } from '../api'
 import { UsageTotalsView } from '../ticket/UsageSection'
 import { OrchestratorSettings } from './OrchestratorSettings'
 import { ThemeSettings } from './ThemeSettings'
+import { VoiceSettings } from './VoiceSettings'
 
 interface Props {
   opened: boolean
@@ -49,6 +50,9 @@ export function AppSettings({ opened, onClose }: Props): ReactElement {
         </Section>
         <Section title="Orchestrator">
           <OrchestratorSettings opened={opened} />
+        </Section>
+        <Section title="Voice input">
+          <VoiceSettings opened={opened} />
         </Section>
         <Section title="Usage" label="Orchestrator usage">
           <OrchestratorUsage opened={opened} />

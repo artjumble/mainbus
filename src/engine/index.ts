@@ -85,6 +85,8 @@ import { UsageGate, usageHooks } from './runner/usageGate'
 import { resolveClaude, type ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
 import { createRepos } from './store'
+import { createVoiceModels } from './voice/models'
+import { VOICE_MODELS, type VoiceModelSpec } from '../shared/voice'
 
 /** Thrown by agent commands when Claude Code isn't set up (no usable `claude` binary, or not logged in). */
 export class SetupRequiredError extends Error {
@@ -131,6 +133,10 @@ export interface EngineConfig {
   usageRetryMs?: number
   /** How long drafting a promoted ticket's spec may take before the report stands in; as long as a skip's summary by default (tests shorten it). */
   promoteSummaryTimeoutMs?: number
+  /** Downloads the voice models; tests pass a fake. Defaults to the global fetch. */
+  fetch?: typeof fetch
+  /** The voice models that may be downloaded; tests pass a tiny one. */
+  voiceModels?: VoiceModelSpec[]
 }
 
 export interface Engine {
@@ -181,6 +187,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
   const handle = await openDb(cfg.paths, cfg.migrationsDir)
   try {
     const repos = createRepos(handle.db, now)
+    const voiceModels = createVoiceModels({
+      dir: cfg.paths.models,
+      fetch: cfg.fetch ?? ((input, init) => globalThis.fetch(input, init)),
+      manifest: cfg.voiceModels ?? VOICE_MODELS,
+      emit: (e) => emit(e)
+    })
     const listeners = new Set<(e: EngineEvent) => void>()
     // One unattended mode per workspace, created below once the runner they drive exists; each sees every event
     // before the listeners do.
@@ -1623,6 +1635,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'theme.changed', theme: settings.theme })
         return settings
       },
+      'settings.setVoice': async (patch) => {
+        const settings = await repos.settings.setVoice(patch)
+        emit({ type: 'voice.changed', voice: settings.voice })
+        return settings
+      },
+      'voice.models': () => voiceModels.statuses(),
+      'voice.downloadModel': (id) => voiceModels.download(id),
+      'voice.cancelDownload': (id) => voiceModels.cancel(id),
+      'voice.removeModel': (id) => voiceModels.remove(id),
       'settings.setMatchWindowsTheme': async (scheme, id) => {
         const settings = await repos.settings.setMatchWindowsTheme(scheme, id)
         emit({ type: 'theme.changed', theme: settings.theme })

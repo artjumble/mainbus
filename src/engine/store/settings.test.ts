@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../db/open'
 import { appSettings } from '../db/schema'
+import { VOICE_DEFAULTS } from '../../shared/voice'
 import { createSettingsRepo } from './settings'
 import { openTestDb } from './testDb'
 
@@ -18,18 +19,18 @@ const ORCHESTRATOR = { orchestratorModel: 'opus', orchestratorEffort: 'medium', 
 
 describe('settings repo', () => {
   it('allows three agents at once until the user says otherwise', async () => {
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT, voice: VOICE_DEFAULTS })
   })
 
   it('stores the number of agents, and a second repo over the same database reads it', async () => {
-    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
+    expect(await createSettingsRepo(db).setMaxAgents(5)).toEqual({ maxAgents: 5, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT, voice: VOICE_DEFAULTS })
     await createSettingsRepo(db).setMaxAgents(1)
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 1, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT, voice: VOICE_DEFAULTS })
   })
 
   it.each([0, 11, 2.5, -1, Number.NaN, '3' as unknown as number])('refuses %s', async (n) => {
     await expect(createSettingsRepo(db).setMaxAgents(n)).rejects.toThrow('from 1 to 10')
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT, voice: VOICE_DEFAULTS })
   })
 
   it('keeps the usage limit across a second repo, and clears it', async () => {
@@ -41,12 +42,12 @@ describe('settings repo', () => {
     await createSettingsRepo(db).setUsageLimit(null)
     expect(await createSettingsRepo(db).usageLimit()).toBeNull()
     // The agent cap is untouched.
-    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
+    expect(await createSettingsRepo(db).get()).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT, voice: VOICE_DEFAULTS })
   })
 
   it('keeps running in the tray when the window closes until the user says otherwise, and remembers the choice', async () => {
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
-    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT })
+    expect(await createSettingsRepo(db).setWhenClosed('quit')).toEqual({ maxAgents: 3, whenClosed: 'quit', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: LIGHT, voice: VOICE_DEFAULTS })
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('quit')
     await createSettingsRepo(db).setWhenClosed('tray')
     expect((await createSettingsRepo(db).get()).whenClosed).toBe('tray')
@@ -96,7 +97,7 @@ describe('settings repo', () => {
 
   it('draws the app in Light until the user picks, and remembers each theme and Match Windows', async () => {
     expect((await createSettingsRepo(db).get()).theme).toEqual(LIGHT)
-    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: { ...LIGHT, choice: 'dark' } })
+    expect(await createSettingsRepo(db).setTheme('dark')).toEqual({ maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, ...ORCHESTRATOR, theme: { ...LIGHT, choice: 'dark' }, voice: VOICE_DEFAULTS })
     for (const choice of ['night-owl', 'light-owl', 'system', 'dark', 'light'] as const) {
       await createSettingsRepo(db).setTheme(choice)
       expect((await createSettingsRepo(db).get()).theme).toEqual({ ...LIGHT, choice })
@@ -150,6 +151,29 @@ describe('settings repo', () => {
     await createSettingsRepo(db).setMaxAgents(1)
     expect((await createSettingsRepo(db).get()).maxAgents).toBe(1)
   })
+})
+
+describe('voice input settings', () => {
+  it('is on with the base model, automatic language and the default microphone', async () => {
+    expect((await createSettingsRepo(db).get()).voice).toEqual({ enabled: true, model: 'whisper-base', language: 'auto', microphone: '' })
+  })
+
+  it('stores each setting, keeps the others, and reads them back from a second repo', async () => {
+    await createSettingsRepo(db).setVoice({ enabled: false })
+    await createSettingsRepo(db).setVoice({ model: 'whisper-small', language: 'de' })
+    const settings = await createSettingsRepo(db).setVoice({ microphone: 'device-1' })
+    expect(settings.voice).toEqual({ enabled: false, model: 'whisper-small', language: 'de', microphone: 'device-1' })
+    expect((await createSettingsRepo(db).get()).voice).toEqual(settings.voice)
+  })
+
+  it.each([[{ enabled: 'yes' }], [{ model: 'whisper-huge' }], [{ language: 'klingon' }], [{ microphone: 'x'.repeat(257) }]])(
+    'refuses %j and changes nothing',
+    async (patch) => {
+      const repo = createSettingsRepo(db)
+      await expect(repo.setVoice(patch as never)).rejects.toThrow()
+      expect((await repo.get()).voice).toEqual(VOICE_DEFAULTS)
+    }
+  )
 })
 
 describe('the review of finished tickets', () => {

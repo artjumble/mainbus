@@ -4,7 +4,8 @@ import {
   launchMaximizedFromEnv,
   testClockStartFromEnv,
   testReposFromEnv as testRepoFromEnv,
-  trayTestHookFromEnv
+  trayTestHookFromEnv,
+  voiceFakeFromEnv
 } from './testHooks'
 
 const test_env = { MAINBUS_HOME: '/tmp/h', MAINBUS_RUNTIME: 'fake:e2e/script.json', MAINBUS_TEST_REPO: '/tmp/repo' }
@@ -78,5 +79,20 @@ describe('launchMaximizedFromEnv', () => {
   test('is off in a scripted test run unless the test asks for it', () => {
     expect(launchMaximizedFromEnv(test_env)).toBe(false)
     expect(launchMaximizedFromEnv({ ...test_env, MAINBUS_TEST_MAXIMIZED: '1' })).toBe(true)
+  })
+})
+
+describe('voiceFakeFromEnv', () => {
+  const env = { ...test_env, MAINBUS_TEST_VOICE: 'fake' }
+
+  test('is on with a test home, a fake runtime and MAINBUS_TEST_VOICE=fake', () => {
+    expect(voiceFakeFromEnv(env)).toBe(true)
+  })
+
+  test('is off without the variable, with another value, without MAINBUS_HOME or without a fake runtime', () => {
+    expect(voiceFakeFromEnv(test_env)).toBe(false)
+    expect(voiceFakeFromEnv({ ...env, MAINBUS_TEST_VOICE: 'real' })).toBe(false)
+    expect(voiceFakeFromEnv({ ...env, MAINBUS_HOME: undefined })).toBe(false)
+    expect(voiceFakeFromEnv({ ...env, MAINBUS_RUNTIME: undefined })).toBe(false)
   })
 })

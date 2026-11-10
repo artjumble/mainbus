@@ -1,4 +1,5 @@
-import { Anchor, Badge, Box, Button, Checkbox, Code, Group, List, Stack, Text, Textarea, Timeline, Title } from '@mantine/core'
+import { Anchor, Badge, Box, Button, Checkbox, Code, Group, List, Stack, Text, Timeline, Title } from '@mantine/core'
+import { DictationTextarea } from '../voice/DictationTextarea'
 import { useState, type ReactElement, type ReactNode } from 'react'
 import { ANSWERED_VIA_PHRASES, type BranchFreshness, type Criterion, type Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
@@ -120,14 +121,14 @@ function YourWords({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolea
           ))}
           {!readOnly && (
             <>
-              <Textarea
+              <DictationTextarea
                 aria-label="Add to your words"
                 placeholder="Add to your words"
                 autosize
                 minRows={2}
                 maxRows={6}
                 value={adding}
-                onChange={(e) => setAdding(e.currentTarget.value)}
+                onValueChange={setAdding}
               />
               <Button w="fit-content" size="compact-sm" disabled={adding.trim() === ''} loading={saving} onClick={() => void add()}>
                 Add
@@ -204,14 +205,14 @@ function Spec({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }):
 
   return (
     <Stack gap="xs">
-      <Textarea
+      <DictationTextarea
         label="Spec"
         autosize
         minRows={3}
         maxRows={14}
         value={draft ?? ticket.spec}
         readOnly={readOnly}
-        onChange={(e) => setDraft(e.currentTarget.value)}
+        onValueChange={setDraft}
       />
       {!readOnly && (
         <Button w="fit-content" size="compact-sm" disabled={!dirty} loading={saving} onClick={() => void save()}>

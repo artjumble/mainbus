@@ -1,4 +1,5 @@
 // Shared by the engine and the renderer: types and a few constants, no Node imports.
+import type { VoiceSettings } from './voice'
 
 export type Column = 'backlog' | 'ready' | 'in_progress' | 'needs_you' | 'review' | 'done'
 
@@ -40,6 +41,8 @@ export interface AppSettings {
   orchestratorModel: OrchestratorFamily
   /** The orchestrator's effort. Medium by default. */
   orchestratorEffort: Effort
+  /** "Voice input": the mic buttons in long-form fields, and how they turn speech into text. */
+  voice: VoiceSettings
   /** "Review finished tickets for follow-ups": whether the orchestrator looks at each ticket that ran when it reaches Done. On by default. */
   reviewDoneTickets: boolean
   /** How many minutes after the last ticket reached Done the review turn waits, so a run of merges is one review. */

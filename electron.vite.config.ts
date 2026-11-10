@@ -10,7 +10,7 @@ const relaxCspInDev: Plugin = {
   transformIndexHtml(html) {
     return html.replace(
       /<meta\s+http-equiv="Content-Security-Policy"[^>]*>/,
-      `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*" />`
+      `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' mainbus-model: ws://localhost:* http://localhost:*" />`
     )
   }
 }

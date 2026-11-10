@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as sdk from '@anthropic-ai/claude-agent-sdk'
-import { app, BrowserWindow, dialog, nativeTheme, powerSaveBlocker, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, net, powerSaveBlocker, protocol, session, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runCommand, type CommandRunner } from '../engine/git/command'
 import { FakeGh } from '../engine/git/fakeGh'
@@ -26,7 +26,9 @@ import { agentLauncher } from './launcher'
 import { TrayController } from './tray/controller'
 import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenuShortcut, filePrefs, realTimer } from './tray/electron'
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
-import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv } from './testHooks'
+import { MODEL_SCHEME, modelFilePath } from './modelProtocol'
+import { allowPermission } from './permissions'
+import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv, voiceFakeFromEnv } from './testHooks'
 import { mainWindowOptions } from './windowOptions'
 import { WindowTheme } from './windowTheme'
 
@@ -87,6 +89,14 @@ function startTray(running: Engine): void {
 /** The one page the window may show: the dev server in dev, the built renderer otherwise. */
 function appUrl(): string {
   return process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(path.join(import.meta.dirname, '../renderer/index.html')).href
+}
+
+/** The address the window loads: the app's page, and with the fake voice test hook a query that makes the page use a fake transcriber. */
+function pageUrl(page: string): string {
+  if (!voiceFakeFromEnv(process.env)) return page
+  const url = new URL(page)
+  url.searchParams.set('voice', 'fake')
+  return url.href
 }
 
 /** Keeps the machine from sleeping while unattended mode has work under way; the engine starts and stops it. */
@@ -173,7 +183,7 @@ function createWindow(): BrowserWindow {
   if (menuHook) (globalThis as { __mainbusContextMenu?: unknown }).__mainbusContextMenu = menuHook
   attachContextMenu(win.webContents, win.webContents.session, menuHook ? (items) => (menuHook.last = items) : undefined)
 
-  void win.loadURL(home)
+  void win.loadURL(pageUrl(home))
   return win
 }
 
@@ -215,6 +225,13 @@ const home = resolveHome(
 )
 app.setPath('userData', path.join(home.root, 'electron'))
 
+// The speech worker reads the downloaded models through mainbus-model://models/<model>/<file>, a scheme only this app serves.
+protocol.registerSchemesAsPrivileged([
+  { scheme: MODEL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }
+])
+// End-to-end tests only: Chromium's own fake microphone, so no test uses a real one.
+if (voiceFakeFromEnv(process.env)) app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+
 const icons = iconDir({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
 const windowIcon = windowIconFile(icons)
 
@@ -235,6 +252,30 @@ if (!app.requestSingleInstanceLock()) {
       const clockStart = testClockStartFromEnv(process.env)
       const clock = clockStart ? new FakeClock(clockStart) : undefined
       if (clock) (globalThis as { __mainbusClock?: FakeClock }).__mainbusClock = clock
+      protocol.handle(MODEL_SCHEME, async (request) => {
+        const file = request.method === 'GET' ? modelFilePath(request.url, home.models) : null
+        if (!file) return new Response('Not found', { status: 404 })
+        const res = await net.fetch(pathToFileURL(file).href).catch(() => null)
+        if (!res?.ok) return new Response('Not found', { status: 404 })
+        // The page is a file:// or localhost origin, so the worker's fetch is cross-origin.
+        const headers = new Headers(res.headers)
+        headers.set('Access-Control-Allow-Origin', '*')
+        return new Response(res.body, { status: 200, headers })
+      })
+      // Only the app's own page gets a permission, and of the camera and microphone only the microphone.
+      const allowed = (permission: string, details: Parameters<typeof allowPermission>[1], fallbackUrl: string): boolean => {
+        try {
+          return allowPermission(permission, { ...details, requestingUrl: details.requestingUrl ?? fallbackUrl }, appUrl())
+        } catch {
+          return false
+        }
+      }
+      session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+        callback(allowed(permission, details as Parameters<typeof allowPermission>[1], webContents.getURL()))
+      })
+      session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) =>
+        allowed(permission, details as Parameters<typeof allowPermission>[1], webContents?.getURL() ?? '')
+      )
       const { runtime, exec, commands } = await chooseRuntime(clock)
       engine = await createEngine({
         paths: home,

@@ -1,4 +1,5 @@
-import { Anchor, Stack, Text, Textarea } from '@mantine/core'
+import { Anchor, Stack, Text } from '@mantine/core'
+import { DictationTextarea } from '../voice/DictationTextarea'
 import type { ReactElement } from 'react'
 import type { RedirectOverride, RedirectPayload, RedirectResult } from '../../../shared/proposals'
 import { useMainbus } from '../store'
@@ -31,7 +32,7 @@ function Body({ payload }: { payload: RedirectPayload }): ReactElement {
 
 function Editor({ value, onChange }: { value: RedirectEdit; onChange: (v: RedirectEdit) => void }): ReactElement {
   return (
-    <Textarea label="Message to the agent" autosize minRows={2} value={value.message} onChange={(e) => onChange({ message: e.currentTarget.value })} />
+    <DictationTextarea label="Message to the agent" autosize minRows={2} value={value.message} onValueChange={(message) => onChange({ message })} />
   )
 }
 

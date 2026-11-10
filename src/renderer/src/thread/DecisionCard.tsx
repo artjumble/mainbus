@@ -1,4 +1,5 @@
-import { Badge, Button, Group, Paper, Radio, Stack, Text, Textarea } from '@mantine/core'
+import { Badge, Button, Group, Paper, Radio, Stack, Text } from '@mantine/core'
+import { DictationTextarea } from '../voice/DictationTextarea'
 import { useState, type ReactElement } from 'react'
 import type { CardVia, Decision, DecisionAnswer } from '../../../shared/domain'
 import { deferredLabel } from '../../../shared/hold'
@@ -67,14 +68,14 @@ export function QuestionForm({
           ))}
         </Stack>
       </Radio.Group>
-      <Textarea
+      <DictationTextarea
         label="Note to agent (optional)"
         placeholder="Anything it should know"
         autosize
         minRows={1}
         maxRows={4}
         value={note}
-        onChange={(e) => setNote(e.currentTarget.value)}
+        onValueChange={setNote}
       />
       <Group gap="xs">
         <Button flex={1} disabled={choice === null} loading={sending} onClick={() => void submit()}>
