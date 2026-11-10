@@ -1,0 +1,14 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-orchestrator-model" } },
+    { "expectModel": { "model": "opus", "effort": "medium" } },
+    { "emit": { "kind": "message", "text": "First reply, on Opus at medium effort." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "expectModel": { "model": "sonnet", "effort": "high" } },
+    { "emit": { "kind": "message", "text": "Second reply, on Sonnet at high effort, in the same conversation." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}

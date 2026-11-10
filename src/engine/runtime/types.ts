@@ -1,6 +1,7 @@
 import type { ImageMime } from '../../shared/attachments'
 import type { Effort } from '../../shared/domain'
 import type { AgentEvent, ModelUsage, UsageEvent } from '../../shared/events'
+import type { SupportedModel } from '../../shared/orchestratorModel'
 
 /** What the in-process role tools (ask_user, handoff or submit_report, report_problem, report_waiting, check_criterion) call back into. */
 export interface RoleToolHandlers {
@@ -157,6 +158,13 @@ export interface AgentRuntime {
    * Rejects on an error, an empty answer or the timeout.
    */
   summarize(req: SummaryRequest): Promise<string>
+  /**
+   * The models the user's `claude` binary and subscription offer, as its own model list has them. Starts the binary
+   * in `cwd` without sending anything. Rejects when the list can't be read.
+   */
+  supportedModels?(cwd: string): Promise<SupportedModel[]>
+  /** Changes the model and effort of the run's next turns, keeping its conversation. Rejects when the run can't. */
+  setModelEffort?(run: RunHandle, model: string, effort: Effort): Promise<void>
 }
 
 /** `start()` with a `resumeSessionId` rejects with this when the session cannot be resumed. */

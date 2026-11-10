@@ -36,9 +36,16 @@ export interface AppSettings {
   theme: ThemeSetting
   /** "Let the orchestrator read web pages": whether it may use WebFetch and WebSearch. On by default. */
   orchestratorWebAccess: boolean
+  /** The orchestrator's model: the latest of this family that the user's `claude` offers. Opus by default. */
+  orchestratorModel: OrchestratorFamily
+  /** The orchestrator's effort. Medium by default. */
+  orchestratorEffort: Effort
 }
 
 export const ORCHESTRATOR_WEB_ACCESS_DEFAULT = true
+
+/** The model families the orchestrator may run (see orchestratorModel.ts). */
+export type OrchestratorFamily = 'fable' | 'opus' | 'sonnet'
 
 export type WhenClosed = 'tray' | 'quit'
 export const WHEN_CLOSED_DEFAULT: WhenClosed = 'tray'

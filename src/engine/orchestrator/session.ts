@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import type { Proposal } from '../../shared/proposals'
 import type { ImageRef } from '../../shared/attachments'
-import type { EditedField, IntentAddition, Ticket, TicketEdit, Workspace } from '../../shared/domain'
+import type { EditedField, Effort, IntentAddition, Ticket, TicketEdit, Workspace } from '../../shared/domain'
 import { describeEdit } from '../../shared/ticketEdit'
 import { sessionUsageSoFar } from '../../shared/usageTotals'
 import { parseEditInput, type EditInput } from '../tickets/edit'
@@ -31,7 +31,8 @@ import {
 import { isUsageLimitText, type UsageLimit } from '../runner/usageLimit'
 import type { OrchestratorRepo } from '../store/orchestrator'
 import type { Wake, WakeRepo } from '../store/wakes'
-import { ORCHESTRATOR_DISALLOWED, ORCHESTRATOR_EFFORT, ORCHESTRATOR_MODEL } from './config'
+import { ORCHESTRATOR_DISALLOWED } from './config'
+import { ORCHESTRATOR_EFFORT_DEFAULT, ORCHESTRATOR_MODEL_DEFAULT } from '../../shared/orchestratorModel'
 import { withHeader } from './header'
 import { oneLine } from '../roles/prompt'
 import { mentionsLine, resolveMentions } from './mentions'
@@ -157,6 +158,11 @@ export interface OrchestratorDeps {
   wakeItems: (
     rows: Wake[]
   ) => Promise<{ presented: { row: Wake; item: WakeItem }[]; gone: Wake[]; open: OpenDecision[] }>
+  /**
+   * The model and effort the user chose for it, read at the start of every turn: a change applies from the next turn.
+   * Without it, Opus at medium effort.
+   */
+  modelEffort?: () => Promise<{ model: string; effort: Effort }>
   /** An orchestrator turn ended: for a wake turn, `finished` is false when it failed or was interrupted. The wake queue starts the next turn from it. */
   onTurnEnded?: (finished: boolean) => void
 }
@@ -170,6 +176,9 @@ interface Live {
   done: Promise<void>
   /** The folders the session was started able to read; the SDK fixes them at launch. */
   readableKey: string
+  /** The model and effort its next turn runs with. */
+  model: string
+  effort: Effort
   /** Ended on purpose to relaunch with other folders: not a failure, and nothing is recorded for it. */
   retired?: boolean
 }
@@ -361,6 +370,10 @@ export class OrchestratorSession {
     // The SDK fixes the folders a session can read at launch: a workspace opened or removed since means starting it
     // again (resuming the same conversation), so every repo stays readable.
     if (this.live && this.live.readableKey !== (await this.readable()).key) await this.retire(this.live)
+    // A model or effort chosen since the last turn applies from this one, in the same conversation. No turn is under
+    // way here: a message waits for the turn to end, and a wake turn waits too.
+    const chosen = await this.modelEffort()
+    if (this.live && (this.live.model !== chosen.model || this.live.effort !== chosen.effort)) await this.switchModel(this.live, chosen)
     if (this.live) {
       // The panel shows what the user typed; the agent gets it with the header.
       const live = this.live
@@ -387,7 +400,7 @@ export class OrchestratorSession {
     try {
       if (open?.sessionId) {
         try {
-          await this.launch(runId, ws, wrap(prompt), images, open.sessionId)
+          await this.launch(runId, ws, chosen, wrap(prompt), images, open.sessionId)
           return
         } catch (err) {
           if (!(err instanceof ResumeFailedError)) throw err
@@ -397,10 +410,10 @@ export class OrchestratorSession {
         runId = (await this.deps.repo.create()).id
         await this.record(runId, { kind: 'notice', text: RESUME_FAILED_NOTICE })
         // The earlier messages' images are named with their paths, not sent again; this message's go with it.
-        await this.launch(runId, ws, wrap(`${conversationDigest(this.withImagePaths(earlier))}\n\n${prompt}`), images)
+        await this.launch(runId, ws, chosen, wrap(`${conversationDigest(this.withImagePaths(earlier))}\n\n${prompt}`), images)
         return
       }
-      await this.launch(runId, ws, wrap(prompt), images)
+      await this.launch(runId, ws, chosen, wrap(prompt), images)
     } catch (err) {
       this.turn = null
       await this.record(runId, { kind: 'error', message: errorText(err) }).catch(() => {})
@@ -648,6 +661,28 @@ export class OrchestratorSession {
     if (this.live === live) this.live = null
   }
 
+  private modelEffort(): Promise<{ model: string; effort: Effort }> {
+    return this.deps.modelEffort?.() ?? Promise.resolve({ model: ORCHESTRATOR_MODEL_DEFAULT, effort: ORCHESTRATOR_EFFORT_DEFAULT })
+  }
+
+  /**
+   * Moves the live session to another model and effort for its next turns: through the runtime's model change when it
+   * has one, else (or when that fails) by ending it, so the turn resumes the same conversation with them.
+   */
+  private async switchModel(live: Live, chosen: { model: string; effort: Effort }): Promise<void> {
+    if (this.deps.runtime.setModelEffort) {
+      try {
+        await this.deps.runtime.setModelEffort(live.handle, chosen.model, chosen.effort)
+        live.model = chosen.model
+        live.effort = chosen.effort
+        return
+      } catch {
+        // Resumed below instead.
+      }
+    }
+    await this.retire(live)
+  }
+
   /** The user messages among `events` with their images' names and paths before their words, for a digest. */
   private withImagePaths(events: StoredEvent[]): StoredEvent[] {
     return events.map((e) => {
@@ -665,7 +700,14 @@ export class OrchestratorSession {
     })
   }
 
-  private async launch(runId: string, ws: Workspace, prompt: string, images: PromptImage[], resumeSessionId?: string): Promise<void> {
+  private async launch(
+    runId: string,
+    ws: Workspace,
+    chosen: { model: string; effort: Effort },
+    prompt: string,
+    images: PromptImage[],
+    resumeSessionId?: string
+  ): Promise<void> {
     const cwd = this.folder
     const { folders: readable, ticketFolders, attachmentFolders, key } = await this.readable()
     const spec: OrchestratorRunSpec = {
@@ -674,8 +716,8 @@ export class OrchestratorSession {
       prompt,
       ...(images.length > 0 ? { promptImages: images } : {}),
       appendSystemPrompt: buildOrchestratorPrompt(ticketFolders, attachmentFolders),
-      model: ORCHESTRATOR_MODEL,
-      effort: ORCHESTRATOR_EFFORT,
+      model: chosen.model,
+      effort: chosen.effort,
       additionalDirectories: readable,
       disallowedTools: ORCHESTRATOR_DISALLOWED,
       ...(resumeSessionId !== undefined
@@ -706,7 +748,7 @@ export class OrchestratorSession {
       await this.deps.runtime.stop(handle).catch(() => {})
       return
     }
-    const live: Live = { runId, handle, done: Promise.resolve(), readableKey: key }
+    const live: Live = { runId, handle, done: Promise.resolve(), readableKey: key, model: chosen.model, effort: chosen.effort }
     this.live = live
     live.done = this.pump(live)
   }

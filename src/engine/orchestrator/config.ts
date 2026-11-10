@@ -1,9 +1,4 @@
-import type { Effort } from '../../shared/domain'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
-
-/** The orchestrator's model and effort. There is no setting for them yet. */
-export const ORCHESTRATOR_MODEL = 'opus'
-export const ORCHESTRATOR_EFFORT: Effort = 'medium'
 
 /**
  * Named as well as left out of its built-in tools, in case a later binary adds one back: everything a role may
