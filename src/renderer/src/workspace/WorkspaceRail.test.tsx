@@ -96,7 +96,10 @@ test('+ Add workspace explains trust, then opens the chosen folder', async () =>
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   const dialog = await screen.findByRole('dialog')
   expect(within(dialog).getByText(/treats the folder you pick as\s+trusted/)).toBeInTheDocument()
-  expect(within(dialog).getByText(/own copies of the repo/)).toBeInTheDocument()
+  expect(within(dialog).getByText(/own copy of the project/)).toBeInTheDocument()
+  expect(within(dialog).getByText(/Pick the folder of the project/)).toBeInTheDocument()
+  expect(within(dialog).getByText(/Mainbus can set one up/)).toBeInTheDocument()
+  expect(dialog).not.toHaveTextContent(/folder of the git repository/)
 
   await userEvent.click(within(dialog).getByRole('button', { name: 'Choose folder…' }))
   expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo')

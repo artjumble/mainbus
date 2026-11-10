@@ -316,10 +316,13 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
         <GitSetup readiness={notReady} onDone={close} onCancel={close} />
       ) : (
       <Stack gap="md">
-        <Text>Pick the folder of the git repository you want to work on.</Text>
+        <Text>
+          Pick the folder of the project you want to work on. If it isn't a git repository yet, Mainbus can set one up
+          for you.
+        </Text>
         <Text size="sm" c="dimmed">
           Claude Code can't ask you to trust a folder while Mainbus runs it, so Mainbus treats the folder you pick as
-          trusted. Its agents work in their own copies of the repo, one folder per ticket, never in your checkout.
+          trusted. Its agents work in their own copy of the project, one folder per ticket, never in your checkout.
         </Text>
         {error && (
           <Alert color="red" role="alert">
