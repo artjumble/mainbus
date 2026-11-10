@@ -1,6 +1,7 @@
-import { Anchor, Badge, Box, Button, Code, Collapse, Group, Loader, Paper, Stack, Text, Typography, UnstyledButton } from '@mantine/core'
+import { Anchor, Badge, Box, Button, Checkbox, Code, Collapse, Group, Loader, Paper, Stack, Table, Text, Typography, UnstyledButton } from '@mantine/core'
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import Markdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Decision } from '../../../shared/domain'
 import type { StoredEvent, ThreadEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
@@ -574,14 +575,33 @@ const AGENT_TEXT_COMPONENTS: Components = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
   img: ({ alt }) => <span>{alt}</span>,
   pre: ({ children }) => <>{children}</>,
-  code: ({ node: _node, className, children }) => <AgentCode className={className}>{children}</AgentCode>
+  code: ({ node: _node, className, children }) => <AgentCode className={className}>{children}</AgentCode>,
+  // A wide table scrolls inside its own box, so it never widens the thread.
+  table: ({ node: _node, children }) => (
+    <Box className={classes.tableScroll} tabIndex={0} role="region" aria-label="Table">
+      <Table withTableBorder withColumnBorders fz="sm" verticalSpacing={4} horizontalSpacing="xs" className={classes.table}>
+        {children}
+      </Table>
+    </Box>
+  ),
+  thead: ({ node: _node, children }) => <Table.Thead>{children}</Table.Thead>,
+  tbody: ({ node: _node, children }) => <Table.Tbody>{children}</Table.Tbody>,
+  tr: ({ node: _node, children }) => <Table.Tr>{children}</Table.Tr>,
+  th: ({ node: _node, children, style }) => <Table.Th style={style}>{children}</Table.Th>,
+  td: ({ node: _node, children, style }) => <Table.Td style={style}>{children}</Table.Td>,
+  // A task list's checkbox is read-only: the only input GFM makes.
+  input: ({ node: _node, checked }) => (
+    <Checkbox size="xs" checked={checked === true} disabled readOnly tabIndex={-1} aria-label={checked ? 'Done' : 'Not done'} style={{ display: 'inline-block', verticalAlign: 'middle' }} />
+  )
 }
+
+const REMARK_PLUGINS = [remarkGfm]
 
 /** Agent text is untrusted: markdown without raw HTML, no remote images, and links that open in the system browser. */
 export function AgentText({ text }: { text: string }): ReactElement {
   return (
     <Typography fz="sm" className={classes.markdown}>
-      <Markdown components={AGENT_TEXT_COMPONENTS}>{text}</Markdown>
+      <Markdown remarkPlugins={REMARK_PLUGINS} components={AGENT_TEXT_COMPONENTS}>{text}</Markdown>
     </Typography>
   )
 }
