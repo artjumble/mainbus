@@ -223,6 +223,28 @@ describe('SdkRuntime', () => {
     expect(out.hookSpecificOutput?.permissionDecision).toBe('ask')
   })
 
+  test("the guard starts from the hook's cwd, and canUseTool passes that folder on with the request", async () => {
+    const f = fakeSdk()
+    const onPermission = vi.fn(async () => ({ allow: true as const }))
+    const spec = makeSpec({ onPermission })
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
+    const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    const sub = `${spec.cwd}\\src\\engine`
+    const command = { command: 'cd ../..' }
+    expect(await hook({ tool_name: 'Bash', tool_input: command, tool_use_id: 'tuc', cwd: sub }, 'tuc', { signal })).toEqual({})
+    // From the worktree itself, or with a cwd that is not a path, it leaves.
+    for (const cwd of [spec.cwd, 'src', undefined]) {
+      const out = await hook({ tool_name: 'Bash', tool_input: command, tool_use_id: 'tux', cwd }, 'tux', { signal })
+      expect(out.hookSpecificOutput?.permissionDecision, String(cwd)).toBe('ask')
+    }
+    await f.calls[0].options.canUseTool('Bash', command, { signal, toolUseID: 'tuc', decisionReason: 'r' })
+    expect(onPermission).toHaveBeenCalledWith(expect.objectContaining({ toolUseId: 'tuc', cwd: sub }))
+    // Used once: a request for a tool call the hook never saw has no folder.
+    await f.calls[0].options.canUseTool('Bash', command, { signal, toolUseID: 'tuc', decisionReason: 'r' })
+    expect(onPermission).toHaveBeenLastCalledWith(expect.not.objectContaining({ cwd: expect.anything() }))
+  })
+
   test('never returns updatedPermissions (M0)', async () => {
     const f = fakeSdk()
     const spec = makeSpec()

@@ -2423,14 +2423,20 @@ export class TicketRunner {
     // Before allow rules and unattended mode, so neither can let it through.
     if (isBackgroundShell(req.toolName, req.input)) return { allow: false, message: BACKGROUND_DENIED }
     // The same folders as the run's, so the guard and allow rules treat the scratch folder as inside.
-    const folders = { worktree: worktree.path, additionalDirectories: [worktree.scratch], scratch: worktree.scratch }
+    const folders = {
+      worktree: worktree.path,
+      additionalDirectories: [worktree.scratch],
+      scratch: worktree.scratch,
+      // Where the agent's shell is, so relative paths and cd are judged from there.
+      ...(req.cwd !== undefined ? { cwd: req.cwd } : {})
+    }
     const guard = guardReason(req.toolName, req.input, { ...folders, ownBranch: worktree.branch })
     const guarded = guard !== null
     const shell = isShellTool(req.toolName)
     const command = shell ? commandOf(req.input) : null
     const forcePush = command !== null && isDestructivePush(command)
     // Reading or printing credentials asks every time: no rule, not even an exact one, covers it.
-    const secret = credentialReason(req.toolName, req.input) !== null
+    const secret = credentialReason(req.toolName, req.input, folders) !== null
     // "Always allow" would be a lie where no rule can allow the request: a force-push, an unparseable
     // command, a credential read, or a guarded non-shell request (its rule would cover the tool
     // everywhere, not this path).

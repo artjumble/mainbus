@@ -310,6 +310,42 @@ describe('unattended mode', () => {
     expect(decisions[0]!.question).toBe('Implementer wants to run `git push origin main`')
   })
 
+  describe('the folder the agent reports', () => {
+    /** Asks to run `cd ../..`; `folder` says where the agent's shell is, from the worktree. */
+    const cdBack = (folder?: (worktree: string) => string): FakeRuntime =>
+      new FakeRuntime((spec: RunSpec) =>
+        spec.resumeSessionId !== undefined
+          ? handoff
+          : [
+              { emit: { kind: 'session', sessionId: 's' } },
+              {
+                requestPermission: {
+                  toolName: 'Bash',
+                  input: { command: 'cd ../..' },
+                  toolUseId: 'tool-1',
+                  ...(folder ? { cwd: folder(spec.cwd) } : {})
+                }
+              },
+              ...handoff.slice(1)
+            ]
+      )
+
+    it('a cd back to the worktree from a subfolder raises no hard stop', async () => {
+      const h = await harness(cdBack((worktree) => path.join(worktree, 'src', 'engine')), ['ready'])
+      await h.engine.invoke('unattended.set', true)
+      await waitForColumn(h, 1, 'review')
+      expect((await h.engine.invoke('thread.get', h.tickets[0]!.id)).decisions).toEqual([])
+    })
+
+    it('the same cd from the worktree itself leaves it and is a hard stop', async () => {
+      const h = await harness(cdBack(), ['ready'])
+      await h.engine.invoke('unattended.set', true)
+      await waitForColumn(h, 1, 'needs_you')
+      const { decisions } = await h.engine.invoke('thread.get', h.tickets[0]!.id)
+      expect(decisions[0]).toMatchObject({ kind: 'permission', status: 'pending' })
+    })
+  })
+
   it('allows a request the guard has no opinion on without a card, records it, and saves no rule', async () => {
     const h = await harness(runtimeFor({ 1: permission('npm install zod', handoff.slice(1)) }), ['ready'])
     await h.engine.invoke('unattended.set', true)

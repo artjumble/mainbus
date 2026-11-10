@@ -453,7 +453,7 @@ describe('guardReason: commands Mainbus cannot check', () => {
     ['braces', bash('{ rm -rf ~; }')],
     ['script block', pwsh('Get-ChildItem | ForEach-Object { Remove-Item $_ }')],
     ['process substitution', bash('diff <(ls) <(ls ..)')],
-    ['heredoc', bash('cat <<EOF\nhi\nEOF')],
+    ['heredoc fed to an interpreter', bash('python - <<EOF\nprint(1)\nEOF')],
     ['unbalanced quote', bash('echo "hi')],
     ['cmd /c', bash('cmd /c rd /s /q C:\\Users\\u\\x')],
     ['cmd.exe /K', bash('cmd.exe /K dir')],
