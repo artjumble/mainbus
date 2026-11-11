@@ -431,6 +431,42 @@ describe('Waiting on you', () => {
       expect(screen.queryByRole('button', { name: /New: #/ })).not.toBeInTheDocument()
     })
 
+    const settle = () => act(() => new Promise<void>((r) => setTimeout(r, 350)))
+    const waitingBox = () => document.querySelector('[data-waiting-box]') as HTMLElement
+
+    test('a scroll nobody caused (dragging the scrollbar) counts as manual: a New pill, no jump', async () => {
+      const { t, scroll } = await arrive()
+      await settle()
+      fireEvent.scroll(waitingBox())
+      act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+      await screen.findByRole('button', { name: /New: #\d+ is waiting on you/ })
+      expect(scroll).not.toHaveBeenCalled()
+    })
+
+    test('scrolling by keyboard counts as manual', async () => {
+      const { t, scroll } = await arrive()
+      fireEvent.keyDown(waitingBox(), { key: 'PageDown' })
+      act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+      await screen.findByRole('button', { name: /New: #\d+ is waiting on you/ })
+      expect(scroll).not.toHaveBeenCalled()
+    })
+
+    test('the code’s own scrolls do not count as manual', async () => {
+      const { t, scroll } = await arrive()
+      await settle()
+      act(() => useMainbus.setState({ tickets: [newPermission(t)] }))
+      await vi.waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
+      // The smooth scroll's own events, and the clamp after a card leaves, are ignored.
+      fireEvent.scroll(waitingBox())
+      act(() => useMainbus.setState({ tickets: [t] }))
+      fireEvent.scroll(waitingBox())
+      await settle()
+      const next = decision('n', '2026-11-01T12:00:00.000Z')
+      act(() => useMainbus.setState({ tickets: [{ ...t, pendingDecisions: [...t.pendingDecisions, next] }] }))
+      await vi.waitFor(() => expect(scroll).toHaveBeenCalledTimes(2))
+      expect(screen.queryByRole('button', { name: /New: #/ })).not.toBeInTheDocument()
+    })
+
     test('pending cards come before receipts', async () => {
       const { t } = await arrive()
       await userEvent.click(screen.getByRole('radio', { name: 'No' }))

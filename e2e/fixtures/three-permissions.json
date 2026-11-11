@@ -1,0 +1,47 @@
+{
+  "Planner": [
+    { "emit": { "kind": "session", "sessionId": "e2e-planner-3" } },
+    { "waitForSend": true },
+    {
+      "requestPermission": {
+        "toolName": "Bash",
+        "input": { "command": "git status --short" },
+        "reason": "Checks what changed",
+        "toolUseId": "e2e-three-1"
+      }
+    },
+    {
+      "requestPermission": {
+        "toolName": "Bash",
+        "input": { "command": "git log --oneline -5" },
+        "reason": "Reads recent history",
+        "toolUseId": "e2e-three-2"
+      }
+    },
+    {
+      "requestPermission": {
+        "toolName": "Bash",
+        "input": {
+          "command": "cat > src/limiter.ts <<'EOF'\nexport interface Limiter {\n  take(key: string): boolean\n}\n\nexport function createLimiter(max: number): Limiter {\n  const seen = new Map<string, number>()\n  return {\n    take(key) {\n      const n = (seen.get(key) ?? 0) + 1\n      seen.set(key, n)\n      return n <= max\n    }\n  }\n}\n\nexport const DEFAULT_MAX = 5\nEOF"
+        },
+        "reason": "Writes a file with a heredoc",
+        "toolUseId": "e2e-three-3"
+      }
+    },
+    {
+      "requestPermission": {
+        "toolName": "Bash",
+        "input": { "command": "npm test" },
+        "reason": "Runs the tests",
+        "toolUseId": "e2e-three-4"
+      }
+    },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-three-o" } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}
