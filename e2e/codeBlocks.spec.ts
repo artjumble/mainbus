@@ -98,3 +98,64 @@ test('a permission for a heredoc command shows as a code block, and an orchestra
     }
   }
 })
+
+test('answering two permissions in the panel, the third card arrives with its buttons in view; a new one after keyboard scrolling shows a pill', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
+  let app: ElectronApplication | undefined
+  try {
+    const home = path.join(tmp, 'home')
+    const repo = path.join(tmp, 'repo')
+    fs.mkdirSync(repo)
+    git(repo, 'init', '-b', 'main')
+    fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
+    git(repo, 'add', '.')
+    git(repo, 'commit', '-m', 'initial')
+
+    const env: Record<string, string> = {}
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+    delete env['ELECTRON_RUN_AS_NODE']
+    app = await electron.launch({
+      args: ['.'],
+      cwd: root,
+      env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/three-permissions.json', MAINBUS_TEST_REPO: repo }
+    })
+    const page = await app.firstWindow()
+    await page.getByRole('button', { name: 'Add workspace' }).click()
+
+    await page.getByRole('button', { name: 'New ticket' }).click()
+    await page.getByLabel('Title').fill('Alpha')
+    await page.getByLabel('In your words').fill('Add a limiter')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.getByRole('button', { name: /Alpha/ }).click()
+    await page.getByLabel('First message (starts the lineup)').fill('Please add the limiter')
+    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
+    await expect(page.locator('[data-event="permission"]')).toContainText('Planner wants to run')
+    await page.getByRole('button', { name: /board/ }).click()
+
+    const waiting = page.getByRole('region', { name: 'Waiting on you' })
+    const cards = waiting.locator('[data-event="waiting-decision"]')
+    await expect(cards).toHaveCount(1)
+    await cards.first().getByRole('button', { name: 'Allow once' }).click()
+    await expect(cards.first().getByText('Reads recent history')).toBeVisible()
+    await cards.first().getByRole('button', { name: 'Allow once' }).click()
+
+    // The third, long card arrives with its answer buttons in view, with no scrolling.
+    const third = cards.filter({ hasText: 'Writes a file with a heredoc' })
+    await expect(third).toHaveCount(1)
+    await expect(third.getByRole('button', { name: 'Allow once' })).toBeInViewport({ ratio: 1 })
+
+    // The user scrolls by keyboard, then answers; the fourth card arrives while they are reading, so a pill offers it.
+    await third.getByRole('button', { name: 'Allow once' }).focus()
+    await page.keyboard.press('PageDown')
+    await third.getByRole('button', { name: 'Allow once' }).click()
+    await expect(waiting.getByText('Runs the tests')).toBeAttached()
+    await expect(page.getByRole('button', { name: /New: #\d+ is waiting on you/ })).toBeVisible()
+  } finally {
+    await app?.close().catch(() => {})
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    } catch {
+      // A temp folder left behind is harmless.
+    }
+  }
+})

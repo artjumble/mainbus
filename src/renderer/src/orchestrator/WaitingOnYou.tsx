@@ -1,5 +1,5 @@
 import { Anchor, Box, Button, Collapse, Group, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { Decision } from '../../../shared/domain'
 import { shortDay } from '../../../shared/hold'
 import { invoke } from '../api'
@@ -86,12 +86,27 @@ export function WaitingOnYou(): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null)
   const seen = useRef<Set<string> | null>(null)
   const lastTouched = useRef(0)
+  // Scroll events up to this time are the code's own (a smooth scrollIntoView, or the browser clamping the box
+  // after a card left), not the user's.
+  const ownScrollUntil = useRef(0)
   const [newId, setNewId] = useState<string | null>(null)
 
   const reveal = (id: string) => {
     const card = boxRef.current?.querySelector(`[data-decision-id="${id}"]`)
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ownScrollUntil.current = Date.now() + 1200
     card?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }
+
+  const touched = () => (lastTouched.current = Date.now())
+  // Dragging the scrollbar or scrolling by keyboard fires a scroll event with no wheel or touch before it.
+  const onScroll = () => {
+    if (Date.now() > ownScrollUntil.current) touched()
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const t = e.target as HTMLElement
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable) return
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) touched()
   }
 
   // A decision that arrives after the panel is up is scrolled into view, unless the user is working in the group:
@@ -99,6 +114,7 @@ export function WaitingOnYou(): ReactElement | null {
   useEffect(() => {
     const ids = new Set(waiting.map((w) => w.decision.id))
     const before = seen.current
+    ownScrollUntil.current = Math.max(ownScrollUntil.current, Date.now() + 300)
     seen.current = ids
     setNewId((n) => (n && ids.has(n) ? n : null))
     if (!before) return
@@ -126,8 +142,10 @@ export function WaitingOnYou(): ReactElement | null {
       py="xs"
       mah="45%"
       data-waiting-box
-      onWheel={() => (lastTouched.current = Date.now())}
-      onTouchMove={() => (lastTouched.current = Date.now())}
+      onWheel={touched}
+      onTouchMove={touched}
+      onScroll={onScroll}
+      onKeyDown={onKeyDown}
       style={{ overflowY: 'auto', flexShrink: 0, borderBottom: '1px solid var(--mantine-color-default-border)', position: 'relative' }}
     >
       {arrivedTicket && (
