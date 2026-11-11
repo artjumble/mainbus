@@ -1,7 +1,7 @@
 import { Badge } from '@mantine/core'
 import type { ReactElement } from 'react'
 import type { BranchFreshness } from '../../../shared/domain'
-import { WRAPPING_CHIP } from './chipStyles'
+import { CONFLICT_LOOK, WRAPPING_CHIP } from './chipStyles'
 
 /**
  * "Conflicts with main" (needs attention) or "Behind main" (quiet) on a card and in the ticket header, for an open
@@ -11,7 +11,7 @@ export function FreshnessChip({ freshness, done }: { freshness: BranchFreshness 
   if (!freshness || done || freshness.behind === 0) return null
   if (freshness.conflicts.length > 0) {
     return (
-      <Badge color="needs" variant="light" size="sm" radius="sm" data-freshness-chip="conflicts" {...WRAPPING_CHIP}>
+      <Badge {...CONFLICT_LOOK} size="sm" radius="sm" data-freshness-chip="conflicts" {...WRAPPING_CHIP}>
         Conflicts with {freshness.baseBranch}
       </Badge>
     )
