@@ -99,6 +99,32 @@ describe('Update from main in the ticket view', () => {
     expect(await screen.findByRole('button', { name: 'Update from main' })).toBeInTheDocument()
   })
 
+  test('while the branch conflicts, the button has the conflict chip look, and Merge… explains why to update first', async () => {
+    show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' })
+    const chip = renderWithMantine(<TicketView />)
+    const update = await screen.findByRole('button', { name: 'Update from main' })
+    expect(update).toHaveAttribute('data-update-from-main', 'conflicts')
+    const chipEl = chip.container.querySelector('[data-freshness-chip="conflicts"]')!
+    // Same Mantine colour and variant as the chip: the light variant's classes and the needs colour variables.
+    expect(update.getAttribute('data-variant')).toBe(chipEl.getAttribute('data-variant'))
+    expect(update.getAttribute('style') ?? '').toContain('--button-bg: var(--mantine-color-needs-light)')
+    expect(chipEl.getAttribute('style') ?? '').toContain('--badge-bg: var(--mantine-color-needs-light)')
+    await userEvent.hover(screen.getByRole('button', { name: 'Merge…' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Update from main first: this branch conflicts with main')
+    await expectNoAxeViolations()
+  })
+
+  test('when only behind main, the button keeps the default look and Merge… has no tooltip', async () => {
+    show({ column: 'review', phase: 'ready_for_review', agentStatus: 'handed_off' }, { freshness: fresh() })
+    renderWithMantine(<TicketView />)
+    const update = await screen.findByRole('button', { name: 'Update from main' })
+    expect(update).toHaveAttribute('data-update-from-main', 'behind')
+    expect(update.getAttribute('data-variant')).toBe('default')
+    await userEvent.hover(screen.getByRole('button', { name: 'Merge…' }))
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    await expectNoAxeViolations()
+  })
+
   test('is not offered while a role works or is queued, when up to date, in Done, or for an Investigate ticket', async () => {
     const cases: Array<[Partial<TicketState>, Record<string, unknown>]> = [
       [{ column: 'in_progress', phase: 'implementing', agentStatus: 'working' }, {}],

@@ -1,4 +1,4 @@
-import { Alert, Anchor, Badge, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title } from '@mantine/core'
+import { Alert, Anchor, Badge, Box, Button, Center, Flex, Group, Loader, Stack, Text, Title, Tooltip } from '@mantine/core'
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { invoke } from '../api'
 import { attachToTicket, useImagePaste } from '../attachments/files'
@@ -6,6 +6,7 @@ import { asOwnChange } from '../board/ownChanges'
 import { HoldChip } from '../board/HoldChip'
 import { RunSettingsChip } from '../board/RunSettingsChip'
 import { FreshnessChip } from '../board/FreshnessChip'
+import { CONFLICT_LOOK } from '../board/chipStyles'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
 import { PausedChip, PhaseChip, PrLink, QueuedChip, SettingUpChip } from '../board/TicketCard'
 import { showError } from '../notify'
@@ -201,6 +202,8 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
     settingUp !== true &&
     (agentStatus === null || agentStatus === 'handed_off' || agentStatus === 'failed' || agentStatus === 'paused' || agentStatus === 'waiting_on_you')
 
+  const conflicts = (ticket.freshness?.conflicts.length ?? 0) > 0
+
   // "Merge…": a ticket in Review with a branch.
   const canMerge = !isDone && ticket.state.column === 'review' && ticket.branch !== null && settingUp !== true
 
@@ -368,14 +371,22 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                 </Button>
               )}
               {canUpdate && (
-                <Button size="compact-sm" variant="default" disabled={busy || moving || startingSetup} onClick={() => setUpdating(true)}>
+                <Button
+                  size="compact-sm"
+                  {...(conflicts ? CONFLICT_LOOK : { variant: 'default' })}
+                  data-update-from-main={conflicts ? 'conflicts' : 'behind'}
+                  disabled={busy || moving || startingSetup}
+                  onClick={() => setUpdating(true)}
+                >
                   {`Update from ${ticket.freshness?.baseBranch ?? 'main'}`}
                 </Button>
               )}
               {canMerge && (
-                <Button size="compact-sm" disabled={busy || moving} onClick={() => setMerging(true)}>
-                  Merge…
-                </Button>
+                <Tooltip label={`Update from ${ticket.freshness?.baseBranch ?? 'main'} first: this branch conflicts with ${ticket.freshness?.baseBranch ?? 'main'}`} disabled={!conflicts}>
+                  <Button size="compact-sm" disabled={busy || moving} onClick={() => setMerging(true)}>
+                    Merge…
+                  </Button>
+                </Tooltip>
               )}
               {runOpen && activeRole && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
