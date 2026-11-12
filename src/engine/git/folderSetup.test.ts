@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { checkFolder, NO_IDENTITY_MESSAGE, prepareFolder, previewSetup, WorkspaceNotReadyError } from './folderSetup'
+import { baseBranchWarning, checkFolder, NO_IDENTITY_MESSAGE, prepareFolder, previewSetup, WorkspaceNotReadyError } from './folderSetup'
 import type { GitRunner } from './git'
 
 vi.setConfig({ testTimeout: 60_000 })
@@ -95,6 +95,51 @@ describe('checkFolder', () => {
 
   it('refuses a missing folder', async () => {
     await expect(checkFolder(gitWith(), path.join(tmp, 'nope'))).rejects.toThrow('Folder does not exist')
+  })
+
+  describe('base branch warning', () => {
+    const git = (): GitRunner => gitWith(IDENTITY)
+    async function repoOn(branch: string): Promise<GitRunner> {
+      const g = git()
+      await out(g, ['init', '-b', branch])
+      await write('a.txt')
+      await out(g, ['add', '.'])
+      await out(g, ['commit', '-m', 'one'])
+      return g
+    }
+    const warningOf = async (g: GitRunner): Promise<unknown> => (await checkFolder(g, folder)).baseWarning
+
+    it('passes main and master', async () => {
+      expect(await warningOf(await repoOn('main'))).toBeUndefined()
+      await fs.rm(path.join(folder, '.git'), { recursive: true, force: true })
+      expect(await warningOf(await repoOn('master'))).toBeUndefined()
+    })
+
+    it('flags a feature branch, without the remote line when there is no remote', async () => {
+      expect(await warningOf(await repoOn('fm/feature'))).toEqual({ branch: 'fm/feature', notOnRemote: false, restored: false })
+    })
+
+    it("adds the not-on-origin line only when there is a remote without origin/<branch>", async () => {
+      const g = await repoOn('fm/feature')
+      await out(g, ['remote', 'add', 'origin', path.join(tmp, 'nowhere.git')])
+      expect(await warningOf(g)).toEqual({ branch: 'fm/feature', notOnRemote: true, restored: false })
+      await out(g, ['update-ref', 'refs/remotes/origin/fm/feature', 'HEAD'])
+      expect(await warningOf(g)).toEqual({ branch: 'fm/feature', notOnRemote: false, restored: false })
+    })
+
+    it("passes the remote's default branch", async () => {
+      const g = await repoOn('develop')
+      await out(g, ['remote', 'add', 'origin', path.join(tmp, 'nowhere.git')])
+      await out(g, ['update-ref', 'refs/remotes/origin/develop', 'HEAD'])
+      await out(g, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop'])
+      expect(await warningOf(g)).toBeUndefined()
+    })
+
+    it('flags a stored base that is not main, master or the default, and marks it restored', async () => {
+      const g = await repoOn('main')
+      expect(await baseBranchWarning(g, folder, 'fm/old', true)).toEqual({ branch: 'fm/old', notOnRemote: false, restored: true })
+      expect(await baseBranchWarning(g, folder, 'master', true)).toBeNull()
+    })
   })
 })
 

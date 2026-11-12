@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { WorkspaceSummary } from '../../../shared/api'
+import type { BaseBranchWarning, WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
@@ -29,7 +29,7 @@ async function expand(): Promise<HTMLElement> {
   return nav
 }
 
-function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
+function engine(opts: { failOpen?: string; failRemove?: string; baseWarning?: BaseBranchWarning } = {}): void {
   const summaries = [alpha, bravo]
   let focused = alpha
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
@@ -41,7 +41,7 @@ function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
     if (command === 'workspace.get') return focused
     if (command === 'board.get') return { tickets: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
-    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0] }
+    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0], baseWarning: opts.baseWarning }
     if (command === 'workspace.open') {
       if (opts.failOpen) throw new Error(opts.failOpen)
       return bravo
@@ -102,6 +102,33 @@ test('+ Add workspace explains trust, then opens the chosen folder', async () =>
   expect(dialog).not.toHaveTextContent(/folder of the git repository/)
 
   await userEvent.click(within(dialog).getByRole('button', { name: 'Choose folder…' }))
+  expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo')
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+})
+
+const feature: BaseBranchWarning = { branch: 'fm/feature', notOnRemote: true, restored: false }
+
+test('a folder on a feature branch warns first; Cancel adds nothing', async () => {
+  engine({ baseWarning: feature })
+  mockOpenFolder.mockResolvedValue('/r/bravo')
+  renderWithMantine(<WorkspaceRail />)
+  await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Choose folder…' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(/You're on fm\/feature\. Mainbus uses the checked-out branch/)).toBeInTheDocument()
+  expect(within(dialog).getByText("This branch isn't on origin, so pull requests will fail.")).toBeInTheDocument()
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.open', expect.anything())
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+})
+
+test('Add anyway opens the folder with the branch it is on', async () => {
+  engine({ baseWarning: feature })
+  mockOpenFolder.mockResolvedValue('/r/bravo')
+  renderWithMantine(<WorkspaceRail />)
+  await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Choose folder…' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Add anyway' }))
   expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo')
   await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })

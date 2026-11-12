@@ -29,6 +29,41 @@ test('picking a folder opens it as the workspace', async () => {
   expect(mockInvoke).toHaveBeenCalledWith('workspace.open', 'C:\\repos\\mainbus')
 })
 
+function featureFolder(): void {
+  mockOpenFolder.mockResolvedValue('/r/hunter')
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'workspace.check') {
+      return {
+        status: 'ready',
+        folder: '/r/hunter',
+        root: '/r/hunter',
+        baseWarning: { branch: 'fm/hunter', notOnRemote: true, restored: false }
+      }
+    }
+    return command === 'workspace.open' ? workspace : { tickets: [] }
+  })
+}
+
+test('a folder on a feature branch warns on the welcome screen; Cancel opens nothing', async () => {
+  featureFolder()
+  renderWithMantine(<OpenWorkspace />)
+  await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+  expect(await screen.findByText(/You're on fm\/hunter\. Mainbus uses the checked-out branch/)).toBeInTheDocument()
+  expect(screen.getByText("This branch isn't on origin, so pull requests will fail.")).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.open', expect.anything())
+  expect(useMainbus.getState().workspace).toBeNull()
+})
+
+test('Add anyway on the welcome screen opens the folder', async () => {
+  featureFolder()
+  renderWithMantine(<OpenWorkspace />)
+  await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Add anyway' }))
+  await vi.waitFor(() => expect(useMainbus.getState().workspace).toEqual(workspace))
+  expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/hunter')
+})
+
 test('cancelling the picker opens nothing', async () => {
   mockOpenFolder.mockResolvedValue(null)
   renderWithMantine(<OpenWorkspace />)

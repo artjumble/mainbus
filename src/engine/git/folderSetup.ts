@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { FolderReadiness, PrepareOptions, SetupPreview, SetupWarning } from '../../shared/api'
+import type { BaseBranchWarning, FolderReadiness, PrepareOptions, SetupPreview, SetupWarning } from '../../shared/api'
 import { isCredentialPath } from '../permissions/credentials'
 import type { GitRunner } from './git'
 
@@ -69,7 +69,29 @@ export async function checkFolder(git: GitRunner, repoPath: string): Promise<Fol
   if ((await git(['rev-parse', '--verify', 'HEAD'], root)).code !== 0) return { status: 'no_commits', folder, root }
   const head = await git(['symbolic-ref', '--short', 'HEAD'], root)
   if (head.code !== 0 || head.stdout.trim() === '') return { status: 'detached_head', folder, root }
-  return { status: 'ready', folder, root }
+  const baseWarning = await baseBranchWarning(git, root, head.stdout.trim(), false)
+  return baseWarning ? { status: 'ready', folder, root, baseWarning } : { status: 'ready', folder, root }
+}
+
+/**
+ * Says whether `branch` as a workspace's base deserves a warning: it isn't main, master or the remote's default branch.
+ * Also whether it is missing from the remote. Returns null when it is fine.
+ */
+export async function baseBranchWarning(
+  git: GitRunner,
+  root: string,
+  branch: string,
+  restored: boolean
+): Promise<BaseBranchWarning | null> {
+  if (branch === 'main' || branch === 'master') return null
+  const remotes = await git(['remote'], root)
+  const hasRemote = remotes.code === 0 && remotes.stdout.trim() !== ''
+  if (hasRemote) {
+    const head = await git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], root)
+    if (head.code === 0 && head.stdout.trim() === `origin/${branch}`) return null
+  }
+  const notOnRemote = hasRemote && (await git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], root)).code !== 0
+  return { branch, notOnRemote, restored }
 }
 
 /** The files `git add -A` would stage in the folder, as paths relative to `cwd`, without writing anything into it. */
