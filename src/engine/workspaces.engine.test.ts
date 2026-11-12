@@ -517,3 +517,38 @@ describe('workspace summaries for the rail', () => {
     )
   })
 })
+
+describe('the base branch warning on add', () => {
+  it('warns about a removed workspace coming back with a feature-branch base, and not about a live one', async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await makeRepo('warned')
+    await git(['switch', '-c', 'fm/feature'], repo)
+    const ws = await engine.invoke('workspace.open', repo)
+    expect(ws.baseBranch).toBe('fm/feature')
+
+    // Live and the checkout moved: adding it again only focuses it, so there is nothing to warn about.
+    await git(['switch', 'main'], repo)
+    expect((await engine.invoke('workspace.check', repo)).baseWarning).toBeUndefined()
+
+    await engine.invoke('workspace.remove', ws.id)
+    const check = await engine.invoke('workspace.check', repo)
+    expect(check.baseWarning).toEqual({ branch: 'fm/feature', notOnRemote: false, restored: true })
+    expect((await engine.invoke('workspace.open', repo)).baseBranch).toBe('fm/feature')
+  })
+
+  it("doesn't warn about a removed workspace whose base is main, whatever the checkout is on now", async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await makeRepo('fine')
+    const ws = await engine.invoke('workspace.open', repo)
+    await engine.invoke('workspace.remove', ws.id)
+    await git(['switch', '-c', 'fm/x'], repo)
+    expect((await engine.invoke('workspace.check', repo)).baseWarning).toBeUndefined()
+  })
+
+  it('warns about a new folder on a feature branch', async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await makeRepo('fresh')
+    await git(['switch', '-c', 'fm/x'], repo)
+    expect((await engine.invoke('workspace.check', repo)).baseWarning).toEqual({ branch: 'fm/x', notOnRemote: false, restored: false })
+  })
+})

@@ -1356,8 +1356,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         if (readiness.status !== 'ready') return readiness
         // A removed workspace comes back with its old base, whatever the checkout is on now.
         const known = (await repos.workspaces.listAll()).find((w) => samePath(path.resolve(w.repoPath), readiness.root))
-        if (!known?.removed) return readiness
+        if (!known) return readiness
+        // Adding a live workspace again only focuses it; its base doesn't change.
         const { baseWarning: _current, ...plain } = readiness
+        if (!known.removed) return plain
         const baseWarning = await baseBranchWarning(cfg.git, readiness.root, known.baseBranch, true)
         return baseWarning ? { ...plain, baseWarning } : plain
       },
