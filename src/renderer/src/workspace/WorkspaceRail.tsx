@@ -14,12 +14,13 @@ import {
 import { useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import type { FolderReadiness, WorkspaceSummary } from '../../../shared/api'
+import type { BaseBranchWarning, FolderReadiness, WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
 import { ROW_BADGE } from '../rowBadgeStyles'
 import { useMainbus } from '../store'
+import { BaseBranchNotice } from './BaseBranchNotice'
 import { GitSetup } from './GitSetup'
 import classes from './WorkspaceRail.module.css'
 
@@ -283,8 +284,10 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notReady, setNotReady] = useState<FolderReadiness | null>(null)
+  const [pending, setPending] = useState<{ folder: string; warning: BaseBranchWarning } | null>(null)
 
   function close(): void {
+    setPending(null)
     setNotReady(null)
     setError(null)
     onClose()
@@ -297,7 +300,9 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
       const folder = await openFolder()
       if (!folder) return
       const readiness = await invoke('workspace.check', folder)
-      if (readiness.status === 'ready') {
+      if (readiness.status === 'ready' && readiness.baseWarning) {
+        setPending({ folder, warning: readiness.baseWarning })
+      } else if (readiness.status === 'ready') {
         await openWorkspace(folder)
         close()
       } else {
@@ -310,9 +315,25 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
     }
   }
 
+  async function addAnyway(): Promise<void> {
+    if (!pending) return
+    setBusy(true)
+    try {
+      await openWorkspace(pending.folder)
+      close()
+    } catch (err) {
+      setPending(null)
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Modal opened={opened} onClose={close} title="Add workspace">
-      {notReady ? (
+      {pending ? (
+        <BaseBranchNotice warning={pending.warning} busy={busy} onAdd={() => void addAnyway()} onCancel={close} />
+      ) : notReady ? (
         <GitSetup readiness={notReady} onDone={close} onCancel={close} />
       ) : (
       <Stack gap="md">

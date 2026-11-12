@@ -58,6 +58,17 @@ export interface FolderReadiness {
   status: 'ready' | 'not_a_repo' | 'no_commits' | 'detached_head'
   folder: string
   root: string
+  /** Set on a ready folder whose branch would become the workspace's base but isn't main, master or the remote's default. */
+  baseWarning?: BaseBranchWarning
+}
+
+/** A base branch worth a second look before the workspace is added. */
+export interface BaseBranchWarning {
+  branch: string
+  /** True when there is a remote and `origin/<branch>` doesn't exist, so pull requests would fail. */
+  notOnRemote: boolean
+  /** True when the branch is the stored base of a removed workspace that adding the folder brings back. */
+  restored: boolean
 }
 
 /** Something in the folder worth a second look before it is committed. */

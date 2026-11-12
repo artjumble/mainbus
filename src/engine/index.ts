@@ -31,7 +31,7 @@ import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
-import { checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
+import { baseBranchWarning, checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
 import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
@@ -1351,7 +1351,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         )
       },
       'workspace.open': openWorkspace,
-      'workspace.check': (folder) => checkFolder(cfg.git, z.string().min(1).parse(folder)),
+      'workspace.check': async (folder) => {
+        const readiness = await checkFolder(cfg.git, z.string().min(1).parse(folder))
+        if (readiness.status !== 'ready') return readiness
+        // A removed workspace comes back with its old base, whatever the checkout is on now.
+        const known = (await repos.workspaces.listAll()).find((w) => samePath(path.resolve(w.repoPath), readiness.root))
+        if (!known?.removed) return readiness
+        const { baseWarning: _current, ...plain } = readiness
+        const baseWarning = await baseBranchWarning(cfg.git, readiness.root, known.baseBranch, true)
+        return baseWarning ? { ...plain, baseWarning } : plain
+      },
       'workspace.previewSetup': (folder) => previewSetup(cfg.git, z.string().min(1).parse(folder)),
       // Renderer-only too: the agent intake has no way to make Mainbus commit.
       'workspace.prepare': async (folder, options) => {
