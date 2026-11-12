@@ -21,6 +21,8 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
+/** The commands sent so far, not counting the header's read of the branches (it runs whenever a board shows). */
+const calls = (): unknown[][] => mockInvoke.mock.calls.filter(([command]) => command !== 'workspace.branches')
 const initial = useMainbus.getState()
 
 function drag(id: string, overId: string | null): void {
@@ -79,7 +81,7 @@ test('a drop on a column that takes no manual drops, or on nothing, moves nothin
   drag(ticket.id, 'review')
   drag(ticket.id, null)
   drag(ticket.id, 'backlog') // already there
-  expect(mockInvoke).not.toHaveBeenCalled()
+  expect(calls()).toEqual([])
 })
 
 test.each(['backlog', 'ready'] as const)('dragging a %s card into In progress proposes a start and leaves the card where it is', async (column) => {
@@ -101,7 +103,7 @@ test.each(['review', 'needs_you', 'in_progress'] as const)('dragging a %s card i
   showBoard(ticket)
   renderWithMantine(<Board />)
   drag(ticket.id, 'in_progress')
-  expect(mockInvoke).not.toHaveBeenCalled()
+  expect(calls()).toEqual([])
 })
 
 test('an engine refusal of the start proposal shows a notification', async () => {
@@ -219,7 +221,7 @@ describe('a move shows at once', () => {
 
     drag(ticket.id, 'done')
     drag(ticket.id, 'backlog')
-    expect(mockInvoke).toHaveBeenCalledTimes(1)
+    expect(calls()).toHaveLength(1)
 
     // The card is in Done now, whose cards show while it is open.
     act(() => column('Done').focus())
@@ -923,4 +925,27 @@ describe('Merge… in the card menu', () => {
     await screen.findByRole('menuitem', { name: 'Move to Ready' })
     expect(screen.queryByRole('menuitem', { name: 'Merge…' })).not.toBeInTheDocument()
   })
+})
+
+test("the header warns when the base branch isn't on origin", async () => {
+  mockInvoke.mockImplementation(async (command: string) =>
+    command === 'workspace.branches'
+      ? { baseBranch: 'fm/x', branches: [], defaultBranch: 'main', hasRemote: true, baseOnRemote: false }
+      : { tickets: [] }
+  )
+  showBoard(makeTicket({}, { column: 'backlog' }))
+  renderWithMantine(<Board />)
+  expect(await screen.findByText("Pull requests will fail: fm/x isn't on origin")).toBeInTheDocument()
+})
+
+test('the header has no warning when the base is on origin', async () => {
+  mockInvoke.mockImplementation(async (command: string) =>
+    command === 'workspace.branches'
+      ? { baseBranch: 'main', branches: [], defaultBranch: 'main', hasRemote: true, baseOnRemote: true }
+      : { tickets: [] }
+  )
+  showBoard(makeTicket({}, { column: 'backlog' }))
+  renderWithMantine(<Board />)
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.branches', workspace.id))
+  expect(screen.queryByText(/Pull requests will fail/)).not.toBeInTheDocument()
 })

@@ -15,11 +15,13 @@ import { useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { FolderReadiness, WorkspaceSummary } from '../../../shared/api'
+import { addBaseQuestion } from '../../../shared/baseBranch'
 import { invoke, openFolder } from '../api'
 import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
 import { ROW_BADGE } from '../rowBadgeStyles'
 import { useMainbus } from '../store'
+import { BaseBranchStep } from './BaseBranchStep'
 import { GitSetup } from './GitSetup'
 import classes from './WorkspaceRail.module.css'
 
@@ -283,9 +285,11 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notReady, setNotReady] = useState<FolderReadiness | null>(null)
+  const [askBase, setAskBase] = useState<FolderReadiness | null>(null)
 
   function close(): void {
     setNotReady(null)
+    setAskBase(null)
     setError(null)
     onClose()
   }
@@ -297,7 +301,9 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
       const folder = await openFolder()
       if (!folder) return
       const readiness = await invoke('workspace.check', folder)
-      if (readiness.status === 'ready') {
+      if (readiness.status === 'ready' && readiness.base && addBaseQuestion(readiness.base) !== 'none') {
+        setAskBase(readiness)
+      } else if (readiness.status === 'ready') {
         await openWorkspace(folder)
         close()
       } else {
@@ -312,7 +318,9 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
 
   return (
     <Modal opened={opened} onClose={close} title="Add workspace">
-      {notReady ? (
+      {askBase?.base ? (
+        <BaseBranchStep folder={askBase.folder} choice={askBase.base} onDone={close} onCancel={close} />
+      ) : notReady ? (
         <GitSetup readiness={notReady} onDone={close} onCancel={close} />
       ) : (
       <Stack gap="md">

@@ -67,6 +67,13 @@ describe('workspace repo', () => {
     expect(await repo.setSetupSettings(ws.id, { command: '' })).toMatchObject({ setupCommand: '' })
   })
 
+  it('saves the base branch', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const ws = await repo.create('/r', 'feature', 'r', 'r')
+    expect((await repo.setBaseBranch(ws.id, 'main')).baseBranch).toBe('main')
+    expect((await repo.get(ws.id))?.baseBranch).toBe('main')
+  })
+
   it('switches opening a PR on Review on and off', async () => {
     const repo = createWorkspaceRepo(db, () => FIXED_NOW)
     const ws = await repo.create('/r', 'main', 'r', 'r')

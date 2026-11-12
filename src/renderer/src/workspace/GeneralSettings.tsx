@@ -3,10 +3,11 @@ import { useEffect, useState, type ReactElement } from 'react'
 import { AGENT_CAP_MAX, AGENT_CAP_MIN, type WhenClosed } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { BaseBranchSettings } from './BaseBranchSettings'
 
 /**
- * Settings section for what applies to the whole app: how many role agents may run at once, and what closing the
- * window does. (The theme is in the Mainbus settings.)
+ * Settings section for the base branch of the workspace, and for what applies to the whole app: how many role agents may
+ * run at once, and what closing the window does. (The theme is in the Mainbus settings.)
  */
 export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
   const [maxAgents, setMaxAgents] = useState<number | null>(null)
@@ -65,6 +66,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
       <Title order={3} size="h4">
         General
       </Title>
+      <BaseBranchSettings opened={opened} />
       <NumberInput
         label="Agents running at once"
         description="More than this wait as Queued and start first in, first out as others finish. The orchestrator doesn't count. Lowering it stops no running agent."

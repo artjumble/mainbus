@@ -3,11 +3,13 @@ import path from 'node:path'
 import { z } from 'zod'
 import {
   SETUP_REQUIRED,
+  type BaseBranchChoice,
   type BoardTicket,
   type CommandArgs,
   type CommandName,
   type CommandResult,
-  type EngineEvent
+  type EngineEvent,
+  type OpenWorkspaceOptions
 } from '../shared/api'
 import type { DraftColumn } from '../shared/proposals'
 import {
@@ -31,6 +33,7 @@ import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
+import { branchExists, currentBranch, defaultBranch, workspaceBranches, listBranches } from './git/baseBranch'
 import { checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
 import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
@@ -431,7 +434,38 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return ticket ? modes.get(ticket.workspaceId) : undefined
     }
 
-    async function openWorkspace(repoPath: string): Promise<Workspace> {
+    /** The branch name as the user gave it, if the repository has it as a local branch; otherwise a refusal that says so. */
+    async function requireLocalBranch(repoPath: string, branch: string): Promise<string> {
+      const name = z.string().min(1).max(255).parse(branch)
+      if (!(await branchExists(cfg.git, repoPath, name))) throw new Error(`There's no branch ${name} in ${repoPath}`)
+      return name
+    }
+
+    /** Saves a new base branch (already checked) and lets everything that measures against it know. */
+    async function applyBaseBranch(ws: Workspace, branch: string): Promise<Workspace> {
+      const updated = await repos.workspaces.setBaseBranch(ws.id, branch)
+      emit({ type: 'board.changed', workspaceId: updated.id })
+      emit({ type: 'workspaces.changed', focusedId: (await repos.workspaces.focused())?.id ?? updated.id })
+      emit({ type: 'baseTests.changed', workspaceId: updated.id })
+      void freshness.refresh(updated.id).catch(() => {})
+      baseTests.poke()
+      return updated
+    }
+
+    /** The base branch Add workspace offers for a ready folder, and what a removed workspace of this repo had. */
+    async function baseChoice(root: string): Promise<BaseBranchChoice> {
+      const current = (await currentBranch(cfg.git, root))!
+      const known = (await repos.workspaces.listAll()).find((w) => w.removed && samePath(path.resolve(w.repoPath), root))
+      return {
+        current,
+        suggested: (await defaultBranch(cfg.git, root)) ?? current,
+        branches: await listBranches(cfg.git, root),
+        removed: known ? { baseBranch: known.baseBranch, exists: await branchExists(cfg.git, root, known.baseBranch) } : null
+      }
+    }
+
+    async function openWorkspace(repoPath: string, options?: OpenWorkspaceOptions): Promise<Workspace> {
+      const wanted = z.strictObject({ baseBranch: z.string().min(1).max(255).optional() }).optional().parse(options)?.baseBranch
       const folder = path.resolve(repoPath)
       const isFolder = await fs.stat(folder).then(
         (s) => s.isDirectory(),
@@ -447,7 +481,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const known = (await repos.workspaces.listAll()).find((w) => samePath(path.resolve(w.repoPath), root))
       if (known) {
         if (known.removed) await repos.workspaces.restore(known.id)
-        const live = (await repos.workspaces.get(known.id))!
+        let live = (await repos.workspaces.get(known.id))!
+        if (known.removed && wanted !== undefined && wanted !== live.baseBranch) {
+          live = await applyBaseBranch(live, await requireLocalBranch(root, wanted))
+        }
         modeFor(live)
         await repos.workspaces.setFocused(live.id)
         emit({ type: 'board.changed', workspaceId: live.id })
@@ -458,7 +495,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       if (readiness.status !== 'ready') {
         throw new WorkspaceNotReadyError(readiness.status, folder, root, notReadyMessage(readiness))
       }
-      const baseBranch = (await cfg.git(['symbolic-ref', '--short', 'HEAD'], root)).stdout.trim()
+      const baseBranch =
+        wanted !== undefined
+          ? await requireLocalBranch(root, wanted)
+          : ((await defaultBranch(cfg.git, root)) ?? (await currentBranch(cfg.git, root))!)
       const name = path.basename(root)
       const workspace = await repos.workspaces.create(root, baseBranch, name, slugify(name))
       modeFor(workspace)
@@ -1351,7 +1391,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         )
       },
       'workspace.open': openWorkspace,
-      'workspace.check': (folder) => checkFolder(cfg.git, z.string().min(1).parse(folder)),
+      'workspace.check': async (folder) => {
+        const readiness = await checkFolder(cfg.git, z.string().min(1).parse(folder))
+        return readiness.status === 'ready' ? { ...readiness, base: await baseChoice(readiness.root) } : readiness
+      },
       'workspace.previewSetup': (folder) => previewSetup(cfg.git, z.string().min(1).parse(folder)),
       // Renderer-only too: the agent intake has no way to make Mainbus commit.
       'workspace.prepare': async (folder, options) => {
@@ -1370,6 +1413,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ws = await repos.workspaces.setOpenPrOnReview((await requireWorkspace(workspaceId)).id, on === true)
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
+      },
+      'workspace.branches': async (workspaceId) => workspaceBranches(cfg.git, await requireWorkspace(workspaceId)),
+      // Renderer-only too: a base branch decides where tickets start and what pull requests target.
+      'workspace.setBaseBranch': async (branch, workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
+        const name = await requireLocalBranch(ws.repoPath, branch)
+        return applyBaseBranch(ws, name)
       },
       'workspace.setMergeMethod': async (method, workspaceId) => {
         const input = z.enum(MERGE_METHODS).parse(method)

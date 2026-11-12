@@ -45,7 +45,9 @@ import {
   type ReactElement,
   type ReactNode
 } from 'react'
+import { baseBranchWarning } from '../../../shared/baseBranch'
 import type { Column } from '../../../shared/domain'
+import { useWorkspaceBranches } from '../workspace/useWorkspaceBranches'
 import { useExpandOnHover } from '../expandOnHover'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
@@ -227,6 +229,9 @@ const DIRTY_MESSAGE = 'This ticket has uncommitted changes in its folder. Ask th
 
 export function Board(): ReactElement {
   const workspace = useMainbus((s) => s.workspace)
+  const settingsOpen = useMainbus((s) => s.settingsOpen)
+  const branches = useWorkspaceBranches(workspace?.id, workspace?.baseBranch, settingsOpen)
+  const baseWarning = branches ? baseBranchWarning(branches) : null
   const tickets = useMainbus((s) => s.tickets)
   const openTicket = useMainbus((s) => s.openTicket)
   const pendingMoves = useMainbus((s) => s.pendingMoves)
@@ -389,6 +394,11 @@ export function Board(): ReactElement {
                 {workspace.repoPath}
               </Text>
               {empty ? ' · just added' : ' · local tickets'}
+            </Text>
+          )}
+          {baseWarning && (
+            <Text size="xs" c="needs.7" role="status">
+              {baseWarning}
             </Text>
           )}
         </Stack>

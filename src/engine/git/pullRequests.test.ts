@@ -6,7 +6,7 @@ import type { Ticket } from '../../shared/domain'
 import { runCommand, type CommandOptions, type CommandRunner } from './command'
 import { FakeGh } from './fakeGh'
 import { runGit } from './git'
-import { PR_COMMAND_TIMEOUT_MS, prBody, PullRequestPublisher, type PublishInput } from './pullRequests'
+import { explainPrCreateFailure, PR_COMMAND_TIMEOUT_MS, prBody, PullRequestPublisher, type PublishInput } from './pullRequests'
 
 let tmp: string
 let repo: string
@@ -219,11 +219,43 @@ describe('PullRequestPublisher', () => {
     expect(result).toEqual({ ok: false, reason: 'gh pr create failed: could not reach https://github.com/o/r' })
   })
 
+  it("explains GitHub's base errors in plain words", async () => {
+    const failing: CommandRunner = async (file, args, opts) =>
+      file === 'gh' && args[1] === 'create'
+        ? { code: 1, stdout: '', stderr: "GraphQL: Base sha can't be blank, Base ref must be a branch (createPullRequest)\n", timedOut: false }
+        : runner(file, args, opts)
+    const result = await publisher(failing).publish({ ticket: ticket(), baseBranch: 'feature/x', handoffSummary: null })
+    expect(result).toEqual({
+      ok: false,
+      reason: "feature/x isn't on origin, so GitHub has nothing to open the pull request against. Change the workspace's base branch, or push feature/x."
+    })
+  })
+
   it('checks gh without passing on its output', async () => {
     expect(await publisher().checkGh(repo)).toEqual({ ok: true })
     gh.state = 'signed_out'
     expect(await publisher().checkGh(repo)).toEqual({ ok: false, reason: 'the GitHub CLI (gh) is not signed in; run `gh auth login`' })
     gh.state = 'missing'
     expect(await publisher().checkGh(repo)).toEqual({ ok: false, reason: 'the GitHub CLI (gh) is not installed' })
+  })
+})
+
+describe('explainPrCreateFailure', () => {
+  const graphql = "GraphQL: Base sha can't be blank, Base ref must be a branch, No commits between fm/x and mainbus/1-a (createPullRequest)"
+
+  it("says the base is not on origin for GitHub's base errors", () => {
+    expect(explainPrCreateFailure(graphql, 'fm/x', 'mainbus/1-a')).toBe(
+      "fm/x isn't on origin, so GitHub has nothing to open the pull request against. Change the workspace's base branch, or push fm/x."
+    )
+  })
+
+  it('says there is nothing to open for "No commits between" alone', () => {
+    expect(explainPrCreateFailure('GraphQL: No commits between main and mainbus/1-a', 'main', 'mainbus/1-a')).toBe(
+      "GitHub sees no commits between main and mainbus/1-a on origin, so there's nothing to open a pull request for. Change the workspace's base branch, or push main."
+    )
+  })
+
+  it('leaves other failures alone', () => {
+    expect(explainPrCreateFailure('HTTP 502', 'main', 'b')).toBeNull()
   })
 })
