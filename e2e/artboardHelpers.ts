@@ -89,7 +89,9 @@ async function withArtboardIn(theme: ThemeId, options: Options, body: (board: Ar
     if (theme !== 'light') await useTheme(page, theme)
     if (options.openWorkspace !== false) {
       await page.getByRole('button', { name: 'Add workspace' }).click()
+      // The rail shows before any workspace exists: wait for the board of the one being added.
       await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
+      await page.getByRole('button', { name: 'New ticket' }).waitFor()
     }
     await body({ app, page, repo, tmp })
   } finally {

@@ -41,6 +41,8 @@ export interface WorkspaceRepo {
   restore(id: string): Promise<void>
   setOpenPrOnReview(id: string, on: boolean): Promise<Workspace>
   setMergeMethod(id: string, method: MergeMethod): Promise<Workspace>
+  /** Saves the base branch; the caller has checked that it exists. */
+  setBaseBranch(id: string, branch: string): Promise<Workspace>
   /** Saves the settings given; a reports folder that leaves the repo is refused with the reason, and nothing is saved. */
   setReportSettings(id: string, settings: ReportSettingsInput): Promise<Workspace>
   /** Saves the setup settings given; a command or timeout that is refused throws with the reason, and nothing is saved. */
@@ -159,6 +161,13 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
 
     async setOpenPrOnReview(id, on) {
       await db.update(workspaces).set({ openPrOnReview: on }).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setBaseBranch(id, branch) {
+      await db.update(workspaces).set({ baseBranch: branch }).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)

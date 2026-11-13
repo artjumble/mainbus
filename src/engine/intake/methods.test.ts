@@ -279,7 +279,7 @@ describe('intake list and get', () => {
     expect(error.code).toBe('unknown_method')
   })
 
-  it.each(['openPr', 'ticket.openPr', 'push', 'setOpenPrOnReview', 'workspace.setOpenPrOnReview', 'ticket.saveReport', 'saveReport', 'workspace.setReportSettings', 'workspace.prepare', 'merge', 'ticket.merge', 'ticket.mergePreview', 'workspace.setMergeMethod'])(
+  it.each(['openPr', 'ticket.openPr', 'push', 'setOpenPrOnReview', 'workspace.setOpenPrOnReview', 'ticket.saveReport', 'saveReport', 'workspace.setReportSettings', 'workspace.prepare', 'merge', 'ticket.merge', 'ticket.mergePreview', 'workspace.setMergeMethod', 'workspace.setBaseBranch'])(
     'has no way to make Mainbus push or commit: %s is unknown',
     async (method) => {
       const { engine } = await board()

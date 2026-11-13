@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { WorkspaceSummary } from '../../../shared/api'
+import type { BaseBranchChoice, WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
@@ -29,7 +29,7 @@ async function expand(): Promise<HTMLElement> {
   return nav
 }
 
-function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
+function engine(opts: { failOpen?: string; failRemove?: string; base?: BaseBranchChoice } = {}): void {
   const summaries = [alpha, bravo]
   let focused = alpha
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
@@ -41,7 +41,7 @@ function engine(opts: { failOpen?: string; failRemove?: string } = {}): void {
     if (command === 'workspace.get') return focused
     if (command === 'board.get') return { tickets: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
-    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0] }
+    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0], ...(opts.base ? { base: opts.base } : {}) }
     if (command === 'workspace.open') {
       if (opts.failOpen) throw new Error(opts.failOpen)
       return bravo
@@ -104,6 +104,49 @@ test('+ Add workspace explains trust, then opens the chosen folder', async () =>
   await userEvent.click(within(dialog).getByRole('button', { name: 'Choose folder…' }))
   expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo')
   await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+})
+
+const branches = [
+  { name: 'fm/x', onRemote: false },
+  { name: 'main', onRemote: true }
+]
+
+async function chooseFolder(): Promise<void> {
+  mockOpenFolder.mockResolvedValue('/r/bravo')
+  renderWithMantine(<WorkspaceRail />)
+  await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Choose folder…' }))
+}
+
+test("a checkout off the default branch shows the base line and opens with the default", async () => {
+  engine({ base: { current: 'fm/x', suggested: 'main', branches, removed: null } })
+  await chooseFolder()
+  expect(await screen.findByText("Base branch: main (you're on fm/x)")).toBeInTheDocument()
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.open', expect.anything())
+
+  await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add workspace' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo', { baseBranch: 'main' }))
+})
+
+test('another base branch can be chosen in the Add workspace step', async () => {
+  engine({ base: { current: 'fm/x', suggested: 'main', branches, removed: null } })
+  await chooseFolder()
+  await userEvent.click(await screen.findByRole('combobox', { name: /Choose another/ }))
+  await userEvent.click(await screen.findByRole('option', { name: 'fm/x' }))
+  await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add workspace' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo', { baseBranch: 'fm/x' }))
+})
+
+test('a checkout already on the default branch opens without the step', async () => {
+  engine({ base: { current: 'main', suggested: 'main', branches, removed: null } })
+  await chooseFolder()
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo'))
+})
+
+test('re-adding a removed workspace whose base is gone asks which base to use', async () => {
+  engine({ base: { current: 'main', suggested: 'main', branches, removed: { baseBranch: 'old', exists: false } } })
+  await chooseFolder()
+  expect(await screen.findByText(/with the base branch old\. That branch no longer exists/)).toBeInTheDocument()
 })
 
 test('cancelling the folder picker does nothing', async () => {

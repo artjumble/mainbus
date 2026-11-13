@@ -23,6 +23,8 @@ export class FakeGh {
   state: 'ok' | 'missing' | 'signed_out' = 'ok'
   /** When set, `gh pr merge` fails with this text, as GitHub refuses a merge (checks failing, review required, conflicts). */
   mergeRefusal: string | null = null
+  /** When set, `gh pr create` fails with this text, as GitHub refuses a pull request (a base that isn't on GitHub, no commits between). */
+  createRefusal: string | null = null
   /** When true, `gh pr merge` succeeds without merging, as a merge queue does. */
   mergeQueued = false
 
@@ -69,6 +71,7 @@ export class FakeGh {
     const title = flag('title')
     const bodyFile = flag('body-file')
     if (!head || !base || title === undefined || !bodyFile) return fail(`fake gh: missing flags in ${args.join(' ')}`)
+    if (this.createRefusal !== null) return fail(this.createRefusal)
     const existing = this.prs.find((p) => p.head === head)
     if (existing) {
       return fail(`a pull request for branch "${head}" into branch "${existing.base}" already exists:\n${existing.url}`)

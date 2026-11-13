@@ -97,6 +97,8 @@ export class PullRequestPublisher {
         const pr = prFromUrl(created.stdout)
         if (pr) return pr
       } else if (!/already exists/i.test(created.stderr)) {
+        const plain = explainPrCreateFailure(created.stderr, baseBranch, branch)
+        if (plain !== null) throw new PublishFailure(plain)
         throw new PublishFailure(`gh pr create failed: ${firstLines(created.stderr) || `exit code ${created.code}`}`)
       }
       // A PR for this branch already exists (or gh printed no URL): adopt it.
@@ -206,4 +208,18 @@ function minutes(ms: number): string {
 
 function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * Plain words for the `gh pr create` failures that come from the base branch not being on GitHub, or from GitHub seeing no
+ * difference between the branches; null for any other failure. Read after "Couldn't open a PR: ".
+ */
+export function explainPrCreateFailure(stderr: string, base: string, branch: string): string | null {
+  if (/Base ref must be a branch|Base sha can't be blank/i.test(stderr)) {
+    return `${base} isn't on origin, so GitHub has nothing to open the pull request against. Change the workspace's base branch, or push ${base}.`
+  }
+  if (/No commits between/i.test(stderr)) {
+    return `GitHub sees no commits between ${base} and ${branch} on origin, so there's nothing to open a pull request for. Change the workspace's base branch, or push ${base}.`
+  }
+  return null
 }

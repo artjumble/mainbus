@@ -53,11 +53,45 @@ import type { OrchestratorFamily, OrchestratorModelState } from './orchestratorM
 import type { ModelOption } from './models'
 import type { VoiceModelId, VoiceModelStatus, VoiceSettings } from './voice'
 
+/** A local branch, and whether origin has it too. */
+export interface BranchOption {
+  name: string
+  onRemote: boolean
+}
+
+/** What Add workspace needs to choose the base branch of a folder that is ready. */
+export interface BaseBranchChoice {
+  /** The checked-out branch. */
+  current: string
+  /** The repo's default branch (origin/HEAD, main or master), else the checked-out one. */
+  suggested: string
+  branches: BranchOption[]
+  /** For a folder that was a workspace before and was removed: the base it had, and whether that branch still exists. */
+  removed: { baseBranch: string; exists: boolean } | null
+}
+
+/** A workspace's local branches, and whether its base is on the remote. */
+export interface WorkspaceBranches {
+  baseBranch: string
+  branches: BranchOption[]
+  defaultBranch: string | null
+  hasRemote: boolean
+  baseOnRemote: boolean
+}
+
 /** Whether a chosen folder can open as a workspace, and if not, why.  is the repository root (the folder itself when there is no repository). */
 export interface FolderReadiness {
   status: 'ready' | 'not_a_repo' | 'no_commits' | 'detached_head'
   folder: string
   root: string
+  /** Only when the status is 'ready'. */
+  base?: BaseBranchChoice
+}
+
+/** Options of `workspace.open`. */
+export interface OpenWorkspaceOptions {
+  /** The base branch for a new workspace (or to change a removed one's on re-adding); it must exist locally. */
+  baseBranch?: string
 }
 
 /** Something in the folder worth a second look before it is committed. */
@@ -179,10 +213,11 @@ export interface EngineCommands {
    */
   'workspace.summaries'(): WorkspaceSummary[]
   /**
-   * Opens the repository (detecting the base branch with `git symbolic-ref --short HEAD`) as a workspace and focuses it.
-   * A repo that is open already is returned as it is, and focused.
+   * Opens the repository as a workspace and focuses it. A new workspace's base branch is the one given in the options,
+   * else the repo's default branch (origin/HEAD, then main or master), else the checked-out branch. A repo that is open
+   * already is returned as it is, and focused; a removed one comes back with its board.
    */
-  'workspace.open'(repoPath: string): Workspace
+  'workspace.open'(repoPath: string, options?: OpenWorkspaceOptions): Workspace
   /** Whether the folder can open as a workspace, and if not, why (a rejection carries only text, so the reason comes here). */
   'workspace.check'(repoPath: string): FolderReadiness
   /**
@@ -208,6 +243,14 @@ export interface EngineCommands {
    * the agent intake (pipe, CLI, MCP) has no way to make Mainbus push.
    */
   'workspace.setOpenPrOnReview'(on: boolean, workspaceId?: string): Workspace
+  /** The workspace's local branches, and whether its base branch is on origin (read locally, no network). */
+  'workspace.branches'(workspaceId?: string): WorkspaceBranches
+  /**
+   * Changes the workspace's base branch: new tickets, freshness, base-branch tests, merges and new pull requests use it.
+   * Existing tickets keep their branches, and their open pull requests are not retargeted. A branch that doesn't exist
+   * locally is refused. Renderer only, like the switch below.
+   */
+  'workspace.setBaseBranch'(branch: string, workspaceId?: string): Workspace
   /** How Merge… merges a pull request: a merge commit (the default), a squash or a rebase. Renderer only, like the switch above. */
   'workspace.setMergeMethod'(method: MergeMethod, workspaceId?: string): Workspace
   /**

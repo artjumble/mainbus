@@ -412,8 +412,15 @@ describe('workspace.open', () => {
     await expect(engine.invoke('workspace.open', repoPath)).rejects.toThrow(/current branch/i)
   })
 
-  it('uses the checked-out branch as the base branch', async () => {
+  it("uses the repo's default branch as the base branch, not the checked-out one", async () => {
     await git(['checkout', '-b', 'develop'], repoPath)
+    const engine = await makeEngine(new FakeRuntime([]))
+    expect((await engine.invoke('workspace.open', repoPath)).baseBranch).toBe('main')
+  })
+
+  it('uses the checked-out branch as the base branch when there is no main or master', async () => {
+    await git(['checkout', '-b', 'develop'], repoPath)
+    await git(['branch', '-D', 'main'], repoPath)
     const engine = await makeEngine(new FakeRuntime([]))
     expect((await engine.invoke('workspace.open', repoPath)).baseBranch).toBe('develop')
   })

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { BoardTicket, PrepareOptions, WorkspaceSummary } from '../../shared/api'
+import type { BoardTicket, OpenWorkspaceOptions, PrepareOptions, WorkspaceSummary } from '../../shared/api'
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { modelOptions, setModelOptions, type ModelOption } from '../../shared/models'
 import { invoke, onEngineEvent } from './api'
@@ -61,7 +61,8 @@ interface MainbusState {
   /** The first load: setup check, then workspace and board. Never rejects; a failure lands in `loadError`. */
   load(): Promise<void>
   checkSetup(): Promise<void>
-  openWorkspace(repoPath: string): Promise<void>
+  /** Opens the folder as a workspace; `options.baseBranch` chooses a new (or re-added) workspace's base branch. */
+  openWorkspace(repoPath: string, options?: OpenWorkspaceOptions): Promise<void>
   /** After the user confirmed: sets git up in the folder (see `workspace.prepare`), then opens it as a workspace. */
   prepareWorkspace(repoPath: string, options: PrepareOptions): Promise<void>
   /** Reads the rail's summaries. Runs one at a time: a call made meanwhile waits and reads once more afterwards. */
@@ -215,8 +216,8 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     set({ unattended: await invoke('unattended.get'), usage: await invoke('usage.get') })
   },
 
-  async openWorkspace(repoPath) {
-    const workspace = await invoke('workspace.open', repoPath)
+  async openWorkspace(repoPath, options) {
+    const workspace = await invoke('workspace.open', repoPath, ...(options ? [options] : []))
     set({ workspace, workspaceLoaded: true, boardLoaded: false })
     await Promise.all([get().refreshBoard(), get().refreshWorkspaces()])
   },
