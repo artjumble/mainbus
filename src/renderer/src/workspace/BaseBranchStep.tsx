@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Select, Stack, Text } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import type { BaseBranchChoice, BaseBranchWarning } from '../../../shared/api'
-import { addBaseQuestion } from '../../../shared/baseBranch'
+import type { BaseBranchChoice } from '../../../shared/api'
+import { addBaseQuestion, baseChoiceWarning } from '../../../shared/baseBranch'
 import { errorMessage } from '../notify'
 import { useMainbus } from '../store'
 import { BaseBranchNotice } from './BaseBranchNotice'
@@ -16,19 +16,17 @@ export function branchSelectData(choice: Pick<BaseBranchChoice, 'branches'>, ext
 /**
  * Add workspace, when the base branch needs a word: the checkout isn't on the repo's default branch, or a removed workspace
  * of this repo comes back with a base that is gone or differs. The folder opens with the branch chosen here.
- * With a `warning`, the base is off main (or isn't on origin), and the step says so. With nothing to choose, it is only that
+ * When the branch chosen is off main (or isn't on origin), the step says so. With nothing to choose, it is only that
  * warning, with Add anyway and Cancel.
  */
 export function BaseBranchStep({
   folder,
   choice,
-  warning,
   onDone,
   onCancel
 }: {
   folder: string
   choice: BaseBranchChoice
-  warning?: BaseBranchWarning
   onDone: () => void
   onCancel: () => void
 }): ReactElement {
@@ -36,6 +34,7 @@ export function BaseBranchStep({
   const question = addBaseQuestion(choice)
   const asking = question !== 'none'
   const [value, setValue] = useState(choice.suggested)
+  const warning = baseChoiceWarning(choice, value)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -79,7 +78,7 @@ export function BaseBranchStep({
           comboboxProps={{ withinPortal: false }}
         />
       )}
-      {warning && (!asking || value === warning.branch) && <BaseBranchNotice warning={warning} withHint={!asking} />}
+      {warning && <BaseBranchNotice warning={warning} withHint={!asking} />}
       {error && (
         <Alert color="red" role="alert">
           {error}

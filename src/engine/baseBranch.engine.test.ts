@@ -80,6 +80,8 @@ describe('adding a workspace', () => {
         { name: 'feature', onRemote: false },
         { name: 'main', onRemote: false }
       ],
+      defaultBranch: 'main',
+      hasRemote: false,
       removed: null
     })
     expect((await engine.invoke('workspace.open', repo)).baseBranch).toBe('main')

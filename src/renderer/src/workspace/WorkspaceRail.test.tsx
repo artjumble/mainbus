@@ -119,7 +119,7 @@ async function chooseFolder(): Promise<void> {
 }
 
 test("a checkout off the default branch shows the base line and opens with the default", async () => {
-  engine({ base: { current: 'fm/x', suggested: 'main', branches, removed: null } })
+  engine({ base: { current: 'fm/x', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: null } })
   await chooseFolder()
   expect(await screen.findByText("Base branch: main (you're on fm/x)")).toBeInTheDocument()
   expect(mockInvoke).not.toHaveBeenCalledWith('workspace.open', expect.anything())
@@ -129,10 +129,10 @@ test("a checkout off the default branch shows the base line and opens with the d
 })
 
 const feature: BaseBranchWarning = { branch: 'fm/feature', notOnRemote: true, restored: false }
-const onFeature: BaseBranchChoice = { current: 'fm/feature', suggested: 'fm/feature', branches, removed: null }
+const onFeature: BaseBranchChoice = { current: 'fm/feature', suggested: 'fm/feature', defaultBranch: null, hasRemote: true, branches, removed: null }
 
 test('a base off main warns inside the base step, and only while that branch is the one chosen', async () => {
-  engine({ base: { current: 'fm/feature', suggested: 'fm/feature', branches, removed: { baseBranch: 'old', exists: false } }, baseWarning: feature })
+  engine({ base: { current: 'fm/feature', suggested: 'fm/feature', defaultBranch: null, hasRemote: true, branches, removed: { baseBranch: 'old', exists: false } }, baseWarning: feature })
   await chooseFolder()
   const dialog = await screen.findByRole('dialog')
   expect(within(dialog).getByText(/Mainbus uses this branch as the workspace's base/)).toBeInTheDocument()
@@ -161,23 +161,36 @@ test('Add anyway opens the folder with the branch it is on', async () => {
   await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })
 
+test("picking a removed workspace's old feature base warns about it too", async () => {
+  engine({ base: { current: 'main', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: { baseBranch: 'fm/x', exists: true } } })
+  await chooseFolder()
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).queryByText(/Mainbus uses this branch as the workspace's base/)).not.toBeInTheDocument()
+  await userEvent.click(within(dialog).getByRole('combobox', { name: 'Base branch' }))
+  await userEvent.click(await within(dialog).findByRole('option', { name: 'fm/x' }))
+  expect(within(dialog).getByText(/comes back with its old base branch, fm\/x/)).toBeInTheDocument()
+})
+
 test('another base branch can be chosen in the Add workspace step', async () => {
-  engine({ base: { current: 'fm/x', suggested: 'main', branches, removed: null } })
+  engine({ base: { current: 'fm/x', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: null } })
   await chooseFolder()
   await userEvent.click(await screen.findByRole('combobox', { name: /Choose another/ }))
   await userEvent.click(await screen.findByRole('option', { name: 'fm/x' }))
+  // The branch picked is off main and not on origin, so the step says so.
+  expect(within(screen.getByRole('dialog')).getByText(/Mainbus uses this branch as the workspace's base/)).toBeInTheDocument()
+  expect(within(screen.getByRole('dialog')).getByText("This branch isn't on origin, so pull requests will fail.")).toBeInTheDocument()
   await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add workspace' }))
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo', { baseBranch: 'fm/x' }))
 })
 
 test('a checkout already on the default branch opens without the step', async () => {
-  engine({ base: { current: 'main', suggested: 'main', branches, removed: null } })
+  engine({ base: { current: 'main', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: null } })
   await chooseFolder()
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo'))
 })
 
 test('re-adding a removed workspace whose base is gone asks which base to use', async () => {
-  engine({ base: { current: 'main', suggested: 'main', branches, removed: { baseBranch: 'old', exists: false } } })
+  engine({ base: { current: 'main', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: { baseBranch: 'old', exists: false } } })
   await chooseFolder()
   expect(await screen.findByText(/with the base branch old\. That branch no longer exists/)).toBeInTheDocument()
 })

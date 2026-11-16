@@ -43,7 +43,7 @@ const branches = [
 ]
 
 test('a checkout off the default branch asks about the base before opening', async () => {
-  checkReturns({ current: 'fm/x', suggested: 'main', branches, removed: null })
+  checkReturns({ current: 'fm/x', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: null })
   renderWithMantine(<OpenWorkspace />)
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   expect(await screen.findByText("Base branch: main (you're on fm/x)")).toBeInTheDocument()
@@ -53,7 +53,7 @@ test('a checkout off the default branch asks about the base before opening', asy
 })
 
 test('a removed workspace whose base differs from the default asks which to use', async () => {
-  checkReturns({ current: 'main', suggested: 'main', branches, removed: { baseBranch: 'fm/x', exists: true } })
+  checkReturns({ current: 'main', suggested: 'main', defaultBranch: 'main', hasRemote: true, branches, removed: { baseBranch: 'fm/x', exists: true } })
   renderWithMantine(<OpenWorkspace />)
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   expect(await screen.findByText(/with the base branch fm\/x\. The repo's default branch is main/)).toBeInTheDocument()
@@ -62,7 +62,7 @@ test('a removed workspace whose base differs from the default asks which to use'
 const feature = { branch: 'fm/hunter', notOnRemote: true, restored: false }
 
 test('a base off main shows the warning inside the base step, for the branch it is about to use', async () => {
-  checkReturns({ current: 'fm/hunter', suggested: 'fm/hunter', branches, removed: { baseBranch: 'old', exists: false } }, feature)
+  checkReturns({ current: 'fm/hunter', suggested: 'fm/hunter', defaultBranch: null, hasRemote: true, branches, removed: { baseBranch: 'old', exists: false } }, feature)
   renderWithMantine(<OpenWorkspace />)
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   expect(await screen.findByText(/Mainbus uses this branch as the workspace's base/)).toBeInTheDocument()
@@ -73,7 +73,7 @@ test('a base off main shows the warning inside the base step, for the branch it 
 })
 
 test('with no base question, a base off main warns on the welcome screen; Cancel opens nothing', async () => {
-  checkReturns({ current: 'fm/hunter', suggested: 'fm/hunter', branches, removed: null }, feature)
+  checkReturns({ current: 'fm/hunter', suggested: 'fm/hunter', defaultBranch: null, hasRemote: true, branches, removed: null }, feature)
   renderWithMantine(<OpenWorkspace />)
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   expect(await screen.findByText(/Mainbus uses this branch as the workspace's base/)).toBeInTheDocument()
@@ -84,7 +84,7 @@ test('with no base question, a base off main warns on the welcome screen; Cancel
 })
 
 test('Add anyway on the welcome screen opens the folder', async () => {
-  checkReturns({ current: 'fm/hunter', suggested: 'fm/hunter', branches, removed: null }, feature)
+  checkReturns({ current: 'fm/hunter', suggested: 'fm/hunter', defaultBranch: null, hasRemote: true, branches, removed: null }, feature)
   renderWithMantine(<OpenWorkspace />)
   await userEvent.click(screen.getByRole('button', { name: 'Add workspace' }))
   await userEvent.click(await screen.findByRole('button', { name: 'Add anyway' }))

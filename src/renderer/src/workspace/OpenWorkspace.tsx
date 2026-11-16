@@ -57,7 +57,6 @@ export function OpenWorkspace(): ReactElement {
           <BaseBranchStep
             folder={askBase.folder}
             choice={askBase.base}
-            warning={askBase.baseWarning}
             onDone={() => setAskBase(null)}
             onCancel={() => setAskBase(null)}
           />

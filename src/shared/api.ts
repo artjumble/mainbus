@@ -66,6 +66,10 @@ export interface BaseBranchChoice {
   /** The repo's default branch (origin/HEAD, main or master), else the checked-out one. */
   suggested: string
   branches: BranchOption[]
+  /** The repo's default branch that exists locally (origin/HEAD, main or master); null when there is none. */
+  defaultBranch: string | null
+  /** Whether the repo has an origin remote. */
+  hasRemote: boolean
   /** For a folder that was a workspace before and was removed: the base it had, and whether that branch still exists. */
   removed: { baseBranch: string; exists: boolean } | null
 }
@@ -86,7 +90,7 @@ export interface FolderReadiness {
   root: string
   /** Only when the status is 'ready'. */
   base?: BaseBranchChoice
-  /** Only when the status is 'ready': the branch the workspace would start on as its base, when it isn't main, master or the remote's default. */
+  /** Only when the status is 'ready': the suggested base, when it isn't main, master or the remote's default, or isn't on origin. */
   baseWarning?: BaseBranchWarning
 }
 

@@ -33,8 +33,9 @@ import { realClock, type Clock } from './holds/clock'
 import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
-import { branchExists, currentBranch, defaultBranch, workspaceBranches, listBranches } from './git/baseBranch'
-import { baseBranchWarning, checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
+import { baseChoiceWarning } from '../shared/baseBranch'
+import { branchExists, currentBranch, defaultBranch, hasOrigin, workspaceBranches, listBranches } from './git/baseBranch'
+import { checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
 import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
@@ -460,6 +461,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         current,
         suggested: (await defaultBranch(cfg.git, root)) ?? current,
         branches: await listBranches(cfg.git, root),
+        defaultBranch: await defaultBranch(cfg.git, root),
+        hasRemote: await hasOrigin(cfg.git, root),
         removed: known ? { baseBranch: known.baseBranch, exists: await branchExists(cfg.git, root, known.baseBranch) } : null
       }
     }
@@ -1400,7 +1403,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const live = (await repos.workspaces.listAll()).some((w) => !w.removed && samePath(path.resolve(w.repoPath), readiness.root))
         if (live) return { ...plain, base }
         // The branch Add workspace starts on as the base: the default one, which a removed workspace may have had too.
-        const baseWarning = await baseBranchWarning(cfg.git, readiness.root, base.suggested, base.removed?.baseBranch === base.suggested)
+        const baseWarning = baseChoiceWarning(base, base.suggested)
         return baseWarning ? { ...plain, base, baseWarning } : { ...plain, base }
       },
       'workspace.previewSetup': (folder) => previewSetup(cfg.git, z.string().min(1).parse(folder)),

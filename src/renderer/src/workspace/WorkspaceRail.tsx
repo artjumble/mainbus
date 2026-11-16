@@ -322,7 +322,6 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
         <BaseBranchStep
           folder={askBase.folder}
           choice={askBase.base}
-          warning={askBase.baseWarning}
           onDone={close}
           onCancel={close}
         />
