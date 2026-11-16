@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BaseBranchChoice } from './api'
-import { addBaseQuestion, baseBranchWarning } from './baseBranch'
+import { addBaseQuestion, baseBranchWarning, needsBaseStep } from './baseBranch'
 
 const choice = (over: Partial<BaseBranchChoice>): BaseBranchChoice => ({ current: 'main', suggested: 'main', branches: [], removed: null, ...over })
 
@@ -27,5 +27,19 @@ describe('addBaseQuestion', () => {
   })
   it('asks nothing for a removed workspace whose base is the default', () => {
     expect(addBaseQuestion(choice({ current: 'fm/x', removed: { baseBranch: 'main', exists: true } }))).toBe('none')
+  })
+})
+
+describe('needsBaseStep', () => {
+  const warning = { branch: 'fm/x', notOnRemote: false, restored: false }
+  it('is false without a base choice', () => {
+    expect(needsBaseStep({})).toBe(false)
+  })
+  it('is true for a question, or for a warning with nothing to ask', () => {
+    expect(needsBaseStep({ base: choice({ current: 'fm/x' }) })).toBe(true)
+    expect(needsBaseStep({ base: choice({ current: 'fm/x', suggested: 'fm/x' }), baseWarning: warning })).toBe(true)
+  })
+  it('is false when there is nothing to ask and nothing to warn about', () => {
+    expect(needsBaseStep({ base: choice({}) })).toBe(false)
   })
 })

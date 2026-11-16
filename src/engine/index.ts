@@ -34,7 +34,7 @@ import { HoldService } from './holds/holds'
 import { runCommand, type CommandRunner } from './git/command'
 import type { GitRunner } from './git/git'
 import { branchExists, currentBranch, defaultBranch, workspaceBranches, listBranches } from './git/baseBranch'
-import { checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
+import { baseBranchWarning, checkFolder, notReadyMessage, prepareFolder, previewSetup, WorkspaceNotReadyError } from './git/folderSetup'
 import { PullRequestPublisher } from './git/pullRequests'
 import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
@@ -1393,7 +1393,15 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'workspace.open': openWorkspace,
       'workspace.check': async (folder) => {
         const readiness = await checkFolder(cfg.git, z.string().min(1).parse(folder))
-        return readiness.status === 'ready' ? { ...readiness, base: await baseChoice(readiness.root) } : readiness
+        if (readiness.status !== 'ready') return readiness
+        const base = await baseChoice(readiness.root)
+        // A live workspace added again is only focused: its base doesn't change, so there is nothing to warn about.
+        const { baseWarning: _current, ...plain } = readiness
+        const live = (await repos.workspaces.listAll()).some((w) => !w.removed && samePath(path.resolve(w.repoPath), readiness.root))
+        if (live) return { ...plain, base }
+        // The branch Add workspace starts on as the base: the default one, which a removed workspace may have had too.
+        const baseWarning = await baseBranchWarning(cfg.git, readiness.root, base.suggested, base.removed?.baseBranch === base.suggested)
+        return baseWarning ? { ...plain, base, baseWarning } : { ...plain, base }
       },
       'workspace.previewSetup': (folder) => previewSetup(cfg.git, z.string().min(1).parse(folder)),
       // Renderer-only too: the agent intake has no way to make Mainbus commit.

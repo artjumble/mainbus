@@ -1,9 +1,10 @@
 import { Alert, Button, Group, Select, Stack, Text } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import type { BaseBranchChoice } from '../../../shared/api'
+import type { BaseBranchChoice, BaseBranchWarning } from '../../../shared/api'
 import { addBaseQuestion } from '../../../shared/baseBranch'
 import { errorMessage } from '../notify'
 import { useMainbus } from '../store'
+import { BaseBranchNotice } from './BaseBranchNotice'
 
 /** The branch options, each with a mark when origin has it too. */
 export function branchSelectData(choice: Pick<BaseBranchChoice, 'branches'>, extra?: string): { value: string; label: string }[] {
@@ -15,20 +16,25 @@ export function branchSelectData(choice: Pick<BaseBranchChoice, 'branches'>, ext
 /**
  * Add workspace, when the base branch needs a word: the checkout isn't on the repo's default branch, or a removed workspace
  * of this repo comes back with a base that is gone or differs. The folder opens with the branch chosen here.
+ * With a `warning`, the base is off main (or isn't on origin), and the step says so. With nothing to choose, it is only that
+ * warning, with Add anyway and Cancel.
  */
 export function BaseBranchStep({
   folder,
   choice,
+  warning,
   onDone,
   onCancel
 }: {
   folder: string
   choice: BaseBranchChoice
+  warning?: BaseBranchWarning
   onDone: () => void
   onCancel: () => void
 }): ReactElement {
   const openWorkspace = useMainbus((s) => s.openWorkspace)
   const question = addBaseQuestion(choice)
+  const asking = question !== 'none'
   const [value, setValue] = useState(choice.suggested)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +43,8 @@ export function BaseBranchStep({
     setBusy(true)
     setError(null)
     try {
-      await openWorkspace(folder, { baseBranch: value })
+      if (asking) await openWorkspace(folder, { baseBranch: value })
+      else await openWorkspace(folder)
       onDone()
     } catch (err) {
       setError(errorMessage(err))
@@ -61,15 +68,18 @@ export function BaseBranchStep({
           {`This repo was a workspace before, with the base branch ${choice.removed?.baseBranch}. The repo's default branch is ${choice.suggested}. Which base branch should it use?`}
         </Text>
       )}
-      <Select
-        label={question === 'differs_from_checkout' ? 'Choose another' : 'Base branch'}
-        description="New tickets branch from it, and pull requests open against it."
-        data={branchSelectData(choice)}
-        value={value}
-        onChange={(v) => v && setValue(v)}
-        allowDeselect={false}
-        comboboxProps={{ withinPortal: false }}
-      />
+      {asking && (
+        <Select
+          label={question === 'differs_from_checkout' ? 'Choose another' : 'Base branch'}
+          description="New tickets branch from it, and pull requests open against it."
+          data={branchSelectData(choice)}
+          value={value}
+          onChange={(v) => v && setValue(v)}
+          allowDeselect={false}
+          comboboxProps={{ withinPortal: false }}
+        />
+      )}
+      {warning && (!asking || value === warning.branch) && <BaseBranchNotice warning={warning} withHint={!asking} />}
       {error && (
         <Alert color="red" role="alert">
           {error}
@@ -80,7 +90,7 @@ export function BaseBranchStep({
           Cancel
         </Button>
         <Button onClick={() => void add()} loading={busy}>
-          Add workspace
+          {asking ? 'Add workspace' : 'Add anyway'}
         </Button>
       </Group>
     </Stack>

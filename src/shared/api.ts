@@ -79,13 +79,24 @@ export interface WorkspaceBranches {
   baseOnRemote: boolean
 }
 
-/** Whether a chosen folder can open as a workspace, and if not, why.  is the repository root (the folder itself when there is no repository). */
+/** Whether a chosen folder can open as a workspace, and if not, why. `root` is the repository root (the folder itself when there is no repository). */
 export interface FolderReadiness {
   status: 'ready' | 'not_a_repo' | 'no_commits' | 'detached_head'
   folder: string
   root: string
   /** Only when the status is 'ready'. */
   base?: BaseBranchChoice
+  /** Only when the status is 'ready': the branch the workspace would start on as its base, when it isn't main, master or the remote's default. */
+  baseWarning?: BaseBranchWarning
+}
+
+/** A base branch worth a second look before the workspace is added. */
+export interface BaseBranchWarning {
+  branch: string
+  /** True when there is a remote and `origin/<branch>` doesn't exist, so pull requests would fail. */
+  notOnRemote: boolean
+  /** True when the branch is the stored base of a removed workspace that adding the folder brings back. */
+  restored: boolean
 }
 
 /** Options of `workspace.open`. */

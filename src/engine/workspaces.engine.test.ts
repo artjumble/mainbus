@@ -517,3 +517,57 @@ describe('workspace summaries for the rail', () => {
     )
   })
 })
+
+describe('the base branch warning on add', () => {
+  // A repo whose only branch is a feature branch: no default branch to suggest, so the checkout is the base.
+  async function featureOnlyRepo(name: string): Promise<string> {
+    const repo = await makeRepo(name)
+    await git(['branch', '-m', 'main', 'fm/feature'], repo)
+    return repo
+  }
+
+  it('warns about a removed workspace coming back with a feature-branch base, and not about a live one', async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await featureOnlyRepo('warned')
+    const ws = await engine.invoke('workspace.open', repo)
+    expect(ws.baseBranch).toBe('fm/feature')
+
+    // Live: adding it again only focuses it, so there is nothing to warn about.
+    const live = await engine.invoke('workspace.check', repo)
+    expect(live.baseWarning).toBeUndefined()
+    expect(live.base).toBeDefined()
+
+    await engine.invoke('workspace.remove', ws.id)
+    const check = await engine.invoke('workspace.check', repo)
+    expect(check.baseWarning).toEqual({ branch: 'fm/feature', notOnRemote: false, restored: true })
+    expect((await engine.invoke('workspace.open', repo)).baseBranch).toBe('fm/feature')
+  })
+
+  it("doesn't warn about a removed workspace whose base is main, whatever the checkout is on now", async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await makeRepo('fine')
+    const ws = await engine.invoke('workspace.open', repo)
+    await engine.invoke('workspace.remove', ws.id)
+    await git(['switch', '-c', 'fm/x'], repo)
+    const check = await engine.invoke('workspace.check', repo)
+    expect(check.baseWarning).toBeUndefined()
+    expect(check.base?.removed).toEqual({ baseBranch: 'main', exists: true })
+  })
+
+  it('warns about a new folder whose base would be a feature branch, and gives the base choice too', async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await featureOnlyRepo('fresh')
+    const check = await engine.invoke('workspace.check', repo)
+    expect(check.baseWarning).toEqual({ branch: 'fm/feature', notOnRemote: false, restored: false })
+    expect(check.base).toMatchObject({ current: 'fm/feature', suggested: 'fm/feature', removed: null })
+  })
+
+  it("doesn't warn when the checkout is a feature branch but the default branch is the suggested base", async () => {
+    const engine = await makeEngine(new FakeRuntime(WAIT))
+    const repo = await makeRepo('offmain')
+    await git(['switch', '-c', 'fm/x'], repo)
+    const check = await engine.invoke('workspace.check', repo)
+    expect(check.baseWarning).toBeUndefined()
+    expect(check.base).toMatchObject({ current: 'fm/x', suggested: 'main' })
+  })
+})

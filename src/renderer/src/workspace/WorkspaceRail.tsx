@@ -15,7 +15,7 @@ import { useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import type { FolderReadiness, WorkspaceSummary } from '../../../shared/api'
-import { addBaseQuestion } from '../../../shared/baseBranch'
+import { needsBaseStep } from '../../../shared/baseBranch'
 import { invoke, openFolder } from '../api'
 import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
@@ -301,7 +301,7 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
       const folder = await openFolder()
       if (!folder) return
       const readiness = await invoke('workspace.check', folder)
-      if (readiness.status === 'ready' && readiness.base && addBaseQuestion(readiness.base) !== 'none') {
+      if (readiness.status === 'ready' && needsBaseStep(readiness)) {
         setAskBase(readiness)
       } else if (readiness.status === 'ready') {
         await openWorkspace(folder)
@@ -319,7 +319,13 @@ function AddWorkspaceModal({ opened, onClose }: { opened: boolean; onClose: () =
   return (
     <Modal opened={opened} onClose={close} title="Add workspace">
       {askBase?.base ? (
-        <BaseBranchStep folder={askBase.folder} choice={askBase.base} onDone={close} onCancel={close} />
+        <BaseBranchStep
+          folder={askBase.folder}
+          choice={askBase.base}
+          warning={askBase.baseWarning}
+          onDone={close}
+          onCancel={close}
+        />
       ) : notReady ? (
         <GitSetup readiness={notReady} onDone={close} onCancel={close} />
       ) : (

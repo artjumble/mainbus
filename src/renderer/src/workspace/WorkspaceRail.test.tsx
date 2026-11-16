@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { BaseBranchChoice, WorkspaceSummary } from '../../../shared/api'
+import type { BaseBranchChoice, BaseBranchWarning, WorkspaceSummary } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
@@ -29,7 +29,7 @@ async function expand(): Promise<HTMLElement> {
   return nav
 }
 
-function engine(opts: { failOpen?: string; failRemove?: string; base?: BaseBranchChoice } = {}): void {
+function engine(opts: { failOpen?: string; failRemove?: string; base?: BaseBranchChoice; baseWarning?: BaseBranchWarning } = {}): void {
   const summaries = [alpha, bravo]
   let focused = alpha
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
@@ -41,7 +41,7 @@ function engine(opts: { failOpen?: string; failRemove?: string; base?: BaseBranc
     if (command === 'workspace.get') return focused
     if (command === 'board.get') return { tickets: [] }
     if (command === 'unattended.get') return { on: false, status: { kind: 'off' } }
-    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0], ...(opts.base ? { base: opts.base } : {}) }
+    if (command === 'workspace.check') return { status: 'ready', folder: args[0], root: args[0], ...(opts.base ? { base: opts.base } : {}), baseWarning: opts.baseWarning }
     if (command === 'workspace.open') {
       if (opts.failOpen) throw new Error(opts.failOpen)
       return bravo
@@ -126,6 +126,39 @@ test("a checkout off the default branch shows the base line and opens with the d
 
   await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add workspace' }))
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo', { baseBranch: 'main' }))
+})
+
+const feature: BaseBranchWarning = { branch: 'fm/feature', notOnRemote: true, restored: false }
+const onFeature: BaseBranchChoice = { current: 'fm/feature', suggested: 'fm/feature', branches, removed: null }
+
+test('a base off main warns inside the base step, and only while that branch is the one chosen', async () => {
+  engine({ base: { current: 'fm/feature', suggested: 'fm/feature', branches, removed: { baseBranch: 'old', exists: false } }, baseWarning: feature })
+  await chooseFolder()
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(/Mainbus uses this branch as the workspace's base/)).toBeInTheDocument()
+  expect(within(dialog).getByText("This branch isn't on origin, so pull requests will fail.")).toBeInTheDocument()
+  await userEvent.click(within(dialog).getByRole('combobox', { name: 'Base branch' }))
+  await userEvent.click(await within(dialog).findByRole('option', { name: 'main · on origin' }))
+  expect(within(dialog).queryByText(/Mainbus uses this branch as the workspace's base/)).not.toBeInTheDocument()
+})
+
+test('with no base question, a base off main warns first; Cancel adds nothing', async () => {
+  engine({ base: onFeature, baseWarning: feature })
+  await chooseFolder()
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(/Mainbus uses this branch as the workspace's base/)).toBeInTheDocument()
+  expect(within(dialog).getByText("This branch isn't on origin, so pull requests will fail.")).toBeInTheDocument()
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.open', expect.anything())
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+})
+
+test('Add anyway opens the folder with the branch it is on', async () => {
+  engine({ base: onFeature, baseWarning: feature })
+  await chooseFolder()
+  await userEvent.click(await screen.findByRole('button', { name: 'Add anyway' }))
+  expect(mockInvoke).toHaveBeenCalledWith('workspace.open', '/r/bravo')
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })
 
 test('another base branch can be chosen in the Add workspace step', async () => {
