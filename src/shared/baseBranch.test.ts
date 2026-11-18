@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { BaseBranchChoice } from './api'
-import { addBaseQuestion, baseBranchWarning } from './baseBranch'
+import { addBaseQuestion, baseBranchWarning, baseChoiceWarning, needsBaseStep } from './baseBranch'
 
-const choice = (over: Partial<BaseBranchChoice>): BaseBranchChoice => ({ current: 'main', suggested: 'main', branches: [], removed: null, ...over })
+const choice = (over: Partial<BaseBranchChoice>): BaseBranchChoice => ({ current: 'main', suggested: 'main', branches: [], defaultBranch: 'main', hasRemote: false, removed: null, ...over })
 
 describe('baseBranchWarning', () => {
   it('warns when there is a remote and the base is not on it', () => {
@@ -27,5 +27,42 @@ describe('addBaseQuestion', () => {
   })
   it('asks nothing for a removed workspace whose base is the default', () => {
     expect(addBaseQuestion(choice({ current: 'fm/x', removed: { baseBranch: 'main', exists: true } }))).toBe('none')
+  })
+})
+
+describe('needsBaseStep', () => {
+  const warning = { branch: 'fm/x', notOnRemote: false, restored: false }
+  it('is false without a base choice', () => {
+    expect(needsBaseStep({})).toBe(false)
+  })
+  it('is true for a question, or for a warning with nothing to ask', () => {
+    expect(needsBaseStep({ base: choice({ current: 'fm/x' }) })).toBe(true)
+    expect(needsBaseStep({ base: choice({ current: 'fm/x', suggested: 'fm/x' }), baseWarning: warning })).toBe(true)
+  })
+  it('is false when there is nothing to ask and nothing to warn about', () => {
+    expect(needsBaseStep({ base: choice({}) })).toBe(false)
+  })
+})
+
+describe('baseChoiceWarning', () => {
+  const branches = [
+    { name: 'fm/x', onRemote: false },
+    { name: 'fm/y', onRemote: true },
+    { name: 'main', onRemote: true }
+  ]
+  const c = (over: Partial<BaseBranchChoice> = {}): BaseBranchChoice => choice({ branches, hasRemote: true, ...over })
+  it('is null for main, master and the default branch', () => {
+    expect(baseChoiceWarning(c(), 'main')).toBeNull()
+    expect(baseChoiceWarning(c(), 'master')).toBeNull()
+    expect(baseChoiceWarning(c({ defaultBranch: 'trunk' }), 'trunk')).toBeNull()
+  })
+  it('warns about any other branch, and about it missing from origin when there is a remote', () => {
+    expect(baseChoiceWarning(c(), 'fm/y')).toEqual({ branch: 'fm/y', notOnRemote: false, restored: false })
+    expect(baseChoiceWarning(c(), 'fm/x')).toEqual({ branch: 'fm/x', notOnRemote: true, restored: false })
+    expect(baseChoiceWarning(c({ hasRemote: false }), 'fm/x')).toEqual({ branch: 'fm/x', notOnRemote: false, restored: false })
+  })
+  it("marks a removed workspace's old base as restored", () => {
+    expect(baseChoiceWarning(c({ removed: { baseBranch: 'fm/x', exists: true } }), 'fm/x')?.restored).toBe(true)
+    expect(baseChoiceWarning(c({ removed: { baseBranch: 'fm/x', exists: false } }), 'fm/x')?.restored).toBe(false)
   })
 })

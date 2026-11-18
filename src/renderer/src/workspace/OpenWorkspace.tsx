@@ -1,6 +1,6 @@
 import { Button, Center, Modal, Stack, Text, Title } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import { addBaseQuestion } from '../../../shared/baseBranch'
+import { needsBaseStep } from '../../../shared/baseBranch'
 import type { FolderReadiness } from '../../../shared/api'
 import { invoke, openFolder } from '../api'
 import { showError } from '../notify'
@@ -22,7 +22,7 @@ export function OpenWorkspace(): ReactElement {
       if (folder) {
         const readiness = await invoke('workspace.check', folder)
         if (readiness.status !== 'ready') setNotReady(readiness)
-        else if (readiness.base && addBaseQuestion(readiness.base) !== 'none') setAskBase(readiness)
+        else if (needsBaseStep(readiness)) setAskBase(readiness)
         else await openWorkspace(folder)
       }
     } catch (err) {
@@ -54,7 +54,12 @@ export function OpenWorkspace(): ReactElement {
       </Modal>
       <Modal opened={askBase !== null} onClose={() => setAskBase(null)} title="Add workspace">
         {askBase?.base && (
-          <BaseBranchStep folder={askBase.folder} choice={askBase.base} onDone={() => setAskBase(null)} onCancel={() => setAskBase(null)} />
+          <BaseBranchStep
+            folder={askBase.folder}
+            choice={askBase.base}
+            onDone={() => setAskBase(null)}
+            onCancel={() => setAskBase(null)}
+          />
         )}
       </Modal>
     </Center>
