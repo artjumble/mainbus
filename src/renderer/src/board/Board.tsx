@@ -627,6 +627,29 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
   // A Done card being dragged out must not vanish under the pointer.
   const draggingFromHere = active != null && tickets.some((t) => t.id === active.id)
   const open = useExpandOnHover(isOver || focused || draggingFromHere, hovered)
+  const elRef = useRef<HTMLElement | null>(null)
+
+  // A drag can end without the column seeing pointerleave or blur: the dragged card leaves the column, or is
+  // unmounted, still holding focus. Trust the document, not the flags.
+  const resync = useCallback((): void => {
+    const el = elRef.current
+    if (!el) return
+    setHovered(el.matches(':hover'))
+    setFocused(el.contains(document.activeElement))
+  }, [])
+  const dragging = active != null
+  const wasDragging = useRef(false)
+  useEffect(() => {
+    const ended = wasDragging.current && !dragging
+    wasDragging.current = dragging
+    if (!ended) return
+    const timer = setTimeout(resync, 0)
+    return () => clearTimeout(timer)
+  }, [dragging, resync])
+  // The card that held focus may go on being removed after the drop, once the engine has moved it.
+  useEffect(() => {
+    if (focused) resync()
+  }, [tickets, focused, resync])
   const cleaningUp = tickets.some((t) => pendingMoves[t.id] === 'done')
   const headingId = `column-${id}`
   const countId = `column-${id}-count`
@@ -656,7 +679,10 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
 
   return (
     <Paper
-      ref={setNodeRef}
+      ref={(node: HTMLElement | null) => {
+        elRef.current = node
+        setNodeRef(node)
+      }}
       component="section"
       aria-labelledby={headingId}
       aria-describedby={countId}
