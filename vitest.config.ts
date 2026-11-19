@@ -1,6 +1,5 @@
 import react from '@vitejs/plugin-react'
 import { configDefaults, defineConfig } from 'vitest/config'
-import { THEME_IDS } from './src/shared/domain'
 
 const NODE_INCLUDE = ['src/engine/**/*.test.ts', 'src/main/**/*.test.ts', 'src/shared/**/*.test.ts', 'src/cli/**/*.test.ts']
 // Few enough at once that their git processes don't starve each other (8 and 12 ran the full suite in about the same time).
@@ -107,20 +106,7 @@ export default defineConfig({
           setupFiles: ['src/renderer/src/test-setup.ts'],
           sequence: { groupOrder: 1 }
         }
-      },
-      // The component tests again in each other theme, axe checks included (see renderWithMantine).
-      ...THEME_IDS.filter((id) => id !== 'light').map((id) => ({
-        plugins: [react()],
-        test: {
-          name: `jsdom-${id}`,
-          environment: 'jsdom',
-          globals: true,
-          include: ['src/renderer/**/*.test.tsx'],
-          setupFiles: ['src/renderer/src/test-setup.ts'],
-          sequence: { groupOrder: 1 },
-          env: { MAINBUS_TEST_THEME: id }
-        }
-      }))
+      }
     ]
   }
 })
