@@ -146,6 +146,25 @@ describe('SdkRuntime', () => {
     await eventually(() => expect(exited).toEqual([child.pid]))
   })
 
+  test.runIf(process.platform !== 'win32')('starts claude as the leader of its own process group off Windows', async () => {
+    const f = fakeSdk({ messages: fixture('e1-simple') })
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec())
+    const spawnClaude = f.calls[0].options.spawnClaudeCodeProcess as (o: unknown) => { pid?: number; kill(): boolean }
+    const child = spawnClaude({
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      cwd: tmpdir(),
+      env: { ...process.env },
+      signal: new AbortController().signal
+    })
+    try {
+      const { execFileSync } = await import('node:child_process')
+      expect(Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(child.pid)], { encoding: 'utf8' }).trim())).toBe(child.pid)
+    } finally {
+      child.kill()
+    }
+  })
+
   test('passes the official binary path, cwd, model, effort, disallowed tools, additional directories and appended system prompt', async () => {
     const f = fakeSdk({ messages: fixture('e1-simple') })
     const spec = makeSpec()

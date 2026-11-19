@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import os from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { descendantsOf, endedNotice, ProcessSweeper, type ProcessInfo } from './sweep'
+import { descendantsOf, endedNotice, endProcessGroup, parsePsTable, ProcessSweeper, type ProcessInfo } from './sweep'
 
 const T = 1_000_000
 const proc = (pid: number, parentPid: number, createdAt: number, name = `p${pid}.exe`): ProcessInfo => ({ pid, parentPid, name, createdAt })
@@ -70,6 +70,172 @@ describe('ProcessSweeper', () => {
     expect(called).toBe(false)
   })
 })
+
+const gproc = (pid: number, parentPid: number, groupId: number, createdAt: number): ProcessInfo => ({ ...proc(pid, parentPid, createdAt), groupId })
+
+describe('descendantsOf with process groups', () => {
+  const root = { pid: 100, startedAt: T }
+
+  it('finds group members re-parented to init after the root exited', () => {
+    const table = [gproc(200, 1, 100, T + 10), gproc(201, 1, 100, T + 20), gproc(900, 1, 900, T + 10), gproc(901, 1, 1, T + 10)]
+    expect(pids(descendantsOf(table, root))).toEqual([200, 201])
+  })
+
+  it('finds the descendants of a group member that started its own group', () => {
+    const table = [gproc(200, 1, 100, T + 10), gproc(300, 200, 300, T + 20), gproc(400, 300, 400, T + 30), gproc(900, 1, 900, T + 30)]
+    expect(pids(descendantsOf(table, root))).toEqual([200, 300, 400])
+  })
+
+  it('matches nothing by group when the root pid is alive with another start time', () => {
+    const table = [gproc(100, 1, 100, T + 100_000), gproc(200, 1, 100, T + 100_010)]
+    expect(descendantsOf(table, root)).toEqual([])
+  })
+
+  it('ignores a group member created before the root', () => {
+    expect(descendantsOf([gproc(200, 1, 100, T - 60_000)], root)).toEqual([])
+  })
+
+  it('keeps a member whose start time was truncated to the second', () => {
+    expect(pids(descendantsOf([gproc(200, 1, 100, T - 900)], root))).toEqual([200])
+  })
+
+  it('never returns Mainbus itself', () => {
+    expect(descendantsOf([gproc(process.pid, 1, 100, T + 10)], root)).toEqual([])
+  })
+
+  it('does not match by group on rows without a group id', () => {
+    expect(descendantsOf([proc(200, 1, T + 10)], root)).toEqual([])
+  })
+})
+
+describe('parsePsTable', () => {
+  it('parses Linux and macOS rows, with group ids', () => {
+    const out = [
+      '    1     0     1 Thu Nov 19 13:49:16 2026 systemd',
+      '  580   579   580 Thu Nov 19 13:49:16 2026 sh',
+      '12345     1 12345 Wed Nov  5 09:01:02 2026 /Applications/Visual Studio Code.app/Contents/MacOS/Electron',
+      'garbage line',
+      '  7 8 Thu Nov 19 13:49:16 2026 missing-pgid'
+    ].join('\n')
+    const rows = parsePsTable(out)
+    expect(rows.map((r) => [r.pid, r.parentPid, r.groupId])).toEqual([
+      [1, 0, 1],
+      [580, 579, 580],
+      [12345, 1, 12345]
+    ])
+    expect(rows[2]!.name).toBe('/Applications/Visual Studio Code.app/Contents/MacOS/Electron')
+    expect(rows[1]!.createdAt).toBe(Date.parse('Thu Nov 19 13:49:16 2026'))
+  })
+})
+
+describe('endProcessGroup', () => {
+  const root = { pid: 100, startedAt: T }
+  const setup = (dead: (calls: [number, string | number][]) => (pid: number) => boolean) => {
+    const calls: [number, string | number][] = []
+    const isDead = dead(calls)
+    const signal = (pid: number, sig: NodeJS.Signals | 0): void => {
+      calls.push([pid, sig])
+      if (sig === 0 && isDead(pid)) throw new Error('ESRCH')
+    }
+    let now = 0
+    const sleep = async (ms: number): Promise<void> => void (now += ms)
+    return { calls, opts: { graceMs: 300, pollMs: 100, signal, sleep }, now: () => now }
+  }
+  const found = [gproc(200, 1, 100, T + 10), gproc(201, 1, 100, T + 10), gproc(300, 1, 300, T + 10)]
+
+  it('terms the group and loose pids, then kills only what is still alive', async () => {
+    const s = setup((calls) => (pid) => pid === 200 || (pid === 300 && calls.some(([p, sg]) => p === 300 && sg === 'SIGTERM')))
+    // 201 ignores TERM; 200 and 300 exit.
+    await endProcessGroup(found, root, s.opts)
+    const real = s.calls.filter(([, sg]) => sg !== 0)
+    expect(real).toEqual([
+      [-100, 'SIGTERM'],
+      [300, 'SIGTERM'],
+      [-100, 'SIGKILL'],
+      [201, 'SIGKILL']
+    ])
+  })
+
+  it('does not kill when everything exits after TERM', async () => {
+    const s = setup(() => () => true)
+    await endProcessGroup(found, root, s.opts)
+    expect(s.calls.filter(([, sg]) => sg === 'SIGKILL')).toEqual([])
+  })
+
+  it('only signals the group and found pids', async () => {
+    const s = setup(() => () => false)
+    await endProcessGroup(found, root, s.opts)
+    const allowed = new Set([-100, 200, 201, 300])
+    expect(s.calls.every(([pid]) => allowed.has(pid))).toBe(true)
+  })
+
+  it('does not signal a group when no found process belongs to it', async () => {
+    const s = setup(() => () => true)
+    await endProcessGroup([gproc(300, 1, 300, T + 10)], root, s.opts)
+    expect(s.calls.some(([pid]) => pid < 0)).toBe(false)
+  })
+})
+
+describe('ProcessSweeper passes the root to kill', () => {
+  it('hands kill the root it swept', async () => {
+    let seen: unknown
+    const sweeper = new ProcessSweeper(async () => [proc(200, 100, T + 10)], async (_p, r) => void (seen = r))
+    await sweeper.sweep({ pid: 100, startedAt: T })
+    expect(seen).toEqual({ pid: 100, startedAt: T })
+  })
+})
+
+describe.runIf(process.platform !== 'win32')('ProcessSweeper on POSIX, with real processes', () => {
+  it('ends orphans that outlived their parent, including one that ignores SIGTERM, and nothing else', async () => {
+    const cwd = os.tmpdir()
+    const stubborn = `process.on('SIGTERM', () => {}); ${SLEEPER}`
+    const childScript =
+      `const cp = require('child_process'); const out = [];` +
+      `for (const code of [${JSON.stringify(SLEEPER)}, ${JSON.stringify(stubborn)}]) out.push(cp.spawn(process.execPath, ['-e', code], { stdio: 'ignore' }).pid);` +
+      `process.stdout.write('grandchildren ' + out.join(',') + '\\n'); setTimeout(() => process.exit(0), 300)`
+    const child = spawn(process.execPath, ['-e', childScript], { cwd, stdio: ['ignore', 'pipe', 'ignore'], detached: true })
+    const plain = spawn(process.execPath, ['-e', SLEEPER], { cwd, stdio: 'ignore' })
+    const other = spawn(process.execPath, ['-e', SLEEPER], { cwd, stdio: 'ignore', detached: true })
+    let reported = ''
+    child.stdout!.on('data', (d) => (reported += d))
+    const sweeper = new ProcessSweeper(undefined, (p, r) => endProcessGroup(p, r, { graceMs: 500 }))
+    let grandchildren: number[] = []
+    try {
+      const startedAt = (await new ProcessSweeper().startTime(child.pid!)) ?? Date.now()
+      await new Promise((r) => child.once('exit', r))
+      grandchildren = (/grandchildren ([\d,]+)/.exec(reported)?.[1] ?? '').split(',').map(Number)
+      expect(grandchildren).toHaveLength(2)
+      expect(grandchildren.every(isAlive)).toBe(true)
+      const ended = await sweeper.sweep({ pid: child.pid!, startedAt })
+      expect(pids(ended)).toEqual([...grandchildren].sort((a, b) => a - b))
+      await waitUntil(() => grandchildren.every((g) => !isAlive(g)))
+      expect(isAlive(plain.pid!)).toBe(true)
+      expect(isAlive(other.pid!)).toBe(true)
+    } finally {
+      plain.kill('SIGKILL')
+      try {
+        process.kill(-other.pid!, 'SIGKILL')
+      } catch {
+        // gone
+      }
+      try {
+        process.kill(-child.pid!, 'SIGKILL')
+      } catch {
+        // gone
+      }
+    }
+  }, 60_000)
+})
+
+// Running, and not a zombie that nobody has reaped yet.
+function isAlive(pid: number): boolean {
+  if (!isRunning(pid)) return false
+  try {
+    return !/^Z/.test(execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim())
+  } catch {
+    return false
+  }
+}
 
 describe.runIf(process.platform === 'win32')('ProcessSweeper on Windows, with real processes', () => {
   it('ends a grandchild that outlived its parent, and nothing else', async () => {

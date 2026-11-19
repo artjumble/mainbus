@@ -81,6 +81,27 @@ describe('the real setup command runner', () => {
     expect(sweeper.swept).toHaveLength(1)
   })
 
+  it.runIf(process.platform !== 'win32')('ends a backgrounded process too, with the real sweeper', async () => {
+    const pidFile = path.join(tmp, 'bg.pid')
+    const sleeper = `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`
+    const command = `node -e "${sleeper.replace(/"/g, '\\"')}" & sleep 60`
+    const result = await createSetupCommandRunner(new ProcessSweeper())(request(command, { timeoutMs: 1500 }))
+    expect(result.timedOut).toBe(true)
+    const bg = Number(await fs.readFile(pidFile, 'utf8'))
+    const gone = async (): Promise<boolean> => {
+      for (let i = 0; i < 50; i++) {
+        try {
+          process.kill(bg, 0)
+        } catch {
+          return true
+        }
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      return false
+    }
+    expect(await gone()).toBe(true)
+  })
+
   it('falls back to ending its own shell without a sweeper', async () => {
     const run = createSetupCommandRunner()
     const controller = new AbortController()

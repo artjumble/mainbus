@@ -84,6 +84,8 @@ export function createSetupCommandRunner(sweeper?: ProcessSweeper): SetupCommand
         cwd: req.cwd,
         env: setupEnv(req.tempDir),
         windowsHide: true,
+        // Off Windows the shell leads its own process group, which the sweep (or the fallback below) ends whole.
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe']
       })
       let timedOut = false
@@ -102,6 +104,15 @@ export function createSetupCommandRunner(sweeper?: ProcessSweeper): SetupCommand
               return
             } catch {
               // Fall back to the shell alone.
+            }
+          }
+          // A backgrounded grandchild would keep the output pipes open, so off Windows end the whole group.
+          if (process.platform !== 'win32' && child.pid !== undefined) {
+            try {
+              process.kill(-child.pid, 'SIGKILL')
+              return
+            } catch {
+              // Group already gone: fall through.
             }
           }
           child.kill()
