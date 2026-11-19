@@ -27,7 +27,7 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
   return { app, page }
 }
 
-test("a ticket's view shows its usage, added up over the roles, after its run; the card shows none", async () => {
+test("a ticket's view shows its usage and where its time went, per role, after its run; the card shows neither; the workspace report shows the median", async () => {
   let tmp: string | null = null
   let session: { app: ElectronApplication; page: Page } | null = null
   try {
@@ -66,6 +66,21 @@ test("a ticket's view shows its usage, added up over the roles, after its run; t
     await expect(usage.getByText('$0.30')).toBeVisible()
     await expect(usage.getByText('API-equivalent cost, not billed on your Claude plan').first()).toBeVisible()
     for (const role of ['Planner', 'Implementer', 'Reviewer']) await expect(usage.getByText(role, { exact: true })).toBeVisible()
+
+    // Where the time went, from the same run.
+    const time = page.getByRole('region', { name: 'Time' })
+    await expect(time.getByRole('button', { name: 'Show' })).toHaveAttribute('aria-expanded', 'false')
+    await time.getByRole('button', { name: 'Show' }).click()
+    await expect(time.getByText(/from the first start to Review/)).toBeVisible()
+    await expect(time.getByText(/pnpm test × 1/)).toBeVisible()
+    for (const role of ['Planner', 'Implementer', 'Reviewer']) await expect(time.getByText(role, { exact: true })).toBeVisible()
+
+    // The workspace report. Its Export CSV opens a native save dialog, so it is only checked for being there.
+    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: 'Workspace settings' }).click()
+    const report = page.getByRole('region', { name: 'Where time goes' })
+    await expect(report.getByText(/1 ticket · .* median /)).toBeVisible()
+    await expect(report.getByRole('button', { name: 'Export CSV' })).toBeVisible()
   } finally {
     await session?.app.close().catch(() => {})
     if (tmp) {

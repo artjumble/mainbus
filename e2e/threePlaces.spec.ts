@@ -63,11 +63,12 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
     }
 
     /** Resolved in all three places: gone from Needs you and the panel's group, answered in the thread, heard once. */
-    async function expectResolved(title: string, answeredFrom: string): Promise<void> {
+    async function expectResolved(title: string, answeredFrom: string, note?: string): Promise<void> {
       await expect(boardCard(title)).toHaveCount(0)
       await expect(panelCard(title)).toHaveCount(0)
       await page.getByRole('region', { name: 'In progress' }).getByText(title).click()
       await expect(page.locator('[data-event="decision"]')).toContainText('✓ Answered: docs folder')
+      if (note) await expect(page.locator('[data-event="decision"]')).toContainText(note)
       await expect(page.getByText('Got your answer, planning it.')).toHaveCount(1)
       await expect(page.getByText(`Decision: Where should hello.txt go? → docs folder (you, from ${answeredFrom})`)).toHaveCount(1)
       await page.getByRole('button', { name: /board/ }).click()
@@ -76,9 +77,15 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
     // 1. The board card.
     await boardCard('Alpha').getByRole('button', { name: 'Answer', exact: true }).click()
     const popover = page.getByRole('dialog')
+    await expect(popover.getByText('Where should hello.txt go?')).toBeVisible()
+    await expect(popover.getByText('Recommended')).toBeVisible()
     await popover.getByRole('radio', { name: /docs folder/ }).check()
+    await popover.getByRole('textbox', { name: /Note/ }).fill('keep it tidy')
+    // Clicking inside the popover does not open the ticket.
+    await expect(page.getByRole('heading', { name: 'Alpha' })).toHaveCount(0)
     await popover.getByRole('button', { name: 'Answer', exact: true }).click()
-    await expectResolved('Alpha', 'the board')
+    await expect(page.getByRole('region', { name: 'In progress' }).getByText('Alpha')).toBeVisible()
+    await expectResolved('Alpha', 'the board', 'keep it tidy')
 
     // 2. The panel's Waiting on you group.
     await panelCard('Beta').getByRole('radio', { name: /docs folder/ }).check()

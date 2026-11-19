@@ -53,10 +53,19 @@ test("an Investigate ticket's report is promoted into a Change ticket in Ready w
     await page.getByLabel('In your words').fill('Find out why login is slow')
     await page.getByRole('button', { name: 'Create' }).click()
 
+    // The new ticket shows its Investigate badge in Backlog.
+    await expect(page.getByRole('region', { name: 'Backlog' }).getByText('Investigate', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: /Why is login slow/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Report' }).getByRole('heading', { name: 'Findings' })).toBeVisible()
+    // The thread is still there above the report.
+    await expect(page.getByText('Investigator: reading the code.')).toBeVisible()
+
+    // The ticket sits in Review on the board; reopen it to promote.
+    await page.getByRole('button', { name: /board/ }).click()
+    await expect(page.getByRole('region', { name: 'Review' }).getByText('Why is login slow')).toBeVisible()
+    await page.getByRole('region', { name: 'Review' }).getByRole('button', { name: /Why is login slow/ }).click()
 
     await page.getByRole('button', { name: 'Promote', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Promote to a Change ticket' })
