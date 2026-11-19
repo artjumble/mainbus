@@ -32,7 +32,15 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # The Windows runner's default temp folder is an 8.3 short path (C:\Users\RUNNER~1\...), which the engine's
+      # workspace checks don't treat as the same folder as its long form. runner.temp is already long.
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
     steps:
+      # Windows runners default to core.autocrlf=true, which turns test fixtures' LF into CRLF.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       # The pnpm version comes from "packageManager" in package.json.
       - uses: pnpm/action-setup@v4
