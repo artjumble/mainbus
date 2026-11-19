@@ -201,6 +201,9 @@ test('a Done card dragged out to Ready stays in sight under the pointer, and lan
 
     await expect(ready.getByText('Ship it')).toBeVisible()
     await expect(done(page).getByTestId('column-count')).toHaveText('0')
+    // Nothing holds Done open now: it goes back to the strip (it used to stay stuck open).
+    await page.mouse.move(x, y + 100)
+    await expect(done(page)).toHaveAttribute('data-expanded', 'false')
   })
 })
 

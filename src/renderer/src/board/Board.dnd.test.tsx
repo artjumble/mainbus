@@ -191,3 +191,28 @@ test('a card dragged out of Done keeps Done open while the drag lasts, even with
   await new Promise((resolve) => setTimeout(resolve, 400))
   expect(screen.getByRole('region', { name: 'Done' }).dataset.expanded).toBe('true')
 })
+
+describe('Done after its focused card leaves it', () => {
+  test('collapses once focus is no longer inside it, though no blur reached the column', async () => {
+    const ticket = makeTicket({ title: 'Leaving' }, { column: 'done', phase: 'done' })
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket] }, true)
+    renderWithMantine(<Board />)
+    const done = screen.getByRole('region', { name: 'Done' })
+    act(() => done.focus())
+    await vi.waitFor(() => expect(done).toHaveAttribute('data-expanded', 'true'))
+    act(() => screen.getByRole('button', { name: /Leaving/ }).focus())
+    // The card moves to Ready: its element is removed while it holds focus, and no blur is dispatched.
+    act(() => useMainbus.setState({ tickets: [{ ...makeTicket({}, { column: 'ready' }), id: ticket.id }] }))
+    await vi.waitFor(() => expect(done).toHaveAttribute('data-expanded', 'false'), { timeout: 2000 })
+  })
+
+  test('stays open while focus really is inside it', async () => {
+    const ticket = makeTicket({ title: 'Staying' }, { column: 'done', phase: 'done' })
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket] }, true)
+    renderWithMantine(<Board />)
+    const done = screen.getByRole('region', { name: 'Done' })
+    act(() => done.focus())
+    await new Promise((r) => setTimeout(r, 700))
+    expect(done).toHaveAttribute('data-expanded', 'true')
+  })
+})
