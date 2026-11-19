@@ -56,6 +56,7 @@ test("a ticket's view shows its usage and where its time went, per role, after i
     await expect(review.getByText('Add hello')).toBeVisible({ timeout: 30_000 })
     // Never on the card.
     await expect(review.getByText(/token|input|\$\d/i)).toHaveCount(0)
+    await expect(review.getByText(/\bmins?\b|\btime\b/i)).toHaveCount(0)
     await review.getByText('Add hello').click()
 
     const usage = page.getByRole('region', { name: 'Usage' })

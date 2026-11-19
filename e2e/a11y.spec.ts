@@ -263,11 +263,6 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await expectNoAxeViolations(page, 'the ticket view with a permission card')
     expect(await smallTargets(page), 'small targets in the ticket view').toEqual([])
 
-    // Let the run finish: the app is shared with the other themes' tests, and a ticket left waiting would hold an agent
-    // slot, so a later test's ticket would only queue.
-    await page.locator('[data-event="permission"]').getByRole('button', { name: 'Allow once' }).click()
-    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-
     // The settings window.
     await page.getByRole('navigation', { name: 'Workspaces' }).hover()
     await expect(page.getByRole('navigation', { name: 'Workspaces' })).toHaveAttribute('data-expanded', 'true')
@@ -309,6 +304,11 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await page.keyboard.press('Escape')
     await expect(drawer).toBeHidden()
     await expect(mainbusSettings).toBeFocused()
+
+    // Let the run finish: the app is shared with the other themes' tests, and a ticket left waiting would hold an agent
+    // slot, so a later test's ticket would only queue.
+    await page.locator('[data-event="permission"]').getByRole('button', { name: 'Allow once' }).click()
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
   }, theme)
 })
 
