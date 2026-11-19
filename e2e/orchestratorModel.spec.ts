@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -36,8 +37,7 @@ test('switching the orchestrator to Sonnet at high effort applies from its next 
 
     let page: Page
     ;({ app, page } = await launch(home, repo))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
-    await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
+    await addWorkspace(page)
 
     // The panel shows what the next turn runs with: Opus at medium effort until the user chooses.
     const panel = page.getByRole('complementary', { name: 'Orchestrator' })

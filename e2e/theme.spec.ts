@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { GROUND } from '../src/shared/domain'
 import { makeRepo } from './artboardHelpers'
 
@@ -48,8 +49,7 @@ test('the Theme setting switches to Dark and back without a restart, and a dark 
     const repo = makeRepo(tmp, 'web-app')
     let page: Page
     ;({ app, page } = await launch(home, repo))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
-    await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
+    await addWorkspace(page)
 
     // Light until the user picks: today's look, frame and window.
     expect(await pageScheme(page)).toBe('light')
@@ -117,8 +117,7 @@ test('Night Owl applies without a restart, stays after a relaunch, and Match Win
     const repo = makeRepo(tmp, 'web-app')
     let page: Page
     ;({ app, page } = await launch(home, repo))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
-    await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
+    await addWorkspace(page)
 
     await openSettings(page)
     const theme = page.getByRole('radiogroup', { name: 'Theme', exact: true })

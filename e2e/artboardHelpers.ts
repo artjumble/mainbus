@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { THEME_IDS, themeOf, type ThemeId } from '../src/shared/domain'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -88,10 +89,7 @@ async function withArtboardIn(theme: ThemeId, options: Options, body: (board: Ar
     // Light is the default: the Light run leaves the setting alone, as a new user would.
     if (theme !== 'light') await useTheme(page, theme)
     if (options.openWorkspace !== false) {
-      await page.getByRole('button', { name: 'Add workspace' }).click()
-      // The rail shows before any workspace exists: wait for the board of the one being added.
-      await page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
-      await page.getByRole('button', { name: 'New ticket' }).waitFor()
+      await addWorkspace(page)
     }
     await body({ app, page, repo, tmp })
   } finally {

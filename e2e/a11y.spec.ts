@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { themeOf } from '../src/shared/domain'
 import { THEME_IDS, useTheme, type ThemeId } from './artboardHelpers'
 
@@ -153,9 +154,8 @@ async function withSession(body: (page: Page) => Promise<void>, theme: ThemeId =
     git(repo, 'commit', '-m', 'initial')
     session = await launch(home, repo)
     if (theme !== 'light') await useTheme(session.page, theme)
-    await session.page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(session.page)
     // The shell's navbar and aside settle into place just after the first paint; measure after that.
-    await session.page.getByRole('navigation', { name: 'Workspaces' }).waitFor()
     await session.page.waitForTimeout(500)
     await body(session.page)
   } finally {
