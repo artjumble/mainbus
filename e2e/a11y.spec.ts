@@ -7,7 +7,7 @@ import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { addWorkspace } from './addWorkspace'
 import { themeOf } from '../src/shared/domain'
-import { THEME_IDS, useTheme, type ThemeId } from './artboardHelpers'
+import { THEME_IDS, makeRepo, useTheme, type ThemeId } from './artboardHelpers'
 
 const root = path.resolve(import.meta.dirname, '..')
 const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
@@ -20,6 +20,7 @@ function git(cwd: string, ...args: string[]): void {
   })
 }
 
+/** `repo` may list several folders, joined with the path delimiter: the folder picker answers them in order. */
 async function launch(home: string, repo: string): Promise<{ app: ElectronApplication; page: Page }> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
@@ -140,35 +141,56 @@ async function smallTargets(page: Page, within = 'body'): Promise<string[]> {
   }, within)
 }
 
-async function withSession(body: (page: Page) => Promise<void>, theme: ThemeId = 'light'): Promise<void> {
-  let tmp: string | null = null
-  let session: { app: ElectronApplication; page: Page } | null = null
+// One app for the whole file, run in order. A test needs an empty board of its own, so each adds its own workspace
+// (the folder picker answers the repos below in order) and the checks run in that workspace. Reduced motion is
+// last, and unattended mode is per workspace, so none leaks into another.
+test.describe.configure({ mode: 'serial' })
+
+const REPOS = [...THEME_IDS.map((theme) => `${theme}-repo`), 'motion-repo']
+let tmp: string
+let app: ElectronApplication | undefined
+let sharedPage: Page
+let added = 0
+
+test.beforeAll(async () => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
+  const repos = REPOS.map((name) => makeRepo(tmp, name))
+  ;({ app, page: sharedPage } = await launch(path.join(tmp, 'home'), repos.join(path.delimiter)))
+})
+
+test.afterAll(async () => {
+  await app?.close().catch(() => {})
+  // Cleanup must never hide the test's own failure.
   try {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
-    const home = path.join(tmp, 'home')
-    const repo = path.join(tmp, 'repo')
-    fs.mkdirSync(repo)
-    git(repo, 'init')
-    fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
-    git(repo, 'add', '.')
-    git(repo, 'commit', '-m', 'initial')
-    session = await launch(home, repo)
-    if (theme !== 'light') await useTheme(session.page, theme)
-    await addWorkspace(session.page)
-    // The shell's navbar and aside settle into place just after the first paint; measure after that.
-    await session.page.waitForTimeout(500)
-    await body(session.page)
-  } finally {
-    await session?.app.close().catch(() => {})
-    // Cleanup must never hide the test's own failure.
-    if (tmp) {
-      try {
-        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-      } catch {
-        // A temp folder left behind is harmless.
-      }
-    }
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch {
+    // A temp folder left behind is harmless.
   }
+})
+
+/** Runs `body` in the next workspace, drawn in `theme`, with the page's media settings back to their defaults. */
+async function withSession(body: (page: Page, repoName: string) => Promise<void>, theme: ThemeId = 'light'): Promise<void> {
+  const page = sharedPage
+  const repoName = REPOS[added]!
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' })
+  if (added === 0) {
+    await addWorkspace(page)
+  } else {
+    const rail = page.getByRole('navigation', { name: 'Workspaces' })
+    await rail.getByRole('button', { name: 'Add workspace' }).click()
+    await page.getByRole('dialog', { name: 'Add workspace' }).getByRole('button', { name: 'Choose folder…' }).click()
+    await expect(rail.getByRole('button', { name: new RegExp(`^${repoName}`) })).toHaveAttribute('aria-current', 'true')
+    // The last test left a ticket open; it isn't in this workspace.
+    const back = page.getByRole('button', { name: /board$/ })
+    if ((await back.count()) > 0) await back.click()
+    await page.getByRole('button', { name: 'New ticket' }).waitFor()
+  }
+  added++
+  // Always set, light included: an earlier test may have left Match Windows on.
+  await useTheme(page, theme)
+  // The shell's navbar and aside settle into place just after the first paint; measure after that.
+  await page.waitForTimeout(500)
+  await body(page, repoName)
 }
 
 async function createTicket(page: Page, title: string): Promise<void> {
@@ -193,7 +215,7 @@ async function askAndRequest(page: Page): Promise<void> {
 
 for (const theme of THEME_IDS)
 test(`every screen passes axe, with colour contrast, and every control has a 44 px target (${theme})`, async () => {
-  await withSession(async (page) => {
+  await withSession(async (page, repoName) => {
     // The empty board.
     await expectNoAxeViolations(page, 'the empty board')
     expect(await smallTargets(page), 'small targets on the empty board').toEqual([])
@@ -241,12 +263,17 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await expectNoAxeViolations(page, 'the ticket view with a permission card')
     expect(await smallTargets(page), 'small targets in the ticket view').toEqual([])
 
+    // Let the run finish: the app is shared with the other themes' tests, and a ticket left waiting would hold an agent
+    // slot, so a later test's ticket would only queue.
+    await page.locator('[data-event="permission"]').getByRole('button', { name: 'Allow once' }).click()
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+
     // The settings window.
     await page.getByRole('navigation', { name: 'Workspaces' }).hover()
     await expect(page.getByRole('navigation', { name: 'Workspaces' })).toHaveAttribute('data-expanded', 'true')
     await expectNoAxeViolations(page, 'the expanded workspace rail')
     expect(await smallTargets(page, 'nav'), 'small targets in the expanded rail').toEqual([])
-    await page.getByRole('button', { name: 'Options for repo' }).click()
+    await page.getByRole('button', { name: `Options for ${repoName}`, exact: true }).click()
     await page.getByRole('menuitem', { name: 'Settings' }).click()
     await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Always allowed in this workspace' })).toBeVisible()
