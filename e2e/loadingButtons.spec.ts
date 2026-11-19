@@ -74,11 +74,18 @@ test('a loading button adds no scrollbar to the Add workspace and Remove workspa
     ;({ app, page } = await launch(home, repo))
     await page.getByRole('button', { name: 'Add workspace' }).click()
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
-    await rail.waitFor()
+    // The rail is there before any workspace: wait for web-app's own row.
+    await expect(rail.getByRole('button', { name: /^web-app/ })).toBeVisible()
 
     // Remove workspace, at rest, in every theme; then its removal never finishes, so Remove keeps spinning.
-    await rail.hover()
-    await page.getByRole('button', { name: 'Options for web-app' }).click()
+    // The rail opens 150 ms after the pointer enters it; a lost pointerenter leaves it shut, so leave and re-enter until Options shows.
+    const options = rail.getByRole('button', { name: 'Options for web-app' })
+    await expect(async () => {
+      await page.mouse.move(700, 2)
+      await rail.hover()
+      await expect(options).toBeVisible({ timeout: 1_000 })
+    }).toPass()
+    await options.click()
     await page.getByRole('menuitem', { name: 'Remove…' }).click()
     const removeDialog = page.getByRole('dialog', { name: 'Remove workspace' })
     const remove = removeDialog.getByRole('button', { name: 'Remove', exact: true })
