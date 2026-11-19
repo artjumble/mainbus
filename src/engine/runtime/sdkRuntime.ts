@@ -164,7 +164,10 @@ function spawnClaude(o: SpawnOptions, spec: RunSpec): SpawnedProcess {
     stdio: ['pipe', 'pipe', 'pipe'],
     signal: o.signal,
     env: o.env,
-    windowsHide: true
+    windowsHide: true,
+    // Off Windows the child leads its own process group (setsid), so its pgid equals its pid, and the sweep ends the
+    // whole group. Never on Windows: detached would give the child a new console.
+    detached: process.platform !== 'win32'
   })
   child.stderr.resume()
   if (child.pid !== undefined) {
