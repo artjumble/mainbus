@@ -8,17 +8,14 @@ import type { Decision, LineupRole, TicketState, Workspace } from '../../shared/
 import type { StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ModelOption } from '../../shared/models'
 import type { BoardTicket } from './store'
-import { isThemeId, type ThemeId } from '../../shared/domain'
 import { highlightAdapter } from './code/highlighter'
 import { mantineThemes } from './theme'
 
-/** The theme components are rendered in: Light, or another in its own test project (jsdom-dark, jsdom-night-owl, ...). */
-export const testTheme: ThemeId = isThemeId(import.meta.env['MAINBUS_TEST_THEME']) ? import.meta.env['MAINBUS_TEST_THEME'] : 'light'
-/** The colour scheme of that theme. */
-export const testScheme = mantineThemes[testTheme].scheme
+/** Components are rendered in Light. Other themes are covered by theme.test.ts, ThemedProvider.test.tsx and e2e/a11y.spec.ts. */
+const testScheme = mantineThemes.light.scheme
 
 function Providers({ children }: { children: ReactNode }): ReactElement {
-  const { theme, cssVariablesResolver } = mantineThemes[testTheme]
+  const { theme, cssVariablesResolver } = mantineThemes.light
   // env="test" turns off transitions and portals, which jsdom cannot run.
   return (
     <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} env="test" forceColorScheme={testScheme}>
@@ -203,7 +200,7 @@ export async function expectNoAxeViolations(
   container: Element = document.body,
   opts: { region?: boolean } = {}
 ): Promise<void> {
-  // Run in every theme: make sure the scheme being checked is the one in use.
+  // Make sure the scheme being checked is the one in use.
   expect(document.documentElement).toHaveAttribute('data-mantine-color-scheme', testScheme)
   const results = await axe.run(container, {
     rules: { 'color-contrast': { enabled: false }, region: { enabled: opts.region ?? false } }
