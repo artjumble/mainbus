@@ -5,6 +5,7 @@ const ctx: GuardContext = {
   worktree: 'C:\\h\\work\\ws\\14-x',
   additionalDirectories: [],
   ownBranch: 'mainbus/14-x',
+  pathStyle: 'win32',
 }
 
 type Row = [tool: string, input: Record<string, unknown>]

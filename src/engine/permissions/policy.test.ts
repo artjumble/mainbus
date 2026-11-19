@@ -348,7 +348,7 @@ describe('chains', () => {
 // Fake worktree paths only: nothing here touches the disk.
 describe('commands agents really run', () => {
   const wt = 'C:\\Users\\u\\AppData\\Local\\Mainbus\\work\\repo\\4-ticket'
-  const folders = { worktree: wt, additionalDirectories: [] }
+  const folders = { worktree: wt, additionalDirectories: [], pathStyle: 'win32' as const }
   const prefix = (p: string) => [rule('Bash', p)]
   const saved = (command: string) =>
     rulesFromRequest('w1', bash(command), { folders }).map((r, i) => ({ ...r, id: `r${i}` }))
