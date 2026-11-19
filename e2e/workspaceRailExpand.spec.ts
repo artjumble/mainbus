@@ -133,3 +133,25 @@ test('Options → Settings works from the expanded rail, which stays open while 
     await expect(rail.getByRole('button', { name: /^bravo-repo/ })).toHaveAttribute('aria-current', 'true')
   })
 })
+
+test('the widest custom labels stay inside the collapsed rail, with room for the needs-you badge', async () => {
+  await withRail(async (page) => {
+    const rail = page.getByRole('navigation', { name: 'Workspaces' })
+    // The focused workspace is alpha-repo; give each workspace one of the widest labels.
+    await page.evaluate(async () => {
+      const api = (window as unknown as { mainbus: { invoke(c: string, ...a: unknown[]): Promise<{ id: string }[]> } }).mainbus
+      const list = await api.invoke('workspace.list')
+      await api.invoke('workspace.setRailBadge', { label: 'MWW' }, list[0]!.id)
+      await api.invoke('workspace.setRailBadge', { label: '🚀🚀🚀' }, list[1]!.id)
+    })
+    for (const [name, label] of [[/^alpha-repo/, 'MWW'], [/^bravo-repo/, '🚀🚀🚀']] as const) {
+      const button = rail.getByRole('button', { name })
+      const tile = button.locator(`[data-initials="${label}"]`)
+      await expect(tile).toBeVisible()
+      const [t, b, n] = await Promise.all([tile.boundingBox(), button.boundingBox(), rail.boundingBox()])
+      expect(t!.x + t!.width).toBeLessThanOrEqual(b!.x + b!.width)
+      // The needs-you badge overhangs the tile's corner by 6 px.
+      expect(t!.x + t!.width + 6).toBeLessThanOrEqual(n!.x + n!.width)
+    }
+  })
+})

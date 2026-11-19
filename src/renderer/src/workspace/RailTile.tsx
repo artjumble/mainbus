@@ -18,7 +18,9 @@ export function RailTile({ label, color, bold }: { label: string; color: RailCol
         flexShrink: 0,
         minWidth: 28,
         height: 24,
-        padding: '0 3px',
+        maxWidth: 42,
+        overflow: 'hidden',
+        padding: '0 2px',
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -27,7 +29,8 @@ export function RailTile({ label, color, bold }: { label: string; color: RailCol
         border: `1px solid var(--mainbus-rail-${color}-fg)`,
         background: `var(--mainbus-rail-${color}-bg)`,
         color: `var(--mainbus-rail-${color}-fg)`,
-        fontSize: 11,
+        // Emoji and symbols are wider than letters: smaller, so three of them still fit the collapsed rail with the badge.
+        fontSize: /^[\p{L}\p{N}]+$/u.test(label) ? 11 : 9,
         lineHeight: 1,
         fontWeight: bold ? 800 : 700,
         whiteSpace: 'nowrap'
