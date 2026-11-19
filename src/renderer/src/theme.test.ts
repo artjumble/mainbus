@@ -1,5 +1,6 @@
 import { DEFAULT_THEME, defaultCssVariablesResolver, mergeMantineTheme } from '@mantine/core'
 import { GROUND, THEME_IDS, THEMES, themeOf, type ThemeId } from '../../shared/domain'
+import { RAIL_COLORS } from '../../shared/railBadge'
 import { contrastRatio } from './contrast'
 import { mantineThemes, NAMED_COLORS, themes } from './theme'
 
@@ -50,7 +51,7 @@ test.each(['light', 'dark'] as const)('%s looks exactly as it did before the the
   // in it, nor the board's lane and card border, added since.
   const now = resolvedVariables(id)
   const before = Object.keys(now)
-    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$|^--mainbus-code-/.test(k))
+    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$|^--mainbus-code-|^--mainbus-rail-/.test(k))
     .sort()
   expect(Object.fromEntries(before.map((k) => [k, now[k]]))).toMatchSnapshot()
 })
@@ -180,6 +181,7 @@ describe.each(THEME_IDS)('%s', (id) => {
         vars[`--mainbus-code-${token}`],
         scheme === 'light' ? color('gray-0') : color('dark-8')
       ]),
+      ...RAIL_COLORS.map((k): [string, string, string] => [`rail tile ${k}`, vars[`--mainbus-rail-${k}-fg`], vars[`--mainbus-rail-${k}-bg`]]),
       ['inline code', scheme === 'light' ? color('black') : color('white'), scheme === 'light' ? color('gray-0') : color('dark-5')],
       ...tints.flatMap((c): [string, string, string][] => [
         [`white on a filled ${c} button`, white, color(`${c}-filled`)],

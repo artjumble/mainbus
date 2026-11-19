@@ -4,7 +4,7 @@ import type { BaseBranchChoice, BaseBranchWarning, WorkspaceSummary } from '../.
 import { invoke, openFolder } from '../api'
 import { useMainbus } from '../store'
 import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
-import { initials, railStatus, WorkspaceRail } from './WorkspaceRail'
+import { railStatus, WorkspaceRail } from './WorkspaceRail'
 
 vi.mock('../api', () => ({
   invoke: vi.fn(),
@@ -61,9 +61,33 @@ beforeEach(() => {
   useMainbus.setState({ workspace: alpha, workspaces: [alpha, bravo], currentTicketId: 't1' })
 })
 
-test('initials are the first letters of the name', () => {
-  expect(initials('alpha-repo')).toBe('AR')
-  expect(initials('mainbus')).toBe('MA')
+function tileOf(name: RegExp): HTMLElement {
+  return screen.getByRole('button', { name }).querySelector('[data-initials]') as HTMLElement
+}
+
+describe('rail tiles', () => {
+  test('mainbus and mainbus-anything show distinct labels', () => {
+    const mainbus = { ...bravo, id: 'm1', name: 'mainbus' }
+    const anything = { ...bravo, id: 'm2', name: 'mainbus-anything' }
+    useMainbus.setState({ workspace: mainbus, workspaces: [mainbus, anything] })
+    renderWithMantine(<WorkspaceRail />)
+    const labels = [tileOf(/^mainbus$/).dataset.initials, tileOf(/^mainbus-anything$/).dataset.initials]
+    expect(labels[0]).not.toBe(labels[1])
+    expect(labels).not.toEqual(['MA', 'MA'])
+  })
+
+  test('a custom label and colour show on the tile, collapsed and expanded, and the tile is hidden from assistive technology', async () => {
+    const custom = { ...bravo, railLabel: '🚀', railColor: 'pink' as const }
+    useMainbus.setState({ workspace: alpha, workspaces: [alpha, custom] })
+    engine()
+    renderWithMantine(<WorkspaceRail />)
+    expect(tileOf(/^bravo/)).toHaveAttribute('data-initials', '🚀')
+    expect(tileOf(/^bravo/)).toHaveAttribute('data-rail-color', 'pink')
+    expect(tileOf(/^bravo/)).toHaveAttribute('aria-hidden', 'true')
+    await expand()
+    expect(tileOf(/^bravo/)).toHaveAttribute('data-initials', '🚀')
+    expect(tileOf(/^bravo/)).toHaveAttribute('data-rail-color', 'pink')
+  })
 })
 
 test('each workspace has an entry with its activity dot and needs-you count', () => {

@@ -22,6 +22,7 @@ import {
   type MantineThemeOverride
 } from '@mantine/core'
 import { GROUND, THEMES, type ThemeId, type ThemeScheme } from '../../shared/domain'
+import type { RailColor } from '../../shared/railBadge'
 import targets from './targets.module.css'
 
 /*
@@ -468,6 +469,12 @@ function cssVariablesResolverOf(def: ThemeDef, scheme: ThemeScheme): CSSVariable
       '--mainbus-color-lane': p.lane,
       '--mainbus-color-card-border': p.cardBorder,
       ...Object.fromEntries(Object.entries(def.code).map(([token, color]) => [`--mainbus-code-${token}`, color])),
+      ...Object.fromEntries(
+        Object.entries(RAIL_TILES).flatMap(([k, { tint, deep }]) => [
+          [`--mainbus-rail-${k}-bg`, scheme === 'light' ? tint : deep],
+          [`--mainbus-rail-${k}-fg`, scheme === 'light' ? deep : tint]
+        ])
+      ),
       // What Mantine gives a colour with autoContrast; unused while that is off, and kept as it was before themes.
       ...Object.fromEntries(
         NAMED_COLORS.filter((n) => n !== 'green').map((n) => [
@@ -491,6 +498,21 @@ function cssVariablesResolverOf(def: ThemeDef, scheme: ThemeScheme): CSSVariable
     }
     return { variables: {}, light: scheme === 'light' ? variables : {}, dark: scheme === 'dark' ? variables : {} }
   }
+}
+
+/**
+ * The rail tile colours: a pale tint and a deep shade of each palette colour (Mantine's shades 0 and 9, with teal, green
+ * and lime darkened a little). Light themes draw deep on tint, dark themes tint on deep; every pair meets 4.5:1.
+ */
+export const RAIL_TILES: Record<RailColor, { tint: string; deep: string }> = {
+  blue: { tint: '#E7F5FF', deep: '#1864AB' },
+  cyan: { tint: '#E3FAFC', deep: '#0B7285' },
+  teal: { tint: '#E6FCF5', deep: '#087E5A' },
+  green: { tint: '#EBFBEE', deep: '#277E38' },
+  lime: { tint: '#F4FCE3', deep: '#4D7C0B' },
+  violet: { tint: '#F3F0FF', deep: '#5F3DC4' },
+  grape: { tint: '#F8F0FC', deep: '#862E9C' },
+  pink: { tint: '#FFF0F6', deep: '#A61E4D' }
 }
 
 export interface MantineThemeOf {

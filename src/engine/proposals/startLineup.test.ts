@@ -6,7 +6,7 @@ import { testRole } from '../store/testDb'
 import { ProposalInvalid, type ExecContext } from './kind'
 import { startLineup } from './startLineup'
 
-const ws: Workspace = { id: 'ws1', name: 'repo', repoPath: '/repo', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [] }
+const ws: Workspace = { id: 'ws1', name: 'repo', repoPath: '/repo', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null }
 
 const LINEUP: LineupRole[] = [
   testRole({ id: 'p', name: 'Planner', position: 1 }),

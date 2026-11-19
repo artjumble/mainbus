@@ -49,7 +49,7 @@ export const workspace: Workspace = {
   reportsFolder: 'docs/investigations',
   setupCommand: '',
   setupTimeoutMinutes: 15,
-  testCommands: []
+  testCommands: [], railLabel: null, railColor: null
 }
 
 let counter = 0

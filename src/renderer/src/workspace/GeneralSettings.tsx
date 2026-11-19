@@ -4,6 +4,7 @@ import { AGENT_CAP_MAX, AGENT_CAP_MIN, type WhenClosed } from '../../../shared/d
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { BaseBranchSettings } from './BaseBranchSettings'
+import { RailBadgeSettings } from './RailBadgeSettings'
 
 /**
  * Settings section for the base branch of the workspace, and for what applies to the whole app: how many role agents may
@@ -67,6 +68,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         General
       </Title>
       <BaseBranchSettings opened={opened} />
+      <RailBadgeSettings opened={opened} />
       <NumberInput
         label="Agents running at once"
         description="More than this wait as Queued and start first in, first out as others finish. The orchestrator doesn't count. Lowering it stops no running agent."

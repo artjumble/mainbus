@@ -23,6 +23,7 @@ import type {
   LineupRoleInput,
   NewTicketInput,
   ReportSettingsInput,
+  RailBadgeInput,
   SetupSettingsInput,
   RunSettingsInput,
   StartOptions,
@@ -273,6 +274,12 @@ export interface EngineCommands {
    * repo is refused with the reason. Like the switch above, only the renderer can reach it.
    */
   'workspace.setReportSettings'(settings: ReportSettingsInput, workspaceId?: string): Workspace
+  /**
+   * The workspace's rail tile: a short label (1 to 3 characters, unique among the open workspaces) and a colour from
+   * the palette. What is left out stays as it is; null clears it back to the automatic value. A label another open
+   * workspace shows is refused with the reason. Renderer only, like the switch above.
+   */
+  'workspace.setRailBadge'(badge: RailBadgeInput, workspaceId?: string): Workspace
   /**
    * The setup command Mainbus runs in each new ticket folder, and its timeout in minutes; what is left out stays as it is.
    * A command with a line break, or a timeout outside 1 to 60, is refused with the reason. The command runs outside the

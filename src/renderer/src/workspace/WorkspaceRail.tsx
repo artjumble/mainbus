@@ -13,9 +13,10 @@ import {
 } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { FolderReadiness, WorkspaceSummary } from '../../../shared/api'
 import { needsBaseStep } from '../../../shared/baseBranch'
+import { railBadges } from '../../../shared/railBadge'
 import { invoke, openFolder } from '../api'
 import { isKeyboardFocus, useExpandOnHover } from '../expandOnHover'
 import { errorMessage, showError } from '../notify'
@@ -23,6 +24,7 @@ import { ROW_BADGE } from '../rowBadgeStyles'
 import { useMainbus } from '../store'
 import { BaseBranchStep } from './BaseBranchStep'
 import { GitSetup } from './GitSetup'
+import { RailTile } from './RailTile'
 import classes from './WorkspaceRail.module.css'
 
 /** The rail's layout width: always collapsed to initials, so the board never shifts. */
@@ -30,18 +32,34 @@ export const RAIL_WIDTH = 72
 /** The width it opens to, over the board. */
 export const RAIL_EXPANDED_WIDTH = 200
 
-/** Up to two letters for a narrow rail: the first letters of the first two words, or the name's first two letters. */
-export function initials(name: string): string {
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  const letters = words.length > 1 ? words[0]![0]! + words[1]![0]! : (words[0] ?? name).slice(0, 2)
-  return letters.toUpperCase()
-}
-
 /** The status line under a workspace's name; the symbol keeps the state from resting on colour alone. */
 export function railStatus(w: WorkspaceSummary): string {
   if (w.working > 0) return `• ${w.working} working`
   if (w.needsYou > 0 || w.waiting > 0) return '◆ Waiting on you'
   return '○ Idle'
+}
+
+/** The needs-you count; a space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */
+function needsBadge(w: WorkspaceSummary, expanded: boolean): ReactElement {
+  return (
+    <>
+      {' '}
+      <Badge
+        color="needs"
+        variant="filled"
+        circle
+        size={expanded ? 'md' : 'sm'}
+        data-needs-you
+        {...ROW_BADGE}
+        {...(expanded ? {} : { pos: 'absolute', top: -6, right: -6 })}
+        role="img"
+        aria-hidden
+        aria-label={`${w.needsYou} need you`}
+      >
+        {w.needsYou}
+      </Badge>
+    </>
+  )
 }
 
 function describe(w: WorkspaceSummary): string {
@@ -54,6 +72,7 @@ function describe(w: WorkspaceSummary): string {
 /** The left rail: every open workspace with its activity and needs-you count, a way to add one, and the Mainbus settings. */
 export function WorkspaceRail(): ReactElement {
   const workspaces = useMainbus((s) => s.workspaces)
+  const badges = useMemo(() => railBadges(workspaces), [workspaces])
   const focusedId = useMainbus((s) => s.workspace?.id ?? null)
   const focusWorkspace = useMainbus((s) => s.focusWorkspace)
   const openSettings = useMainbus((s) => s.openSettings)
@@ -168,38 +187,18 @@ export function WorkspaceRail(): ReactElement {
                       background: w.active ? 'var(--mantine-color-working-filled)' : 'transparent'
                     }}
                   />
+                  {/* Collapsed, the needs-you badge sits over the tile's corner: a row of dot, tile and badge wouldn't fit. */}
+                  <Box pos="relative" style={{ flexShrink: 0, display: 'flex' }}>
+                    <RailTile label={badges.get(w.id)!.label} color={badges.get(w.id)!.color} bold={w.id === focusedId} />
+                    {!expanded && w.needsYou > 0 && needsBadge(w, false)}
+                  </Box>
                   {/* The button's label already says all of this, so the text stays out of the screen reader's name. */}
-                  {expanded ? (
+                  {expanded && (
                     <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate aria-hidden>
                       {w.name}
                     </Text>
-                  ) : (
-                    <Text
-                      size="sm"
-                      fw={w.id === focusedId ? 700 : 500}
-                      className={classes.initials}
-                      data-initials={initials(w.name)}
-                      aria-hidden
-                    />
                   )}
-                  {w.needsYou > 0 && (
-                    <>
-                      {/* A space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */}{' '}
-                      <Badge
-                        color="needs"
-                        variant="filled"
-                        circle
-                        size={expanded ? 'md' : 'sm'}
-                        data-needs-you
-                        {...ROW_BADGE}
-                        role="img"
-                        aria-hidden
-                        aria-label={`${w.needsYou} need you`}
-                      >
-                        {w.needsYou}
-                      </Badge>
-                    </>
-                  )}
+                  {expanded && w.needsYou > 0 && needsBadge(w, true)}
                 </Group>
               </UnstyledButton>
               {expanded && (
