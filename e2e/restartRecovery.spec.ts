@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { killApp as kill } from './killApp'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -33,21 +34,6 @@ async function createTicket(page: Page, title: string): Promise<void> {
   await page.getByLabel('In your words').fill(title)
   await page.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByRole('button', { name: new RegExp(title) })).toBeVisible()
-}
-
-/** Ends the app's whole process tree at once, with no orderly shutdown: only the process this test started. */
-async function kill(app: ElectronApplication): Promise<void> {
-  const child = app.process()
-  const exited = new Promise<void>((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) resolve()
-    else child.once('exit', () => resolve())
-  })
-  if (process.platform === 'win32') {
-    execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'pipe' })
-  } else {
-    process.kill(child.pid!, 'SIGKILL')
-  }
-  await exited
 }
 
 test('after the app is killed mid-run, the working agents resume and a pending question still reaches its agent', async () => {

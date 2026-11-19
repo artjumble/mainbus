@@ -73,7 +73,8 @@ test('hovering the rail opens it over the board without moving the board, and a 
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
     const main = page.getByRole('main')
     const backlog = page.getByRole('heading', { level: 2, name: 'alpha-repo' })
-    expect((await rail.boundingBox())!.width).toBeLessThanOrEqual(72)
+    // The rail's width eases over 150 ms: wait for the final width rather than reading it once.
+    await expect.poll(async () => (await rail.boundingBox())!.width).toBeLessThanOrEqual(72)
     const mainBox = await main.boundingBox()
     const backlogBox = await backlog.boundingBox()
 
@@ -148,10 +149,13 @@ test('the widest custom labels stay inside the collapsed rail, with room for the
       const button = rail.getByRole('button', { name })
       const tile = button.locator(`[data-initials="${label}"]`)
       await expect(tile).toBeVisible()
-      const [t, b, n] = await Promise.all([tile.boundingBox(), button.boundingBox(), rail.boundingBox()])
-      expect(t!.x + t!.width).toBeLessThanOrEqual(b!.x + b!.width)
-      // The needs-you badge overhangs the tile's corner by 6 px.
-      expect(t!.x + t!.width + 6).toBeLessThanOrEqual(n!.x + n!.width)
+      // Polled: the rail's width may still be easing to its collapsed size.
+      await expect(async () => {
+        const [t, b, n] = await Promise.all([tile.boundingBox(), button.boundingBox(), rail.boundingBox()])
+        expect(t!.x + t!.width).toBeLessThanOrEqual(b!.x + b!.width)
+        // The needs-you badge overhangs the tile's corner by 6 px.
+        expect(t!.x + t!.width + 6).toBeLessThanOrEqual(n!.x + n!.width)
+      }).toPass()
     }
   })
 })
