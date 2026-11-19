@@ -32,9 +32,18 @@ describe('workspace repo', () => {
       reportsFolder: 'docs/investigations',
       setupCommand: '',
       setupTimeoutMinutes: 15,
-      testCommands: []
+      testCommands: [], railLabel: null, railColor: null
     })
     expect(await repo.get(created.id)).toEqual(created)
+  })
+
+  it('has no rail badge by default, saves one, and clears it', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const ws = await repo.create('/r', 'main', 'r', 'r')
+    expect(ws).toMatchObject({ railLabel: null, railColor: null })
+    expect(await repo.setRailBadge(ws.id, { label: ' ab ', color: 'grape' })).toMatchObject({ railLabel: 'ab', railColor: 'grape' })
+    expect(await repo.setRailBadge(ws.id, { label: null })).toMatchObject({ railLabel: null, railColor: 'grape' })
+    await expect(repo.setRailBadge(ws.id, { label: 'abcd' })).rejects.toThrow()
   })
 
   it('saves the report settings: on by default, a folder inside the repo, and refuses one that leaves it', async () => {

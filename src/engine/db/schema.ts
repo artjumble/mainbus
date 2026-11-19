@@ -26,6 +26,10 @@ export const workspaces = sqliteTable(
     setupTimeoutMinutes: integer('setup_timeout_minutes').notNull().default(15),
     /** JSON: the TestCommand[] run on the base branch; '[]' turns the base-branch tests off. */
     testCommands: text('test_commands').notNull().default('[]'),
+    /** The user's own short label for the rail tile; null uses the automatic one. */
+    railLabel: text('rail_label'),
+    /** The user's own rail tile colour (a RailColor); null uses the automatic one. */
+    railColor: text('rail_color'),
     /** Unattended mode is on for this workspace; remembered across a restart. */
     unattendedOn: integer('unattended_on', { mode: 'boolean' }).notNull().default(false),
     /** Set when the workspace was removed from Mainbus. The row stays so its tickets, history and proposal cards remain intact. */

@@ -7,11 +7,13 @@ import {
   checkTestCommands,
   REPORTS_FOLDER_DEFAULT,
   SETUP_TIMEOUT_DEFAULT,
+  type RailBadgeInput,
   type ReportSettingsInput,
   type SetupSettingsInput,
   type TestCommand,
   type Workspace
 } from '../../shared/domain'
+import { checkRailLabel, isRailColor } from '../../shared/railBadge'
 import { MERGE_METHODS, type MergeMethod } from '../../shared/merge'
 import type { Db } from '../db/open'
 import { appSettings, workspaces } from '../db/schema'
@@ -45,6 +47,8 @@ export interface WorkspaceRepo {
   setBaseBranch(id: string, branch: string): Promise<Workspace>
   /** Saves the settings given; a reports folder that leaves the repo is refused with the reason, and nothing is saved. */
   setReportSettings(id: string, settings: ReportSettingsInput): Promise<Workspace>
+  /** Saves the rail tile's label and colour given (null clears one); a malformed label throws with the reason. Uniqueness is the caller's check. */
+  setRailBadge(id: string, badge: RailBadgeInput): Promise<Workspace>
   /** Saves the setup settings given; a command or timeout that is refused throws with the reason, and nothing is saved. */
   setSetupSettings(id: string, settings: SetupSettingsInput): Promise<Workspace>
   /** Saves the list of test commands (empty turns the base-branch tests off); a list that is refused throws with the reason, and nothing is saved. */
@@ -71,7 +75,9 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
     reportsFolder: row.reportsFolder,
     setupCommand: row.setupCommand,
     setupTimeoutMinutes: row.setupTimeoutMinutes,
-    testCommands: parseTestCommands(row.testCommands)
+    testCommands: parseTestCommands(row.testCommands),
+    railLabel: row.railLabel,
+    railColor: isRailColor(row.railColor) ? row.railColor : null
   }
 }
 
@@ -119,7 +125,9 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         reportsFolder: REPORTS_FOLDER_DEFAULT,
         setupCommand: '',
         setupTimeoutMinutes: SETUP_TIMEOUT_DEFAULT,
-        testCommands: []
+        testCommands: [],
+        railLabel: null,
+        railColor: null
       }
       await db.insert(workspaces).values({ ...workspace, testCommands: '[]', createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
@@ -187,6 +195,23 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         const checked = checkReportsFolder(settings.reportsFolder)
         if (!checked.ok) throw new Error(checked.reason)
         set.reportsFolder = checked.folder
+      }
+      if (Object.keys(set).length > 0) await db.update(workspaces).set(set).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setRailBadge(id, badge) {
+      const set: Partial<typeof workspaces.$inferInsert> = {}
+      if (badge.label !== undefined) {
+        const checked = checkRailLabel(badge.label)
+        if (!checked.ok) throw new Error(checked.reason)
+        set.railLabel = checked.label
+      }
+      if (badge.color !== undefined) {
+        if (badge.color !== null && !isRailColor(badge.color)) throw new Error(`Unknown colour: ${String(badge.color)}`)
+        set.railColor = badge.color
       }
       if (Object.keys(set).length > 0) await db.update(workspaces).set(set).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))

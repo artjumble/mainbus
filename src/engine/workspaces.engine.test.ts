@@ -571,3 +571,61 @@ describe('the base branch warning on add', () => {
     expect(check.base).toMatchObject({ current: 'fm/x', suggested: 'main' })
   })
 })
+
+describe('rail badge', () => {
+  const badgeOf = async (engine: Engine, id: string) =>
+    (await engine.invoke('workspace.summaries')).find((w) => w.id === id)!
+
+  it('saves a label and a colour, and keeps them over a restart and over removing and re-adding the repo', async () => {
+    const { engine, repoA, a } = await two()
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railLabel: null, railColor: null })
+    await engine.invoke('workspace.setRailBadge', { label: '🚀', color: 'pink' }, a.id)
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railLabel: '🚀', railColor: 'pink' })
+
+    await engine.dispose()
+    const again = await makeEngine(new FakeRuntime(WAIT))
+    expect(await badgeOf(again, a.id)).toMatchObject({ railLabel: '🚀', railColor: 'pink' })
+
+    await again.invoke('workspace.remove', a.id)
+    const back = await again.invoke('workspace.open', repoA)
+    expect(back.id).toBe(a.id)
+    expect(await badgeOf(again, a.id)).toMatchObject({ railLabel: '🚀', railColor: 'pink' })
+  })
+
+  it('refuses a label another workspace shows, as its own or automatic one, in any case', async () => {
+    const { engine, a, b } = await two()
+    // bravo shows BR automatically.
+    await expect(engine.invoke('workspace.setRailBadge', { label: 'br' }, a.id)).rejects.toThrow(/bravo already shows BR/)
+    await engine.invoke('workspace.setRailBadge', { label: 'Zz' }, b.id)
+    await expect(engine.invoke('workspace.setRailBadge', { label: 'zZ' }, a.id)).rejects.toThrow(/already shows Zz/)
+    await expect(engine.invoke('workspace.setRailBadge', { label: 'abcd' }, a.id)).rejects.toThrow(/at most 3/)
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railLabel: null })
+  })
+
+  it('clears with an empty string or null, and leaves what is left out as it is', async () => {
+    const { engine, a } = await two()
+    await engine.invoke('workspace.setRailBadge', { label: 'QQ', color: 'teal' }, a.id)
+    await engine.invoke('workspace.setRailBadge', { label: '' }, a.id)
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railLabel: null, railColor: 'teal' })
+    await engine.invoke('workspace.setRailBadge', { color: null }, a.id)
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railLabel: null, railColor: null })
+  })
+
+  it('refuses a colour outside the palette', async () => {
+    const { engine, a } = await two()
+    await expect(
+      engine.invoke('workspace.setRailBadge', { color: 'red' } as never, a.id)
+    ).rejects.toThrow()
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railColor: null })
+  })
+
+  it('on re-adding, drops a label another workspace took meanwhile but keeps the colour', async () => {
+    const { engine, repoA, a, b } = await two()
+    await engine.invoke('workspace.setRailBadge', { label: 'XY', color: 'lime' }, a.id)
+    await engine.invoke('workspace.remove', a.id)
+    await engine.invoke('workspace.setRailBadge', { label: 'xy' }, b.id)
+    await engine.invoke('workspace.open', repoA)
+    expect(await badgeOf(engine, a.id)).toMatchObject({ railLabel: null, railColor: 'lime' })
+    expect(await badgeOf(engine, b.id)).toMatchObject({ railLabel: 'xy' })
+  })
+})

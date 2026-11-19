@@ -1,4 +1,5 @@
 // Shared by the engine and the renderer: types and a few constants, no Node imports.
+import type { RailColor } from './railBadge'
 import type { VoiceSettings } from './voice'
 
 export type Column = 'backlog' | 'ready' | 'in_progress' | 'needs_you' | 'review' | 'done'
@@ -136,6 +137,16 @@ export interface Workspace {
   setupTimeoutMinutes: number
   /** The workspace's test commands, run on the base branch to learn which failures are already there; empty (the default) turns that off. */
   testCommands: TestCommand[]
+  /** The short label the user chose for the workspace's rail tile (1 to 3 characters); null uses the automatic one. */
+  railLabel: string | null
+  /** The colour the user chose for the workspace's rail tile; null uses the automatic one. */
+  railColor: RailColor | null
+}
+
+/** The rail tile settings; what is left out stays as it is, and null clears it back to the automatic value. */
+export interface RailBadgeInput {
+  label?: string | null
+  color?: RailColor | null
 }
 
 /** How a test command's results are read: a report file in a known format, or plain (exit code and the end of the output). */

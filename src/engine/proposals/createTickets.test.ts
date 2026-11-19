@@ -18,7 +18,7 @@ const ws: Workspace = {
   reportsFolder: 'docs/investigations',
   setupCommand: '',
   setupTimeoutMinutes: 15,
-  testCommands: []
+  testCommands: [], railLabel: null, railColor: null
 }
 
 function propose(input: unknown): CreateTicketsPayload {

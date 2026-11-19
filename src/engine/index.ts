@@ -41,6 +41,7 @@ import { ReportFileSaver } from './git/reportFiles'
 import { slugify } from './git/slug'
 import { BranchFreshnessChecker } from './git/freshness'
 import { BranchMerger, refusalText } from './git/merge'
+import { RAIL_COLORS, labelKey, railLabelProblem, railLabels } from '../shared/railBadge'
 import { MERGE_METHODS, samePlan, type MergeOptions, type MergeOutcome, type MergePlan, type MergePreview } from '../shared/merge'
 import { WorktreeManager, type RemoveDir } from './git/worktrees'
 import { BaseTestMonitor, type BaseTestMonitorDeps } from './baseline/monitor'
@@ -485,6 +486,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       if (known) {
         if (known.removed) await repos.workspaces.restore(known.id)
         let live = (await repos.workspaces.get(known.id))!
+        if (known.removed && live.railLabel !== null) {
+          // Another workspace may have taken the label meanwhile: the colour is kept, the label goes back to automatic.
+          const others = (await repos.workspaces.list()).filter((w) => w.id !== live.id)
+          const shown = railLabels(others)
+          if (others.some((w) => labelKey(shown.get(w.id) ?? '') === labelKey(live.railLabel!))) {
+            live = await repos.workspaces.setRailBadge(live.id, { label: null })
+          }
+        }
         if (known.removed && wanted !== undefined && wanted !== live.baseBranch) {
           live = await applyBaseBranch(live, await requireLocalBranch(root, wanted))
         }
@@ -1446,6 +1455,23 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const ws = await repos.workspaces.setReportSettings((await requireWorkspace(workspaceId)).id, input)
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
+      },
+      // Renderer-only, like the settings above.
+      'workspace.setRailBadge': async (badge, workspaceId) => {
+        const input = z
+          .strictObject({
+            label: z.string().max(64).nullable().optional(),
+            color: z.enum(RAIL_COLORS).nullable().optional()
+          })
+          .parse(badge)
+        const ws = await requireWorkspace(workspaceId)
+        if (typeof input.label === 'string' && input.label.trim() !== '') {
+          const problem = railLabelProblem(input.label, ws.id, await repos.workspaces.list())
+          if (problem) throw new Error(problem)
+        }
+        const saved = await repos.workspaces.setRailBadge(ws.id, input)
+        emit({ type: 'board.changed', workspaceId: saved.id })
+        return saved
       },
       // Renderer-only: this command runs outside the permission guard, so no agent can set it.
       'workspace.setSetupSettings': async (settings, workspaceId) => {
