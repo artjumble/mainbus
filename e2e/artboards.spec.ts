@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, type Page } from '@playwright/test'
-import { backToBoard, createTicket, expectFullHeightLanes, makeRepo, openTicket, shot, withArtboard } from './artboardHelpers'
+import { ALL_THEMES, backToBoard, createTicket, expectFullHeightLanes, makeRepo, openTicket, shot, withArtboard } from './artboardHelpers'
 
 /**
  * One test per wireframe artboard (docs/wireframes/): each builds the artboard's situation with FakeRuntime in a temporary
@@ -10,6 +10,14 @@ import { backToBoard, createTicket, expectFullHeightLanes, makeRepo, openTicket,
 
 const BOARD = { width: 1440, height: 960 }
 const SCREEN = { width: 1200, height: 800 }
+
+/** Run only in the themed screenshot pass: e2e/startProposal, threePlaces, replace and drafting walk the same steps. */
+const themedOnly = (name: string, body: () => Promise<void>): void => {
+  test(name, async () => {
+    test.skip(!ALL_THEMES, 'covered by its own spec in the normal run')
+    await body()
+  })
+}
 
 const panelOf = (page: Page) => page.getByRole('complementary', { name: 'Orchestrator' })
 
@@ -186,7 +194,7 @@ test('Ticket detail: lineup strip, controls, thread with thinking and tool rows,
   })
 })
 
-test('Orchestrator starts an agent: proposal, Override form, receipt and the card in In progress', async () => {
+themedOnly('Orchestrator starts an agent: proposal, Override form, receipt and the card in In progress', async () => {
   await withArtboard({ fixture: 'e2e/fixtures/orchestrator-start.json', size: SCREEN }, async ({ page }) => {
     await createTicket(page, { title: 'Add hello file', intent: 'Add hello.txt' })
     const panel = panelOf(page)
@@ -222,7 +230,7 @@ test('Orchestrator starts an agent: proposal, Override form, receipt and the car
   })
 })
 
-test('A decision shown in three places: board card, panel card and thread card, and a receipt once answered', async () => {
+themedOnly('A decision shown in three places: board card, panel card and thread card, and a receipt once answered', async () => {
   await withArtboard({ fixture: 'e2e/fixtures/board-answer-by-role.json', size: SCREEN }, async ({ page }) => {
     await createTicket(page, { title: 'Webhook retry policy', intent: 'Add hello.txt' })
     await openTicket(page, 'Webhook retry policy')
@@ -259,7 +267,7 @@ test('A decision shown in three places: board card, panel card and thread card, 
   })
 })
 
-test('Replacing a stuck agent: the replace card, the divider with its handoff, and the timeline entry', async () => {
+themedOnly('Replacing a stuck agent: the replace card, the divider with its handoff, and the timeline entry', async () => {
   await withArtboard({ fixture: 'e2e/fixtures/replace-by-role.json', size: SCREEN }, async ({ page }) => {
     await createTicket(page, { title: 'Fix flaky test', intent: 'Fix the flaky test' })
     await openTicket(page, 'Fix flaky test')
@@ -290,7 +298,7 @@ test('Replacing a stuck agent: the replace card, the divider with its handoff, a
   })
 })
 
-test('Creating a ticket: the New ticket dialog, then drafted tickets with ticks, Edit and the two buttons', async () => {
+themedOnly('Creating a ticket: the New ticket dialog, then drafted tickets with ticks, Edit and the two buttons', async () => {
   await withArtboard({ fixture: 'e2e/fixtures/orchestrator-drafting.json', size: SCREEN }, async ({ page }) => {
     await page.getByRole('button', { name: 'New ticket' }).first().click()
     const dialog = page.getByRole('dialog', { name: 'New ticket' })

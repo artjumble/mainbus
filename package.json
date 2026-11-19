@@ -15,6 +15,7 @@
         "test": "vitest run",
         "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
         "e2e": "pnpm run build && playwright test",
+        "artboards:screenshots": "pnpm run build && playwright test -c e2e/artboards.config.ts",
         "site:screenshots": "pnpm run build && playwright test -c scripts/site/playwright.config.ts screenshots",
         "site:check": "node scripts/site/checkLinks.mjs && playwright test -c scripts/site/playwright.config.ts site.spec",
         "icons:preview": "node scripts/icons-preview.mjs",

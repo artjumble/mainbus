@@ -51,6 +51,12 @@ interface Options {
 
 export { THEME_IDS, type ThemeId }
 
+/**
+ * `pnpm artboards:screenshots` sets MAINBUS_ARTBOARD_THEMES=all: every artboard in every theme, with the screenshots of
+ * each. The normal e2e run leaves it unset: the artboards run once, in the default (Light) theme.
+ */
+export const ALL_THEMES = process.env['MAINBUS_ARTBOARD_THEMES'] === 'all'
+
 /** Picks the Theme the way the settings do (through the bridge), and waits for the page to be drawn in it. */
 export async function useTheme(page: Page, id: ThemeId): Promise<void> {
   await page.evaluate((t) => (globalThis as unknown as { mainbus: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).mainbus.invoke('settings.setTheme', t), id)
@@ -60,12 +66,13 @@ export async function useTheme(page: Page, id: ThemeId): Promise<void> {
 
 /**
  * Runs `body` against the app with FakeRuntime, a temporary MAINBUS_HOME and a throwaway repository, sized like the
- * artboard, once in each theme, each time in a fresh data home. Never touches the user's data home or board.
+ * artboard, once in the default theme (in each theme with ALL_THEMES), each time in a fresh data home. Never touches the user's data home or board.
  */
 export async function withArtboard(options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
   // The work once per theme: the time too.
-  test.setTimeout(test.info().timeout * THEME_IDS.length)
-  for (const id of THEME_IDS) await withArtboardIn(id, options, body)
+  const themes: readonly ThemeId[] = ALL_THEMES ? THEME_IDS : ['light']
+  test.setTimeout(test.info().timeout * themes.length)
+  for (const id of themes) await withArtboardIn(id, options, body)
 }
 
 async function withArtboardIn(theme: ThemeId, options: Options, body: (board: Artboard) => Promise<void>): Promise<void> {
