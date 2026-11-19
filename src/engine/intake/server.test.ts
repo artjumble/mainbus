@@ -197,11 +197,14 @@ describe('intake server', () => {
     expect(aces.length, sddl).toBeGreaterThan(0)
     // Only SYSTEM, Administrators and the creator may hold more than read access.
     const user = os.userInfo().username
-    for (const ace of aces.filter((a) => a.type === 'A' && !['SY', 'BA'].includes(a.sid) && !a.sid.startsWith('S-1-5-21-'))) {
+    // 'LA' is the built-in Administrator account. When the current user is that account (the GitHub Actions runner's
+    // runneradmin is), its own ACE appears as LA instead of a S-1-5-21 SID, so LA counts as an account SID here.
+    const isAccount = (sid: string): boolean => sid.startsWith('S-1-5-21-') || sid === 'LA'
+    for (const ace of aces.filter((a) => a.type === 'A' && !['SY', 'BA'].includes(a.sid) && !isAccount(a.sid))) {
       expect(ace.rights, `${ace.sid} in ${sddl} (user ${user})`).toBe('FR')
     }
     // Exactly one account SID: the current user's.
-    expect(aces.filter((a) => a.sid.startsWith('S-1-5-21-'))).toHaveLength(1)
+    expect(aces.filter((a) => isAccount(a.sid)), sddl).toHaveLength(1)
   }, 30_000)
 
   it('closes cleanly with a connection still open', async () => {

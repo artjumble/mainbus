@@ -188,7 +188,8 @@ describe('Update from main', () => {
     await fs.writeFile(path.join(spec.cwd, 'migrations/journal.txt'), '0001_init\n0002_a\n0003_b\n')
     await git(['mv', 'migrations/0002_b.sql', 'migrations/0003_b.sql'], spec.cwd)
     await git(['add', '-A'], spec.cwd)
-    await git(['commit', '--no-edit'], spec.cwd)
+    // An explicit message: `--no-edit` aborts with an empty message on the CI runners' git.
+    await git(['commit', '-m', "Merge remote-tracking branch 'origin/main'"], spec.cwd)
     expect(spec.cwd).toBe(cwd)
     await spec.roleTools.handoff({ summary: 'Merged main and renumbered 0002_b to 0003_b', notesForNext: '' })
 
