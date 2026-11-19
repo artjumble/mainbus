@@ -32,12 +32,14 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
+    steps:
       # The Windows runner's default temp folder is an 8.3 short path (C:\Users\RUNNER~1\...), which the engine's
       # workspace checks don't treat as the same folder as its long form. runner.temp is already long.
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
-    steps:
+      # (The runner context isn't available in a job-level env, so it is set from a step.)
+      - name: Use the long temp folder
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
       # Windows runners default to core.autocrlf=true, which turns test fixtures' LF into CRLF.
       - name: Keep line endings as committed
         run: git config --global core.autocrlf false
