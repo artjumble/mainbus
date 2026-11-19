@@ -159,6 +159,11 @@ test('a ticket reaching Needs you while the window is hidden gets one toast, and
     const { home, repo } = makeRepo(tmp)
     session = await launch(home, repo, 'board-answer-by-role.json', { MAINBUS_FAKE_CLOCK: 'now' })
     const { app, page } = session
+    // Windows may not focus a window launched in the background, and an unfocused window rightly gets a toast for the
+    // first needs-you too. The user is looking at the window here until it is closed.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]!.isFocused = () => true
+    })
     await page.getByRole('button', { name: 'Add workspace' }).click()
     await createTicket(page, 'Add hello file')
     await page.getByRole('button', { name: /Add hello file/ }).click()
