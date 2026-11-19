@@ -23,9 +23,9 @@ SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(h
 	w.`id`, 2, 'Quick fix',
 	CASE WHEN EXISTS (SELECT 1 FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND lower(trim(l.`name`)) = 'planner')
 	THEN json_object(
-		'excludedRoleIds', (SELECT json_group_array(id) FROM (SELECT l.`id` FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND lower(trim(l.`name`)) = 'planner' ORDER BY l.`position`)),
+		'excludedRoleIds', json((SELECT json_group_array(id) FROM (SELECT l.`id` FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND lower(trim(l.`name`)) = 'planner' ORDER BY l.`position`))),
 		'roles', json_object(), 'extraInstructions', NULL,
-		'roleNames', (SELECT json_group_object(l.`id`, l.`name`) FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND lower(trim(l.`name`)) = 'planner'))
+		'roleNames', json((SELECT json_group_object(l.`id`, l.`name`) FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND lower(trim(l.`name`)) = 'planner')))
 	ELSE '{"excludedRoleIds":["planner"],"roles":{},"extraInstructions":null,"roleNames":{"planner":"Planner"}}' END,
 	strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM `workspaces` w;
@@ -34,7 +34,7 @@ INSERT INTO `lineup_presets` (`id`, `workspace_id`, `position`, `name`, `setting
 SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + abs(random()) % 4, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
 	w.`id`, 3, 'Docs',
 	json_object(
-		'excludedRoleIds', (SELECT json_group_array(id) FROM (SELECT l.`id` FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND l.`id` IS NOT coalesce(i.`id`, '') ORDER BY l.`position`)),
+		'excludedRoleIds', json((SELECT json_group_array(id) FROM (SELECT l.`id` FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change' AND l.`id` IS NOT coalesce(i.`id`, '') ORDER BY l.`position`))),
 		'roles', json_object(coalesce(i.`id`, 'implementer'), json_object('model', 'sonnet', 'effort', 'medium')),
 		'extraInstructions', NULL,
 		'roleNames', json_set((SELECT json_group_object(l.`id`, l.`name`) FROM `lineup_roles` l WHERE l.`workspace_id` = w.`id` AND l.`lineup` = 'change'), '$."' || coalesce(i.`id`, 'implementer') || '"', coalesce(i.`name`, 'Implementer'))),

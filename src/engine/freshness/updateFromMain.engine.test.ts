@@ -184,7 +184,8 @@ describe('Update from main', () => {
     expect((await ticketNow(t.id)).lineup.map((r) => r.name)).toEqual(['Implementer'])
 
     // What the agent does: merge, resolve, renumber, commit.
-    await runGit(['merge', 'origin/main'], spec.cwd)
+    // With an identity: the CI runners have no global git identity, so a bare merge would refuse to start.
+    await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'merge', 'origin/main'], spec.cwd)
     await fs.writeFile(path.join(spec.cwd, 'migrations/journal.txt'), '0001_init\n0002_a\n0003_b\n')
     await git(['mv', 'migrations/0002_b.sql', 'migrations/0003_b.sql'], spec.cwd)
     await git(['add', '-A'], spec.cwd)

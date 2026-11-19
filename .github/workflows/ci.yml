@@ -1,0 +1,64 @@
+# Type check and unit tests on Windows, macOS and Linux for every pull request.
+#
+# Windows is the supported platform and must pass. macOS and Linux don't block yet (continue-on-error): their results
+# are uploaded as artifacts to size the platform-correct unit suite (cross-platform plan, P0-5).
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Only the Windows job can fail the run.
+    continue-on-error: ${{ !matrix.blocking }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest, blocking: true }
+          - { name: macOS, os: macos-latest, blocking: false }
+          - { name: Linux, os: ubuntu-latest, blocking: false }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The Windows runner's default temp folder is an 8.3 short path (C:\Users\RUNNER~1\...), which the engine's
+      # workspace checks don't treat as the same folder as its long form. runner.temp is already long.
+      # (The runner context isn't available in a job-level env, so it is set from a step.)
+      - name: Use the long temp folder
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      # Windows runners default to core.autocrlf=true, which turns test fixtures' LF into CRLF.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      # The pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results-${{ matrix.name }}
+          path: test-results/
+          if-no-files-found: warn
