@@ -1,0 +1,54 @@
+# Type check and unit tests on Windows, macOS and Linux for every pull request.
+#
+# Windows is the supported platform and must pass. macOS and Linux don't block yet (continue-on-error): their results
+# are uploaded as artifacts to size the platform-correct unit suite (cross-platform plan, P0-5).
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Only the Windows job can fail the run.
+    continue-on-error: ${{ !matrix.blocking }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest, blocking: true }
+          - { name: macOS, os: macos-latest, blocking: false }
+          - { name: Linux, os: ubuntu-latest, blocking: false }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # The pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results-${{ matrix.name }}
+          path: test-results/
+          if-no-files-found: warn
