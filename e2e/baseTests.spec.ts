@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -68,7 +69,7 @@ test('the base branch tests record a failing test, and a started role is told it
       }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     await page.getByRole('button', { name: 'Workspace settings' }).click()
     const section = page.getByRole('region', { name: 'Base branch tests' })

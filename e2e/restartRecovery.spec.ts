@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { killApp as kill } from './killApp'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -51,7 +52,7 @@ test('after the app is killed mid-run, the working agents resume and a pending q
 
     session = await launch(home, repo)
     let { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     for (const title of ['Alpha ticket', 'Bravo ticket', 'Charlie ticket']) await createTicket(page, title)
 
     // Two tickets start normally; their Planners stay working.

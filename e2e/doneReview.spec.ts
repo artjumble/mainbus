@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 /**
  * When tickets that ran reach Done, the orchestrator gets one review turn for them: it reads what their agents left
@@ -86,7 +87,7 @@ test('two tickets reach Done: one review turn, one follow-up proposed for the ti
     })
     const page = await app.firstWindow()
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     await ticketInReview(page, 'Alpha')
     await ticketInReview(page, 'Beta')

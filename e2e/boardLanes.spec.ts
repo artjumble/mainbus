@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { createTicket, expectFullHeightLanes, laneLayout, makeRepo } from './artboardHelpers'
 
 /**
@@ -34,7 +35,7 @@ async function withBoard(size: { width: number; height: number }, body: (page: P
     })
     const page = await app.firstWindow()
     await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setContentSize(w!, h!), [size.width, size.height])
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await body(page)
   } finally {
     await app?.close().catch(() => {})

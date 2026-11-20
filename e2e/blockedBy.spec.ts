@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -39,7 +40,7 @@ test('unattended mode skips a ticket blocked by another, and starts it once the 
     })
     const page: Page = await app.firstWindow()
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     const column = (name: string) => page.getByRole('region', { name, exact: true })
 
     // #1 is started by hand and waits in Review.

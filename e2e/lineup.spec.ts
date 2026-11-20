@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -42,7 +43,7 @@ async function launch(
     env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: `fake:${script}`, MAINBUS_TEST_REPO: repo }
   })
   const page = await app.firstWindow()
-  if (open) await page.getByRole('button', { name: 'Add workspace' }).click()
+  if (open) await addWorkspace(page)
   return { app, page }
 }
 

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -67,7 +68,7 @@ test('a failed agent gives the orchestrator a turn without a message of the user
 
     session = await launch(home, repo)
     let { app, page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     // 1. A scripted agent fails; five seconds later the orchestrator has a turn, and the panel says why under an engine line.
     await addAndStart(page, 'Alpha')

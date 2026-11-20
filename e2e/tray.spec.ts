@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -93,7 +94,7 @@ test('closing the window with an agent working keeps it running in the tray; the
     const { home, repo } = makeRepo(tmp)
     session = await launch(home, repo, 'tray-by-role.json')
     const { app, page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await createTicket(page, 'Alpha ticket')
     await page.getByRole('button', { name: /Alpha ticket/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
@@ -141,7 +142,7 @@ test('closing the window with no agent open quits as before', async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
     const { home, repo } = makeRepo(tmp)
     session = await launch(home, repo, 'tray-by-role.json')
-    await session.page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(session.page)
     await createTicket(session.page, 'Idle ticket')
     await session.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
     expect(await exitsByItself(session)).toBe(0)
@@ -164,7 +165,7 @@ test('a ticket reaching Needs you while the window is hidden gets one toast, and
     await app.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]!.isFocused = () => true
     })
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await createTicket(page, 'Add hello file')
     await page.getByRole('button', { name: /Add hello file/ }).click()
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')

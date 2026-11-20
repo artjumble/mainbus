@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -74,7 +75,7 @@ test('a usage limit pauses both working tickets with the reset time, and at the 
 
     session = await launch(home, repo)
     const { app, page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     // Two tickets, both working.
     await createTicket(page, 'First ticket')

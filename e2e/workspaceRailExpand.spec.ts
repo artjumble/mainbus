@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -50,7 +51,7 @@ test.beforeAll(async () => {
   })
   page = await app.firstWindow()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
-  await page.getByRole('button', { name: 'Add workspace' }).click()
+  await addWorkspace(page)
   const rail = page.getByRole('navigation', { name: 'Workspaces' })
   await rail.getByRole('button', { name: 'Add workspace' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Choose folder…' }).click()

@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
@@ -42,7 +43,7 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
     }
   })
   const page = await app.firstWindow()
-  await page.getByRole('button', { name: 'Add workspace' }).click()
+  await addWorkspace(page)
   return { app, page }
 }
 

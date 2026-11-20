@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -48,7 +49,7 @@ test('a ticket created with the Docs preset starts with only the Implementer, on
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     // The workspace's presets are listed in its settings.
     await page.getByRole('button', { name: 'Workspace settings' }).click()

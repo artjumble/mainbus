@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { killApp as kill } from './killApp'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -75,7 +76,7 @@ test('two repos are open at once: an agent runs in each, focus switches the boar
 
     session = await launch(home, repoA)
     let { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await createTicket(page, 'Alpha ticket')
     await startTicket(page, 'Alpha ticket')
     const a = await invoke(page, 'workspace.get')

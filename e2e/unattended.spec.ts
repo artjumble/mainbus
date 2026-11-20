@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -56,7 +57,7 @@ test('unattended mode works through Ready, allows what is not a hard stop, and i
 
     session = await launch(home, repo)
     let { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     await createReadyTicket(page, 'First queued ticket')
     await createReadyTicket(page, 'Second queued ticket')
