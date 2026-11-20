@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -48,7 +49,7 @@ test('the rail adds a second workspace, switches between them, and counts a deci
       }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
     const entryA = rail.getByRole('button', { name: /^alpha-repo/ })

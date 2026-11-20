@@ -7,6 +7,7 @@ import path from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { intakeEndpoint } from '../src/engine/intake/endpoint'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -84,7 +85,7 @@ test('agents file tickets through the CLI and the MCP server, and the board show
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
 
     // The CLI, with the ticket as JSON on stdin.
@@ -188,7 +189,7 @@ test("the settings say so when the app can't open its intake pipe, and the board
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Workspace settings' }).click()

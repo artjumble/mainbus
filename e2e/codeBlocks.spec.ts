@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
@@ -48,7 +49,7 @@ test('a permission for a heredoc command shows as a code block, and an orchestra
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/code-blocks-by-role.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Alpha')
@@ -120,7 +121,7 @@ test('answering two permissions in the panel, the third card arrives with its bu
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/three-permissions.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Alpha')

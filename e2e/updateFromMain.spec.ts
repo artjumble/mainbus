@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -74,7 +75,7 @@ test('a ticket that clashes with a merged migration shows Conflicts with main, a
       }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     // Pull requests on, so the update's handoff pushes the branch again.
     await page.getByRole('button', { name: 'Workspace settings' }).click()

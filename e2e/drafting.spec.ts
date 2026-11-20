@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -42,7 +43,7 @@ test('the orchestrator drafts two tickets; the user edits one title in Override 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-drafting.json', MAINBUS_TEST_REPO: repo }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     const panel = page.getByRole('complementary', { name: 'Orchestrator' })
 
     // The user asks in plain words.

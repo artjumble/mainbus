@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 import { INVOKE_CHANNEL, OPEN_FOLDER_CHANNEL } from '../src/shared/api'
 import { makeRepo, THEME_IDS, useTheme } from './artboardHelpers'
 
@@ -72,7 +73,7 @@ test('a loading button adds no scrollbar to the Add workspace and Remove workspa
     const repo = makeRepo(tmp, 'web-app')
     let page: Page
     ;({ app, page } = await launch(home, repo))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     const rail = page.getByRole('navigation', { name: 'Workspaces' })
     // The rail is there before any workspace: wait for web-app's own row.
     await expect(rail.getByRole('button', { name: /^web-app/ })).toBeVisible()

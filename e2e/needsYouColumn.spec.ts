@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 /**
  * The Needs you column is a narrow strip while no ticket is in it, and a full column while one is.
@@ -99,7 +100,7 @@ test('Needs you is a strip while nothing waits, opens with the card when a quest
     })
     const page = await app.firstWindow()
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Add hello file')

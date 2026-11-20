@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -42,7 +43,7 @@ test('a text field has the spelling and edit menu, and a board card keeps its ow
       }
     })
     const page: Page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await page.getByRole('button', { name: 'New ticket' }).click()
     await page.getByLabel('Title').fill('Fix the thing')
     await page.getByLabel('In your words').fill('Words')

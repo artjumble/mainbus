@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -50,7 +51,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
 
     session = await launch(home, repo)
     const { page } = session
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     // The cap is three until the user changes it in the general settings; set it to one.
     await page.getByRole('button', { name: 'Workspace settings' }).click()

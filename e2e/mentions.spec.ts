@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -51,7 +52,7 @@ test('picking @hunter from the list sends its identity, and the orchestrator cre
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-mentions.json', MAINBUS_TEST_REPO: mainbus }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
     const a = await invoke(page, 'workspace.get')
     await invoke(page, 'workspace.open', hunter)
@@ -99,7 +100,7 @@ for (const theme of ['light', 'dark'] as const)
         env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-mentions.json', MAINBUS_TEST_REPO: mainbus }
       })
       const page = await app.firstWindow()
-      await page.getByRole('button', { name: 'Add workspace' }).click()
+      await addWorkspace(page)
       await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
       await invoke(page, 'workspace.open', hunter)
       await invoke(page, 'settings.setTheme', theme)

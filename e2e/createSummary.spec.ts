@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -53,7 +54,7 @@ test('a ticket the orchestrator creates after a two-message request keeps both m
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-create-summary.json', MAINBUS_TEST_REPO: mainbus }
     })
     const page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
     await expect(page.getByRole('button', { name: 'New ticket' })).toBeVisible()
     const a = await invoke(page, 'workspace.get')
     const b = await invoke(page, 'workspace.open', website)

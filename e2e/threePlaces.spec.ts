@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -37,7 +38,7 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
       env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/board-answer-by-role.json', MAINBUS_TEST_REPO: repo }
     })
     const page: Page = await app.firstWindow()
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await addWorkspace(page)
 
     // Three tickets, each started; each Planner asks where the file goes.
     for (const title of TITLES) {
