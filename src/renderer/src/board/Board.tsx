@@ -103,6 +103,29 @@ const FULL_TRACK = 'minmax(120px, 1fr)'
 // Same shape as a full track, so the grid can animate between the two: the strip's flex share goes to the others.
 const STRIP_TRACK = `minmax(${STRIP}, 0fr)`
 
+/** The height of a column's sticky title row. The cards' `scroll-margin-top` clears it. */
+const TITLE_H = '2.5rem'
+/** Where the column titles stick: just under the board's header, whose height Board measures into this variable. */
+const HEADER_H = 'var(--board-header-h, 0px)'
+
+/**
+ * A column's title row, or a strip's body, stuck under the board's header while the cards scroll under it. It takes
+ * the lane's fill so the cards don't show through, and the lane's padding so it spans the lane edge to edge.
+ */
+function stickyTitle(fill: string): CSSProperties {
+  const xs = 'var(--mantine-spacing-xs)'
+  return {
+    position: 'sticky',
+    top: HEADER_H,
+    zIndex: 1,
+    background: fill,
+    margin: `calc(-1 * ${xs}) calc(-1 * ${xs}) 0`,
+    padding: `${xs} calc(${xs} + 4px) 0`,
+    height: TITLE_H,
+    boxSizing: 'border-box'
+  }
+}
+
 /**
  * The board's grid: Done is a strip at the right, Needs you one too while it is empty, and the other full columns
  * share the rest. `--column-width` is one full column's width, the width Done opens to.
@@ -117,7 +140,12 @@ export function gridStyle(needsYouCollapsed: boolean): CSSProperties {
     display: 'grid',
     gridTemplateColumns: tracks.join(' '),
     gap: 'var(--mantine-spacing-sm)',
-    overflowX: 'auto',
+    // The columns don't scroll sideways themselves, or they would be the scroll container the sticky titles stick in,
+    // and they would never stick. When they don't fit, the board area scrolls: the grid keeps its smallest width.
+    overflowX: 'clip',
+    // Also vertically, as the old scroll container did: a card carried past the board's bottom must not grow the board area.
+    overflowY: 'clip',
+    minWidth: `calc(${full} * 120px + ${strips} * ${STRIP} + ${COLUMNS.length - 1} * var(--mantine-spacing-sm))`,
     // The board fills the height left under the usage banner, and each lane the board's: an empty lane is full height, and
     // a drop anywhere in it lands in it. A lane with more cards makes the board taller, and the page scrolls.
     flex: '1 0 auto',
@@ -138,20 +166,31 @@ const LANE = 'var(--mainbus-color-lane)'
 const laneFill = (id: Column, isOver = false): string =>
   isOver ? 'working.0' : id === 'needs_you' ? 'needs.0' : LANE
 
+/** A lane's fill as a CSS value, for the sticky title that has to match it. */
+const laneCss = (id: Column, isOver = false): string =>
+  isOver ? 'var(--mantine-color-working-0)' : id === 'needs_you' ? 'var(--mantine-color-needs-0)' : LANE
+
 /** What a strip shows: the count above the title set vertically. Done's closed and Needs you's collapsed share it. */
 function StripBody({
   title,
   count,
   headingId,
+  fill,
   children
 }: {
   title: string
   count: number
   headingId: string
+  /** The lane's fill, which the stuck strip keeps. */
+  fill?: string
   children?: ReactNode
 }): ReactElement {
   return (
-    <Stack align="center" gap="xs">
+    <Stack
+      align="center"
+      gap="xs"
+      style={fill ? { ...stickyTitle(fill), height: 'auto', paddingBottom: 'var(--mantine-spacing-xs)' } : undefined}
+    >
       <Text size="xs" c="dimmed" data-testid="column-count" aria-hidden>
         {count}
       </Text>
@@ -176,9 +215,10 @@ const CollapsedLane = forwardRef<HTMLElement, { title: string; headingId: string
         p="xs"
         radius={0}
         bg={laneFill('needs_you')}
-        style={{ overflow: 'hidden', minWidth: 0 }}
+        // Clip, not hidden: hidden would make the lane the scroll container the strip's body sticks in.
+        style={{ overflow: 'clip', minWidth: 0 }}
       >
-        <StripBody title={title} count={0} headingId={headingId} />
+        <StripBody title={title} count={0} headingId={headingId} fill={laneCss('needs_you')} />
       </Paper>
     )
   }
@@ -190,7 +230,7 @@ const CollapsedLane = forwardRef<HTMLElement, { title: string; headingId: string
  */
 function PlaceholderLanes(): ReactElement {
   return (
-    <Box aria-hidden style={{ ...gridStyle(true), overflowX: 'hidden' }}>
+    <Box aria-hidden style={{ ...gridStyle(true), overflowX: 'hidden', minWidth: 0 }}>
       {COLUMNS.map((c) =>
         c.id === 'needs_you' ? (
           <CollapsedLane key={c.id} title={c.title} headingId={`empty-${c.id}`} />
@@ -357,25 +397,25 @@ export function Board(): ReactElement {
     }
   }, [tickets])
 
-  // A card dragged towards Done, at the right edge, makes the board wider than it is, and dnd-kit would scroll it
-  // sideways under the pointer, moving every column. Only let it when the columns themselves don't fit.
-  const boardRef = useRef<HTMLDivElement>(null)
-  const boardOverflows = useRef(false)
-  const autoScroll = useMemo(
-    () => ({ canScroll: (el: Element) => el !== boardRef.current || boardOverflows.current }),
-    []
-  )
-  // The same card, carried past the board's right edge, would also give the board a sideways scrollbar for the drag,
-  // and the scrollbar's height would come off every lane, Review's under Done too. While the columns fit, clip instead.
-  const [clipSideways, setClipSideways] = useState(false)
-  function onDragStart(): void {
-    const board = boardRef.current
-    boardOverflows.current = board !== null && board.scrollWidth > board.clientWidth + 1
-    setClipSideways(!boardOverflows.current)
-  }
+  // The columns' grid clips sideways (see gridStyle), so a card carried past the board's right edge, towards Done,
+  // neither grows a scrollbar nor scrolls the board.
+
+  // The header's height, which the column titles stick under and the cards' scroll margin clears.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const root = rootRef.current
+    const header = headerRef.current
+    if (!root || !header) return
+    const measure = (): void => root.style.setProperty('--board-header-h', `${header.offsetHeight}px`)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
 
   function onDragEnd({ active, over }: DragEndEvent): void {
-    setClipSideways(false)
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
     if (!ticket || target === null) return
@@ -384,8 +424,22 @@ export function Board(): ReactElement {
   }
 
   return (
-    <Stack gap="md" p="md" style={{ flex: '1 0 auto' }}>
-      <Group justify="space-between">
+    <Stack ref={rootRef} gap="md" px="md" pb="md" style={{ flex: '1 0 auto' }}>
+      {/* Stays at the top of the board area while the board scrolls: the workspace name, search, Unattended, settings and
+          New ticket. It spans the board edge to edge, on the page's own ground, so the cards don't show through. */}
+      <Group
+        ref={headerRef}
+        justify="space-between"
+        data-testid="board-header"
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
+          background: 'var(--mantine-color-body)',
+          margin: '0 calc(-1 * var(--mantine-spacing-md))',
+          padding: 'var(--mantine-spacing-md) var(--mantine-spacing-md) var(--mantine-spacing-xs)'
+        }}
+      >
         <Stack gap={0}>
           <Title order={2}>{workspace?.name ?? 'Board'}</Title>
           {workspace && (
@@ -465,17 +519,12 @@ export function Board(): ReactElement {
       ) : (
         <DndContext
           sensors={sensors}
-          onDragStart={onDragStart}
           onDragEnd={onDragEnd}
-          onDragCancel={() => setClipSideways(false)}
-          autoScroll={autoScroll}
           accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
           <Box
-            ref={boardRef}
             style={{
               ...gridStyle(needsYouCollapsed),
-              ...(clipSideways ? { overflowX: 'hidden' } : {}),
               transition: reducedMotion ? 'none' : 'grid-template-columns 150ms ease'
             }}
           >
@@ -552,7 +601,7 @@ const BoardColumn = memo(function BoardColumn({
       radius={0}
       bg={laneFill(id, isOver)}
     >
-      <Group justify="space-between" mb="xs" px={4}>
+      <Group justify="space-between" align="center" wrap="nowrap" style={stickyTitle(laneCss(id, isOver))}>
         <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
           {title}
         </Title>
@@ -670,7 +719,8 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
     position: 'relative',
     zIndex: 2,
     // Clipped while it widens or narrows; but a card dragged out of it is still its child, and must stay in sight.
-    overflow: draggingFromHere ? 'visible' : 'hidden',
+    // Clip, not hidden: hidden would make the lane the scroll container the sticky title sticks in.
+    overflow: draggingFromHere ? 'visible' : 'clip',
     boxShadow: open ? 'var(--mantine-shadow-md)' : undefined,
     // Open, its edge over Review, a lane of the same fill, shows as a line too; never a top or bottom border.
     borderLeft: open ? '1px solid var(--mainbus-color-card-border)' : undefined,
@@ -706,7 +756,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
       }}
     >
       {open ? (
-        <Group justify="space-between" mb="xs" px={4} wrap="nowrap">
+        <Group justify="space-between" align="center" wrap="nowrap" style={stickyTitle(laneCss(id, isOver))}>
           <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
             {title}
           </Title>
@@ -715,7 +765,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
           </Text>
         </Group>
       ) : (
-        <StripBody title={title} count={tickets.length} headingId={headingId}>
+        <StripBody title={title} count={tickets.length} headingId={headingId} fill={laneCss(id, isOver)}>
           {cleaningUp && (
             <span data-testid="done-working">
               <Loader size={12} aria-hidden />
@@ -820,6 +870,8 @@ const DraggableTicket = memo(function DraggableTicket({
           position: 'relative',
           // Above Done, open over Review.
           zIndex: isDragging ? 3 : undefined,
+          // Scrolled into view (focus, a search result), the card stops below the sticky header and titles.
+          scrollMarginTop: `calc(${HEADER_H} + ${TITLE_H} + var(--mantine-spacing-xs))`,
           touchAction: 'none'
         }}
       >
