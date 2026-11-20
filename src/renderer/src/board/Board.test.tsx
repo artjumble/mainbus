@@ -949,3 +949,54 @@ test('the header has no warning when the base is on origin', async () => {
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.branches', workspace.id))
   expect(screen.queryByText(/Pull requests will fail/)).not.toBeInTheDocument()
 })
+
+describe('the header and the column titles stay in sight while the board scrolls', () => {
+  test('the header is sticky at the top, on the page ground, above the lanes', () => {
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    const header = screen.getByTestId('board-header')
+    expect(header.style.position).toBe('sticky')
+    expect(header.style.top).toBe('0px')
+    expect(header.style.background).toContain('--mantine-color-body')
+    expect(within(header).getByRole('textbox', { name: 'Search tickets' })).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: 'New ticket' })).toBeInTheDocument()
+  })
+
+  test('each column title row, and the closed Done and collapsed Needs you strips, is sticky under the header on the lane fill', () => {
+    showBoard(makeTicket({}, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    const sticky = (name: string): HTMLElement => {
+      const heading = within(screen.getByRole('region', { name })).getByRole('heading', { level: 3 })
+      let el: HTMLElement | null = heading
+      while (el && el.style.position !== 'sticky') el = el.parentElement
+      if (!el) throw new Error(`${name}: no sticky title`)
+      return el
+    }
+    for (const name of ['Backlog', 'Ready', 'In progress', 'Review']) {
+      const title = sticky(name)
+      expect(title.style.top).toContain('--board-header-h')
+      expect(title.style.background).toContain('--mainbus-color-lane')
+      expect(title).toContainElement(within(screen.getByRole('region', { name })).getByTestId('column-count'))
+    }
+    // The strips: the count and the vertical title stay together.
+    expect(sticky('Done').style.background).toContain('--mainbus-color-lane')
+    expect(sticky('Needs you, no tickets').style.background).toContain('--mantine-color-needs-0')
+    // A lane that clipped with overflow hidden would be the scroll container the title sticks in.
+    for (const name of ['Done', 'Needs you, no tickets']) {
+      expect(screen.getByRole('region', { name }).style.overflow).not.toBe('hidden')
+    }
+  })
+
+  test('the columns do not scroll sideways themselves, so the titles can stick, and keep their smallest width', () => {
+    const style = gridStyle(false)
+    expect(style.overflowX).toBe('clip')
+    expect(String(style.minWidth)).toContain('120px')
+  })
+
+  test('a card scrolled into view stops below the header and the titles', () => {
+    showBoard(makeTicket({ title: 'Scrolled to' }, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    const card = screen.getByRole('button', { name: /Scrolled to/ }).closest<HTMLElement>('[style*="scroll-margin-top"]')!
+    expect(card.style.scrollMarginTop).toContain('--board-header-h')
+  })
+})

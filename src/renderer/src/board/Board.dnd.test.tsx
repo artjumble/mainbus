@@ -136,17 +136,17 @@ describe('moving a card by keyboard', () => {
     await vi.waitFor(() => expect(ready.style.background).toContain('--mainbus-color-lane'))
   })
 
-  test('while a card is carried on a board whose columns fit, the board clips sideways instead of growing a scrollbar', async () => {
+  test('the board clips sideways, before, during and after a carry, so a card carried past its edge grows no scrollbar', async () => {
     const ticket = show()
     layOutColumns()
     renderWithMantine(<Board />)
     const board = screen.getByRole('region', { name: 'Ready' }).parentElement!
-    expect(board.style.overflowX).toBe('auto')
+    expect(board.style.overflowX).toBe('clip')
     handle(ticket.number).focus()
     await userEvent.keyboard(' ')
-    await vi.waitFor(() => expect(board.style.overflowX).toBe('hidden'))
+    expect(board.style.overflowX).toBe('clip')
     await userEvent.keyboard('{Escape}')
-    await vi.waitFor(() => expect(board.style.overflowX).toBe('auto'))
+    expect(board.style.overflowX).toBe('clip')
   })
 
   test('Arrow Right skips the columns that take no drops', async () => {
