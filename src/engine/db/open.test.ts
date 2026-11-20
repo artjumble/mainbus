@@ -698,6 +698,11 @@ describe('openDb', () => {
       NEW_REVIEWER: reviewer!.instructions
     }
     const resolve = (text: string): string => current[text] ?? text
+    // Guard: a row that is moved must start from text that differs from what it moves to, or the case tests nothing.
+    for (const [w, role, , , instructions] of c.rows) {
+      const target = c.expected[w + role]
+      if (target?.startsWith('NEW_') && !instructions.startsWith('NEW_')) expect(resolve(instructions), w + role).not.toBe(resolve(target))
+    }
     const first = await open(firstMigrations(c.before))
     for (const id of ['w1', 'w2']) {
       await first.db.run(
