@@ -84,7 +84,7 @@ test('a card dropped in the empty space at the bottom of a full-height lane move
   })
 })
 
-test('a lane with more cards than fit is taller than the window, every lane with it, and the page scrolls, not the lane', async () => {
+test('a lane with more cards than fit is taller than the window, every lane with it, and the main area scrolls, not the lane', async () => {
   await withBoard({ width: 1440, height: 640 }, async (page) => {
     for (let i = 1; i <= 6; i++) await createTicket(page, { title: `Card number ${i}` })
     await expect(column(page, 'Backlog').getByTestId('column-count')).toHaveText('6')
@@ -92,7 +92,7 @@ test('a lane with more cards than fit is taller than the window, every lane with
     expect(layout.board.bottom).toBeGreaterThan(layout.areaBottom + 50)
     const scroll = await page.evaluate(() => {
       const backlog = document.getElementById('column-backlog')!.closest('section')!
-      const doc = document.scrollingElement!
+      const doc = document.querySelector('[data-testid="main-scroll"]')!
       return { lane: backlog.scrollHeight - backlog.clientHeight, page: doc.scrollHeight - doc.clientHeight }
     })
     expect(scroll.lane).toBeLessThanOrEqual(1)

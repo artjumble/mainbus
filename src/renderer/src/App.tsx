@@ -112,7 +112,19 @@ export function App(): ReactElement {
         </AppShell.Navbar>
       )}
       {/* A column, so the board can fill the height under the usage banner. */}
-      <AppShell.Main style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* Scrolls inside itself, so its scrollbar sits beside the aside (a margin, not padding, keeps the bar clear of it). */}
+      <AppShell.Main
+        data-testid="main-scroll"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100dvh',
+          minHeight: 0,
+          overflowY: 'auto',
+          paddingInlineEnd: 'var(--app-shell-padding)',
+          marginInlineEnd: 'var(--app-shell-aside-offset, 0rem)'
+        }}
+      >
         {/* The page's heading for screen readers; the window's title bar already says Mainbus. */}
         <VisuallyHidden>
           <Title order={1}>Mainbus</Title>

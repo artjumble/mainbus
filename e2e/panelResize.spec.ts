@@ -54,6 +54,26 @@ test('dragging the panel edge resizes it within the limits; the width survives a
     await expect(separator).toHaveAttribute('aria-valuenow', '340')
     expect(await asideWidth(page)).toBeCloseTo(340, 0)
 
+    // The page never scrolls; the main area scrolls inside itself and ends where the panel begins.
+    const layout = await page.evaluate(() => {
+      const main = document.querySelector('[data-testid="main-scroll"]')!.getBoundingClientRect()
+      const aside = document.querySelector('[aria-label="Orchestrator"]')!.getBoundingClientRect()
+      return {
+        docOverflow: getComputedStyle(document.documentElement).overflowY,
+        bodyOverflow: getComputedStyle(document.body).overflowY,
+        mainOverflow: getComputedStyle(document.querySelector('[data-testid="main-scroll"]')!).overflowY,
+        mainRight: main.right,
+        asideLeft: aside.left,
+        asideRight: aside.right,
+        windowWidth: window.innerWidth
+      }
+    })
+    expect(layout.docOverflow).toBe('hidden')
+    expect(layout.bodyOverflow).toBe('hidden')
+    expect(layout.mainOverflow).toBe('auto')
+    expect(layout.mainRight).toBeLessThanOrEqual(layout.asideLeft + 1)
+    expect(layout.asideRight).toBeCloseTo(layout.windowWidth, 0)
+
     const drag = async (dx: number): Promise<void> => {
       const box = (await separator.boundingBox())!
       const x = box.x + box.width / 2
