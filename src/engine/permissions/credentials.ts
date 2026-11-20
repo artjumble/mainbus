@@ -5,7 +5,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { fromGitBash, isInside } from './paths'
+import { hostPathStyle, type PathStyle, pathRules } from './paths'
 import { parseGit, parseShell, type SimpleCommand } from './shell'
 
 /** PowerShell `-Name:value`; the value of a path parameter written in one word. */
@@ -44,6 +44,8 @@ const SAMPLE_NAMES = [...SECRET_FILES, ...SECRET_FOLDERS, '.env', '.env.local', 
 export interface CredentialFiles {
   worktree: string
   cwd?: string
+  /** How paths are read; the host's style when absent. */
+  pathStyle?: PathStyle
 }
 
 const AUTH_LIKE = /auth|token|passw|secret|credential|username|:_|(?:^|\W)(?:cert|key)(?:file)?\s*[=:]/im
@@ -55,8 +57,9 @@ function holdsNoCredentials(typed: string, files: CredentialFiles | undefined): 
   const last = typed.split(/[\\/]/).pop() ?? ''
   // Only the plain name: NTFS also reads `.npmrc:stream` and `.npmrc.`.
   if (!CONDITIONAL_FILES.has(last.toLowerCase())) return false
-  const resolved = path.win32.resolve(files.cwd ?? files.worktree, fromGitBash(typed))
-  if (!isInside(resolved, [files.worktree])) return false
+  const rules = pathRules(files.pathStyle ?? hostPathStyle())
+  const resolved = rules.resolve(files.cwd ?? files.worktree, typed)
+  if (!rules.isInside(resolved, [files.worktree])) return false
   try {
     const stat = fs.statSync(resolved)
     if (!stat.isFile() || stat.size > MAX_CONFIG_BYTES) return false

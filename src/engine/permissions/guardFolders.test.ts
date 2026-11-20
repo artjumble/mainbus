@@ -5,7 +5,7 @@ import { type GuardContext, guardReason, isCdInside } from './guard'
 
 const W = String.raw`C:\h\work\ws\14-x`
 const S = String.raw`C:\h\scratch\ws\14-x`
-const ctx: GuardContext = { worktree: W, additionalDirectories: [S], scratch: S, ownBranch: 'mainbus/14-x' }
+const ctx: GuardContext = { worktree: W, additionalDirectories: [S], scratch: S, ownBranch: 'mainbus/14-x', pathStyle: 'win32' }
 const deep = `${W}\\src\\engine\\proposals`
 
 const reason = (tool: string, command: string, c: Partial<GuardContext> = {}) =>
@@ -106,7 +106,7 @@ describe('the shell folder', () => {
   })
 
   test('isCdInside starts from the folder', () => {
-    const folders = { worktree: W, additionalDirectories: [] as string[], cwd: deep }
+    const folders = { worktree: W, additionalDirectories: [] as string[], cwd: deep, pathStyle: 'win32' as const }
     expect(isCdInside(['cd', '../../..'], folders)).toBe(true)
     expect(isCdInside(['cd', '../../..'], { ...folders, cwd: undefined })).toBe(false)
     expect(isCdInside(['cd', '-'], folders)).toBe(false)

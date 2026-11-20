@@ -31,7 +31,7 @@ function exists(p: string): boolean {
   return fs.existsSync(path.join(process.cwd(), rel))
 }
 
-const ctx: GuardContext = { worktree: W, additionalDirectories: [S], scratch: S, ownBranch: 'mainbus/14-x', exists }
+const ctx: GuardContext = { worktree: W, additionalDirectories: [S], scratch: S, ownBranch: 'mainbus/14-x', exists, pathStyle: 'win32' }
 const replay = (c: Card): Said | null => {
   const r = guardReason(c.tool, { command: c.command }, { ...ctx, ...(c.cwd ? { cwd: c.cwd } : {}) })
   return r && { kind: r.kind, message: r.message }

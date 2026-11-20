@@ -1,10 +1,9 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import { credentialReason, NAMED_PATH, ntfsName, readArguments } from './credentials'
 import { type Download, DOWNLOAD_COMMANDS, readDownload } from './downloads'
 import { inPlaceFiles } from './interpreters'
 import { commandOf, isShellTool } from './policy'
-import { fromGitBash, isInside } from './paths'
+import { hostPathStyle, type PathRules, type PathStyle, pathRules } from './paths'
 import {
   CD_COMMANDS,
   commandName,
@@ -29,6 +28,8 @@ export interface FolderContext {
    * start here; the worktree when absent or not absolute.
    */
   cwd?: string
+  /** How paths are read (separators, case, Git Bash mapping); the host's style when absent. Tests inject it. */
+  pathStyle?: PathStyle
 }
 
 export interface GuardContext extends FolderContext {
@@ -108,7 +109,7 @@ function pick(messages: Iterable<string>): GuardReason | null {
   return automatic === null ? null : { kind: 'automatic', message: automatic }
 }
 
-const win = path.win32
+const rulesOf = (ctx: FolderContext): PathRules => pathRules(ctx.pathStyle ?? hostPathStyle())
 
 const FILE_PATH_KEY: Record<string, string> = {
   Write: 'file_path',
@@ -139,19 +140,38 @@ const FILESYSTEM_PROVIDER = /^(?:[\w.]+\\)?FileSystem::/i
 const VARIABLE_ANYWHERE = /\$[\w{]|\$env:|%\w+%/i
 const HOME_FORM = /~|\$\{?HOME\}?|\$env:(?:HOME|USERPROFILE)|%(?:USERPROFILE|HOMEPATH|HOMEDRIVE)%/i
 const CLAUDE_WORD = /\.claude(?![\w-])/i
-const CLAUDE_SEGMENT = /(?:^|\\)\.claude(?:\\|$)/i
+// The per-style forms below are built from the style's own separator: on POSIX a backslash is part of a file name.
+const CLAUDE_SEGMENTS: Record<PathStyle, RegExp> = {
+  win32: /(?:^|\\)\.claude(?:\\|$)/i,
+  darwin: /(?:^|\/)\.claude(?:\/|$)/i,
+  linux: /(?:^|\/)\.claude(?:\/|$)/,
+}
 const ABSOLUTE = /^(?:[a-zA-Z]:[\\/]|[\\/])/
 // The only places outside the worktree a command may name without a card are the null device
 // and the standard streams. Program paths (`"C:\Program Files\nodejs\node.exe" x`) are the command
 // itself, not an argument, so npm, node and git installs found through PATH need no exemption.
-const NULL_TARGET = /^(\/dev\/(null|stdin|stdout|stderr)|nul|\$null)$/i
+const NULL_TARGETS: Record<PathStyle, RegExp> = {
+  win32: /^(\/dev\/(null|stdin|stdout|stderr)|nul|\$null)$/i,
+  // `nul` is an ordinary file name off Windows.
+  darwin: /^\/dev\/(null|stdin|stdout|stderr)$/i,
+  linux: /^\/dev\/(null|stdin|stdout|stderr)$/,
+}
 const CLIMBS_OUT = /(?:^|[\\/])\.\.(?:[\\/]|$)/
 // PowerShell automatic variables and shell special parameters hold values, not paths.
 const VALUE_VARIABLE = /^\$(?:true|false|_|psitem|lastexitcode|args|input|matches|pwd|[?#@*!$0-9-])$/i
 const BARE_VARIABLE = /^(?:\$\{?\w+\}?|%\w+%)$/
 // Claude Code saves long tool output under ~/.claude/projects/<project>/.../tool-results and tells the
 // agent to Read it there; that is the agent's own output, so Read may open it without a card.
-const TOOL_RESULTS = /\\\.claude\\projects\\.+\\tool-results\\[^\\]+$/i
+const TOOL_RESULTS_PATHS: Record<PathStyle, RegExp> = {
+  win32: /\\\.claude\\projects\\.+\\tool-results\\[^\\]+$/i,
+  darwin: /\/\.claude\/projects\/.+\/tool-results\/[^/]+$/i,
+  linux: /\/\.claude\/projects\/.+\/tool-results\/[^/]+$/,
+}
+
+/** `~`, `$x` and the like: somewhere that cannot be resolved. Off Windows `~name` is another user's home too. */
+function homeOrVariable(p: string, rules: PathRules): boolean {
+  return HOME_OR_VARIABLE.test(p) || (rules.style !== 'win32' && p.startsWith('~'))
+}
 
 // Folders and files that the next agent session or a git hook will load or execute.
 const CONFIG_DIRECTORIES = new Set(['.claude', '.git', '.husky'])
@@ -194,15 +214,16 @@ interface Located {
 
 function locate(rawPath: string, ctx: FolderContext & Where): Located {
   const p = rawPath.replace(FILESYSTEM_PROVIDER, '')
-  if (HOME_OR_VARIABLE.test(p) || VARIABLE_ANYWHERE.test(p)) return { shown: p, inside: false, segments: [] }
+  const rules = rulesOf(ctx)
+  if (homeOrVariable(p, rules) || VARIABLE_ANYWHERE.test(p)) return { shown: p, inside: false, segments: [] }
   const roots = [ctx.worktree, ...ctx.additionalDirectories]
   const places = (ctx.bases ?? [ctx.cwd ?? ctx.worktree]).map((base): Located => {
-    const resolved = win.resolve(base, fromGitBash(p))
-    const root = roots.find((r) => isInside(resolved, [r]))
+    const resolved = rules.resolve(base, p)
+    const root = roots.find((r) => rules.isInside(resolved, [r]))
     return {
       shown: resolved,
       inside: root !== undefined,
-      segments: root === undefined ? [] : win.relative(root, resolved).split('\\'),
+      segments: root === undefined ? [] : rules.segments(root, resolved),
     }
   })
   // Outside from any of the folders the command may be in is outside.
@@ -396,7 +417,7 @@ function packageManagerReason(cmd: SimpleCommand): string | null {
 
 function firstReason(paths: string[], ctx: Ctx): string | null {
   for (const p of paths) {
-    if (NULL_TARGET.test(p)) continue
+    if (NULL_TARGETS[rulesOf(ctx).style].test(p)) continue
     const reason = writeTargetReason(p, ctx)
     if (reason) return reason
   }
@@ -442,13 +463,14 @@ function* commandReasons(cmd: SimpleCommand, ctx: Ctx): Generator<string> {
  * otherwise every argument counts, since a pipe can hand any of them to a write command.
  */
 function outsidePathIn(cmds: SimpleCommand[], ctx: Ctx, reading = false): string | null {
+  const rules = rulesOf(ctx)
   for (const cmd of cmds) {
     for (const a of reading ? readArguments(cmd) : [...cmd.argv.slice(1), ...cmd.redirects]) {
       const value = (NAMED_PATH.exec(a)?.[1] ?? a).replace(FILESYSTEM_PROVIDER, '')
-      if (isFlag(value) || NULL_TARGET.test(value) || VALUE_VARIABLE.test(value)) continue
+      if (isFlag(value) || NULL_TARGETS[rules.style].test(value) || VALUE_VARIABLE.test(value)) continue
       // A downloader's bare `$URL` is the address it fetches.
       if (reading && DOWNLOAD_COMMANDS.has(cmd.name) && BARE_VARIABLE.test(value)) continue
-      const variable = HOME_OR_VARIABLE.test(value) || (!reading && VARIABLE_ANYWHERE.test(value))
+      const variable = homeOrVariable(value, rules) || (!reading && VARIABLE_ANYWHERE.test(value))
       if (!variable && !ABSOLUTE.test(value) && !CLIMBS_OUT.test(value)) continue
       const { shown, inside } = locate(value, ctx)
       if (!inside) return shown
@@ -463,7 +485,7 @@ function touchesClaudeFolder(command: string, cmds: SimpleCommand[], ctx: Ctx): 
     cmd.argv.slice(1).some((a) => {
       if (!ABSOLUTE.test(a)) return false
       const { shown, inside } = locate(a, ctx)
-      return !inside && CLAUDE_SEGMENT.test(shown)
+      return !inside && CLAUDE_SEGMENTS[rulesOf(ctx).style].test(shown)
     }),
   )
 }
@@ -474,8 +496,9 @@ const POWERSHELL_TEMP = ['env:temp', 'env:tmp', 'env:tmpdir']
 
 /** True when this folder is inside the folders the agent may work in, and not in agent settings. */
 function plainFolder(folder: string, ctx: GuardContext): boolean {
-  const root = [ctx.worktree, ...ctx.additionalDirectories].find((r) => isInside(folder, [r]))
-  return root !== undefined && !isAgentConfigPath(win.relative(root, folder).split('\\'))
+  const rules = rulesOf(ctx)
+  const root = [ctx.worktree, ...ctx.additionalDirectories].find((r) => rules.isInside(folder, [r]))
+  return root !== undefined && !isAgentConfigPath(rules.segments(root, folder))
 }
 
 /**
@@ -497,7 +520,7 @@ function initialVars(dialect: 'bash' | 'powershell', ctx: GuardContext, start: s
 }
 
 /** The folders a statement that changes folder leaves the shell in, or null when that cannot be told. */
-function movedTo(dest: Destination, bases: string[], previous: string[] | undefined): string[] | null {
+function movedTo(dest: Destination, bases: string[], previous: string[] | undefined, rules: PathRules): string[] | null {
   switch (dest.to) {
     case 'stay':
       return bases
@@ -505,8 +528,8 @@ function movedTo(dest: Destination, bases: string[], previous: string[] | undefi
       return previous ?? null
     case 'path': {
       const value = dest.value.replace(FILESYSTEM_PROVIDER, '')
-      if (HOME_OR_VARIABLE.test(value) || VARIABLE_ANYWHERE.test(value)) return null
-      const moved = [...new Set(bases.map((b) => win.resolve(b, fromGitBash(value))))]
+      if (homeOrVariable(value, rules) || VARIABLE_ANYWHERE.test(value)) return null
+      const moved = [...new Set(bases.map((b) => rules.resolve(b, value)))]
       return moved.length > 8 ? null : moved
     }
     default:
@@ -528,7 +551,7 @@ function* shellReasons(toolName: string, command: string, context: GuardContext)
     yield `Runs a command Mainbus can't check: ${parsed.why}`
     return
   }
-  const secret = credentialReason('Bash', { command }, { worktree: context.worktree, cwd: start })
+  const secret = credentialReason('Bash', { command }, { worktree: context.worktree, cwd: start, pathStyle: context.pathStyle })
   if (secret) yield secret
   if (touchesClaudeFolder(command, parsed.pipelines.flat(), { ...context, dialect, bases: [start] })) {
     yield 'Touches the .claude folder in the home directory'
@@ -562,7 +585,7 @@ function* shellReasons(toolName: string, command: string, context: GuardContext)
     }
     // A cd in a pipe or in an `if` may or may not have happened.
     const single = pipeline.length === 1 && !parsed.compound[i] && changers.length === 1
-    const moved = single ? movedTo(destination(changers[0], dialect), bases, previous) : null
+    const moved = single ? movedTo(destination(changers[0], dialect), bases, previous, rulesOf(context)) : null
     const after = moved ?? unknown
     // Whatever runs regardless of the cd: where it went if the folder is there to go to, else either place.
     const settled = moved !== null && moved.every(exists) ? moved : union(after, bases)
@@ -589,9 +612,9 @@ function toolReadReason(toolName: string, input: Record<string, unknown>, ctx: G
     const p = input[key]
     if (typeof p !== 'string' || p === '') continue
     // A Glob pattern is relative to its path unless it is rooted itself.
-    if (key === 'pattern' && !ABSOLUTE.test(p) && !HOME_OR_VARIABLE.test(p) && !CLIMBS_OUT.test(p)) continue
+    if (key === 'pattern' && !ABSOLUTE.test(p) && !homeOrVariable(p, rulesOf(ctx)) && !CLIMBS_OUT.test(p)) continue
     const { shown, inside } = locate(p, ctx)
-    if (!inside && !(toolName === 'Read' && TOOL_RESULTS.test(shown))) return `Reads outside the ticket's folder: ${shown}`
+    if (!inside && !(toolName === 'Read' && TOOL_RESULTS_PATHS[rulesOf(ctx).style].test(shown))) return `Reads outside the ticket's folder: ${shown}`
   }
   return null
 }
@@ -604,17 +627,19 @@ export function guardReason(toolName: string, input: Record<string, unknown>, co
 /** Relative or empty extra folders (and scratch folder) would resolve against the process cwd: drop them. */
 function usable<T extends FolderContext>(context: T): T {
   const { scratch, cwd, ...rest } = context
-  const folders = { ...rest, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && win.isAbsolute(d)) }
+  const pathStyle = context.pathStyle ?? hostPathStyle()
+  const rules = pathRules(pathStyle)
+  const folders = { ...rest, pathStyle, additionalDirectories: context.additionalDirectories.filter((d) => d !== '' && rules.isAbsolute(d)) }
   return {
     ...folders,
-    ...(scratch !== undefined && scratch !== '' && win.isAbsolute(scratch) ? { scratch } : {}),
-    ...(cwd !== undefined && win.isAbsolute(cwd) ? { cwd } : {}),
+    ...(scratch !== undefined && scratch !== '' && rules.isAbsolute(scratch) ? { scratch } : {}),
+    ...(cwd !== undefined && rules.isAbsolute(cwd) ? { cwd } : {}),
   } as T
 }
 
 function* reasonsFor(toolName: string, input: Record<string, unknown>, ctx: GuardContext): Generator<string> {
   if (Object.hasOwn(READ_PATH_KEYS, toolName)) {
-    const reason = credentialReason(toolName, input, { worktree: ctx.worktree, cwd: ctx.cwd }) ?? toolReadReason(toolName, input, ctx)
+    const reason = credentialReason(toolName, input, { worktree: ctx.worktree, cwd: ctx.cwd, pathStyle: ctx.pathStyle }) ?? toolReadReason(toolName, input, ctx)
     if (reason) yield reason
     return
   }
