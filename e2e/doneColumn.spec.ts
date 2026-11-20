@@ -19,37 +19,57 @@ function git(cwd: string, ...args: string[]): void {
   })
 }
 
-/** Runs `body` against the app on a fresh temp home and repo, with every role handing off at once, at board size. */
-async function withBoard(body: (page: Page, home: string) => Promise<void>): Promise<void> {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
-  let app: ElectronApplication | undefined
+// One app for the whole file, run in order: each test makes its own ticket (its own title) and leaves the board
+// showing with Done closed, so the next one starts from the same place.
+test.describe.configure({ mode: 'serial' })
+
+let tmp: string
+let home: string
+let app: ElectronApplication | undefined
+let page: Page
+
+test.beforeAll(async () => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
+  home = path.join(tmp, 'home')
+  const repo = path.join(tmp, 'repo')
+  fs.mkdirSync(repo)
+  git(repo, 'init', '-b', 'main')
+  fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
+  // Like a real project: installed packages are ignored, so they don't count as uncommitted work.
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\n')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-m', 'initial')
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+  delete env['ELECTRON_RUN_AS_NODE']
+  // Every role hands off at once, and the window is at board size.
+  app = await electron.launch({
+    args: ['.'],
+    cwd: root,
+    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/handoff.json', MAINBUS_TEST_REPO: repo }
+  })
+  page = await app.firstWindow()
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
+  await page.getByRole('button', { name: 'Add workspace' }).click()
+})
+
+test.afterAll(async () => {
+  await app?.close().catch(() => {})
   try {
-    const home = path.join(tmp, 'home')
-    const repo = path.join(tmp, 'repo')
-    fs.mkdirSync(repo)
-    git(repo, 'init', '-b', 'main')
-    fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
-    // Like a real project: installed packages are ignored, so they don't count as uncommitted work.
-    fs.writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\n')
-    git(repo, 'add', '.')
-    git(repo, 'commit', '-m', 'initial')
-    const env: Record<string, string> = {}
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
-    delete env['ELECTRON_RUN_AS_NODE']
-    app = await electron.launch({
-      args: ['.'],
-      cwd: root,
-      env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/handoff.json', MAINBUS_TEST_REPO: repo }
-    })
-    const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
-    await page.getByRole('button', { name: 'Add workspace' }).click()
-    await body(page, home)
-  } finally {
-    await app?.close()
-    fs.rmSync(tmp, { recursive: true, force: true })
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch {
+    // A temp folder left behind is harmless.
   }
-}
+})
+
+// Focus left in Done by an earlier test would hold it open: click elsewhere, move away, and wait for it to close.
+test.beforeEach(async () => {
+  // A new workspace has no columns yet.
+  if ((await done(page).count()) === 0) return
+  await page.getByRole('main').getByRole('heading', { level: 2 }).click()
+  await page.mouse.move(700, 2)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'false')
+})
 
 /** Creates a ticket and starts it; each role hands off at once, so it lands in Review, with its worktree. */
 async function ticketInReview(page: Page, title: string): Promise<void> {
@@ -73,156 +93,157 @@ function worktrees(home: string): string[] {
 
 const done = (page: Page) => page.getByRole('region', { name: 'Done', exact: true })
 const review = (page: Page) => page.getByRole('region', { name: 'Review', exact: true })
+/** How many cards Done holds; a workspace with no ticket yet has no columns, so none. */
+const doneCount = async (page: Page): Promise<number> =>
+  (await done(page).count()) === 0 ? 0 : Number(await done(page).getByTestId('column-count').textContent())
 const width = async (page: Page): Promise<number> => (await done(page).boundingBox())!.width
 
 test('a Review card dragged onto the closed Done strip opens it over Review and lands in Done, cleaned up', async () => {
-  await withBoard(async (page, home) => {
-    await ticketInReview(page, 'Ship it')
-    expect(worktrees(home)).toHaveLength(1)
-    await expect(done(page)).toHaveAttribute('data-expanded', 'false')
-    expect(await width(page)).toBeLessThan(60)
-    const reviewBox = (await review(page).boundingBox())!
+  const doneBefore = await doneCount(page)
+  await ticketInReview(page, 'Ship one')
+  expect(worktrees(home)).toHaveLength(1)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'false')
+  expect(await width(page)).toBeLessThan(60)
+  const reviewBox = (await review(page).boundingBox())!
 
-    // Press the card and drag it, in steps, onto the strip.
-    const card = (await review(page).getByRole('button', { name: /Ship it/ }).boundingBox())!
-    const strip = (await done(page).boundingBox())!
-    await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(card.x + card.width / 2 + 20, card.y + card.height / 2, { steps: 5 })
-    await page.mouse.move(strip.x + strip.width / 2, card.y + card.height / 2, { steps: 15 })
+  // Press the card and drag it, in steps, onto the strip.
+  const card = (await review(page).getByRole('button', { name: /Ship one/ }).boundingBox())!
+  const strip = (await done(page).boundingBox())!
+  await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(card.x + card.width / 2 + 20, card.y + card.height / 2, { steps: 5 })
+  await page.mouse.move(strip.x + strip.width / 2, card.y + card.height / 2, { steps: 15 })
 
-    // Done opens over Review; Review doesn't move or change size.
-    await expect(done(page)).toHaveAttribute('data-expanded', 'true')
-    await expect.poll(() => width(page)).toBeGreaterThan(100)
-    // Done, open, is as wide as the other columns.
-    await expect.poll(() => width(page)).toBeCloseTo(reviewBox.width, 0)
-    expect(await review(page).boundingBox()).toEqual(reviewBox)
-    // For a look: the dragged card stays above Done open over Review.
-    await page.screenshot({ path: test.info().outputPath('dragging-over-done.png') })
+  // Done opens over Review; Review doesn't move or change size.
+  await expect(done(page)).toHaveAttribute('data-expanded', 'true')
+  await expect.poll(() => width(page)).toBeGreaterThan(100)
+  // Done, open, is as wide as the other columns.
+  await expect.poll(() => width(page)).toBeCloseTo(reviewBox.width, 0)
+  expect(await review(page).boundingBox()).toEqual(reviewBox)
+  // For a look: the dragged card stays above Done open over Review.
+  await page.screenshot({ path: test.info().outputPath('dragging-over-done.png') })
 
-    // Released over the left part of Done, where Review is underneath.
-    const open = (await done(page).boundingBox())!
-    expect(open.x).toBeLessThan(reviewBox.x + reviewBox.width)
-    await page.mouse.move(open.x + 40, card.y + card.height / 2, { steps: 5 })
-    await page.mouse.up()
+  // Released over the left part of Done, where Review is underneath.
+  const open = (await done(page).boundingBox())!
+  expect(open.x).toBeLessThan(reviewBox.x + reviewBox.width)
+  await page.mouse.move(open.x + 40, card.y + card.height / 2, { steps: 5 })
+  await page.mouse.up()
 
-    await expect(done(page).getByText('Ship it')).toBeVisible()
-    await expect(review(page).getByText('Ship it')).toHaveCount(0)
-    await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
-    await expect.poll(() => worktrees(home)).toEqual([])
+  await expect(done(page).getByText('Ship one')).toBeVisible()
+  await expect(review(page).getByText('Ship one')).toHaveCount(0)
+  await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
+  await expect.poll(() => worktrees(home)).toEqual([])
 
-    // Once the pointer goes, Done closes and its cards are hidden.
-    await page.mouse.move(700, 2)
-    await expect(done(page)).toHaveAttribute('data-expanded', 'false')
-    await expect(done(page).getByText('Ship it')).toBeHidden()
-    await expect.poll(() => width(page)).toBeLessThan(60)
-    await expect(done(page).getByTestId('column-count')).toHaveText('1')
-  })
+  // Once the pointer goes, Done closes and its cards are hidden.
+  await page.mouse.move(700, 2)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'false')
+  await expect(done(page).getByText('Ship one')).toBeHidden()
+  await expect.poll(() => width(page)).toBeLessThan(60)
+  await expect(done(page).getByTestId('column-count')).toHaveText(String(doneBefore + 1))
 })
 
 test('the same move by keyboard: Space, Arrow Right onto the strip, Space', async () => {
-  await withBoard(async (page, home) => {
-    await ticketInReview(page, 'Ship it')
-    await expect(done(page)).toHaveAttribute('data-expanded', 'false')
-    const announced = page.locator('[id^="DndLiveRegion"]')
-    await review(page).getByRole('button', { name: /^Move ticket #/ }).focus()
-    await page.keyboard.press('Space')
-    await expect(announced).toContainText('Picked up ticket #1 Ship it')
-    // dnd-kit starts listening for the next key a moment after it announces the pick-up.
-    await page.waitForTimeout(200)
-    await page.keyboard.press('ArrowRight')
-    await expect(announced).toContainText('ticket #1 Ship it is over Done')
-    await expect(done(page)).toHaveAttribute('data-expanded', 'true')
-    await page.keyboard.press('Space')
-    await expect(announced).toContainText('ticket #1 Ship it was dropped on Done')
+  await ticketInReview(page, 'Ship two')
+  await expect(done(page)).toHaveAttribute('data-expanded', 'false')
+  const announced = page.locator('[id^="DndLiveRegion"]')
+  await review(page).getByRole('button', { name: /^Move ticket #/ }).focus()
+  await page.keyboard.press('Space')
+  await expect(announced).toContainText(/Picked up ticket #\d+ Ship two/)
+  const number = /ticket #(\d+) Ship two/.exec((await announced.textContent()) ?? '')![1]
+  // dnd-kit starts listening for the next key a moment after it announces the pick-up.
+  await page.waitForTimeout(200)
+  await page.keyboard.press('ArrowRight')
+  await expect(announced).toContainText(`ticket #${number} Ship two is over Done`)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'true')
+  await page.keyboard.press('Space')
+  await expect(announced).toContainText(`ticket #${number} Ship two was dropped on Done`)
 
-    await expect(done(page).getByText('Ship it')).toBeVisible()
-    await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
-    await expect.poll(() => worktrees(home)).toEqual([])
-    // Focus is back on the card's handle, in Done, which stays open while it is there.
-    await expect(done(page).getByRole('button', { name: 'Move ticket #1' })).toBeFocused()
-    await page.waitForTimeout(500)
-    await expect(done(page)).toHaveAttribute('data-expanded', 'true')
-  })
+  await expect(done(page).getByText('Ship two')).toBeVisible()
+  await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
+  await expect.poll(() => worktrees(home)).toEqual([])
+  // Focus is back on the card's handle, in Done, which stays open while it is there.
+  await expect(done(page).getByRole('button', { name: `Move ticket #${number}`, exact: true })).toBeFocused()
+  await page.waitForTimeout(500)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'true')
 })
 
 test("hovering the strip shows Done's cards, and one can be opened", async () => {
-  await withBoard(async (page) => {
-    await ticketInReview(page, 'Ship it')
-    await review(page).getByRole('button', { name: /Ship it/ }).click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Move to Done' }).click()
-    await expect(review(page).getByText('Ship it')).toHaveCount(0)
-    // Focus goes back to the card, which opens Done; clicking elsewhere and moving away closes it.
-    await expect(done(page).getByRole('button', { name: /Ship it/ })).toBeFocused()
-    await expect(done(page)).toHaveAttribute('data-expanded', 'true')
-    await page.getByRole('main').getByRole('heading', { level: 2 }).click()
-    await page.mouse.move(700, 2)
-    await expect(done(page)).toHaveAttribute('data-expanded', 'false')
-    await expect(done(page).getByText('Ship it')).toBeHidden()
+  await ticketInReview(page, 'Ship three')
+  await review(page).getByRole('button', { name: /Ship three/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Move to Done' }).click()
+  await expect(review(page).getByText('Ship three')).toHaveCount(0)
+  // Focus goes back to the card, which opens Done; clicking elsewhere and moving away closes it.
+  await expect(done(page).getByRole('button', { name: /Ship three/ })).toBeFocused()
+  await expect(done(page)).toHaveAttribute('data-expanded', 'true')
+  await page.getByRole('main').getByRole('heading', { level: 2 }).click()
+  await page.mouse.move(700, 2)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'false')
+  await expect(done(page).getByText('Ship three')).toBeHidden()
 
-    await done(page).hover()
-    await expect(done(page).getByText('Ship it')).toBeVisible()
-    await done(page).getByRole('button', { name: /Ship it/ }).click()
-    await expect(page.getByRole('heading', { name: 'Ship it' })).toBeVisible()
-  })
+  await done(page).hover()
+  await expect(done(page).getByText('Ship three')).toBeVisible()
+  await done(page).getByRole('button', { name: /Ship three/ }).click()
+  await expect(page.getByRole('heading', { name: 'Ship three' })).toBeVisible()
+  // Back to the board, and wait for the cleanup, so the next test starts clean.
+  await page.getByRole('button', { name: /board/ }).click()
+  await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
+  await expect.poll(() => worktrees(home)).toEqual([])
 })
 
 test('a Done card dragged out to Ready stays in sight under the pointer, and lands in Ready', async () => {
-  await withBoard(async (page) => {
-    await ticketInReview(page, 'Ship it')
-    await review(page).getByRole('button', { name: /Ship it/ }).click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Move to Done' }).click()
-    await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
+  const doneBefore = await doneCount(page)
+  await ticketInReview(page, 'Ship four')
+  await review(page).getByRole('button', { name: /Ship four/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Move to Done' }).click()
+  await expect(done(page).getByTestId('column-count')).toHaveText(String(doneBefore + 1))
+  await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
 
-    await done(page).hover()
-    const title = done(page).getByRole('button', { name: /Ship it/ })
-    await expect(title).toBeVisible()
-    const card = (await title.boundingBox())!
-    const ready = page.getByRole('region', { name: 'Ready', exact: true })
-    const to = (await ready.boundingBox())!
-    await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(card.x + card.width / 2 - 20, card.y + card.height / 2, { steps: 5 })
-    const x = to.x + to.width / 2
-    const y = card.y + card.height / 2
-    await page.mouse.move(x, y, { steps: 15 })
+  await done(page).hover()
+  const title = done(page).getByRole('button', { name: /Ship four/ })
+  await expect(title).toBeVisible()
+  const card = (await title.boundingBox())!
+  const ready = page.getByRole('region', { name: 'Ready', exact: true })
+  const to = (await ready.boundingBox())!
+  await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(card.x + card.width / 2 - 20, card.y + card.height / 2, { steps: 5 })
+  const x = to.x + to.width / 2
+  const y = card.y + card.height / 2
+  await page.mouse.move(x, y, { steps: 15 })
 
-    // Mid-drag, the card is what is under the pointer, not Ready's empty placeholder.
-    await expect
-      .poll(() =>
-        page.evaluate(
-          ([px, py]) => document.elementFromPoint(px!, py!)?.closest('[data-card-title], .mantine-Paper-root')?.textContent ?? '',
-          [x, y]
-        )
+  // Mid-drag, the card is what is under the pointer, not Ready's empty placeholder.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ([px, py]) => document.elementFromPoint(px!, py!)?.closest('[data-card-title], .mantine-Paper-root')?.textContent ?? '',
+        [x, y]
       )
-      .toContain('Ship it')
-    await expect(done(page)).toHaveAttribute('data-expanded', 'true')
-    await page.mouse.up()
+    )
+    .toContain('Ship four')
+  await expect(done(page)).toHaveAttribute('data-expanded', 'true')
+  await page.mouse.up()
 
-    await expect(ready.getByText('Ship it')).toBeVisible()
-    await expect(done(page).getByTestId('column-count')).toHaveText('0')
-    // Nothing holds Done open now: it goes back to the strip (it used to stay stuck open).
-    await page.mouse.move(x, y + 100)
-    await expect(done(page)).toHaveAttribute('data-expanded', 'false')
-  })
+  await expect(ready.getByText('Ship four')).toBeVisible()
+  await expect(done(page).getByTestId('column-count')).toHaveText(String(doneBefore))
+  // Nothing holds Done open now: it goes back to the strip (it used to stay stuck open).
+  await page.mouse.move(x, y + 100)
+  await expect(done(page)).toHaveAttribute('data-expanded', 'false')
 })
 
 test('a ticket whose folder holds a deep node_modules tree moves to Done and the folder is gone', async () => {
-  await withBoard(async (page, home) => {
-    await ticketInReview(page, 'Deep tree')
-    const [folder] = worktrees(home)
-    const base = path.join(home, 'work', folder!, 'node_modules', '.pnpm')
-    // Paths past the 260 characters Windows allows by default, as pnpm's store makes under a long folder name.
-    for (let i = 0; i < 30; i++) {
-      const deep = path.join(base, `package-${i}-${'x'.repeat(80)}@1.0.0`, 'node_modules', `package-${i}-${'y'.repeat(80)}`, 'dist')
-      fs.mkdirSync(deep, { recursive: true })
-      for (let j = 0; j < 5; j++) fs.writeFileSync(path.join(deep, `file-${j}.js`), 'x')
-    }
+  await ticketInReview(page, 'Deep tree')
+  const [folder] = worktrees(home)
+  const base = path.join(home, 'work', folder!, 'node_modules', '.pnpm')
+  // Paths past the 260 characters Windows allows by default, as pnpm's store makes under a long folder name.
+  for (let i = 0; i < 30; i++) {
+    const deep = path.join(base, `package-${i}-${'x'.repeat(80)}@1.0.0`, 'node_modules', `package-${i}-${'y'.repeat(80)}`, 'dist')
+    fs.mkdirSync(deep, { recursive: true })
+    for (let j = 0; j < 5; j++) fs.writeFileSync(path.join(deep, `file-${j}.js`), 'x')
+  }
 
-    await review(page).getByRole('button', { name: /Deep tree/ }).click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Move to Done' }).click()
-    await expect(done(page).getByText('Deep tree')).toBeVisible()
-    await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 60_000 })
-    await expect.poll(() => worktrees(home), { timeout: 30_000 }).toEqual([])
-  })
+  await review(page).getByRole('button', { name: /Deep tree/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Move to Done' }).click()
+  await expect(done(page).getByText('Deep tree')).toBeVisible()
+  await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 60_000 })
+  await expect.poll(() => worktrees(home), { timeout: 30_000 }).toEqual([])
 })

@@ -18,12 +18,20 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
   const app = await electron.launch({
     args: ['.'],
     cwd: root,
-    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-model.json', MAINBUS_TEST_REPO: repo }
+    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: 'fake:e2e/fixtures/orchestrator-settings.json', MAINBUS_TEST_REPO: repo }
   })
   return { app, page: await app.firstWindow() }
 }
 
-test('switching the orchestrator to Sonnet at high effort applies from its next turn, in the same conversation', async () => {
+async function openSettings(page: Page): Promise<void> {
+  await page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' }).click()
+  await expect(page.getByRole('dialog', { name: 'Mainbus settings' }).getByRole('region', { name: 'Orchestrator', exact: true })).toBeVisible()
+}
+
+const webSwitch = (page: Page) =>
+  page.getByRole('dialog', { name: 'Mainbus settings' }).getByRole('switch', { name: /^Let the orchestrator read web pages/ })
+
+test('the orchestrator settings: switching to Sonnet at high effort applies from its next turn; the web access setting turns off; both are remembered; web tool calls are summarised in the panel', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-orchestrator-model-'))
   let app: ElectronApplication | undefined
   try {
@@ -46,9 +54,11 @@ test('switching the orchestrator to Sonnet at high effort applies from its next 
     await box.fill('Hello')
     await box.press('Enter')
     await expect(panel.getByText('First reply, on Opus at medium effort.')).toBeVisible()
+    // The scripted turn only emits the web tool calls as events: nothing touches the network.
+    await expect(panel.getByRole('button', { name: /Read docs.waveshare.com, searched the web/ })).toBeVisible()
 
     // The Orchestrator section offers the latest of each family, with versions, and every effort.
-    await page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' }).click()
+    await openSettings(page)
     const section = page.getByRole('dialog', { name: 'Mainbus settings' }).getByRole('region', { name: 'Orchestrator', exact: true })
     const model = section.getByRole('combobox', { name: 'Model' })
     const effort = section.getByRole('combobox', { name: 'Effort' })
@@ -58,10 +68,18 @@ test('switching the orchestrator to Sonnet at high effort applies from its next 
     await expect(effort.locator('option')).toHaveText(['Low', 'Medium', 'High', 'Xhigh', 'Max'])
     await expect(effort).toHaveValue('medium')
     await expect(section.getByText('Higher effort and larger models make each orchestrator turn slower and use more of your plan.')).toBeVisible()
+    await expect(webSwitch(page)).toBeEnabled()
+    await expect(webSwitch(page)).toBeChecked()
+    await webSwitch(page).uncheck()
+    await expect(webSwitch(page)).not.toBeChecked()
     await model.selectOption('sonnet')
     await effort.selectOption('high')
     await page.keyboard.press('Escape')
     await expect(panel.getByText('Sonnet 5.5 · High effort')).toBeVisible()
+    await openSettings(page)
+    await expect(webSwitch(page)).toBeEnabled()
+    await expect(webSwitch(page)).not.toBeChecked()
+    await page.keyboard.press('Escape')
 
     // The fake runtime checks the model and effort of the turn; a mismatch would end its run with an error.
     await box.fill('And now?')
@@ -75,6 +93,10 @@ test('switching the orchestrator to Sonnet at high effort applies from its next 
     app = undefined
     ;({ app, page } = await launch(home, repo))
     await expect(page.getByRole('complementary', { name: 'Orchestrator' }).getByText('Sonnet 5.5 · High effort')).toBeVisible()
+    await openSettings(page)
+    await expect(webSwitch(page)).toBeEnabled()
+    await expect(webSwitch(page)).not.toBeChecked()
+    await page.keyboard.press('Escape')
   } finally {
     await app?.close()
     fs.rmSync(tmp, { recursive: true, force: true })
