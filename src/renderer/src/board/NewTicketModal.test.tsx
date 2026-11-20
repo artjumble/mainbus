@@ -31,9 +31,9 @@ const create = (): HTMLElement => screen.getByRole('button', { name: 'Create tic
 test('NewTicketModal requires title and "In your words"', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
   expect(create()).toBeDisabled()
-  await userEvent.type(screen.getByLabelText(/Title/), 'Add dark mode')
+  await fill(screen.getByLabelText(/Title/), 'Add dark mode')
   expect(create()).toBeDisabled()
-  await userEvent.type(screen.getByLabelText(/In your words/), 'I want it')
+  await fill(screen.getByLabelText(/In your words/), 'I want it')
   expect(create()).toBeEnabled()
   await userEvent.clear(screen.getByLabelText(/Title/))
   expect(create()).toBeDisabled()
@@ -41,8 +41,8 @@ test('NewTicketModal requires title and "In your words"', async () => {
 
 test('whitespace alone does not satisfy a required field', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
-  await userEvent.type(screen.getByLabelText(/Title/), '   ')
-  await userEvent.type(screen.getByLabelText(/In your words/), '  ')
+  await fill(screen.getByLabelText(/Title/), '   ')
+  await fill(screen.getByLabelText(/In your words/), '  ')
   expect(create()).toBeDisabled()
 })
 
@@ -82,9 +82,9 @@ test('the Column select defaults to Backlog; choosing Ready creates the ticket i
 
 test('Labels are comma separated, and the start-when-ready option is sent only when ticked', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
-  await userEvent.type(screen.getByLabelText(/Title/), 'T')
-  await userEvent.type(screen.getByLabelText(/In your words/), 'W')
-  await userEvent.type(screen.getByLabelText('Labels'), 'csv, export, ')
+  await fill(screen.getByLabelText(/Title/), 'T')
+  await fill(screen.getByLabelText(/In your words/), 'W')
+  await fill(screen.getByLabelText('Labels'), 'csv, export, ')
   await userEvent.click(screen.getByLabelText("Ask the orchestrator to start an agent once it's in Ready"))
   await userEvent.click(create())
   await vi.waitFor(() =>
@@ -106,8 +106,8 @@ test('a failed create keeps the dialog open and shows the message', async () => 
   const onClose = vi.fn()
   mockInvoke.mockRejectedValue(new Error('Open a workspace first'))
   renderWithMantine(<NewTicketModal opened onClose={onClose} />)
-  await userEvent.type(screen.getByLabelText(/Title/), 'T')
-  await userEvent.type(screen.getByLabelText(/In your words/), 'W')
+  await fill(screen.getByLabelText(/Title/), 'T')
+  await fill(screen.getByLabelText(/In your words/), 'W')
   await userEvent.click(create())
   expect(await screen.findByText('Open a workspace first')).toBeInTheDocument()
   expect(onClose).not.toHaveBeenCalled()
@@ -118,8 +118,8 @@ test('the Kind choice defaults to Change and sends Investigate when picked', asy
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
   expect(screen.getByRole('radio', { name: /^Change/ })).toBeChecked()
   await userEvent.click(screen.getByRole('radio', { name: /^Investigate/ }))
-  await userEvent.type(screen.getByLabelText(/Title/), 'Why is login slow')
-  await userEvent.type(screen.getByLabelText(/In your words/), 'Find out')
+  await fill(screen.getByLabelText(/Title/), 'Why is login slow')
+  await fill(screen.getByLabelText(/In your words/), 'Find out')
   await userEvent.click(create())
   expect(mockInvoke).toHaveBeenCalledWith('ticket.create', expect.objectContaining({ kind: 'investigate' }))
 })
@@ -127,15 +127,15 @@ test('the Kind choice defaults to Change and sends Investigate when picked', asy
 test('the open modal has no axe violations, empty or filled in', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
   await expectNoAxeViolations()
-  await userEvent.type(screen.getByLabelText(/Title/), 'Add dark mode')
+  await fill(screen.getByLabelText(/Title/), 'Add dark mode')
   await expectNoAxeViolations()
 })
 
 test('images picked, dropped or pasted are shown and saved with the ticket on Create; a refused one is not', async () => {
   const onClose = vi.fn()
   const { baseElement } = renderWithMantine(<NewTicketModal opened onClose={onClose} />)
-  await userEvent.type(screen.getByLabelText(/Title/), 'Fix the header')
-  await userEvent.type(screen.getByLabelText(/In your words/), 'Like the picture')
+  await fill(screen.getByLabelText(/Title/), 'Fix the header')
+  await fill(screen.getByLabelText(/In your words/), 'Like the picture')
 
   const input = baseElement.querySelector('input[type="file"]') as HTMLInputElement
   await userEvent.upload(input, pngFile('picked.png'))
