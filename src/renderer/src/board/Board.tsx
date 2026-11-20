@@ -631,6 +631,14 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
 
   // A drag can end without the column seeing pointerleave or blur: the dragged card leaves the column, or is
   // unmounted, still holding focus. Trust the document, not the flags.
+  // Stable, so dnd-kit's ref is not called with null and the node again on every render of a drag.
+  const setRefs = useCallback(
+    (node: HTMLElement | null): void => {
+      elRef.current = node
+      setNodeRef(node)
+    },
+    [setNodeRef]
+  )
   const resync = useCallback((): void => {
     const el = elRef.current
     if (!el) return
@@ -679,10 +687,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
 
   return (
     <Paper
-      ref={(node: HTMLElement | null) => {
-        elRef.current = node
-        setNodeRef(node)
-      }}
+      ref={setRefs}
       component="section"
       aria-labelledby={headingId}
       aria-describedby={countId}

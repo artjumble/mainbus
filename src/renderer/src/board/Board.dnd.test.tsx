@@ -1,4 +1,4 @@
-import { act, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useMainbus } from '../store'
 import { makeTicket, renderWithMantine, workspace } from '../test-utils'
@@ -45,28 +45,28 @@ test('a card whose move the engine has not answered cannot be picked up', async 
   expect(await dragBy(/Drag me/)).toBe('')
 })
 
+const COLUMN_IDS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done']
+
+/**
+ * jsdom has no layout: give each column a rectangle, side by side, and every other element none. Done is a
+ * 44 px strip at the right, and open, a full column that grows to the left over Review.
+ */
+function layOutColumns(): void {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const labelled = this.getAttribute('aria-labelledby')
+    const at = labelled ? COLUMN_IDS.indexOf(labelled.replace('column-', '')) : -1
+    if (labelled === 'column-done') {
+      return this.dataset.expanded === 'true' ? new DOMRect(at * 240 + 44 - 220, 0, 220, 600) : new DOMRect(at * 240, 0, 44, 600)
+    }
+    if (at >= 0) return new DOMRect(at * 240, 0, 220, 600)
+    // A card sits in its column, 10 px from the left.
+    const column = this.closest('section')?.getAttribute('aria-labelledby')
+    const inColumn = column ? COLUMN_IDS.indexOf(column.replace('column-', '')) : -1
+    return inColumn >= 0 ? new DOMRect(inColumn * 240 + 10, 50, 200, 80) : new DOMRect(0, 0, 0, 0)
+  })
+}
+
 describe('moving a card by keyboard', () => {
-  const COLUMN_IDS = ['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done']
-
-  /**
-   * jsdom has no layout: give each column a rectangle, side by side, and every other element none. Done is a
-   * 44 px strip at the right, and open, a full column that grows to the left over Review.
-   */
-  function layOutColumns(): void {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      const labelled = this.getAttribute('aria-labelledby')
-      const at = labelled ? COLUMN_IDS.indexOf(labelled.replace('column-', '')) : -1
-      if (labelled === 'column-done') {
-        return this.dataset.expanded === 'true' ? new DOMRect(at * 240 + 44 - 220, 0, 220, 600) : new DOMRect(at * 240, 0, 44, 600)
-      }
-      if (at >= 0) return new DOMRect(at * 240, 0, 220, 600)
-      // A card sits in its column, 10 px from the left.
-      const column = this.closest('section')?.getAttribute('aria-labelledby')
-      const inColumn = column ? COLUMN_IDS.indexOf(column.replace('column-', '')) : -1
-      return inColumn >= 0 ? new DOMRect(inColumn * 240 + 10, 50, 200, 80) : new DOMRect(0, 0, 0, 0)
-    })
-  }
-
   // jsdom has no scrollIntoView, which dnd-kit calls when a keyboard drag starts.
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn()
@@ -190,6 +190,77 @@ test('a card dragged out of Done keeps Done open while the drag lasts, even with
   act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
   await new Promise((resolve) => setTimeout(resolve, 400))
   expect(screen.getByRole('region', { name: 'Done' }).dataset.expanded).toBe('true')
+})
+
+describe('Done around the end of a drag', () => {
+  const doneTicket = (): ReturnType<typeof makeTicket> => makeTicket({ title: 'Old work' }, { column: 'done', phase: 'done' })
+  const show = (tickets: ReturnType<typeof makeTicket>[]): void =>
+    void useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets }, true)
+  const done = (): HTMLElement => screen.getByRole('region', { name: 'Done' })
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  test('a card dragged out of Done and released with the pointer elsewhere collapses it', async () => {
+    show([doneTicket()])
+    renderWithMantine(<Board />)
+    expect(await dragBy(/Old work/)).toMatch(/translate3d\(/)
+    act(() => void fireEvent.pointerUp(document))
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: /Old work/ }).closest<HTMLElement>('[style*="touch-action"]')!.style.transform).toBe(''))
+    await userEvent.unhover(done())
+    // dnd-kit hands focus back to the card it dropped; the user then moves on.
+    act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
+    await vi.waitFor(() => expect(done()).toHaveAttribute('data-expanded', 'false'), { timeout: 2000 })
+  })
+
+  test('a drag cancelled with Escape leaves Done open only while focus is in it', async () => {
+    const ticket = doneTicket()
+    show([ticket])
+    renderWithMantine(<Board />)
+    act(() => done().focus())
+    screen.getByRole('button', { name: `Move ticket #${ticket.number}` }).focus()
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(document.body.querySelector('[aria-live]')?.textContent).toMatch(/Picked up/))
+    await userEvent.keyboard('{Escape}')
+    await vi.waitFor(() => expect(document.body.querySelector('[aria-live]')?.textContent).toMatch(/cancelled/))
+    // Focus is back on the card, inside Done: it stays open. Once focus moves on, it collapses.
+    await new Promise((r) => setTimeout(r, 400))
+    expect(done()).toHaveAttribute('data-expanded', 'true')
+    act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
+    await vi.waitFor(() => expect(done()).toHaveAttribute('data-expanded', 'false'), { timeout: 2000 })
+  })
+
+  test('a card dropped into Done with the pointer left over it keeps it open until the pointer leaves', async () => {
+    const ticket = makeTicket({ title: 'Ship me' }, { column: 'review', phase: 'ready_for_review' })
+    show([ticket])
+    useMainbus.setState({ moveTicket: vi.fn().mockResolvedValue('moved') })
+    layOutColumns()
+    let pointerOver = false
+    const matches = Element.prototype.matches
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, sel: string) {
+      return sel === ':hover' ? pointerOver : matches.call(this, sel)
+    })
+    renderWithMantine(<Board />)
+    pointerOver = true
+    await userEvent.hover(done())
+    await vi.waitFor(() => expect(done()).toHaveAttribute('data-expanded', 'true'))
+    await userEvent.unhover(done())
+    pointerOver = false
+    await userEvent.hover(done())
+    pointerOver = true
+    screen.getByRole('button', { name: `Move ticket #${ticket.number}` }).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}')
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(document.body.querySelector('[aria-live]')?.textContent).toMatch(/dropped on Done/))
+    act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
+    await new Promise((r) => setTimeout(r, 700))
+    expect(done()).toHaveAttribute('data-expanded', 'true')
+    pointerOver = false
+    await userEvent.unhover(done())
+    await vi.waitFor(() => expect(done()).toHaveAttribute('data-expanded', 'false'), { timeout: 2000 })
+  })
 })
 
 describe('Done after its focused card leaves it', () => {
