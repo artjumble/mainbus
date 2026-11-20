@@ -82,12 +82,8 @@ test('a failed one shows why', () => {
   expect(screen.getByText('Failed: #3 has moved on since this was proposed')).toBeInTheDocument()
 })
 
-test('the card and its Override editor have no axe violations', async () => {
+test('the card has no axe violations (it offers no Override editor)', async () => {
   renderWithMantine(<ProposalCard proposal={proposal('pause')} />)
+  expect(screen.queryByRole('button', { name: 'Override' })).not.toBeInTheDocument()
   await expectNoAxeViolations()
-  const override = screen.queryByRole('button', { name: 'Override' })
-  if (override) {
-    await userEvent.click(override)
-    await expectNoAxeViolations()
-  }
 })

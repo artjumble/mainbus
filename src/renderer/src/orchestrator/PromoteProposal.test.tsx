@@ -101,9 +101,6 @@ test('once confirmed it is a receipt that links to both tickets', async () => {
 test('the card and its Override editor have no axe violations', async () => {
   renderWithMantine(<ProposalCard proposal={proposal()} />)
   await expectNoAxeViolations()
-  const override = screen.queryByRole('button', { name: 'Override' })
-  if (override) {
-    await userEvent.click(override)
-    await expectNoAxeViolations()
-  }
+  await userEvent.click(screen.getByRole('button', { name: 'Override' }))
+  await expectNoAxeViolations()
 })
