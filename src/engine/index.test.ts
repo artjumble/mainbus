@@ -7,7 +7,7 @@ import { openDb } from './db/open'
 import { runCommand } from './git/command'
 import { FakeGh } from './git/fakeGh'
 import { runGit } from './git/git'
-import { resolveHome, scratchPathFor, type HomePaths } from './home'
+import { scratchPathFor, type HomePaths } from './home'
 import { createEngine, SetupRequiredError, type Engine } from './index'
 import { FakeRuntime, scriptFromFile } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
@@ -15,6 +15,7 @@ import type { AgentRuntime } from './runtime/types'
 import { ProcessSweeper } from './processes/sweep'
 import { createRepos } from './store'
 import { eventually } from './testWait'
+import { copyTemplateRepo, testHome } from './testFixtures'
 
 const migrationsDir = path.join(import.meta.dirname, 'db', 'migrations')
 
@@ -30,11 +31,7 @@ async function git(args: string[], cwd: string): Promise<void> {
 
 async function makeRepo(name: string): Promise<string> {
   const dir = path.join(tmp, name)
-  await fs.mkdir(dir)
-  await git(['init', '-b', 'main'], dir)
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\n')
-  await git(['add', '.'], dir)
-  await git(['commit', '-m', 'initial'], dir)
+  await copyTemplateRepo(dir)
   return dir
 }
 
@@ -58,7 +55,7 @@ const newTicket = {
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-engine-'))
   repoPath = await makeRepo('repo')
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   engines = []
 })
 

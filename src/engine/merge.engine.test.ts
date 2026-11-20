@@ -8,9 +8,9 @@ import { createEngine, type Engine } from './index'
 import { runCommand, type CommandRunner } from './git/command'
 import { FakeGh } from './git/fakeGh'
 import { runGit } from './git/git'
-import { resolveHome } from './home'
 import { FakeRuntime } from './runtime/fakeRuntime'
 import { eventually } from './testWait'
+import { testHome } from './testFixtures'
 
 vi.setConfig({ testTimeout: 60_000 })
 const WAIT = { timeout: 20_000, interval: 50 }
@@ -46,7 +46,7 @@ async function makeEngine(): Promise<Engine> {
     return runCommand(file, args, opts)
   }
   const e = await createEngine({
-    paths: resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir()),
+    paths: await testHome(path.join(tmp, 'home')),
     migrationsDir,
     runtime,
     git: runGit,

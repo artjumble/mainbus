@@ -15,6 +15,7 @@ import type { RunSpec } from '../runtime/types'
 import { UnattendedMode, type UnattendedDeps } from './unattended'
 import { eventually } from '../testWait'
 import { FakeClock } from '../holds/clock'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
@@ -28,23 +29,6 @@ async function git(args: string[], cwd: string): Promise<void> {
   const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], cwd)
   if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
 }
-
-beforeEach(async () => {
-  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-unattended-'))
-  repoPath = path.join(tmp, 'repo')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'], repoPath)
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'], repoPath)
-  await git(['commit', '-m', 'initial'], repoPath)
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
-  engines = []
-})
-
-afterEach(async () => {
-  for (const e of engines) await e.dispose()
-  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-})
 
 // --- scripts, by what the ticket's agent does ---
 
@@ -150,6 +134,19 @@ function started(h: Harness): number[] {
 }
 
 describe('unattended mode', () => {
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-unattended-'))
+    repoPath = path.join(tmp, 'repo')
+    await copyTemplateRepo(repoPath)
+    paths = await testHome(path.join(tmp, 'home'))
+    engines = []
+  })
+
+  afterEach(async () => {
+    for (const e of engines) await e.dispose()
+    await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
   // Six agents in real worktrees: slow on a busy machine.
   it("runs each ticket through its whole lineup, and starts no other ticket between one ticket's roles", { timeout: 30_000 }, async () => {
     const h = await harness(runtimeFor({}), ['ready', 'ready'])

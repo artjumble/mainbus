@@ -9,6 +9,7 @@ import { createCleanupRepo, type PendingCleanupRepo } from '../store/cleanups'
 import { FIXED_NOW, openTestDb } from '../store/testDb'
 import { runGit, type GitRunner } from './git'
 import { WorktreeManager } from './worktrees'
+import { copyTemplateRepo } from '../testFixtures'
 
 let tmp: string
 let repoPath: string
@@ -41,11 +42,7 @@ function isWorktreeCall(args: string[], verb: string): boolean {
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-wt-'))
   repoPath = path.join(tmp, 'my repo é')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
+  await copyTemplateRepo(repoPath)
 
   paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
   const testDb = await openTestDb()

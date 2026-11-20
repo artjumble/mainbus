@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { runGit } from '../git/git'
 import { FakeClock } from '../holds/clock'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
@@ -13,6 +13,7 @@ import { RELEASED_HEADING } from './releasedHoldsBlock'
 import { WAKE_DEBOUNCE_MS } from './wakes'
 import { WAKE_HEADING } from './wakeDigest'
 import { eventually } from '../testWait'
+import { testHome } from '../testFixtures'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -34,7 +35,7 @@ let clock: FakeClock
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-wakes-'))
   repoPath = await makeRepo(path.join(tmp, 'repo'))
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   engines = []
   clock = new FakeClock(START)
 })

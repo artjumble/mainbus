@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { EngineEvent } from '../../shared/api'
 import { runGit } from '../git/git'
 import { FakeClock } from '../holds/clock'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { RunSpec } from '../runtime/types'
 import { eventually } from '../testWait'
+import { testHome } from '../testFixtures'
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -34,7 +35,7 @@ let clock: FakeClock
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-usage-'))
   repoPath = await makeRepo(path.join(tmp, 'repo'))
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   engines = []
   clock = new FakeClock(START)
 })

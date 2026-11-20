@@ -5,12 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../shared/api'
 import type { Workspace } from '../shared/domain'
 import { runGit } from './git/git'
-import { attachmentFoldersFor, resolveHome, ticketFoldersFor, type HomePaths } from './home'
+import { attachmentFoldersFor, ticketFoldersFor, type HomePaths } from './home'
 import { createEngine, type Engine } from './index'
 import { FakeRuntime, type FakeStep } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
 import type { AgentRuntime } from './runtime/types'
 import { eventually } from './testWait'
+import { copyTemplateRepo, testHome } from './testFixtures'
 
 // Two throwaway repos, a fake runtime and a temporary home: nothing here touches the user's board or data.
 
@@ -32,11 +33,7 @@ async function git(args: string[], cwd: string): Promise<string> {
 
 async function makeRepo(name: string, parent = tmp): Promise<string> {
   const dir = path.join(parent, name)
-  await fs.mkdir(dir, { recursive: true })
-  await git(['init', '-b', 'main'], dir)
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\n')
-  await git(['add', '.'], dir)
-  await git(['commit', '-m', 'initial'], dir)
+  await copyTemplateRepo(dir)
   return dir
 }
 
@@ -54,7 +51,7 @@ function ticketInput(title: string, column: 'ready' | 'backlog' = 'ready') {
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-multiws-'))
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   engines = []
 })
 

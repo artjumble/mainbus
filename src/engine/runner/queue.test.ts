@@ -6,7 +6,7 @@ import type { EngineEvent } from '../../shared/api'
 import type { Ticket } from '../../shared/domain'
 import { runGit } from '../git/git'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { firstMessage } from '../roles/prompt'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { RunSpec } from '../runtime/types'
@@ -16,6 +16,7 @@ import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { testUsage, type TestUsage } from './testUsage'
 import { TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 let tmp: string
 let repoPath: string
@@ -85,12 +86,8 @@ async function finish(runner: TicketRunner, t: Ticket): Promise<void> {
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-queue-'))
   repoPath = path.join(tmp, 'repo')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  await copyTemplateRepo(repoPath)
+  paths = await testHome(path.join(tmp, 'home'))
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
   repos = createRepos(testDb.db, () => FIXED_NOW)

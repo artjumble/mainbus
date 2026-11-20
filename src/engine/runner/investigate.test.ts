@@ -9,13 +9,13 @@ import { runGit } from '../git/git'
 import type { PublishInput } from '../git/pullRequests'
 import { ReportFileSaver, reportDate } from '../git/reportFiles'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome } from '../home'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { createRepos, type Repos } from '../store'
 import { defaultInvestigateLineup } from '../store/lineups'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner, type RunnerDeps } from './ticketRunner'
 import { eventually } from '../testWait'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 // The report's tests commit in a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -44,16 +44,12 @@ async function git(args: string[], cwd = repoPath): Promise<string> {
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-investigate-'))
   repoPath = path.join(tmp, 'repo')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'])
+  await copyTemplateRepo(repoPath)
   // The repo's own identity: the one the report's commit is made with.
   await git(['config', 'user.name', 'Report Author'])
   await git(['config', 'user.email', 'author@example.com'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
 
-  const paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  const paths = await testHome(path.join(tmp, 'home'))
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
   repos = createRepos(testDb.db, () => FIXED_NOW)

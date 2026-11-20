@@ -16,6 +16,7 @@ import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
 import { type TestUsage } from './testUsage'
+import { copyTemplateRepo } from '../testFixtures'
 import { eventually } from '../testWait'
 
 export const NUDGE =
@@ -186,11 +187,7 @@ export function installRunnerHooks(): void {
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-runner-'))
     repoPath = path.join(tmp, 'repo')
-    await fs.mkdir(repoPath)
-    await git(['init', '-b', 'main'])
-    await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-    await git(['add', '.'])
-    await git(['commit', '-m', 'initial'])
+    await copyTemplateRepo(repoPath)
 
     paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
     const testDb = await openTestDb()

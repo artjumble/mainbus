@@ -6,13 +6,14 @@ import type { EngineEvent } from '../shared/api'
 import type { Ticket } from '../shared/domain'
 import { runGit } from './git/git'
 import { FakeClock } from './holds/clock'
-import { resolveHome, type HomePaths } from './home'
+import { type HomePaths } from './home'
 import { createEngine, type Engine } from './index'
 import { makeRepo } from './intake/testBoard'
 import { FakeRuntime, type FakeStep } from './runtime/fakeRuntime'
 import type { ExecFn } from './runtime/resolveClaude'
 import type { SetupCommandRequest, SetupCommandResult } from './setup/setupCommand'
 import { eventually } from './testWait'
+import { testHome } from './testFixtures'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.
 vi.setConfig({ testTimeout: 30_000 })
@@ -28,7 +29,7 @@ let engines: Engine[]
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-base-tests-'))
   repoPath = await makeRepo(path.join(tmp, 'repo'))
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   engines = []
 })
 
