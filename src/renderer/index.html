@@ -9,6 +9,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.ico" />
     <title>Mainbus</title>
+    <style>
+      /* The page never scrolls: the main area and the orchestrator thread each scroll inside themselves. */
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
