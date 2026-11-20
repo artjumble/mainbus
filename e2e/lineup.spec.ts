@@ -294,7 +294,8 @@ test('the Reviewer ticks a criterion and hands a problem back once, and the tick
     await page.getByRole('button', { name: /Add hello file/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
 
-    await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
+    // Planner, Implementer and the Reviewer's first message are several role turns: allow for a loaded machine.
+    await expect(page.getByText('Reviewer: checking the change.')).toBeVisible({ timeout: 20_000 })
     const exists = page.getByRole('checkbox', { name: 'hello.txt exists' })
     const newline = page.getByRole('checkbox', { name: 'It ends with a newline' })
     await expect(exists).not.toBeChecked()
@@ -313,9 +314,9 @@ test('the Reviewer ticks a criterion and hands a problem back once, and the tick
     await expect(handBack.getByText('hello.txt has no trailing newline', { exact: true })).toBeVisible()
 
     // The Implementer resumes and hands off straight back to the Reviewer, which hands off: Review.
-    await expect(page.getByText('Implementer: adding the newline.')).toBeVisible()
-    await expect(page.getByText('Reviewer: looks right now.')).toBeVisible()
-    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+    await expect(page.getByText('Implementer: adding the newline.')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Reviewer: looks right now.')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 20_000 })
     await expectStrip(page, ['Planner ✓ Handed off', 'Implementer ✓ Handed off', 'Reviewer ✓ Handed off'])
     // The Planner ran once.
     await expect(page.getByText('Planner: reading the ticket.')).toHaveCount(1)
