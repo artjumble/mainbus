@@ -13,6 +13,7 @@ const SERIAL_SPECS = [
   '**/needsYouColumn.spec.ts', // Done hover, and widths sampled frame by frame
   '**/a11y.spec.ts', // rail hover, focus and animation sleeps
   '**/artboards.spec.ts', // hover, and animation-settle sleeps before screenshots
+  '**/panelResize.spec.ts', // pointer drags whose last moves are dropped under load
   '**/updateFromMain.spec.ts' // hovers Done, and waits on a git freshness probe that is slow under load
 ]
 
