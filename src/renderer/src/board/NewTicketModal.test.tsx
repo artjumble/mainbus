@@ -20,6 +20,12 @@ beforeEach(() => {
   })
 })
 
+/** Puts text in a field with one paste event instead of one per key, so a loaded machine has far less to get through. */
+async function fill(field: HTMLElement, text: string): Promise<void> {
+  await userEvent.click(field)
+  await userEvent.paste(text)
+}
+
 const create = (): HTMLElement => screen.getByRole('button', { name: 'Create ticket' })
 
 test('NewTicketModal requires title and "In your words"', async () => {
@@ -43,10 +49,9 @@ test('whitespace alone does not satisfy a required field', async () => {
 test('Create sends the intent unchanged and one criterion per non-blank line', async () => {
   const onClose = vi.fn()
   renderWithMantine(<NewTicketModal opened onClose={onClose} />)
-  await userEvent.type(screen.getByLabelText(/Title/), 'Add dark mode')
-  // user-event treats "{" and "[" specially; the text here has neither.
-  await userEvent.type(screen.getByLabelText(/In your words/), '  Make it dark.\nReally dark.  ')
-  await userEvent.type(screen.getByLabelText(/Acceptance criteria/), 'Toggle exists\n\n  Persists after restart  \n')
+  await fill(screen.getByLabelText(/Title/), 'Add dark mode')
+  await fill(screen.getByLabelText(/In your words/), '  Make it dark.\nReally dark.  ')
+  await fill(screen.getByLabelText(/Acceptance criteria/), 'Toggle exists\n\n  Persists after restart  \n')
   await userEvent.click(create())
 
   await vi.waitFor(() =>
@@ -66,8 +71,8 @@ test('Create sends the intent unchanged and one criterion per non-blank line', a
 test('the Column select defaults to Backlog; choosing Ready creates the ticket in Ready', async () => {
   renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
   expect(screen.getByLabelText('Column')).toHaveValue('backlog')
-  await userEvent.type(screen.getByLabelText(/Title/), 'T')
-  await userEvent.type(screen.getByLabelText(/In your words/), 'W')
+  await fill(screen.getByLabelText(/Title/), 'T')
+  await fill(screen.getByLabelText(/In your words/), 'W')
   await userEvent.selectOptions(screen.getByLabelText('Column'), 'Ready')
   await userEvent.click(create())
   await vi.waitFor(() =>
