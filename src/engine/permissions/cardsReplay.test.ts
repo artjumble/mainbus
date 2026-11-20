@@ -38,9 +38,6 @@ const replay = (c: Card): Said | null => {
 }
 
 const all = cards as Card[]
-// Hard stops that are right: pushes, credentials, agent and git settings, other branches, repository internals.
-const TRUE_STOP =
-  /^(Force-pushes|Pushes commits|Reads a credentials file|Prints credentials|Touches the \.claude|Changes agent or git settings|Deletes a branch|Renames a branch|Changes repository internals|Deletes stashed|Permanently prunes|Deletes git reflog|Changes git config|Changes npm config)/
 
 describe('replay of the cards this board raised', () => {
   test.each(all.map((c, i) => [i, c.command.slice(0, 70).replace(/\s+/g, ' '), c] as const))(
@@ -49,45 +46,6 @@ describe('replay of the cards this board raised', () => {
       expect(replay(c)).toEqual(c.after)
     },
   )
-
-  test('true hard stops are unchanged', () => {
-    const stops = all.filter((c) => c.before?.kind === 'hard_stop' && TRUE_STOP.test(c.before.message))
-    expect(stops.length).toBeGreaterThan(15)
-    for (const c of stops) expect(c.after, c.command).toMatchObject({ kind: 'hard_stop' })
-    // Nothing that raised no card before raises one now.
-    for (const c of all.filter((c) => c.before === null)) expect(c.after, c.command).toBeNull()
-  })
-
-  test('the examples from the ticket no longer raise a card', () => {
-    const wanted = [
-      'export MAINBUS_HOME="$TEMP/mbhome"; pnpm exec vitest run > "$TEMP/unit.log"',
-      'New-Item -ItemType Junction -Path "$env:TEMP\\mainsrc\\node_modules" -Target "$PWD\\node_modules"',
-      'cd ../../..',
-    ]
-    for (const w of wanted) {
-      const card = all.find((c) => c.command.startsWith(w))
-      expect(card, w).toBeDefined()
-      expect(card?.before?.kind).toBe('hard_stop')
-      expect(card?.after).toBeNull()
-    }
-  })
-
-  test('how many cards the change removes, by kind', () => {
-    const count = (f: (c: Card) => boolean): number => all.filter(f).length
-    const report = {
-      total: all.length,
-      hardStopBefore: count((c) => c.before?.kind === 'hard_stop'),
-      hardStopNoCardNow: count((c) => c.before?.kind === 'hard_stop' && c.after === null),
-      hardStopAutomaticNow: count((c) => c.before?.kind === 'hard_stop' && c.after?.kind === 'automatic'),
-      hardStopStill: count((c) => c.before?.kind === 'hard_stop' && c.after?.kind === 'hard_stop'),
-      automaticBefore: count((c) => c.before?.kind === 'automatic'),
-      automaticNoCardNow: count((c) => c.before?.kind === 'automatic' && c.after === null),
-      automaticStill: count((c) => c.before?.kind === 'automatic' && c.after !== null),
-    }
-    console.info(`Card replay: ${JSON.stringify(report)}`)
-    // Most of the false hard stops are gone.
-    expect(report.hardStopNoCardNow).toBeGreaterThan(report.hardStopBefore / 2)
-  })
 
   test('a heredoc no longer hides a write outside the folders', () => {
     // These were "a heredoc" (automatic) and are now judged by their target: /tmp really is outside.

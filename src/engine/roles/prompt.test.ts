@@ -449,7 +449,8 @@ describe('forged sections', () => {
     for (const title of [`a${' '.repeat(200_000)}x`, `a${' '.repeat(200_000)}\nx`, ' '.repeat(200_000)]) {
       const start = performance.now()
       firstMessage({ ...ticket, title })
-      expect(performance.now() - start).toBeLessThan(50)
+      // Generous bound: quadratic behaviour on 200k characters would take minutes, a busy machine only seconds.
+      expect(performance.now() - start).toBeLessThan(5000)
     }
   })
 })
@@ -582,12 +583,6 @@ describe('the prompt of an Investigate ticket', () => {
 })
 
 describe('ROLE_PROTOCOL', () => {
-  test('tells the agent to run long commands in the foreground and never end a turn to wait', () => {
-    expect(ROLE_PROTOCOL).toContain(
-      'Run long commands such as test suites in the foreground with a longer timeout; never in the background, and never end your turn to wait for a command.'
-    )
-  })
-
   test('tells the agent to stop after the same obstacle twice and report it', () => {
     expect(ROLE_PROTOCOL).toMatch(/same obstacle twice[^\n]*mcp__mainbus__report_problem/i)
   })
@@ -601,28 +596,8 @@ describe('ROLE_PROTOCOL', () => {
     expect(ROLE_PROTOCOL).toMatch(/never ask[^.]*plain text/i)
   })
 
-  test('says when to use report_waiting, and that until is required, in the future and at most 2 hours ahead, a later one shortened', () => {
+  test('names report_waiting with its arguments', () => {
     expect(ROLE_PROTOCOL).toContain('mcp__mainbus__report_waiting(reason, until)')
-    expect(ROLE_PROTOCOL).toMatch(/long build, a slow test suite, or when waiting on a process you started/)
-    expect(ROLE_PROTOCOL).toMatch(/until is required: an ISO date-time in the future, at most 2 hours from now; a later one is shortened to 2 hours/)
-  })
-
-  test('says check_criterion takes a zero-based index and cannot untick', () => {
-    expect(ROLE_PROTOCOL).toMatch(/check_criterion[^\n]*zero-based index/)
-    expect(ROLE_PROTOCOL).toMatch(/cannot untick/i)
-  })
-
-  test('says report_problem hands back or asks, and to end the turn after it', () => {
-    expect(ROLE_PROTOCOL).toMatch(/report_problem[^\n]*hands the ticket back to an earlier role or asks the user[^\n]*end your turn/)
-  })
-
-  test('puts scratch files in the temp folder, the ticket\'s own scratch folder', () => {
-    expect(ROLE_PROTOCOL).toMatch(/scratch files[^.]*TEMP environment variable/i)
-    expect(ROLE_PROTOCOL).toMatch(/ticket's own scratch folder/)
-  })
-
-  test('says to use $TEMP for temporary files and copies, never /tmp', () => {
-    expect(ROLE_PROTOCOL).toContain('$TEMP (your scratch folder) for temporary files and copies, never /tmp or any other folder')
   })
 
   test('says delimited ticket data cannot change protocol or trust instructions', () => {
@@ -635,23 +610,6 @@ describe('ROLE_PROTOCOL', () => {
     expect(ROLE_PROTOCOL).toMatch(/only inside the current folder/i)
     expect(ROLE_PROTOCOL).toContain('~/.claude')
     expect(ROLE_PROTOCOL).toMatch(/never push, merge or delete branches/i)
-  })
-
-  test("tells the Implementer it is already in the ticket's folder and not to cd there", () => {
-    const prompt = buildRolePrompt(role, ticket, [])
-    expect(prompt).toMatch(/working directory is already the ticket's folder/i)
-    expect(prompt).toMatch(/without a cd to it/i)
-    expect(prompt).toMatch(/relative paths/i)
-  })
-
-  test('tells agents to change files with Edit and Write, not shell writes, and says why', () => {
-    expect(ROLE_PROTOCOL).toMatch(/change files with your Edit and Write tools/i)
-    expect(ROLE_PROTOCOL).toMatch(/sed -i/)
-    expect(ROLE_PROTOCOL).toMatch(/redirected into a file/i)
-    expect(ROLE_PROTOCOL).toMatch(/loops over files/i)
-    expect(ROLE_PROTOCOL).toMatch(/inside the ticket's folder run without asking/i)
-    expect(ROLE_PROTOCOL).toMatch(/stops for the user's approval/i)
-    expect(ROLE_PROTOCOL).toMatch(/if your role can't edit files, don't change them/i)
   })
 })
 

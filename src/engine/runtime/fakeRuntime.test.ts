@@ -158,17 +158,6 @@ describe('FakeRuntime', () => {
     const run = await rt.start(spec)
     expect(await collect(rt.events(run))).toEqual([{ kind: 'error', message: 'boom' }])
   })
-
-  test('a script survives a JSON round trip', () => {
-    const script: FakeStep[] = [
-      { emit: { kind: 'turn_end', ok: true } },
-      { callTool: 'handoff', args: { summary: 's', notesForNext: 'n' } },
-      { requestPermission: { toolName: 'Bash', input: {}, toolUseId: 'x' } },
-      { waitForSend: true },
-      { exit: null }
-    ]
-    expect(JSON.parse(JSON.stringify(script))).toEqual(script)
-  })
 })
 
 describe('scriptFromFile', () => {

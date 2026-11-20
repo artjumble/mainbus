@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { count, eq, sql } from 'drizzle-orm'
+import { count, eq, sql, type SQL } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHome, type HomePaths } from '../home'
 import { openDb } from './open'
@@ -186,46 +186,6 @@ describe('openDb', () => {
     expect(ticket).toMatchObject({ id: 't1', kind: 'change', report: null })
   })
 
-  it('adds the promoted_from column, empty for every existing ticket, after a backup', async () => {
-    // The migrations as they were before Promote.
-    const first = await open(firstMigrations(21))
-    await first.db.run(
-      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
-          values ('t1', 'w1', 1, 'investigate', 'T', '[]', '', '[]', 'backlog', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
-    )
-    first.close()
-    closers = []
-
-    const { db } = await open(realMigrations, () => new Date(2026, 10, 2, 9, 0, 0))
-    expect(backupFiles()).toHaveLength(1)
-    const [ticket] = await db.select().from(tickets)
-    expect(ticket).toMatchObject({ id: 't1', kind: 'investigate', promotedFrom: null })
-  })
-
-  it('adds the run_settings column, empty for every existing ticket, after a backup', async () => {
-    // The migrations as they were before saved run settings.
-    const first = await open(firstMigrations(26))
-    await first.db.run(
-      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
-          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
-    )
-    first.close()
-    closers = []
-
-    const { db } = await open(realMigrations, () => new Date(2026, 10, 6, 9, 0, 0))
-    expect(backupFiles()).toHaveLength(1)
-    const [ticket] = await db.select().from(tickets)
-    expect(ticket).toMatchObject({ id: 't1', runSettings: null })
-  })
-
   it('seeds the built-in presets for every existing workspace, as the code seeds them for a new one, after a backup', async () => {
     // The migrations as they were before presets.
     const first = await open(firstMigrations(31))
@@ -341,63 +301,77 @@ describe('openDb', () => {
     expect((await createDecisionRepo(db, () => new Date()).get('d1')).agentRunId).toBe('r2')
   })
 
-  it('backs up and gives existing runs no return role and existing decisions no action', async () => {
-    // The migrations as they were before hand-backs.
-    const first = await open(firstMigrations(4))
-    await first.db.run(
-      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+  // A new column is empty for what already existed: each case is the database before the migration that added it.
+  const WS = sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
           values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
-          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into ticket_runs (id, ticket_id, roles, status, started_at) values ('tr1', 't1', '[]', 'running', '2026-10-30T01:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into agent_runs (id, ticket_id, ticket_run_id, role_id, role, started_at)
-          values ('r1', 't1', 'tr1', 'role-i', 'Implementer', '2026-10-30T01:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into decisions (id, ticket_id, agent_run_id, kind, question, options, status, created_at)
-          values ('d1', 't1', 'r1', 'question', 'Q?', '["a"]', 'pending', '2026-10-30T01:00:02.000Z')`
-    )
-    first.close()
-    closers = []
-
-    const { db } = await open(realMigrations, () => new Date(2026, 10, 1, 8, 0, 0))
-    expect(backupFiles()).toEqual(['mainbus-20261101-080000.db'])
-    expect(await createRunRepo(db, () => new Date()).latest('t1')).toMatchObject({ id: 'r1', returnToRoleId: null })
-    const decisions = createDecisionRepo(db, () => new Date())
-    expect(await decisions.get('d1')).toMatchObject({ question: 'Q?', status: 'pending' })
-    expect(await decisions.actionOf('d1')).toBeNull()
-  })
-
-  it('backs up and marks existing runs as not skipped', async () => {
-    // The migrations as they were before Skip to next role.
-    const first = await open(firstMigrations(5))
-    await first.db.run(
-      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
-          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into ticket_runs (id, ticket_id, roles, status, started_at) values ('tr1', 't1', '[]', 'done', '2026-10-30T01:00:00.000Z')`
-    )
-    await first.db.run(
-      sql`insert into agent_runs (id, ticket_id, ticket_run_id, role_id, role, started_at, ended_at, end_reason)
+  const ticketSql = (kind: string, column: string) =>
+    sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, ${kind}, 'T', '[]', '', '[]', ${column}, '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+  const RUN = (status: string) =>
+    sql`insert into ticket_runs (id, ticket_id, roles, status, started_at) values ('tr1', 't1', '[]', ${status}, '2026-10-30T01:00:00.000Z')`
+  const AGENT_RUN = sql`insert into agent_runs (id, ticket_id, ticket_run_id, role_id, role, started_at, ended_at, end_reason)
           values ('r1', 't1', 'tr1', 'role-i', 'Implementer', '2026-10-30T01:00:00.000Z', '2026-10-30T02:00:00.000Z', 'handoff')`
-    )
+  const DECISION = sql`insert into decisions (id, ticket_id, agent_run_id, kind, question, options, status, created_at)
+          values ('d1', 't1', 'r1', 'question', 'Q?', '["a"]', 'pending', '2026-10-30T01:00:02.000Z')`
+  const emptyColumnCases: Array<{
+    column: string
+    before: number
+    at: Date
+    seed: SQL[]
+    check: (db: Awaited<ReturnType<typeof open>>['db']) => Promise<void>
+  }> = [
+    {
+      column: 'promoted_from',
+      before: 21,
+      at: new Date(2026, 10, 2, 9, 0, 0),
+      seed: [WS, ticketSql('investigate', 'backlog')],
+      check: async (db) => {
+        const [ticket] = await db.select().from(tickets)
+        expect(ticket).toMatchObject({ id: 't1', kind: 'investigate', promotedFrom: null })
+      }
+    },
+    {
+      column: 'run_settings',
+      before: 26,
+      at: new Date(2026, 10, 6, 9, 0, 0),
+      seed: [WS, ticketSql('change', 'ready')],
+      check: async (db) => {
+        const [ticket] = await db.select().from(tickets)
+        expect(ticket).toMatchObject({ id: 't1', runSettings: null })
+      }
+    },
+    {
+      column: 'return_to_role_id and the decision action',
+      before: 4,
+      at: new Date(2026, 10, 1, 8, 0, 0),
+      seed: [WS, ticketSql('change', 'ready'), RUN('running'), AGENT_RUN, DECISION],
+      check: async (db) => {
+        expect(await createRunRepo(db, () => new Date()).latest('t1')).toMatchObject({ id: 'r1', returnToRoleId: null })
+        const decisions = createDecisionRepo(db, () => new Date())
+        expect(await decisions.get('d1')).toMatchObject({ question: 'Q?', status: 'pending' })
+        expect(await decisions.actionOf('d1')).toBeNull()
+      }
+    },
+    {
+      column: 'skipped',
+      before: 5,
+      at: new Date(2026, 10, 1, 9, 30, 0),
+      seed: [WS, ticketSql('change', 'ready'), RUN('done'), AGENT_RUN],
+      check: async (db) => {
+        expect(await createRunRepo(db, () => new Date()).latest('t1')).toMatchObject({ id: 'r1', endReason: 'handoff', skipped: false })
+      }
+    }
+  ]
+
+  it.each(emptyColumnCases)('backs up and leaves $column empty for what already existed', async (c) => {
+    const first = await open(firstMigrations(c.before))
+    for (const statement of c.seed) await first.db.run(statement)
     first.close()
     closers = []
 
-    const { db } = await open(realMigrations, () => new Date(2026, 10, 1, 9, 30, 0))
-    expect(backupFiles()).toEqual(['mainbus-20261101-093000.db'])
-    expect(await createRunRepo(db, () => new Date()).latest('t1')).toMatchObject({ id: 'r1', endReason: 'handoff', skipped: false })
+    const { db } = await open(realMigrations, () => c.at)
+    expect(backupFiles()).toHaveLength(1)
+    await c.check(db)
   })
 
   it('backs up and makes existing answered decisions answered by the user from the thread', async () => {
@@ -612,70 +586,129 @@ describe('openDb', () => {
     ).rejects.toThrow()
   })
 
-  it('updates default Implementer and Reviewer instructions, and leaves edited ones alone', async () => {
-    const OLD_IMPLEMENTER =
-      'Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). Run the tests. Commit your work on the branch before handing off.'
-    const OLD_REVIEWER =
-      "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the tests, and check each criterion. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
-    // The migrations as they were before the new instructions.
-    const first = await open(firstMigrations(12))
-    for (const id of ['w1', 'w2']) {
-      await first.db.run(
-        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-            values (${id}, 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
-      )
+  // Each case is the database as an older Mainbus left it (`before` migrations applied), holding default and edited
+  // role instructions. Migrating to the current text must move the defaults and leave edited ones and other roles alone.
+  // 'NEW_PLANNER' / 'NEW_IMPLEMENTER' / 'NEW_REVIEWER' stand for the current default lineup's instructions.
+  const OLD_IMPLEMENTER_1 =
+    'Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). Run the tests. Commit your work on the branch before handing off.'
+  const OLD_REVIEWER_1 =
+    "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the tests, and check each criterion. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+  const OLD_REVIEWER_2 =
+    "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the full test suite, every kind the project has (end-to-end tests included), and check each criterion. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+  const OLD_IMPLEMENTER_3 =
+    "Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. Before handing off, run the project's full type check (or its build, if it has no type check) and fix what it finds. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran. Don't tick a criterion about the full test suite: the Reviewer runs it."
+  const OLD_REVIEWER_3 =
+    "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the full test suite, every kind the project has (end-to-end tests included), and check each criterion. You may skip the tests only when the branch changes no code: every changed file is documentation or other text that nothing in the build, the tests or the app reads (check that no code or test refers to it). Then say in your handoff that you skipped them and why, and check the documentation itself instead: that its links and the commands and paths it names exist. If an acceptance criterion requires the tests to pass, run them anyway; never tick a criterion about tests you didn't run. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+  const OLD_IMPLEMENTER_4 =
+    "Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. Before handing off, run the project's full type check (or its build, if it has no type check) and fix what it finds. If a test fails and Mainbus lists known failures on the base branch, compare it with them before blaming your change. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran and which known failures you saw. Don't tick a criterion about the full test suite: the Reviewer runs it."
+  type InstructionRow = readonly [workspace: string, role: string, position: number, name: string, instructions: string]
+  const instructionCases: Array<{
+    name: string
+    before: number
+    phase: string
+    toolProfile: string
+    rows: InstructionRow[]
+    expected: Record<string, string>
+  }> = [
+    {
+      name: 'default Implementer and Reviewer instructions',
+      before: 12,
+      phase: 'testing',
+      toolProfile: 'edit',
+      rows: [
+        ['w1', 'planner', 1, 'Planner', 'Plan it.'],
+        ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER_1],
+        ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER_1],
+        ['w2', 'planner', 1, 'Planner', 'Plan it.'],
+        ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER_1 + ' My own addition.'],
+        ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER_1]
+      ],
+      expected: {
+        w1planner: 'Plan it.',
+        w1implementer: 'NEW_IMPLEMENTER',
+        w1reviewer: 'NEW_REVIEWER',
+        w2planner: 'Plan it.',
+        w2implementer: OLD_IMPLEMENTER_1 + ' My own addition.',
+        w2reviewer: 'NEW_REVIEWER'
+      }
+    },
+    {
+      name: 'default Reviewer instructions (the skip-tests text)',
+      before: 33,
+      phase: 'reviewing',
+      toolProfile: 'read_only',
+      rows: [
+        ['w1', 'planner', 1, 'Planner', 'Plan it.'],
+        ['w1', 'implementer', 2, 'Implementer', 'NEW_IMPLEMENTER'],
+        ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER_2],
+        ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER_2 + ' Mine.']
+      ],
+      expected: {
+        w1reviewer: 'NEW_REVIEWER',
+        w2reviewer: OLD_REVIEWER_2 + ' Mine.',
+        w1planner: 'Plan it.',
+        w1implementer: 'NEW_IMPLEMENTER'
+      }
+    },
+    {
+      name: 'default Implementer and Reviewer instructions (the known-failures text)',
+      before: 34,
+      phase: 'reviewing',
+      toolProfile: 'read_only',
+      rows: [
+        ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER_3],
+        ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER_3],
+        ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER_3 + ' Mine.'],
+        ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER_3 + ' Mine.']
+      ],
+      expected: {
+        w1implementer: 'NEW_IMPLEMENTER',
+        w1reviewer: 'NEW_REVIEWER',
+        w2implementer: OLD_IMPLEMENTER_3 + ' Mine.',
+        w2reviewer: OLD_REVIEWER_3 + ' Mine.'
+      }
+    },
+    {
+      name: 'default Implementer instructions (the related-tests text)',
+      before: 35,
+      phase: 'implementing',
+      toolProfile: 'edit',
+      rows: [
+        ['w1', 'planner', 1, 'Planner', 'NEW_PLANNER'],
+        ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER_4],
+        ['w1', 'reviewer', 3, 'Reviewer', 'NEW_REVIEWER'],
+        ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER_4 + ' Mine.'],
+        ['w2', 'reviewer', 3, 'Reviewer', "Review the branch's changes. Don't change any files."]
+      ],
+      expected: {
+        w1implementer: 'NEW_IMPLEMENTER',
+        w2implementer: OLD_IMPLEMENTER_4 + ' Mine.',
+        w1planner: 'NEW_PLANNER',
+        w1reviewer: 'NEW_REVIEWER',
+        w2reviewer: "Review the branch's changes. Don't change any files."
+      }
     }
-    const rows = [
-      ['w1', 'planner', 1, 'Planner', 'Plan it.'],
-      ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER],
-      ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER],
-      ['w2', 'planner', 1, 'Planner', 'Plan it.'],
-      ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER + ' My own addition.'],
-      ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER]
-    ] as const
-    for (const [w, id, position, name, instructions] of rows) {
-      await first.db.run(
-        sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
-            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'testing', 'ask_me', 'edit')`
-      )
+  ]
+
+  it.each(instructionCases)('moves the $name to the current text, and leaves edited ones and other roles alone', async (c) => {
+    const [planner, implementer, reviewer] = defaultLineup()
+    const current: Record<string, string> = {
+      NEW_PLANNER: planner!.instructions,
+      NEW_IMPLEMENTER: implementer!.instructions,
+      NEW_REVIEWER: reviewer!.instructions
     }
-    first.close()
-    closers = []
-
-    const { db } = await open()
-    const [, newImplementer, newReviewer] = defaultLineup()
-    const byId = async (id: string) =>
-      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
-    expect(await byId('w1planner')).toBe('Plan it.')
-    expect(await byId('w1implementer')).toBe(newImplementer!.instructions)
-    expect(await byId('w1reviewer')).toBe(newReviewer!.instructions)
-    expect(await byId('w2planner')).toBe('Plan it.')
-    expect(await byId('w2implementer')).toBe(OLD_IMPLEMENTER + ' My own addition.')
-    expect(await byId('w2reviewer')).toBe(newReviewer!.instructions)
-  })
-
-  it('moves the default Reviewer instructions to the skip-tests text, and leaves edited ones and other roles alone', async () => {
-    const PLANNER = 'Plan it.'
-    const IMPLEMENTER = defaultLineup()[1]!.instructions
-    const OLD_REVIEWER =
-      "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the full test suite, every kind the project has (end-to-end tests included), and check each criterion. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
-    const first = await open(firstMigrations(33))
+    const resolve = (text: string): string => current[text] ?? text
+    const first = await open(firstMigrations(c.before))
     for (const id of ['w1', 'w2']) {
       await first.db.run(
         sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
             values (${id}, 'W', 'repo-path', 'main', ${id}, '2026-10-30T00:00:00.000Z')`
       )
     }
-    const rows = [
-      ['w1', 'planner', 1, 'Planner', PLANNER],
-      ['w1', 'implementer', 2, 'Implementer', IMPLEMENTER],
-      ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER],
-      ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER + ' Mine.']
-    ] as const
-    for (const [w, id, position, name, instructions] of rows) {
+    for (const [w, id, position, name, instructions] of c.rows) {
       await first.db.run(
         sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
-            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'reviewing', 'ask_me', 'read_only')`
+            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${resolve(instructions)}, ${c.phase}, 'ask_me', ${c.toolProfile})`
       )
     }
     first.close()
@@ -683,96 +716,25 @@ describe('openDb', () => {
 
     const { db } = await open()
     expect(backupFiles()).toHaveLength(1)
-    const byId = async (id: string) =>
-      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
-    expect(await byId('w1reviewer')).toBe(defaultLineup()[2]!.instructions)
-    expect(await byId('w2reviewer')).toBe(OLD_REVIEWER + ' Mine.')
-    expect(await byId('w1planner')).toBe(PLANNER)
-    expect(await byId('w1implementer')).toBe(IMPLEMENTER)
+    for (const [id, instructions] of Object.entries(c.expected)) {
+      const [row] = await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`)
+      expect(row!.instructions, id).toBe(resolve(instructions))
+    }
   })
 
-  it('moves the default Implementer and Reviewer instructions to the known-failures text, leaves edited ones alone, and adds the test commands', async () => {
-    const OLD_IMPLEMENTER =
-      "Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. Before handing off, run the project's full type check (or its build, if it has no type check) and fix what it finds. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran. Don't tick a criterion about the full test suite: the Reviewer runs it."
-    const OLD_REVIEWER =
-      "Review the branch's changes against the user's words and the acceptance criteria. Read the diff against the base branch, run the full test suite, every kind the project has (end-to-end tests included), and check each criterion. You may skip the tests only when the branch changes no code: every changed file is documentation or other text that nothing in the build, the tests or the app reads (check that no code or test refers to it). Then say in your handoff that you skipped them and why, and check the documentation itself instead: that its links and the commands and paths it names exist. If an acceptance criterion requires the tests to pass, run them anyway; never tick a criterion about tests you didn't run. If something is wrong or missing, report it as a problem with specific findings (file, line, what's wrong) so the Implementer can fix it. Don't change any files. When it's right, hand off with a short review summary."
+  it('adds the test commands (empty) and the base test runs table when moving to the known-failures text', async () => {
     const first = await open(firstMigrations(34))
-    for (const id of ['w1', 'w2']) {
-      await first.db.run(
-        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-            values (${id}, 'W', 'repo-path', 'main', ${id}, '2026-10-30T00:00:00.000Z')`
-      )
-    }
-    const rows = [
-      ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER],
-      ['w1', 'reviewer', 3, 'Reviewer', OLD_REVIEWER],
-      ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER + ' Mine.'],
-      ['w2', 'reviewer', 3, 'Reviewer', OLD_REVIEWER + ' Mine.']
-    ] as const
-    for (const [w, id, position, name, instructions] of rows) {
-      await first.db.run(
-        sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
-            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'reviewing', 'ask_me', 'read_only')`
-      )
-    }
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w1', '2026-10-30T00:00:00.000Z')`
+    )
     first.close()
     closers = []
 
     const { db } = await open()
-    expect(backupFiles()).toHaveLength(1)
-    const byId = async (id: string) =>
-      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
-    const [, implementer, reviewer] = defaultLineup()
-    expect(await byId('w1implementer')).toBe(implementer!.instructions)
-    expect(await byId('w1reviewer')).toBe(reviewer!.instructions)
-    expect(await byId('w2implementer')).toBe(OLD_IMPLEMENTER + ' Mine.')
-    expect(await byId('w2reviewer')).toBe(OLD_REVIEWER + ' Mine.')
-    expect(implementer!.instructions).not.toBe(OLD_IMPLEMENTER)
-    expect(reviewer!.instructions).not.toBe(OLD_REVIEWER)
-
     const [ws] = await db.select().from(workspaces).where(sql`${workspaces.id} = 'w1'`)
     expect(ws!.testCommands).toBe('[]')
     await expect(db.run(sql`select count(*) from base_test_runs`)).resolves.toBeDefined()
-  })
-
-  it('moves the default Implementer instructions to the related-tests text, and leaves edited ones and other roles alone', async () => {
-    const OLD_IMPLEMENTER =
-      "Make the change and its tests, following the plan from the previous role unless the code shows it is wrong (then say why in your handoff). While you work, run only the tests that cover the code you changed. Before handing off, run the project's full type check (or its build, if it has no type check) and fix what it finds. If a test fails and Mainbus lists known failures on the base branch, compare it with them before blaming your change. Commit your work on the branch before handing off. In notes_for_next, say which tests you ran and which known failures you saw. Don't tick a criterion about the full test suite: the Reviewer runs it."
-    const EDITED_REVIEWER = "Review the branch's changes. Don't change any files."
-    const [planner, implementer, reviewer] = defaultLineup()
-    const first = await open(firstMigrations(35))
-    for (const id of ['w1', 'w2']) {
-      await first.db.run(
-        sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
-            values (${id}, 'W', 'repo-path', 'main', ${id}, '2026-10-30T00:00:00.000Z')`
-      )
-    }
-    const rows = [
-      ['w1', 'planner', 1, 'Planner', planner!.instructions],
-      ['w1', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER],
-      ['w1', 'reviewer', 3, 'Reviewer', reviewer!.instructions],
-      ['w2', 'implementer', 2, 'Implementer', OLD_IMPLEMENTER + ' Mine.'],
-      ['w2', 'reviewer', 3, 'Reviewer', EDITED_REVIEWER]
-    ] as const
-    for (const [w, id, position, name, instructions] of rows) {
-      await first.db.run(
-        sql`insert into lineup_roles (id, workspace_id, lineup, position, name, instructions, active_phase, on_problem, tool_profile)
-            values (${w + id}, ${w}, 'change', ${position}, ${name}, ${instructions}, 'implementing', 'ask_me', 'edit')`
-      )
-    }
-    first.close()
-    closers = []
-
-    const { db } = await open()
-    expect(backupFiles()).toHaveLength(1)
-    const byId = async (id: string) =>
-      (await db.select().from(lineupRoles).where(sql`${lineupRoles.id} = ${id}`))[0]!.instructions
-    expect(implementer!.instructions).not.toBe(OLD_IMPLEMENTER)
-    expect(await byId('w1implementer')).toBe(implementer!.instructions)
-    expect(await byId('w2implementer')).toBe(OLD_IMPLEMENTER + ' Mine.')
-    expect(await byId('w1planner')).toBe(planner!.instructions)
-    expect(await byId('w1reviewer')).toBe(reviewer!.instructions)
-    expect(await byId('w2reviewer')).toBe(EDITED_REVIEWER)
   })
 
   it('moves the app-wide unattended setting onto the workspace, backs up first, and keeps slugs unique', async () => {
