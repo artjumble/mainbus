@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { asc, eq, isNull, sql } from 'drizzle-orm'
 import {
+  AGENT_CAP_MAX,
   checkReportsFolder,
   checkSetupCommand,
   checkSetupTimeout,
   checkTestCommands,
+  checkUnattendedAtOnce,
   REPORTS_FOLDER_DEFAULT,
   SETUP_TIMEOUT_DEFAULT,
+  UNATTENDED_AT_ONCE_DEFAULT,
   type RailBadgeInput,
   type ReportSettingsInput,
   type SetupSettingsInput,
@@ -53,6 +56,8 @@ export interface WorkspaceRepo {
   setSetupSettings(id: string, settings: SetupSettingsInput): Promise<Workspace>
   /** Saves the list of test commands (empty turns the base-branch tests off); a list that is refused throws with the reason, and nothing is saved. */
   setTestCommands(id: string, commands: TestCommand[]): Promise<Workspace>
+  /** Saves "Unattended: tickets at once" (a whole number from 1 to the largest agent cap); the engine checks the app's actual cap. */
+  setUnattendedAtOnce(id: string, n: number): Promise<Workspace>
   /** Whether unattended mode was on for this workspace when the app last ran. */
   unattendedOn(id: string): Promise<boolean>
   setUnattendedOn(id: string, on: boolean): Promise<void>
@@ -77,7 +82,8 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
     setupTimeoutMinutes: row.setupTimeoutMinutes,
     testCommands: parseTestCommands(row.testCommands),
     railLabel: row.railLabel,
-    railColor: isRailColor(row.railColor) ? row.railColor : null
+    railColor: isRailColor(row.railColor) ? row.railColor : null,
+    unattendedAtOnce: row.unattendedAtOnce
   }
 }
 
@@ -127,7 +133,8 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         setupTimeoutMinutes: SETUP_TIMEOUT_DEFAULT,
         testCommands: [],
         railLabel: null,
-        railColor: null
+        railColor: null,
+        unattendedAtOnce: UNATTENDED_AT_ONCE_DEFAULT
       }
       await db.insert(workspaces).values({ ...workspace, testCommands: '[]', createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
@@ -241,6 +248,15 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
       const checked = checkTestCommands(commands)
       if (!checked.ok) throw new Error(checked.reason)
       await db.update(workspaces).set({ testCommands: JSON.stringify(checked.commands) }).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setUnattendedAtOnce(id, n) {
+      const checked = checkUnattendedAtOnce(n, AGENT_CAP_MAX)
+      if (!checked.ok) throw new Error(checked.reason)
+      await db.update(workspaces).set({ unattendedAtOnce: checked.n }).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)

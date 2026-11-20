@@ -133,6 +133,17 @@ describe('agents in every workspace', () => {
     expect(cwds.some((c) => c.startsWith(ticketFoldersFor(paths, b.slug)))).toBe(true)
   })
 
+  it('"tickets at once" is saved per workspace and cannot exceed the agents-at-once limit', async () => {
+    const { engine, a, b } = await two()
+    await engine.invoke('settings.setMaxAgents', 2)
+    await expect(engine.invoke('workspace.setUnattendedAtOnce', 3, a.id)).rejects.toThrow('from 1 to 2')
+    await expect(engine.invoke('workspace.setUnattendedAtOnce', 1.5, a.id)).rejects.toThrow()
+    expect((await engine.invoke('workspace.setUnattendedAtOnce', 2, a.id)).unattendedAtOnce).toBe(2)
+    const ws = await engine.invoke('workspace.list')
+    expect(ws.find((w) => w.id === a.id)?.unattendedAtOnce).toBe(2)
+    expect(ws.find((w) => w.id === b.id)?.unattendedAtOnce).toBe(1)
+  })
+
   it('the cap on agents running at once is global: a second workspace waits in line', async () => {
     const runtime = new FakeRuntime(WAIT)
     const { engine, a, b } = await two(runtime)

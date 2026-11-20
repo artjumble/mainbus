@@ -13,6 +13,7 @@ import {
 } from '../shared/api'
 import type { DraftColumn } from '../shared/proposals'
 import {
+  checkUnattendedAtOnce,
   LINEUPS,
   TEST_RESULT_FORMATS,
   type AgentLauncher,
@@ -420,6 +421,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           limitedUntil: () => gate.limitedUntil(),
           held: () => holds.heldIds(),
           blocked: () => repos.dependencies.blockedIds(ws.id),
+          atOnce: async () => Math.min((await repos.workspaces.get(ws.id))?.unattendedAtOnce ?? 1, (await repos.settings.get()).maxAgents),
           keepAwake,
           now,
           remember: (on) => repos.workspaces.setUnattendedOn(ws.id, on),
@@ -1472,6 +1474,16 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         const saved = await repos.workspaces.setRailBadge(ws.id, input)
         emit({ type: 'board.changed', workspaceId: saved.id })
         return saved
+      },
+      // Renderer-only, like the others: no agent can reach it.
+      'workspace.setUnattendedAtOnce': async (n, workspaceId) => {
+        const value = z.number().int().parse(n)
+        const checked = checkUnattendedAtOnce(value, (await repos.settings.get()).maxAgents)
+        if (!checked.ok) throw new Error(checked.reason)
+        const ws = await repos.workspaces.setUnattendedAtOnce((await requireWorkspace(workspaceId)).id, checked.n)
+        // The mode looks at the board again, so a raised number starts more tickets at once.
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return ws
       },
       // Renderer-only: this command runs outside the permission guard, so no agent can set it.
       'workspace.setSetupSettings': async (settings, workspaceId) => {

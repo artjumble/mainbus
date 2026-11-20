@@ -46,7 +46,7 @@ export const workspace: Workspace = {
   reportsFolder: 'docs/investigations',
   setupCommand: '',
   setupTimeoutMinutes: 15,
-  testCommands: [], railLabel: null, railColor: null
+  testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1
 }
 
 let counter = 0

@@ -187,8 +187,8 @@ describe('unattended mode', () => {
     // Backlog is never started.
     expect(await columnOf(h, 2)).toBe('backlog')
     const statuses = h.events.flatMap((e) => (e.type === 'unattended.changed' ? [e.state.status] : []))
-    expect(statuses).toContainEqual({ kind: 'working', ticketNumber: 1 })
-    expect(statuses).toContainEqual({ kind: 'working', ticketNumber: 3 })
+    expect(statuses).toContainEqual({ kind: 'working', ticketNumbers: [1] })
+    expect(statuses).toContainEqual({ kind: 'working', ticketNumbers: [3] })
     // The machine was kept awake while tickets worked, and is let go while the mode waits.
     expect(h.awake).toMatchObject({ starts: 1, stops: 1 })
 
@@ -224,7 +224,7 @@ describe('unattended mode', () => {
     await waitForColumn(h, 1, 'in_progress')
 
     await h.engine.invoke('unattended.set', true)
-    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
+    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumbers: [1] } })
     await new Promise((r) => setTimeout(r, 200))
     expect(started(h)).toEqual([1])
     expect(await columnOf(h, 2)).toBe('ready')
@@ -240,7 +240,7 @@ describe('unattended mode', () => {
     })
     await waitForColumn(h, 2, 'in_progress')
     expect(started(h)).toEqual([1, 2])
-    expect(await h.engine.invoke('unattended.get')).toEqual({ on: true, status: { kind: 'working', ticketNumber: 2 } })
+    expect(await h.engine.invoke('unattended.get')).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [2] } })
   })
 
   it('never starts a Ready ticket while any ticket is working, and Stop on a ticket it did not start leaves it on', async () => {
@@ -253,7 +253,7 @@ describe('unattended mode', () => {
     await h.engine.invoke('decision.answer', decisions[0]!.id, { kind: 'option', index: 1 }, 'thread')
     await waitForColumn(h, 2, 'review')
     await waitForColumn(h, 1, 'in_progress')
-    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
+    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumbers: [1] } })
 
     await h.engine.invoke('ticket.move', h.tickets[2]!.id, 'ready')
     await new Promise((r) => setTimeout(r, 200))
@@ -276,7 +276,7 @@ describe('unattended mode', () => {
   it('starts one ticket at a time: the next waits until the first settles', async () => {
     const h = await harness(runtimeFor({ 1: working }), ['ready', 'ready'])
     await h.engine.invoke('unattended.set', true)
-    await waitForState(h, { status: { kind: 'working', ticketNumber: 1 } })
+    await waitForState(h, { status: { kind: 'working', ticketNumbers: [1] } })
     await waitForColumn(h, 1, 'in_progress')
     // Give the queue every chance to start another.
     await new Promise((r) => setTimeout(r, 300))
@@ -289,7 +289,7 @@ describe('unattended mode', () => {
     const h = await harness(runtimeFor({ 1: ask, 2: working }), ['ready', 'ready'])
     await h.engine.invoke('unattended.set', true)
     await waitForColumn(h, 1, 'needs_you')
-    await waitForState(h, { on: true, status: { kind: 'working', ticketNumber: 2 } })
+    await waitForState(h, { on: true, status: { kind: 'working', ticketNumbers: [2] } })
     await waitForColumn(h, 2, 'in_progress')
 
     const { decisions } = await h.engine.invoke('thread.get', h.tickets[0]!.id)
@@ -297,14 +297,14 @@ describe('unattended mode', () => {
     // Ticket 1 goes on at once, while the queue's ticket 2 is still working.
     await waitForColumn(h, 1, 'review')
     expect(await columnOf(h, 2)).toBe('in_progress')
-    expect(await h.engine.invoke('unattended.get')).toMatchObject({ on: true, status: { kind: 'working', ticketNumber: 2 } })
+    expect(await h.engine.invoke('unattended.get')).toMatchObject({ on: true, status: { kind: 'working', ticketNumbers: [2] } })
   })
 
   it('a hard-stop card blocks the ticket in Needs you and the queue moves on', async () => {
     const h = await harness(runtimeFor({ 1: permission('git push origin main', handoff.slice(1)), 2: working }), ['ready', 'ready'])
     await h.engine.invoke('unattended.set', true)
     await waitForColumn(h, 1, 'needs_you')
-    await waitForState(h, { status: { kind: 'working', ticketNumber: 2 } })
+    await waitForState(h, { status: { kind: 'working', ticketNumbers: [2] } })
     const { decisions } = await h.engine.invoke('thread.get', h.tickets[0]!.id)
     expect(decisions[0]).toMatchObject({ kind: 'permission', status: 'pending' })
     expect(decisions[0]!.question).toBe('Implementer wants to run `git push origin main`')
@@ -427,7 +427,7 @@ describe('unattended mode', () => {
     const h = await harness(runtimeFor({ 1: working }), ['ready', 'ready'])
     await h.engine.invoke('unattended.set', true)
     await waitForColumn(h, 1, 'in_progress')
-    await waitForState(h, { status: { kind: 'working', ticketNumber: 1 } })
+    await waitForState(h, { status: { kind: 'working', ticketNumbers: [1] } })
     await h.engine.invoke('agent.pause', h.tickets[0]!.id)
     expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })
     await new Promise((r) => setTimeout(r, 200))
@@ -442,12 +442,12 @@ describe('unattended mode', () => {
     await h.engine.invoke('agent.start', h.tickets[0]!.id)
     await waitForColumn(h, 1, 'in_progress')
     await h.engine.invoke('unattended.set', true)
-    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumber: 1 } })
+    await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumbers: [1] } })
     expect(started(h)).toEqual([1])
 
     // A paused ticket isn't working, so the queue goes on to ticket 2; ticket 1 stays paused.
     await h.engine.invoke('agent.pause', h.tickets[0]!.id)
-    await waitForState(h, { on: true, status: { kind: 'working', ticketNumber: 2 } })
+    await waitForState(h, { on: true, status: { kind: 'working', ticketNumbers: [2] } })
     await waitForColumn(h, 2, 'in_progress')
     expect(started(h)).toEqual([1, 2])
     const t1 = (await h.engine.invoke('board.get')).tickets.find((t) => t.number === 1)!
@@ -469,7 +469,7 @@ describe('unattended mode', () => {
 
     await waitForState(h, {
       on: true,
-      status: { kind: 'waiting', ticketNumber: 1, until: new Date(resetsAt * 1000).toISOString() }
+      status: { kind: 'waiting', until: new Date(resetsAt * 1000).toISOString() }
     })
     // Paused, not failed, and the queue did not move on.
     expect(await columnOf(h, 1)).toBe('in_progress')
@@ -532,7 +532,7 @@ describe('UnattendedMode timing', () => {
   })
 
   /** One ticket, #7, Ready until started; the test sets `box.state` after that. */
-  function stub(limitedUntil: () => number | null = () => null) {
+  function stub(limit: () => number | null = () => null) {
     const ticket = { id: 't1', number: 7 } as Ticket
     const box = { state: ready }
     const state = () => box.state
@@ -554,7 +554,8 @@ describe('UnattendedMode timing', () => {
       },
       keepAwake: { start: () => {}, stop: () => {} },
       now: () => new Date(),
-      limitedUntil
+      // The shared limit holds once a ticket has been paused by it.
+      limitedUntil: () => (box.state.pausedByLimit ? limit() : null)
     }
     return { mode: new UnattendedMode(deps), runner, emitted, box }
   }
@@ -574,7 +575,7 @@ describe('UnattendedMode timing', () => {
     box.state = { ...working, agentStatus: 'queued', queuePosition: 1 }
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumber: 7 } })
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [7] } })
     mode.dispose()
   })
 
@@ -588,13 +589,13 @@ describe('UnattendedMode timing', () => {
     box.state = limitPaused
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', ticketNumber: 7, until: new Date(reset).toISOString() } })
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', until: new Date(reset).toISOString() } })
 
     // The shared state resumes the ticket by itself (the mode neither continues it nor starts another).
     box.state = working
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumber: 7 } })
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [7] } })
     expect(runner.start).toHaveBeenCalledTimes(1)
     mode.dispose()
   })
@@ -607,7 +608,7 @@ describe('UnattendedMode timing', () => {
     box.state = limitPaused
     mode.observe({ type: 'board.changed', workspaceId: 'w' })
     await mode.settled()
-    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', ticketNumber: 7, until: new Date(retry).toISOString() } })
+    expect(mode.get()).toEqual({ on: true, status: { kind: 'waiting', until: new Date(retry).toISOString() } })
     mode.dispose()
   })
 
@@ -685,11 +686,11 @@ describe('UnattendedMode remembering', () => {
   it('forgets when the user stops or pauses the queue ticket', async () => {
     const { m, stored } = mode()
     await m.set(true)
-    ;(m as unknown as { current: Ticket }).current = { id: 't1' } as Ticket
+    ;(m as unknown as { mine: Map<string, Ticket> }).mine.set('t1', { id: 't1' } as Ticket)
     m.userStopped('t1')
     expect(stored.on).toBe(false)
     await m.set(true)
-    ;(m as unknown as { current: Ticket }).current = { id: 't1' } as Ticket
+    ;(m as unknown as { mine: Map<string, Ticket> }).mine.set('t1', { id: 't1' } as Ticket)
     m.userPaused('t1')
     expect(stored.on).toBe(false)
   })
@@ -718,5 +719,226 @@ describe('UnattendedMode remembering', () => {
     await m.restore()
     expect(m.get()).toEqual({ on: false, status: { kind: 'stopped', reason: 'Claude Code is not set up' } })
     expect(stored.on).toBe(false)
+  })
+})
+
+describe('UnattendedMode with several tickets at once', () => {
+  const none = { summary: null, canContinue: false, pausedByUser: false, deferredUntil: null }
+  const ready: TicketState = { ...none, column: 'ready', phase: 'not_started', agentStatus: null }
+  const working: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'working' }
+  const review: TicketState = { ...none, column: 'review', phase: 'reviewing', agentStatus: 'handed_off' }
+  const failedState: TicketState = { ...none, column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'failed', summary: 'Failed: boom' }
+  const limitPaused: TicketState = { ...none, column: 'in_progress', phase: 'implementing', agentStatus: 'paused', pausedByLimit: true }
+
+  /** Tickets #1..#count, all Ready; `start` makes a ticket working. */
+  function multi(count: number, atOnce: number) {
+    const tickets = Array.from({ length: count }, (_, i) => ({ id: `t${i + 1}`, number: i + 1 }) as Ticket)
+    const states = new Map<string, TicketState>(tickets.map((t) => [t.id, ready]))
+    const box = { atOnce, limit: null as number | null, held: new Set<string>(), blocked: new Set<string>(), failStart: new Set<string>() }
+    const startedIds: string[] = []
+    const awake = { starts: 0, stops: 0 }
+    const runner = {
+      start: vi.fn(async (id: string) => {
+        startedIds.push(id)
+        if (box.failStart.has(id)) throw new Error(`cannot start ${id}`)
+        states.set(id, working)
+      }),
+      stateOf: vi.fn(async (id: string) => states.get(id)!),
+      isLaunching: vi.fn(() => false)
+    }
+    const mode = new UnattendedMode({
+      workspaceId: 'w',
+      runner,
+      tickets: async () => tickets,
+      held: async () => box.held,
+      blocked: async () => box.blocked,
+      checkCanRun: async () => {},
+      emit: () => {},
+      keepAwake: { start: () => void awake.starts++, stop: () => void awake.stops++ },
+      now: () => new Date(),
+      limitedUntil: () => box.limit,
+      atOnce: async () => box.atOnce
+    })
+    const change = async (): Promise<void> => {
+      mode.observe({ type: 'board.changed', workspaceId: 'w' })
+      await mode.settled()
+    }
+    const numbers = (): number[] => startedIds.map((id) => Number(id.slice(1)))
+    return { mode, states, box, runner, awake, change, numbers }
+  }
+
+  it('starts up to N tickets, lowest numbers first, skipping held and blocked ones', async () => {
+    const m = multi(5, 3)
+    m.box.held.add('t2')
+    m.box.blocked.add('t3')
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 4, 5])
+    expect(m.mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [1, 4, 5] } })
+    await m.change()
+    expect(m.numbers()).toEqual([1, 4, 5])
+    expect(m.awake).toEqual({ starts: 1, stops: 0 })
+    m.mode.dispose()
+    expect(m.awake).toEqual({ starts: 1, stops: 1 })
+  })
+
+  it('with N = 1 it starts one ticket at a time', async () => {
+    const m = multi(3, 1)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1])
+    m.mode.dispose()
+  })
+
+  it('a settled ticket frees its place for the next Ready ticket', async () => {
+    const m = multi(4, 3)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    m.states.set('t1', review)
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3, 4])
+    expect(m.mode.get().status).toEqual({ kind: 'working', ticketNumbers: [2, 3, 4] })
+    m.mode.dispose()
+  })
+
+  it('tickets started by hand count toward N', async () => {
+    const m = multi(4, 3)
+    m.states.set('t1', working)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([2, 3])
+    m.mode.dispose()
+  })
+
+  it('says it is waiting for hand-started tickets when N is used up', async () => {
+    const m = multi(3, 1)
+    m.states.set('t1', working)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([])
+    expect(m.mode.get().status).toEqual({ kind: 'other_working', ticketNumbers: [1] })
+    m.mode.dispose()
+  })
+
+  it('stops after three failures in a row across parallel tickets', async () => {
+    const m = multi(5, 3)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    for (const id of ['t1', 't2', 't3']) m.states.set(id, failedState)
+    await m.change()
+    expect(m.mode.get()).toEqual({ on: false, status: { kind: 'stopped', reason: '3 tickets failed in a row: boom' } })
+    expect(m.awake).toEqual({ starts: 1, stops: 1 })
+  })
+
+  it('a settled ticket resets the failure count', async () => {
+    const m = multi(3, 3)
+    await m.mode.set(true)
+    await m.mode.settled()
+    m.states.set('t1', failedState)
+    m.states.set('t2', failedState)
+    m.states.set('t3', review)
+    await m.change()
+    expect(m.mode.get().on).toBe(true)
+    m.mode.dispose()
+  })
+
+  it('a ticket that fails to start frees its place and is not tried again', async () => {
+    const m = multi(3, 2)
+    m.box.failStart.add('t1')
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    expect(m.mode.get()).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [2, 3] } })
+    m.mode.dispose()
+  })
+
+  it('starts nothing new while a usage limit holds, then goes on', async () => {
+    const m = multi(4, 3)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    m.states.set('t1', limitPaused)
+    m.states.set('t2', review)
+    m.box.limit = Date.now() + 60_000
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    expect(m.mode.get().status).toEqual({ kind: 'waiting', until: new Date(m.box.limit).toISOString() })
+    expect(m.awake.stops).toBe(0)
+
+    m.states.set('t1', working)
+    m.box.limit = null
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3, 4])
+    m.mode.dispose()
+  })
+
+  it('does not start while the limit holds even when nothing is working', async () => {
+    const m = multi(2, 3)
+    m.box.limit = Date.now() + 60_000
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([])
+    expect(m.mode.get().status.kind).toBe('waiting')
+    m.mode.dispose()
+  })
+
+  it('Stop or Pause on one of its tickets only frees the place; a stopped ticket is not picked again', async () => {
+    const m = multi(5, 3)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    // Stop: the ticket goes back to Ready.
+    m.mode.userStopped('t1')
+    m.states.set('t1', ready)
+    // Pause: the ticket stays in progress, paused by the user.
+    m.mode.userPaused('t2')
+    m.states.set('t2', { ...working, agentStatus: 'paused', pausedByUser: true })
+    await m.change()
+    expect(m.mode.get().on).toBe(true)
+    expect(m.numbers()).toEqual([1, 2, 3, 4, 5])
+    // Moved to Ready by the user, it may be started again once a place is free.
+    m.mode.userMoved('t1', 'ready')
+    m.states.set('t4', review)
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3, 4, 5, 1])
+    m.mode.dispose()
+  })
+
+  it('Stop on its ticket at N = 1 still switches the mode off', async () => {
+    const m = multi(2, 1)
+    await m.mode.set(true)
+    await m.mode.settled()
+    m.mode.userStopped('t1')
+    expect(m.mode.get()).toEqual({ on: false, status: { kind: 'off' } })
+  })
+
+  it('lowering N stops nothing and starts nothing until fewer are working', async () => {
+    const m = multi(6, 3)
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    m.box.atOnce = 1
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    m.states.set('t1', review)
+    m.states.set('t2', review)
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    m.states.set('t3', review)
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3, 4])
+    m.mode.dispose()
+  })
+
+  it('raising N starts more', async () => {
+    const m = multi(4, 1)
+    await m.mode.set(true)
+    await m.mode.settled()
+    m.box.atOnce = 3
+    await m.change()
+    expect(m.numbers()).toEqual([1, 2, 3])
+    m.mode.dispose()
   })
 })

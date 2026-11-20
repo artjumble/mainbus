@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `unattended_at_once` integer DEFAULT 1 NOT NULL;

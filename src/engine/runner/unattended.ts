@@ -33,14 +33,16 @@ export interface UnattendedDeps {
   remembered?: () => Promise<boolean>
   /** While the app-wide usage limit holds: when it resets or is tried again (ms since the epoch); otherwise null. */
   limitedUntil: () => number | null
+  /** How many of the workspace's tickets the mode keeps working at once ("Unattended: tickets at once"); 1 when absent. */
+  atOnce?: () => Promise<number>
 }
 
 const MAX_FAILURES = 3
 
-/** What became of the queue's ticket since it was started. */
+/** What became of a ticket the mode started, since it was started. */
 type Outcome =
   | { kind: 'working' }
-  /** Reached Review, or is waiting on the user in Needs you: the queue moves on. */
+  /** Reached Review, or is waiting on the user in Needs you: its place is free again. */
   | { kind: 'settled' }
   | { kind: 'failed'; error: string }
   | { kind: 'limited' }
@@ -48,28 +50,33 @@ type Outcome =
   | { kind: 'taken' }
 
 /**
- * Unattended mode of one workspace: starts the lowest-numbered Ready ticket that isn't held, waits until it reaches Review or is blocked,
- * then starts the next. With Ready empty it stays on and waits for a ticket to arrive there. It starts a
- * ticket only while no ticket in its workspace is working, its own or one started by hand, through the
- * runner's own start, and never merges, pushes or moves a ticket. It is driven by the engine's
- * board events, not polled, and holds the machine awake only while a ticket is working or a usage limit is
- * being waited out. Whether it is on is remembered across a restart (see restore); quitting leaves it on.
+ * Unattended mode of one workspace: keeps up to N tickets working (N is "Unattended: tickets at once", 1 by default),
+ * starting the lowest-numbered Ready tickets that aren't held or blocked. A ticket stops counting once it reaches Review,
+ * is waiting on the user in Needs you, fails, or is stopped or paused; that frees a place for the next. Tickets started by
+ * hand count toward N, and nothing new starts while a usage limit holds. With Ready empty it stays on and waits for a
+ * ticket to arrive there. It starts tickets through the runner's own start, and never merges, pushes or moves a ticket.
+ * It is driven by the engine's board events, not polled, and holds the machine awake only while a ticket is working or a
+ * usage limit is being waited out. Whether it is on is remembered across a restart (see restore); quitting leaves it on.
+ * At N = 1, stopping or pausing its ticket means the user is here and switches it off; above 1 that only frees the place.
  */
 export class UnattendedMode {
   private on = false
   /** The keep-awake is held. */
   private awake = false
   private status: UnattendedStatus = { kind: 'off' }
-  /** The ticket the queue started and is waiting on. */
-  private current: Ticket | null = null
+  /** The tickets the mode started and is waiting on, by id. */
+  private readonly mine = new Map<string, Ticket>()
+  /** The ids among them whose start is still under way. */
+  private readonly starting = new Set<string>()
+  private readonly launches = new Set<Promise<void>>()
+  /** The latest N seen, for the synchronous user hooks. */
+  private atOnce = 1
   /** Failed tickets in a row. */
   private failures = 0
   /** Tickets that failed to start this session: they may still be in Ready, and are not tried again. */
   private readonly skipped = new Set<string>()
   /** Tickets the user stopped (back in Ready): not started again until the user moves them to Ready. */
   private readonly setAside = new Set<string>()
-  /** A start of the queue's ticket is under way. */
-  private busy = false
   private evaluating: Promise<void> | null = null
   private again = false
   private disposed = false
@@ -97,7 +104,8 @@ export class UnattendedMode {
     this.failures = 0
     this.skipped.clear()
     this.setAside.clear()
-    this.current = null
+    this.mine.clear()
+    this.starting.clear()
     this.remember(true)
     this.setStatus({ kind: 'starting' })
     this.kick()
@@ -119,21 +127,30 @@ export class UnattendedMode {
   }
 
   /**
-   * Called before the user's Stop reaches the runner: stopping the queue's ticket means the user is here.
-   * Any other stopped ticket goes back to Ready, where the queue must not pick it straight up again.
+   * Called before the user's Stop reaches the runner. At N = 1, stopping the mode's ticket means the user is here, so the
+   * mode switches off; above 1 it only frees the place. Any stopped ticket goes back to Ready, where the mode must not
+   * pick it straight up again.
    */
   userStopped(ticketId: string): void {
     if (!this.on) return
-    if (this.current?.id === ticketId) this.turnOff({ kind: 'off' })
-    else this.setAside.add(ticketId)
+    if (this.mine.has(ticketId)) {
+      if (this.atOnce <= 1) {
+        this.turnOff({ kind: 'off' })
+        return
+      }
+      this.mine.delete(ticketId)
+    }
+    this.setAside.add(ticketId)
   }
 
   /**
-   * Called before the user's Pause reaches the runner: pausing the queue's ticket means the user is here, as Stop
-   * does. Any other paused ticket stays in progress and is not working, so the queue may start the next one.
+   * Called before the user's Pause reaches the runner: as Stop does, it switches the mode off at N = 1 and otherwise
+   * only frees the place. Any other paused ticket stays in progress and is not working, so the mode may start the next.
    */
   userPaused(ticketId: string): void {
-    if (this.on && this.current?.id === ticketId) this.turnOff({ kind: 'off' })
+    if (!this.on || !this.mine.has(ticketId)) return
+    if (this.atOnce <= 1) this.turnOff({ kind: 'off' })
+    else this.mine.delete(ticketId)
   }
 
   /** Called before the user's move reaches the runner: a ticket the user puts in Ready may be started again. */
@@ -141,7 +158,7 @@ export class UnattendedMode {
     if (column === 'ready') this.setAside.delete(ticketId)
   }
 
-  /** Sees every engine event; a board change is the cue to look at the queue's ticket again. */
+  /** Sees every engine event; a board change is the cue to look at the queue again. */
   observe(e: EngineEvent): void {
     if (this.on && e.type === 'board.changed' && e.workspaceId === this.deps.workspaceId) this.kick()
   }
@@ -152,9 +169,9 @@ export class UnattendedMode {
     this.turnOff({ kind: 'off' }, false)
   }
 
-  /** Settles when nothing is left to look at (for tests). */
+  /** Settles when nothing is left to look at and no start is under way (for tests). */
   async settled(): Promise<void> {
-    while (this.evaluating) await this.evaluating
+    while (this.evaluating || this.launches.size > 0) await Promise.all([this.evaluating, ...this.launches])
   }
 
   // --- the queue ---
@@ -175,36 +192,43 @@ export class UnattendedMode {
   }
 
   private async step(): Promise<void> {
-    if (!this.on || this.busy) return
-    const current = this.current
-    if (current) {
-      const outcome = await this.outcomeOf(current)
-      // The user may have switched the mode off, or a start may have begun, while the state was read.
-      if (!this.on || this.busy || this.current !== current) return
+    if (!this.on) return
+    const atOnce = Math.max(1, Math.floor((await this.deps.atOnce?.()) ?? 1))
+    this.atOnce = atOnce
+    if (!this.on) return
+    let mineLimited = false
+    for (const ticket of [...this.mine.values()]) {
+      // A start under way counts as working; the runner's state isn't settled yet.
+      if (this.starting.has(ticket.id)) continue
+      const outcome = await this.outcomeOf(ticket)
+      // The user may have switched the mode off, or taken the ticket, while the state was read.
+      if (!this.on) return
+      if (this.mine.get(ticket.id) !== ticket || this.starting.has(ticket.id)) continue
       switch (outcome.kind) {
         case 'working':
-          this.setStatus({ kind: 'working', ticketNumber: current.number })
-          this.keepAwake(true)
-          return
+          break
         case 'limited':
           // The shared usage limit resumes the ticket by itself at the reset; the board changing moves the mode on.
-          this.waitForLimit(current)
-          this.keepAwake(true)
-          return
+          mineLimited = true
+          break
         case 'taken':
-          this.turnOff({ kind: 'off' })
-          return
+          if (atOnce <= 1) {
+            this.turnOff({ kind: 'off' })
+            return
+          }
+          this.mine.delete(ticket.id)
+          break
         case 'settled':
           this.failures = 0
-          this.current = null
+          this.mine.delete(ticket.id)
           break
         case 'failed':
-          this.current = null
+          this.mine.delete(ticket.id)
           if (this.failed(outcome.error)) return
           break
       }
     }
-    await this.startNext()
+    await this.fill(atOnce, mineLimited)
   }
 
   private async outcomeOf(ticket: Ticket): Promise<Outcome> {
@@ -231,62 +255,79 @@ export class UnattendedMode {
     }
   }
 
-  /** Starts the lowest-numbered Ready ticket, unless some ticket is working; otherwise waits for the board to change. */
-  private async startNext(): Promise<void> {
+  /** Fills the free places with the lowest-numbered startable Ready tickets, unless a usage limit holds; then says what it is doing. */
+  private async fill(atOnce: number, mineLimited: boolean): Promise<void> {
     const tickets = [...(await this.deps.tickets())].sort((a, b) => a.number - b.number)
     const held = (await this.deps.held?.()) ?? new Set<string>()
     const blocked = (await this.deps.blocked?.()) ?? new Set<string>()
-    let next: Ticket | null = null
+    const others: number[] = []
+    const candidates: Ticket[] = []
+    let othersLimited = false
     let skippedReady = false
     for (const ticket of tickets) {
+      if (this.mine.has(ticket.id)) continue
       const state = await this.deps.runner.stateOf(ticket.id)
-      if (!this.on || this.current !== null || this.busy) return
+      if (!this.on) return
+      if (this.mine.has(ticket.id)) continue
       if ((state.column === 'in_progress' && (state.agentStatus === 'working' || state.agentStatus === 'queued' || state.pausedByLimit)) || this.deps.runner.isLaunching(ticket.id)) {
-        this.setStatus({ kind: 'other_working', ticketNumber: ticket.number })
-        this.keepAwake(true)
-        return
+        others.push(ticket.number)
+        if (state.pausedByLimit) othersLimited = true
+        continue
       }
       if (state.column !== 'ready') continue
       if (this.setAside.has(ticket.id) || held.has(ticket.id) || blocked.has(ticket.id)) continue
       if (this.skipped.has(ticket.id)) skippedReady = true
-      else next ??= ticket
+      else candidates.push(ticket)
     }
-    if (next === null) {
+    const limitUntil = this.deps.limitedUntil()
+    const holding = mineLimited || othersLimited || limitUntil !== null
+    if (!holding) {
+      const free = atOnce - this.mine.size - others.length
+      for (const ticket of candidates.slice(0, Math.max(0, free))) {
+        this.mine.set(ticket.id, ticket)
+        this.starting.add(ticket.id)
+        this.launch(ticket)
+      }
+    }
+    const mine = [...this.mine.values()].map((t) => t.number).sort((a, b) => a - b)
+    if (mine.length > 0 && !mineLimited) {
+      this.setStatus({ kind: 'working', ticketNumbers: mine })
+      this.keepAwake(true)
+    } else if (mineLimited || (limitUntil !== null && !othersLimited)) {
+      this.setStatus({ kind: 'waiting', until: new Date(limitUntil ?? this.deps.now().getTime()).toISOString() })
+      this.keepAwake(true)
+    } else if (others.length > 0) {
+      this.setStatus({ kind: 'other_working', ticketNumbers: others.sort((a, b) => a - b) })
+      this.keepAwake(true)
+    } else if (limitUntil !== null) {
+      this.setStatus({ kind: 'waiting', until: new Date(limitUntil).toISOString() })
+      this.keepAwake(true)
+    } else {
       this.setStatus(skippedReady ? { kind: 'idle', skipped: true } : { kind: 'idle' })
       this.keepAwake(false)
-      return
     }
-    this.current = next
-    const ticket = next
-    await this.launch(ticket, () => this.deps.runner.start(ticket.id))
   }
 
-  /** Says the mode is waiting for the usage limit's reset (or the next try, when the reset is unknown). */
-  private waitForLimit(ticket: Ticket): void {
-    const until = this.deps.limitedUntil() ?? this.deps.now().getTime()
-    this.setStatus({ kind: 'waiting', ticketNumber: ticket.number, until: new Date(until).toISOString() })
-  }
-
-  /** Starts the queue's ticket; a failure counts against the mode and moves the queue on. */
-  private async launch(ticket: Ticket, action: () => Promise<void>): Promise<void> {
-    this.busy = true
-    this.setStatus({ kind: 'working', ticketNumber: ticket.number })
-    this.keepAwake(true)
-    let error: string | null = null
-    try {
-      await action()
-    } catch (err) {
-      error = errorText(err)
-    } finally {
-      this.busy = false
-    }
-    if (error !== null && this.on && this.current === ticket) {
-      // A ticket that failed to start may still be in Ready: don't pick it again.
-      this.skipped.add(ticket.id)
-      this.current = null
-      this.failed(error)
-    }
-    this.kick()
+  /** Starts one ticket without waiting for it in the queue; a failure counts against the mode and frees the place. */
+  private launch(ticket: Ticket): void {
+    const run: Promise<void> = (async () => {
+      let error: string | null = null
+      try {
+        await this.deps.runner.start(ticket.id)
+      } catch (err) {
+        error = errorText(err)
+      } finally {
+        this.starting.delete(ticket.id)
+      }
+      if (error !== null && this.on && this.mine.get(ticket.id) === ticket) {
+        // A ticket that failed to start may still be in Ready: don't pick it again.
+        this.skipped.add(ticket.id)
+        this.mine.delete(ticket.id)
+        this.failed(error)
+      }
+      this.kick()
+    })().finally(() => this.launches.delete(run))
+    this.launches.add(run)
   }
 
   /** Counts a failed ticket; returns true when that turned the mode off. */
@@ -300,7 +341,7 @@ export class UnattendedMode {
   private turnOff(status: UnattendedStatus, forget = true): void {
     if (this.on && forget) this.remember(false)
     this.on = false
-    this.current = null
+    this.mine.clear()
     this.keepAwake(false)
     this.setStatus(status)
   }

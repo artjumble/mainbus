@@ -29,7 +29,7 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
     if (command === 'workspace.get') return workspace
     if (command === 'workspace.summaries') return [summary]
     if (command === 'board.get') return { tickets: [ticket] }
-    if (command === 'unattended.get') return { on: true, status: { kind: 'working', ticketNumber: 3 } }
+    if (command === 'unattended.get') return { on: true, status: { kind: 'working', ticketNumbers: [3] } }
     if (command === 'usage.get') return { kind: 'ok' }
     throw new Error(`unexpected ${command}`)
   })
@@ -40,7 +40,7 @@ test('checkSetup loads the workspace and its board once Claude is ready', async 
   expect(s.workspaceLoaded).toBe(true)
   expect(s.tickets).toEqual([ticket])
   expect(s.workspaces).toEqual([summary])
-  expect(s.unattended).toEqual({ on: true, status: { kind: 'working', ticketNumber: 3 } })
+  expect(s.unattended).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [3] } })
 })
 
 test('openWorkspace stores the workspace and loads its board', async () => {
@@ -77,7 +77,7 @@ test('a refresh asked for while one is running waits for it, then reads the boar
   expect(useMainbus.getState().tickets).toEqual([second])
 })
 
-const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge' as const, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null }
+const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge' as const, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1 }
 
 test('startSync refreshes the board on board.changed and stops after unsubscribe', async () => {
   let listener: (e: EngineEvent) => void = () => {}
@@ -119,13 +119,13 @@ test('startSync keeps the unattended state from unattended.changed, and setUnatt
   // Another workspace's mode is not the board's business.
   listener({ type: 'unattended.changed', workspaceId: 'w2', state: { on: true, status: { kind: 'idle' } } })
   expect(useMainbus.getState().unattended).not.toEqual({ on: true, status: { kind: 'idle' } })
-  listener({ type: 'unattended.changed', workspaceId: 'w1', state: { on: true, status: { kind: 'working', ticketNumber: 2 } } })
-  expect(useMainbus.getState().unattended).toEqual({ on: true, status: { kind: 'working', ticketNumber: 2 } })
+  listener({ type: 'unattended.changed', workspaceId: 'w1', state: { on: true, status: { kind: 'working', ticketNumbers: [2] } } })
+  expect(useMainbus.getState().unattended).toEqual({ on: true, status: { kind: 'working', ticketNumbers: [2] } })
 
   await useMainbus.getState().setUnattended(true)
   expect(mockInvoke).toHaveBeenCalledWith('unattended.set', true)
   // The reply could overtake later events, so only the events change the state.
-  expect(useMainbus.getState().unattended.status).toEqual({ kind: 'working', ticketNumber: 2 })
+  expect(useMainbus.getState().unattended.status).toEqual({ kind: 'working', ticketNumbers: [2] })
   stop()
 })
 

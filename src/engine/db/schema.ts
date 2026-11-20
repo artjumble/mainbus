@@ -30,6 +30,8 @@ export const workspaces = sqliteTable(
     railLabel: text('rail_label'),
     /** The user's own rail tile colour (a RailColor); null uses the automatic one. */
     railColor: text('rail_color'),
+    /** Unattended mode works on this many of the workspace's tickets at once. */
+    unattendedAtOnce: integer('unattended_at_once').notNull().default(1),
     /** Unattended mode is on for this workspace; remembered across a restart. */
     unattendedOn: integer('unattended_on', { mode: 'boolean' }).notNull().default(false),
     /** Set when the workspace was removed from Mainbus. The row stays so its tickets, history and proposal cards remain intact. */

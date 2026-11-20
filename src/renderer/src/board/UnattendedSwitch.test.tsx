@@ -23,15 +23,26 @@ function show(state: UnattendedState): void {
 
 test('the status line says what the mode is doing', () => {
   expect(unattendedText({ kind: 'off' })).toBe('Off')
-  expect(unattendedText({ kind: 'working', ticketNumber: 4 })).toBe('Working on #4')
+  expect(unattendedText({ kind: 'working', ticketNumbers: [4] })).toBe('Working on #4')
+  expect(unattendedText({ kind: 'working', ticketNumbers: [131, 134] })).toBe('Working on #131, #134')
+  expect(unattendedText({ kind: 'working', ticketNumbers: [1, 2, 3] })).toBe('Working on 3 tickets')
+  expect(unattendedText({ kind: 'other_working', ticketNumbers: [5, 6] })).toBe('Waiting for #5, #6 to finish')
+  expect(unattendedText({ kind: 'other_working', ticketNumbers: [5, 6, 7] })).toBe('Waiting for 3 tickets to finish')
   expect(unattendedText({ kind: 'idle' })).toBe('Waiting for Ready tickets')
   expect(unattendedText({ kind: 'idle', skipped: true })).toBe('No Ready ticket could be started; waiting for Ready tickets')
-  expect(unattendedText({ kind: 'other_working', ticketNumber: 5 })).toBe('Waiting for #5 to finish')
+  expect(unattendedText({ kind: 'other_working', ticketNumbers: [5] })).toBe('Waiting for #5 to finish')
   expect(unattendedText({ kind: 'stopped', reason: '3 tickets failed in a row: boom' })).toBe(
     'Stopped: 3 tickets failed in a row: boom'
   )
   const until = new Date(2026, 9, 31, 7, 5).toISOString()
-  expect(unattendedText({ kind: 'waiting', ticketNumber: 4, until })).toBe('Waiting for the usage limit to reset at 07:05')
+  expect(unattendedText({ kind: 'waiting', until })).toBe('Waiting for the usage limit to reset at 07:05')
+})
+
+test('with three or more tickets the status line keeps the full list in its tooltip', () => {
+  show({ on: true, status: { kind: 'working', ticketNumbers: [4, 7, 9] } })
+  const status = screen.getByTestId('unattended-status')
+  expect(status).toHaveTextContent('Working on 3 tickets')
+  expect(status).toHaveAttribute('title', '#4, #7, #9')
 })
 
 test('the switch shows the state and asks the engine to switch on', async () => {
@@ -53,7 +64,7 @@ test('an idle switch stays on and says it is waiting for Ready tickets', () => {
 
 test('an on switch shows the ticket and switches off', async () => {
   mockInvoke.mockResolvedValue({ on: false, status: { kind: 'off' } })
-  show({ on: true, status: { kind: 'working', ticketNumber: 2 } })
+  show({ on: true, status: { kind: 'working', ticketNumbers: [2] } })
   expect(screen.getByTestId('unattended-status')).toHaveTextContent('Working on #2')
   const toggle = screen.getByRole('switch', { name: 'Unattended' })
   expect(toggle).toBeChecked()
@@ -63,7 +74,7 @@ test('an on switch shows the ticket and switches off', async () => {
 
 test.each([
   [{ on: false, status: { kind: 'off' } }],
-  [{ on: true, status: { kind: 'working', ticketNumber: 4 } }]
+  [{ on: true, status: { kind: 'working', ticketNumbers: [4] } }]
 ] as const)('the switch has no axe violations (%j)', async (state) => {
   show(state as UnattendedState)
   await expectNoAxeViolations()

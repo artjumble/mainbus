@@ -1,7 +1,8 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
-import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
+import { useMainbus } from '../store'
+import { expectNoAxeViolations, renderWithMantine, workspace } from '../test-utils'
 import { GeneralSettings } from './GeneralSettings'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
@@ -16,6 +17,7 @@ beforeEach(() => {
   mockInvoke.mockReset()
   stored = 3
   storedClose = 'tray'
+  useMainbus.setState({ workspace })
   const settings = () => ({ maxAgents: stored, whenClosed: storedClose, orchestratorWebAccess: true, theme: { choice: 'light', light: 'light', dark: 'dark' } })
   mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
     if (command === 'settings.get') return settings()
@@ -23,6 +25,7 @@ beforeEach(() => {
       stored = args[0] as number
       return settings()
     }
+    if (command === 'workspace.setUnattendedAtOnce') return { ...workspace, unattendedAtOnce: args[0] as number }
     if (command === 'settings.setWhenClosed') {
       storedClose = args[0] as 'tray' | 'quit'
       return settings()
@@ -87,4 +90,33 @@ test('the general settings have no axe violations', async () => {
   renderWithMantine(<GeneralSettings opened />)
   await field()
   await expectNoAxeViolations()
+})
+
+const atOnceField = (): Promise<HTMLElement> => screen.findByRole('textbox', { name: 'Unattended: tickets at once' })
+
+test('shows "Unattended: tickets at once", 1 by default, with help that mentions blocked by', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  const input = await atOnceField()
+  expect(input).toHaveValue('1')
+  expect(screen.getByText(/can conflict/)).toHaveTextContent('"blocked by"')
+})
+
+test('changing "tickets at once" saves it and updates the workspace', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  const input = await atOnceField()
+  await vi.waitFor(() => expect(input).toBeEnabled())
+  await userEvent.clear(input)
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.setUnattendedAtOnce', expect.anything())
+  await userEvent.type(input, '2')
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.setUnattendedAtOnce', 2))
+  await vi.waitFor(() => expect(useMainbus.getState().workspace?.unattendedAtOnce).toBe(2))
+})
+
+test('"tickets at once" cannot go above the agents-at-once limit', async () => {
+  renderWithMantine(<GeneralSettings opened />)
+  const input = await atOnceField()
+  await vi.waitFor(() => expect(input).toBeEnabled())
+  await userEvent.clear(input)
+  await userEvent.type(input, '4')
+  expect(mockInvoke).not.toHaveBeenCalledWith('workspace.setUnattendedAtOnce', 4)
 })

@@ -28,6 +28,16 @@ export const AGENT_CAP_MIN = 1
 export const AGENT_CAP_MAX = 10
 export const AGENT_CAP_DEFAULT = 3
 
+/** "Unattended: tickets at once": how many of a workspace's tickets unattended mode keeps working. 1 is one at a time. */
+export const UNATTENDED_AT_ONCE_MIN = 1
+export const UNATTENDED_AT_ONCE_DEFAULT = 1
+
+/** A whole number from 1 to the app-wide "Agents running at once" limit passes. */
+export function checkUnattendedAtOnce(n: unknown, maxAgents: number): { ok: true; n: number } | { ok: false; reason: string } {
+  if (typeof n === 'number' && Number.isInteger(n) && n >= UNATTENDED_AT_ONCE_MIN && n <= maxAgents) return { ok: true, n }
+  return { ok: false, reason: `Tickets at once must be a whole number from ${UNATTENDED_AT_ONCE_MIN} to ${maxAgents} (Agents running at once)` }
+}
+
 /** The app's global settings. */
 export interface AppSettings {
   /** How many role agents may run at once; the orchestrator doesn't count. */
@@ -141,6 +151,8 @@ export interface Workspace {
   railLabel: string | null
   /** The colour the user chose for the workspace's rail tile; null uses the automatic one. */
   railColor: RailColor | null
+  /** "Unattended: tickets at once": how many tickets unattended mode keeps working at once in this workspace. 1 (the default) is one at a time. */
+  unattendedAtOnce: number
 }
 
 /** The rail tile settings; what is left out stays as it is, and null clears it back to the automatic value. */
@@ -635,13 +647,14 @@ export type UnattendedStatus =
   | { kind: 'off' }
   /** On, and about to pick the next Ready ticket. */
   | { kind: 'starting' }
-  | { kind: 'working'; ticketNumber: number }
+  /** The numbers of the tickets it is working on, lowest first. */
+  | { kind: 'working'; ticketNumbers: number[] }
   /** On, with nothing to start: Ready is empty, or (`skipped`) no Ready ticket could be started. */
   | { kind: 'idle'; skipped?: true }
   /** On, and waiting for a ticket it did not start (by hand, or resumed alongside) to stop working. */
-  | { kind: 'other_working'; ticketNumber: number }
+  | { kind: 'other_working'; ticketNumbers: number[] }
   /** `until` is an ISO time. */
-  | { kind: 'waiting'; ticketNumber: number; until: string }
+  | { kind: 'waiting'; until: string }
   /** Turned itself off; `reason` says why. */
   | { kind: 'stopped'; reason: string }
 
