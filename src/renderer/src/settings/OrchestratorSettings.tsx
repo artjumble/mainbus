@@ -1,6 +1,6 @@
 import { Group, NativeSelect, NumberInput, Stack, Switch, Text } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
-import { REVIEW_DONE_WAIT_DEFAULT, REVIEW_DONE_WAIT_MAX, REVIEW_DONE_WAIT_MIN, type Effort } from '../../../shared/domain'
+import { isReviewWait, REVIEW_DONE_WAIT_DEFAULT, REVIEW_DONE_WAIT_MAX, REVIEW_DONE_WAIT_MIN, type Effort } from '../../../shared/domain'
 import { EFFORTS, effortLabel } from '../../../shared/models'
 import { ORCHESTRATOR_MODEL_NOTE, type OrchestratorFamily } from '../../../shared/orchestratorModel'
 import { invoke } from '../api'
@@ -120,12 +120,14 @@ export function OrchestratorSettings({ opened }: { opened: boolean }): ReactElem
         value={review?.waitMinutes ?? REVIEW_DONE_WAIT_DEFAULT}
         min={REVIEW_DONE_WAIT_MIN}
         max={REVIEW_DONE_WAIT_MAX}
-        allowDecimal={false}
+        allowDecimal
+        decimalScale={1}
+        step={0.5}
         allowNegative={false}
         clampBehavior="strict"
         disabled={review === null || !review.on}
         onChange={(v) => {
-          if (typeof v === 'number' && Number.isInteger(v) && v >= REVIEW_DONE_WAIT_MIN && v <= REVIEW_DONE_WAIT_MAX) void saveReview({ waitMinutes: v })
+          if (isReviewWait(v)) void saveReview({ waitMinutes: v })
         }}
       />
       <Switch
