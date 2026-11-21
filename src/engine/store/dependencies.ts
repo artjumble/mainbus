@@ -46,18 +46,19 @@ function toNote(row: typeof ticketDependencyNotes.$inferSelect): DependencyNote 
 export function createDependencyRepo(db: Db, now: () => Date): DependencyRepo {
   async function blockerRows(where: SQL | undefined) {
     return db
-      .select({ ticketId: ticketDependencies.ticketId, id: tickets.id, number: tickets.number, title: tickets.title, column: tickets.manualColumn })
+      .select({ ticketId: ticketDependencies.ticketId, id: tickets.id, number: tickets.number, title: tickets.title, column: tickets.manualColumn, archivedAt: tickets.archivedAt })
       .from(ticketDependencies)
       .innerJoin(tickets, eq(tickets.id, ticketDependencies.blockedById))
       .innerJoin(workspaces, and(eq(workspaces.id, tickets.workspaceId), isNull(workspaces.removedAt)))
       .where(where)
       .orderBy(asc(tickets.number))
   }
-  const toBlocker = (r: { id: string; number: number; title: string; column: string }): Blocker => ({
+  const toBlocker = (r: { id: string; number: number; title: string; column: string; archivedAt: string | null }): Blocker => ({
     id: r.id,
     number: r.number,
     title: r.title,
-    done: r.column === 'done'
+    done: r.column === 'done',
+    archived: r.archivedAt !== null
   })
 
   async function forWorkspace(workspaceId: string): Promise<Map<string, Blocker[]>> {

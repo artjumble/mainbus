@@ -1,7 +1,7 @@
 import { Anchor, Badge, Box, Button, Checkbox, Code, Group, List, Stack, Text, Timeline, Title } from '@mantine/core'
 import { DictationTextarea } from '../voice/DictationTextarea'
 import { useState, type ReactElement, type ReactNode } from 'react'
-import { ANSWERED_VIA_PHRASES, type BranchFreshness, type Criterion, type Decision } from '../../../shared/domain'
+import { ANSWERED_VIA_PHRASES, type BranchFreshness, type Criterion, type Decision, type TicketRef } from '../../../shared/domain'
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
 import { stuckHeadline } from '../../../shared/stuck'
 import { describeEdit } from '../../../shared/ticketEdit'
@@ -143,16 +143,15 @@ function YourWords({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolea
 
 /** The link between an Investigate ticket and the Change ticket promoted from its report, from either side. */
 function Promotion({ ticket }: { ticket: BoardTicket }): ReactElement | null {
-  const tickets = useMainbus((s) => s.tickets)
   const openTicket = useMainbus((s) => s.openTicket)
-  const from = ticket.promotedFrom === null ? undefined : tickets.find((t) => t.id === ticket.promotedFrom)
-  const to = tickets.find((t) => t.promotedFrom === ticket.id)
-  const link = (label: string, other: BoardTicket) => (
+  const { from, to } = ticket.promotion
+  const link = (label: string, other: TicketRef) => (
     <Text size="sm">
       {`${label} `}
       <Anchor component="button" type="button" size="sm" onClick={() => openTicket(other.id)}>
         {`#${other.number} ${other.title}`}
       </Anchor>
+      {other.archived ? ' (archived)' : ''}
     </Text>
   )
   if (!from && !to) return null
@@ -255,6 +254,7 @@ function Criteria({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean
 /** The tickets that should be Done first; changed at any time, and saved as soon as it changes. */
 function BlockedBy({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement {
   const saved = ticket.blockedBy.map((b) => b.id)
+  const openTicket = useMainbus((s) => s.openTicket)
   // What was picked while saving; null when the saved list shows.
   const [picked, setPicked] = useState<string[] | null>(null)
 
@@ -271,7 +271,22 @@ function BlockedBy({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolea
 
   return (
     <Section title="Blocked by">
-      <BlockedByPicker ticketId={ticket.id} value={picked ?? saved} onChange={(ids) => void change(ids)} disabled={readOnly} />
+      <BlockedByPicker ticketId={ticket.id} value={picked ?? saved} onChange={(ids) => void change(ids)} disabled={readOnly} blockers={ticket.blockedBy} />
+      {/* The picker's pills aren't links; these open a blocker, archived or not. */}
+      {ticket.blockedBy.length > 0 && (
+        <Stack gap={2} mt="xs" component="ul" aria-label="Blockers" style={{ listStyle: 'none', padding: 0, margin: 0, marginTop: 'var(--mantine-spacing-xs)' }}>
+          {ticket.blockedBy.map((b) => (
+            <li key={b.id}>
+              <Anchor component="button" type="button" size="sm" onClick={() => openTicket(b.id)}>
+                {`#${b.number} ${b.title}`}
+              </Anchor>
+              <Text span size="sm" c="dimmed">
+                {b.archived ? ' (Archived)' : b.done ? ' (Done)' : ''}
+              </Text>
+            </li>
+          ))}
+        </Stack>
+      )}
     </Section>
   )
 }

@@ -12,6 +12,7 @@ const SERIAL_SPECS = [
   '**/appWindow.spec.ts', // maximized OS window state
   '**/loadingButtons.spec.ts', // hover-revealed buttons
   '**/doneColumn.spec.ts', // hover, focus and drag opening of Done, with a wait on its collapse timer
+  '**/archive.spec.ts', // opens Done by focus to reach its cards and the Archive button
   '**/workspaceRailExpand.spec.ts', // rail hover and focus expansion
   '**/keyboard.spec.ts', // focus rings and Tab order
   '**/needsYouColumn.spec.ts', // Done hover, and widths sampled frame by frame

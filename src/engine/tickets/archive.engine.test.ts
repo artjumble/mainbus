@@ -110,9 +110,9 @@ describe('archiving a Done ticket', () => {
     const { engine } = await makeEngine()
     const a = await done(engine, 'First')
     const b = await newTicket(engine, 'Second', 'backlog', [a.id])
-    expect((await ticketOf(engine, b.id))!.blockedBy).toEqual([{ id: a.id, number: a.number, title: 'First', done: true }])
+    expect((await ticketOf(engine, b.id))!.blockedBy).toEqual([{ id: a.id, number: a.number, title: 'First', done: true, archived: false }])
     await engine.invoke('ticket.archive', [a.id])
-    expect((await ticketOf(engine, b.id))!.blockedBy).toEqual([{ id: a.id, number: a.number, title: 'First', done: true }])
+    expect((await ticketOf(engine, b.id))!.blockedBy).toEqual([{ id: a.id, number: a.number, title: 'First', done: true, archived: true }])
   })
 
   test('only Done tickets can be archived; nothing is archived when one is refused', async () => {
@@ -140,5 +140,49 @@ describe('archiving a Done ticket', () => {
     const back = await ticketOf(engine, t.id)
     expect(back!.manualColumn).toBe('done')
     expect(back!.state.column).toBe('done')
+  })
+})
+
+describe('the app reading the Archive', () => {
+  test('board.get counts the archived tickets; archive.list pages them newest first with a total', async () => {
+    const { engine } = await makeEngine()
+    const a = await done(engine, 'Login page')
+    const b = await done(engine, 'Logout page')
+    const c = await done(engine, 'Settings')
+    expect((await engine.invoke('board.get')).archived).toBe(0)
+    await engine.invoke('ticket.archive', [a.id, b.id])
+    await engine.invoke('ticket.archive', [c.id])
+    expect((await engine.invoke('board.get')).archived).toBe(3)
+
+    const all = await engine.invoke('archive.list', {})
+    expect(all.total).toBe(3)
+    expect(all.tickets.map((t) => t.title)).toEqual(['Settings', 'Logout page', 'Login page'])
+    expect(all.tickets[0]!.archivedAt).toEqual(expect.any(String))
+
+    const first = await engine.invoke('archive.list', { limit: 2 })
+    expect(first.tickets).toHaveLength(2)
+    expect(first.total).toBe(3)
+    const last = first.tickets[1]!
+    const rest = await engine.invoke('archive.list', { limit: 2, before: { archivedAt: last.archivedAt, number: last.number } })
+    expect(rest.tickets.map((t) => t.title)).toEqual(['Login page'])
+
+    expect((await engine.invoke('archive.list', { query: 'log' })).total).toBe(2)
+    expect((await engine.invoke('archive.list', { query: `#${c.number}`, limit: 1 })).tickets.map((t) => t.title)).toEqual(['Settings'])
+  })
+
+  test('ticket.view opens an archived ticket with its blockers, and Blocker.archived follows the archive', async () => {
+    const { engine } = await makeEngine()
+    const a = await done(engine, 'First')
+    const b = await newTicket(engine, 'Second', 'backlog', [a.id])
+    await engine.invoke('ticket.archive', [a.id])
+
+    const viewed = await engine.invoke('ticket.view', a.id)
+    expect(viewed.archivedAt).not.toBeNull()
+    expect(viewed.state.column).toBe('done')
+    expect(viewed.promotion).toEqual({ from: null, to: null })
+    expect((await engine.invoke('ticket.view', b.id)).blockedBy).toEqual([{ id: a.id, number: a.number, title: 'First', done: true, archived: true }])
+
+    await engine.invoke('ticket.unarchive', [a.id])
+    expect((await engine.invoke('ticket.view', b.id)).blockedBy[0]!.archived).toBe(false)
   })
 })

@@ -14,6 +14,7 @@ import {
 } from '@dnd-kit/core'
 import {
   ActionIcon,
+  Anchor,
   Box,
   Button,
   Center,
@@ -28,7 +29,7 @@ import {
   Title,
   VisuallyHidden
 } from '@mantine/core'
-import { useHotkeys, useReducedMotion } from '@mantine/hooks'
+import { useDebouncedValue, useHotkeys, useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
   forwardRef,
@@ -48,7 +49,8 @@ import {
 } from 'react'
 import { baseBranchWarning } from '../../../shared/baseBranch'
 import { compareRank, isRanked } from '../../../shared/boardOrder'
-import type { Column } from '../../../shared/domain'
+import type { ArchivedTicket, Column } from '../../../shared/domain'
+import { invoke } from '../api'
 import { useWorkspaceBranches } from '../workspace/useWorkspaceBranches'
 import { useExpandOnHover } from '../expandOnHover'
 import { showError } from '../notify'
@@ -241,6 +243,36 @@ function PlaceholderLanes(): ReactElement {
   )
 }
 
+/**
+ * What the Archive holds for the board's search: how many archived tickets match, and the one a `#N` search names.
+ * Read a moment after typing stops; null when nothing is searched or nothing is archived.
+ */
+function useArchiveHint(search: string, archivedCount: number): { total: number; exact: ArchivedTicket | null } | null {
+  const [debounced] = useDebouncedValue(search.trim(), 250)
+  const [hint, setHint] = useState<{ query: string; total: number; exact: ArchivedTicket | null } | null>(null)
+  useEffect(() => {
+    if (debounced === '' || archivedCount === 0) {
+      setHint(null)
+      return
+    }
+    let stale = false
+    invoke('archive.list', { query: debounced, limit: 1 })
+      .then((r) => {
+        if (stale) return
+        const exact = /^#\d+$/.test(debounced) && r.total === 1 ? (r.tickets[0] ?? null) : null
+        setHint({ query: debounced, total: r.total, exact })
+      })
+      .catch(() => {
+        if (!stale) setHint(null)
+      })
+    return () => {
+      stale = true
+    }
+  }, [debounced, archivedCount])
+  // A stale answer must not show for words no longer in the box.
+  return hint !== null && hint.query === search.trim() ? hint : null
+}
+
 /** Where a card held over Backlog or Ready would land. */
 interface DropAt {
   column: Column
@@ -281,6 +313,9 @@ export function Board(): ReactElement {
   const setSearch = useMainbus((s) => s.setSearch)
   const recentlyChanged = useMainbus((s) => s.recentlyChanged)
   const askOrchestrator = useMainbus((s) => s.askOrchestrator)
+  const archivedCount = useMainbus((s) => s.archivedCount)
+  const openArchive = useMainbus((s) => s.openArchive)
+  const archiveHint = useArchiveHint(search, archivedCount)
   const [creating, setCreating] = useState(false)
   // The ticket in Review whose Merge… dialog is open.
   const [mergeTarget, setMergeTarget] = useState<BoardTicket | null>(null)
@@ -337,6 +372,19 @@ export function Board(): ReactElement {
 
   // Stable props and per-column arrays, so a refresh re-renders only the cards that changed.
   const onMove = useCallback((t: BoardTicket, to: ManualColumn) => void moveTicket(t, to), [moveTicket])
+  const onArchive =useCallback(async (t: BoardTicket): Promise<void> => {
+    const { announce, refreshBoard } = useMainbus.getState()
+    try {
+      await invoke('ticket.archive', [t.id])
+      await refreshBoard()
+      announce(`Archived #${t.number} ${t.title}`)
+    } catch (err) {
+      showError(err, "Can't archive this ticket")
+      return
+    }
+    // The card is gone, and focus with it: back to the Done lane, which opens, and from which Archive is a Tab away.
+    setTimeout(() => document.querySelector<HTMLElement>('[data-done-lane]')?.focus(), 0)
+  }, [])
   // Backlog and Ready in the user's order (a pending rank shows a card in its new place at once); the rest as the engine sends them.
   const inColumn = useMemo(() => {
     const out = new Map<Column, BoardTicket[]>(COLUMNS.map((c) => [c.id, []]))
@@ -558,6 +606,7 @@ export function Board(): ReactElement {
         </Stack>
         <Group gap="md">
           {!empty && (
+            <Stack gap={2}>
             <TextInput
               ref={searchRef}
               aria-label="Search tickets"
@@ -566,6 +615,11 @@ export function Board(): ReactElement {
               onChange={(e) => setSearch(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') setSearch('')
+                // An archived ticket named by number opens on Enter, not while typing: #12 comes on the way to #123.
+                if (e.key === 'Enter' && archiveHint?.exact) {
+                  e.preventDefault()
+                  openTicket(archiveHint.exact.id)
+                }
               }}
               rightSection={
                 search !== '' ? (
@@ -580,6 +634,21 @@ export function Board(): ReactElement {
                 ) : null
               }
             />
+            <Text size="xs" role="status" data-testid="archive-hint">
+              {archiveHint?.exact ? (
+                <>
+                  #{archiveHint.exact.number} {archiveHint.exact.title} is archived.{' '}
+                  <Anchor component="button" type="button" size="xs" onClick={() => openTicket(archiveHint.exact!.id)}>
+                    Open it
+                  </Anchor>
+                </>
+              ) : archiveHint && archiveHint.total > 0 ? (
+                <Anchor component="button" type="button" size="xs" onClick={() => openArchive(search.trim())}>
+                  {archiveHint.total} more in the Archive
+                </Anchor>
+              ) : null}
+            </Text>
+            </Stack>
           )}
           <UnattendedSwitch />
           <ActionIcon variant="default" size="lg" aria-label="Workspace settings" onClick={openSettings}>
@@ -645,7 +714,8 @@ export function Board(): ReactElement {
                 onMove,
                 onReorder,
                 onPropose,
-                onMerge: setMergeTarget
+                onMerge: setMergeTarget,
+                onArchive
               }
               return c.id === 'done' ? (
                 <DoneColumn key={c.id} {...props} />
@@ -681,6 +751,8 @@ interface ColumnProps {
   onPropose: (ticket: BoardTicket) => void
   /** Opens Merge… for a ticket in Review. */
   onMerge: (ticket: BoardTicket) => void
+  /** Archives a Done ticket: it leaves the board for the Archive. */
+  onArchive: (ticket: BoardTicket) => void
 }
 
 const BoardColumn = memo(function BoardColumn({
@@ -697,6 +769,7 @@ const BoardColumn = memo(function BoardColumn({
   onReorder,
   onPropose,
   onMerge,
+  onArchive,
   collapsed = false
 }: ColumnProps & {
   /** Needs you with no tickets: a narrow strip with its title and count, like Done's, that never opens. */
@@ -736,6 +809,7 @@ const BoardColumn = memo(function BoardColumn({
         onReorder={onReorder}
         onPropose={onPropose}
         onMerge={onMerge}
+        onArchive={onArchive}
       />
     </Paper>
   )
@@ -760,6 +834,7 @@ function ColumnCards({
   onReorder,
   onPropose,
   onMerge,
+  onArchive,
   hidden = false
 }: Omit<ColumnProps, 'id' | 'title'> & { hidden?: boolean }): ReactElement {
   return (
@@ -785,6 +860,7 @@ function ColumnCards({
             onReorder={onReorder}
             onPropose={onPropose}
             onMerge={onMerge}
+            onArchive={onArchive}
           />
         </Fragment>
       ))}
@@ -839,6 +915,8 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
     if (focused) resync()
   }, [tickets, focused, resync])
   const cleaningUp = tickets.some((t) => pendingMoves[t.id] === 'done')
+  const archivedCount = useMainbus((s) => s.archivedCount)
+  const openArchive = useMainbus((s) => s.openArchive)
   const headingId = `column-${id}`
   const countId = `column-${id}-count`
 
@@ -875,6 +953,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
       tabIndex={0}
       className="mantine-focus-auto"
       data-expanded={open}
+      data-done-lane
       data-lane
       p="xs"
       radius={0}
@@ -911,6 +990,18 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
         </StripBody>
       )}
       <VisuallyHidden id={countId}>{ticketCount(tickets.length)}</VisuallyHidden>
+      {/* Outside the cards, which are inert while Done is closed; only an open Done shows it. */}
+      {open && archivedCount > 0 && (
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          data-archive-button
+          onClick={() => openArchive()}
+          styles={{ root: { marginBottom: 'var(--mantine-spacing-xs)' } }}
+        >
+          Archive ({archivedCount})
+        </Button>
+      )}
       <ColumnCards tickets={tickets} pendingMoves={pendingMoves} {...rest} hidden={!open} />
     </Paper>
   )
@@ -931,6 +1022,7 @@ interface DraggableProps {
   onPropose: (ticket: BoardTicket) => void
   /** Opens Merge… for a ticket in Review. */
   onMerge: (ticket: BoardTicket) => void
+  onArchive: (ticket: BoardTicket) => void
 }
 
 /**
@@ -948,7 +1040,8 @@ const DraggableTicket = memo(function DraggableTicket({
   onMove,
   onReorder,
   onPropose,
-  onMerge
+  onMerge,
+  onArchive
 }: DraggableProps): ReactElement {
   const moving = movingTo !== null
   const ranked = isRanked(ticket.state.column)
@@ -1101,6 +1194,11 @@ const DraggableTicket = memo(function DraggableTicket({
         {ticket.state.column === 'review' && ticket.branch !== null && (
           <Menu.Item disabled={moving} onClick={() => onMerge(ticket)}>
             Merge…
+          </Menu.Item>
+        )}
+        {ticket.state.column === 'done' && (
+          <Menu.Item disabled={moving} onClick={() => onArchive(ticket)}>
+            Archive
           </Menu.Item>
         )}
       </Menu.Dropdown>

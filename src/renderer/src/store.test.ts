@@ -386,3 +386,81 @@ test('focusWorkspace focuses it, closes an open ticket and shows its board', asy
   expect(useMainbus.getState().workspace?.id).toBe('w9')
   expect(useMainbus.getState().currentTicketId).toBeNull()
 })
+
+describe('a ticket that is not on the board (archived)', () => {
+  const archived = () => makeTicket({ id: 'a1', number: 7, manualColumn: 'done', archivedAt: '2026-11-10T00:00:00.000Z' })
+
+  test('board.get keeps the archived count, and a reply without one leaves it', async () => {
+    mockInvoke.mockResolvedValue({ tickets: [], archived: 4 })
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().archivedCount).toBe(4)
+  })
+
+  test('openTicket for an id off the board reads it with ticket.view', async () => {
+    const t = archived()
+    mockInvoke.mockImplementation(async (command: string) => (command === 'ticket.view' ? t : undefined))
+    useMainbus.getState().openTicket('a1')
+    expect(useMainbus.getState().currentTicketId).toBe('a1')
+    expect(useMainbus.getState().offBoardLoading).toBe(true)
+    await vi.waitFor(() => expect(useMainbus.getState().offBoardTicket).toEqual(t))
+    expect(useMainbus.getState().offBoardLoading).toBe(false)
+    expect(mockInvoke).toHaveBeenCalledWith('ticket.view', 'a1')
+  })
+
+  test('openTicket for a ticket on the board reads nothing', () => {
+    const t = makeTicket()
+    useMainbus.setState({ tickets: [t] })
+    useMainbus.getState().openTicket(t.id)
+    expect(mockInvoke).not.toHaveBeenCalled()
+    expect(useMainbus.getState().offBoardTicket).toBeNull()
+  })
+
+  test('refreshBoard follows the open ticket off the board when archived, and back on when restored', async () => {
+    const t = { ...archived(), archivedAt: null }
+    let onBoard = [t]
+    let view: ReturnType<typeof makeTicket> = t
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'board.get') return { tickets: onBoard, archived: onBoard.length === 0 ? 1 : 0 }
+      if (command === 'ticket.view') return view
+      return undefined
+    })
+    await useMainbus.getState().refreshBoard()
+    useMainbus.getState().openTicket('a1')
+    expect(useMainbus.getState().offBoardTicket).toBeNull()
+
+    onBoard = []
+    view = archived()
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().tickets).toEqual([])
+    expect(useMainbus.getState().offBoardTicket?.archivedAt).not.toBeNull()
+    expect(useMainbus.getState().archivedCount).toBe(1)
+
+    onBoard = [t]
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().tickets).toHaveLength(1)
+    expect(useMainbus.getState().offBoardTicket).toBeNull()
+  })
+
+  test('an unreadable ticket leaves no off-board ticket and no spinner', async () => {
+    mockInvoke.mockRejectedValue(new Error('gone'))
+    useMainbus.getState().openTicket('nope')
+    await vi.waitFor(() => expect(useMainbus.getState().offBoardLoading).toBe(false))
+    expect(useMainbus.getState().offBoardTicket).toBeNull()
+  })
+
+  test('closing the ticket drops it; announce counts so the same words are read again', () => {
+    useMainbus.setState({ offBoardTicket: archived(), currentTicketId: 'a1' })
+    useMainbus.getState().closeTicket()
+    expect(useMainbus.getState().offBoardTicket).toBeNull()
+    useMainbus.getState().announce('Archived #7')
+    useMainbus.getState().announce('Archived #7')
+    expect(useMainbus.getState().announcement).toEqual({ text: 'Archived #7', n: 2 })
+  })
+
+  test('openArchive keeps the query it was given; closeArchive clears it', () => {
+    useMainbus.getState().openArchive('login')
+    expect(useMainbus.getState()).toMatchObject({ archiveOpen: true, archiveQuery: 'login' })
+    useMainbus.getState().closeArchive()
+    expect(useMainbus.getState()).toMatchObject({ archiveOpen: false, archiveQuery: '' })
+  })
+})
