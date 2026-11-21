@@ -51,7 +51,7 @@ test.each(['light', 'dark'] as const)('%s looks exactly as it did before the the
   // in it, nor the board's lane and card border, added since.
   const now = resolvedVariables(id)
   const before = Object.keys(now)
-    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$|^--mainbus-code-|^--mainbus-rail-/.test(k))
+    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$|^--mainbus-(tooltip|menu-item-hover)|^--mainbus-code-|^--mainbus-rail-/.test(k))
     .sort()
   expect(Object.fromEntries(before.map((k) => [k, now[k]]))).toMatchSnapshot()
 })
@@ -162,6 +162,20 @@ describe.each(THEME_IDS)('%s', (id) => {
       ['a lane heading on the lane', text, vars['--mainbus-color-lane']],
       ['a lane count and its placeholder on the lane', dimmed, vars['--mainbus-color-lane']],
       ['placeholder on a surface', color('placeholder'), surface],
+      // Floating surfaces, as Mantine paints them: a popover, menu, hover card, combobox list and notification are on
+      // the surface (white in light, dark-6 in dark; the combobox list is dark-7 in dark).
+      ['tooltip text on its background', vars['--mainbus-tooltip-fg'], vars['--mainbus-tooltip-bg']],
+      ['a menu or popover: text on its dropdown', text, scheme === 'light' ? color('white') : color('dark-6')],
+      ['a menu or popover: dimmed on its dropdown', dimmed, scheme === 'light' ? color('white') : color('dark-6')],
+      ['a menu item: text when hovered', text, vars['--mainbus-menu-item-hover']],
+      ['a menu item: dimmed when hovered', dimmed, vars['--mainbus-menu-item-hover']],
+      ['a combobox list or the @-mention list: text', text, scheme === 'light' ? color('white') : color('dark-7')],
+      ['a combobox list or the @-mention list: dimmed detail', dimmed, scheme === 'light' ? color('white') : color('dark-7')],
+      ['a combobox option when hovered: text', text, scheme === 'light' ? color('gray-0') : color('dark-7')],
+      ['a combobox option when hovered: dimmed detail', dimmed, scheme === 'light' ? color('gray-0') : color('dark-7')],
+      ['a selected combobox option: white on the primary fill', white, vars['--mantine-primary-color-filled']],
+      ['a notification: text', text, scheme === 'light' ? color('white') : color('dark-6')],
+      ['a notification: its description (dimmed)', dimmed, scheme === 'light' ? color('white') : color('dark-6')],
       ['anchor on ground', color('anchor'), ground],
       ['anchor on a surface', color('anchor'), surface],
       ['needs text on ground', color('needs-7'), ground],
