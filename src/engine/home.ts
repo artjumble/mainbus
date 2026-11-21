@@ -79,7 +79,20 @@ export function attachmentFoldersFor(paths: HomePaths, slug: string): string {
  * path alone, so a pending cleanup that only knows the worktree path can find it.
  */
 export function scratchPathFor(paths: HomePaths, worktreePath: string): string {
-  return path.join(paths.scratch, path.basename(path.dirname(worktreePath)), path.basename(worktreePath))
+  const slug = path.basename(path.dirname(worktreePath))
+  const name = path.basename(worktreePath)
+  // The layout decides: a worktree in `<root>\work\<slug>\<name>` has its scratch in `<root>\scratch\<slug>\<name>`,
+  // whichever root the ticket folders setting names now, so a ticket made before a change keeps its scratch folder.
+  const workFolder = path.dirname(path.dirname(worktreePath))
+  const isWork = path.basename(workFolder) === 'work' || (process.platform === 'win32' && path.basename(workFolder).toLowerCase() === 'work')
+  if (isWork && path.dirname(workFolder) !== workFolder) return path.join(path.dirname(workFolder), 'scratch', slug, name)
+  return path.join(paths.scratch, slug, name)
+}
+
+/** `paths` with the ticket folders (worktrees, scratch, baselines) under `location`; the data home's own when it is null. */
+export function ticketPathsFor(paths: HomePaths, location: string | null): HomePaths {
+  if (location === null) return paths
+  return { ...paths, worktrees: path.join(location, 'work'), scratch: path.join(location, 'scratch'), baselines: path.join(location, 'base') }
 }
 
 /** The folder holding all of a workspace's ticket worktrees: `work\<workspace slug>`. */

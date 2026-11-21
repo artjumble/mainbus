@@ -58,7 +58,14 @@ export interface AppSettings {
   reviewDoneTickets: boolean
   /** How many minutes after the last ticket reached Done the review turn waits, so a run of merges is one review. */
   reviewDoneWaitMinutes: number
+  /**
+   * "Ticket folders location": the root where new tickets' worktrees (`work`), scratch folders (`scratch`) and the
+   * base-test folders (`base`) are made, such as a Dev Drive. Null means the data home. Tickets that already have a folder keep it.
+   */
+  ticketFoldersLocation: string | null
 }
+
+export const TICKET_FOLDERS_LOCATION_MAX = 1000
 
 export const REVIEW_DONE_DEFAULT = true
 export const REVIEW_DONE_WAIT_MIN = 1

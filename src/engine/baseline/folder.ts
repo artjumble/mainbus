@@ -31,16 +31,19 @@ export interface BaselineFolder extends BaselineFolders {
 export class BaselineWorktrees {
   constructor(
     private readonly git: GitRunner,
-    private readonly paths: HomePaths
+    /** Where the baseline folders go: fixed, or looked up each time (the "Ticket folders location" setting can change). */
+    private readonly paths: HomePaths | (() => Promise<HomePaths>)
   ) {}
 
-  foldersFor(ws: Pick<Workspace, 'slug'>): BaselineFolders {
-    return baselineFoldersFor(this.paths, ws.slug)
+  async foldersFor(ws: Pick<Workspace, 'slug'>): Promise<BaselineFolders> {
+    return baselineFoldersFor(typeof this.paths === 'function' ? await this.paths() : this.paths, ws.slug)
   }
 
   /** Makes the worktree if it isn't there, else moves it to `sha` and removes untracked files that aren't ignored (installed dependencies stay). */
   async ensure(ws: Pick<Workspace, 'slug' | 'repoPath'>, sha: string): Promise<BaselineFolder> {
-    const f = this.foldersFor(ws)
+    const f = await this.foldersFor(ws)
+    // The location setting may have moved: a baseline in another root goes, and this run makes one in the current root.
+    await this.removeElsewhere(ws, f.repo)
     await fs.mkdir(f.root, { recursive: true })
     let created = false
     if (!(await this.isRegistered(ws.repoPath, f.repo)) || !(await exists(f.repo))) {
@@ -63,15 +66,43 @@ export class BaselineWorktrees {
     return { ...f, created }
   }
 
-  /** Removes the worktree and the workspace's whole baseline folder. Never throws: a leftover is only disk space. */
+  /** Removes the worktree and the workspace's whole baseline folder, in every root it was made in. Never throws: a leftover is only disk space. */
   async remove(ws: Pick<Workspace, 'slug' | 'repoPath'>): Promise<void> {
-    const f = this.foldersFor(ws)
     try {
+      const f = await this.foldersFor(ws)
+      await this.removeElsewhere(ws, f.repo)
       if (await this.isRegistered(ws.repoPath, f.repo)) await this.git(worktreeArgs('remove', '--force', f.repo), ws.repoPath)
       await fs.rm(f.root, { recursive: true, force: true, maxRetries: 3 })
       await this.git(worktreeArgs('prune'), ws.repoPath)
     } catch {
       // Repo gone or git unavailable.
+    }
+  }
+
+  /**
+   * Removes the workspace's baseline worktrees (detached, `base\<slug>\r`) that are not at `keep`: the "Ticket folders
+   * location" changed since they were made. Never throws.
+   */
+  private async removeElsewhere(ws: Pick<Workspace, 'slug' | 'repoPath'>, keep: string): Promise<void> {
+    try {
+      const list = await this.git(['worktree', 'list', '--porcelain'], ws.repoPath)
+      if (list.code !== 0) return
+      const keepCanonical = await canonical(keep)
+      const tail = `/base/${ws.slug}/r`.toLowerCase()
+      let removed = false
+      for (const block of list.stdout.split(/\r?\n\r?\n/)) {
+        const lines = block.split(/\r?\n/)
+        const first = lines.find((l) => l.startsWith('worktree '))
+        if (!first || !lines.includes('detached')) continue
+        const dir = first.slice('worktree '.length)
+        if (!dir.replace(/\\/g, '/').toLowerCase().endsWith(tail) || (await canonical(dir)) === keepCanonical) continue
+        await this.git(worktreeArgs('remove', '--force', dir), ws.repoPath)
+        await fs.rm(path.dirname(dir), { recursive: true, force: true, maxRetries: 3 })
+        removed = true
+      }
+      if (removed) await this.git(worktreeArgs('prune'), ws.repoPath)
+    } catch {
+      // Only disk space.
     }
   }
 

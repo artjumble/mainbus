@@ -1,5 +1,7 @@
+import path from 'node:path'
 import { eq, inArray } from 'drizzle-orm'
 import {
+  TICKET_FOLDERS_LOCATION_MAX,
   AGENT_CAP_DEFAULT,
   AGENT_CAP_MAX,
   AGENT_CAP_MIN,
@@ -43,6 +45,7 @@ const ORCHESTRATOR_MODEL = 'orchestrator_model'
 const ORCHESTRATOR_EFFORT = 'orchestrator_effort'
 const REVIEW_DONE = 'review_done'
 const REVIEW_DONE_WAIT = 'review_done_wait'
+const TICKET_FOLDERS_LOCATION = 'ticket_folders_location'
 // The choice: a theme id or 'system'. Before named themes it held 'light', 'dark' or 'system', which are still choices.
 const THEME = 'theme'
 const VOICE_ENABLED = 'voice_enabled'
@@ -64,6 +67,11 @@ function isThemeOf(scheme: ThemeScheme, v: unknown): v is ThemeId {
 export interface StoredUsageLimit {
   since: string
   resetsAt: string | null
+}
+
+/** True for a non-empty absolute path of a sane length (the shape; the folder itself is checked when saving through the engine). */
+function validLocation(v: string): boolean {
+  return v.length > 0 && v.length <= TICKET_FOLDERS_LOCATION_MAX && (path.win32.isAbsolute(v) || path.posix.isAbsolute(v))
 }
 
 /** True for a whole number the setting accepts. */
@@ -96,6 +104,8 @@ export interface SettingsRepo {
   setMatchWindowsTheme(scheme: ThemeScheme, id: ThemeId): Promise<AppSettings>
   /** Stores the given Voice input settings; rejects a model not offered, an unknown language or a long microphone id. */
   setVoice(patch: Partial<VoiceSettings>): Promise<AppSettings>
+  /** Stores where new tickets' folders go (an absolute path), or null for the data home. Shape only: see checkTicketFoldersLocation. */
+  setTicketFoldersLocation(location: string | null): Promise<AppSettings>
   /** The usage limit Mainbus is in, or null when it is not limited. */
   usageLimit(): Promise<StoredUsageLimit | null>
   /** Stores the usage limit; null clears it. */
@@ -108,7 +118,7 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     const rows = await db
       .select()
       .from(appSettings)
-      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, ORCHESTRATOR_MODEL, ORCHESTRATOR_EFFORT, REVIEW_DONE, REVIEW_DONE_WAIT, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark, VOICE_ENABLED, VOICE_MODEL, VOICE_LANGUAGE, VOICE_MICROPHONE]))
+      .where(inArray(appSettings.key, [MAX_AGENTS, WHEN_CLOSED, ORCHESTRATOR_WEB, ORCHESTRATOR_MODEL, ORCHESTRATOR_EFFORT, REVIEW_DONE, REVIEW_DONE_WAIT, TICKET_FOLDERS_LOCATION, THEME, MATCH_WINDOWS.light, MATCH_WINDOWS.dark, VOICE_ENABLED, VOICE_MODEL, VOICE_LANGUAGE, VOICE_MICROPHONE]))
     const value = (key: string): string | undefined => rows.find((r) => r.key === key)?.value
     const stored = Number(value(MAX_AGENTS) ?? NaN)
     const choice = value(THEME)
@@ -128,6 +138,7 @@ export function createSettingsRepo(db: Db): SettingsRepo {
       orchestratorEffort: isEffort(effort) ? effort : ORCHESTRATOR_EFFORT_DEFAULT,
       reviewDoneTickets: value(REVIEW_DONE) === 'off' ? false : REVIEW_DONE_DEFAULT,
       reviewDoneWaitMinutes: validReviewWait(wait) ? wait : REVIEW_DONE_WAIT_DEFAULT,
+      ticketFoldersLocation: ((v) => (v !== undefined && validLocation(v) ? v : null))(value(TICKET_FOLDERS_LOCATION)),
       theme: {
         choice: isThemeChoice(choice) ? choice : THEME_SETTING_DEFAULT.choice,
         light: isThemeOf('light', light) ? light : THEME_SETTING_DEFAULT.light,
@@ -223,6 +234,17 @@ export function createSettingsRepo(db: Db): SettingsRepo {
       if (patch.model !== undefined) await put(VOICE_MODEL, patch.model)
       if (patch.language !== undefined) await put(VOICE_LANGUAGE, patch.language)
       if (patch.microphone !== undefined) await put(VOICE_MICROPHONE, patch.microphone)
+      return get()
+    },
+    async setTicketFoldersLocation(location) {
+      if (location === null) {
+        await db.delete(appSettings).where(eq(appSettings.key, TICKET_FOLDERS_LOCATION))
+        return get()
+      }
+      if (typeof location !== 'string' || !validLocation(location)) {
+        throw new Error(`The ticket folders location must be a full path of at most ${TICKET_FOLDERS_LOCATION_MAX} characters`)
+      }
+      await put(TICKET_FOLDERS_LOCATION, location)
       return get()
     },
     async setMatchWindowsTheme(scheme, id) {

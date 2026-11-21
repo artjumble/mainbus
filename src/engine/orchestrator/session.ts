@@ -106,6 +106,8 @@ export interface OrchestratorDeps {
   homeRoot: string
   /** The data home's folders: every open workspace's ticket folders are readable. */
   paths: HomePaths
+  /** The folders holding a workspace's ticket folders (the data home's, and any under the "Ticket folders location"); without it, the data home's. */
+  ticketFolders?: (ws: Workspace) => Promise<string[]>
   now: () => Date
   emit: (e: EngineEvent) => void
   /** Whether the user lets the orchestrator read web pages; asked at every tool call, so a change applies at once. */
@@ -874,9 +876,12 @@ export class OrchestratorSession {
    */
   private async readable(): Promise<{ folders: string[]; ticketFolders: string[]; attachmentFolders: string[]; key: string }> {
     const all = await this.deps.workspaces()
-    const ticketFolders = all.map((w) => ticketFoldersFor(this.deps.paths, w.slug))
+    const ticketFolders = (
+      await Promise.all(all.map((w) => this.deps.ticketFolders?.(w) ?? Promise.resolve([ticketFoldersFor(this.deps.paths, w.slug)])))
+    ).flat()
     const attachmentFolders = all.map((w) => attachmentFoldersFor(this.deps.paths, w.slug))
-    await Promise.all([...ticketFolders, ...attachmentFolders].map((f) => fs.mkdir(f, { recursive: true })))
+    // A folder on a drive that is gone must not stop the orchestrator.
+    await Promise.all([...ticketFolders, ...attachmentFolders].map((f) => fs.mkdir(f, { recursive: true }).catch(() => {})))
     const folders = [...all.map((w) => w.repoPath), ...ticketFolders, ...attachmentFolders]
     return { folders, ticketFolders, attachmentFolders, key: JSON.stringify(folders) }
   }

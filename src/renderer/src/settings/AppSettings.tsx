@@ -4,6 +4,7 @@ import type { UsageTotals } from '../../../shared/usageTotals'
 import { invoke } from '../api'
 import { UsageTotalsView } from '../ticket/UsageSection'
 import { OrchestratorSettings } from './OrchestratorSettings'
+import { TicketFoldersSettings } from './TicketFoldersSettings'
 import { ThemeSettings } from './ThemeSettings'
 import { VoiceSettings } from './VoiceSettings'
 
@@ -50,6 +51,9 @@ export function AppSettings({ opened, onClose }: Props): ReactElement {
         </Section>
         <Section title="Orchestrator">
           <OrchestratorSettings opened={opened} />
+        </Section>
+        <Section title="Ticket folders">
+          <TicketFoldersSettings opened={opened} />
         </Section>
         <Section title="Voice input">
           <VoiceSettings opened={opened} />

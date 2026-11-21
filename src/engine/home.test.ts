@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { invocationDir, resolveHome, scratchPathFor } from './home'
+import { invocationDir, resolveHome, scratchPathFor, ticketFoldersFor, ticketPathsFor, baselineFoldersFor } from './home'
 
 // Expectations are built with the same flavour of path module the code runs under.
 const p = process.platform === 'win32' ? path.win32 : path.posix
@@ -81,5 +81,38 @@ describe('invocationDir', () => {
     expect(invocationDir({ ...env, npm_lifecycle_event: 'dev' }, 'mainbus', '/pkg')).toBe('/pkg')
     expect(invocationDir({ npm_lifecycle_event: 'mainbus' }, 'mainbus', '/pkg')).toBe('/pkg')
     expect(invocationDir({}, 'mainbus', '/pkg')).toBe('/pkg')
+  })
+})
+
+describe('ticketPathsFor', () => {
+  const mb = p.resolve(p.sep, 'mb')
+  const home = resolveHome({ MAINBUS_HOME: mb }, 'stable', 'C:\\Users\\x')
+
+  it('is the data home unchanged without a location', () => {
+    expect(ticketPathsFor(home, null)).toBe(home)
+  })
+
+  it('moves only the worktrees, scratch and baselines under a custom root', () => {
+    const root = p.resolve(p.sep, 'fast', 'mb')
+    const moved = ticketPathsFor(home, root)
+    expect(moved.worktrees).toBe(p.join(root, 'work'))
+    expect(moved.scratch).toBe(p.join(root, 'scratch'))
+    expect(moved.baselines).toBe(p.join(root, 'base'))
+    expect(ticketFoldersFor(moved, 'repo')).toBe(p.join(root, 'work', 'repo'))
+    expect(baselineFoldersFor(moved, 'repo').repo).toBe(p.join(root, 'base', 'repo', 'r'))
+    expect({ ...moved, worktrees: home.worktrees, scratch: home.scratch, baselines: home.baselines }).toEqual(home)
+  })
+
+  it('puts a ticket scratch beside its own work folder, whichever root is current', () => {
+    const root = p.resolve(p.sep, 'fast', 'mb')
+    const wt = p.join(root, 'work', 'repo', '3-thing')
+    expect(scratchPathFor(home, wt)).toBe(p.join(root, 'scratch', 'repo', '3-thing'))
+    expect(scratchPathFor(ticketPathsFor(home, root), wt)).toBe(p.join(root, 'scratch', 'repo', '3-thing'))
+    const old = p.join(mb, 'work', 'repo', '2-old')
+    expect(scratchPathFor(ticketPathsFor(home, root), old)).toBe(p.join(mb, 'scratch', 'repo', '2-old'))
+  })
+
+  it('falls back to the scratch folder for a worktree that is not in a work folder', () => {
+    expect(scratchPathFor(home, p.resolve(p.sep, 'elsewhere', 'repo', '3-thing'))).toBe(p.join(home.scratch, 'repo', '3-thing'))
   })
 })
