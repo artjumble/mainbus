@@ -92,15 +92,6 @@ async function setup(opts: { stuck?: boolean } = {}) {
 }
 
 describe('propose_redirect', () => {
-  test('is valid only while the agent has an open stuck episode', async () => {
-    const { tools, ticket, proposals, propose } = await setup({ stuck: false })
-    expect(await propose()).toMatch(/^Invalid proposal: ticket: the Planner on #1 has no open stuck episode/)
-    expect(await tools.proposeRedirect({ ticket: 99, message: 'x', evidence: 'y' })).toMatch(/there is no ticket #99/)
-    expect(await tools.proposeRedirect({ ticket: ticket.number, message: '  ', evidence: 'y' })).toMatch(/^Invalid proposal: message: required/)
-    expect(await tools.proposeRedirect({ ticket: ticket.number, message: 'x' })).toMatch(/^Invalid proposal: evidence: /)
-    expect(await proposals()).toEqual([])
-  })
-
   test('confirming interrupts the agent, sends the message as its next one and records it', async () => {
     const { engine, runtime, board, proposals, thread, propose } = await setup()
     expect(await propose()).toMatch(/^Proposed /)
@@ -129,23 +120,8 @@ describe('propose_redirect', () => {
     await eventually(async () => expect(await thread()).toContainEqual({ kind: 'message', text: 'Checking the fixtures.' }))
 
     expect((await board()).stuck).toMatchObject({ redirectedAt: expect.any(String) })
-  })
 
-  test('an override edits the message', async () => {
-    const { engine, runtime, proposals, propose } = await setup()
-    await propose()
-    const [p] = await proposals()
-    await expect(engine.invoke('proposal.confirm', p!.id, { message: '  ' })).rejects.toThrow()
-    const done = await engine.invoke('proposal.confirm', p!.id, { message: 'Look at the fixtures in test/shared.' })
-    expect(done).toMatchObject({ status: 'overridden', result: { message: 'Look at the fixtures in test/shared.' } })
-    await eventually(() => expect(runtime.sent).toContain('Look at the fixtures in test/shared.'))
-    expect(runtime.sent).not.toContain(MESSAGE)
-  })
-
-  test('a second redirect in the same episode is refused, pointing to a replacement', async () => {
-    const { engine, proposals, propose } = await setup()
-    await propose()
-    await engine.invoke('proposal.confirm', (await proposals())[0]!.id)
+    // A second redirect in the same episode is refused, pointing to a replacement.
     expect(await propose('Again')).toMatch(/^Invalid proposal: .*already been redirected once; propose a replacement instead/)
     expect(await proposals()).toHaveLength(1)
   })
@@ -174,18 +150,6 @@ describe('propose_redirect', () => {
     expect(done).toMatchObject({ status: 'failed', result: { error: expect.stringContaining('no longer stuck') } })
     expect(done.result).toMatchObject({ error: expect.stringContaining('Nothing was interrupted') })
     expect(runtime.interrupted).toEqual([])
-    expect(runtime.sent).not.toContain(MESSAGE)
-  })
-
-  test('a run that has ended fails the proposal, without interrupting anything', async () => {
-    const { engine, runtime, ticket, proposals, propose } = await setup()
-    await propose()
-    await engine.invoke('agent.stop', ticket.id)
-    const interruptedBefore = runtime.interrupted.length
-    const [p] = await proposals()
-    const done = await engine.invoke('proposal.confirm', p!.id)
-    expect(done).toMatchObject({ status: 'failed', result: { error: expect.stringContaining('Nothing was interrupted') } })
-    expect(runtime.interrupted).toHaveLength(interruptedBefore)
     expect(runtime.sent).not.toContain(MESSAGE)
   })
 

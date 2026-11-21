@@ -3,8 +3,9 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal, StartLineupPayload, StartLineupResult } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { expectNoAxeViolations, optionLabels, renderWithMantine } from '../test-utils'
+import { optionLabels, renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
+import { expectCardAccessible } from './proposalTestUtils'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
@@ -145,8 +146,5 @@ test('the receipt says where the ticket is and who is working, with an Open tick
 })
 
 test('the card and its Override editor have no axe violations', async () => {
-  renderWithMantine(<ProposalCard proposal={proposal()} />)
-  await expectNoAxeViolations()
-  await userEvent.click(screen.getByRole('button', { name: 'Override' }))
-  await expectNoAxeViolations()
+  await expectCardAccessible(proposal())
 })

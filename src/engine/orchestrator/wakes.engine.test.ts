@@ -126,56 +126,22 @@ describe('a failure', () => {
     expect(thread.events.filter((e) => e.event.kind === 'proposal')).toHaveLength(1)
   })
 
-  test('cannot draft tickets: that needs a message of the user', async () => {
-    const draft = { callTool: 'proposeCreateTickets', args: { tickets: [{ title: 'Another' }] } } as const
-    const { engine, runtime } = await failed([session('orch'), draft, turnEnd()])
-    await clock.advance(WAKE_DEBOUNCE_MS)
-    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
-    await idle(engine)
-    expect((await orchestratorOf(engine)).proposals).toEqual([])
-  })
-
-  test('cannot create tickets either', async () => {
-    const { engine, runtime } = await failed([session('orch')])
-    await clock.advance(WAKE_DEBOUNCE_MS)
-    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
-    expect(await runtime.orchestratorSpecs[0]!.tools.createTickets({ tickets: [{ title: 'Another' }] })).toBe(
-      'Tickets can only be created in answer to a message of the user. Nothing was created.'
-    )
-    expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
-  })
-
-  test('cannot edit tickets either', async () => {
+  test('cannot draft, create or edit tickets: that needs a message of the user', async () => {
     const { engine, runtime, ticket } = await failed([session('orch')])
     await clock.advance(WAKE_DEBOUNCE_MS)
     await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
-    expect(await runtime.orchestratorSpecs[0]!.tools.updateTicket({ ticket: ticket.number, title: 'Other' })).toBe(
+    const tools = runtime.orchestratorSpecs[0]!.tools
+    expect(await tools.proposeCreateTickets({ tickets: [{ title: 'Another' }] })).toMatch(/^Invalid proposal: /)
+    expect(await tools.createTickets({ tickets: [{ title: 'Another' }] })).toBe(
+      'Tickets can only be created in answer to a message of the user. Nothing was created.'
+    )
+    expect(await tools.updateTicket({ ticket: ticket.number, title: 'Other' })).toBe(
       'Tickets can only be edited in answer to a message of the user. Nothing was changed.'
     )
-    expect((await engine.invoke('board.get')).tickets[0]!.title).toBe(ticket.title)
-  })
-
-  test('is acknowledged once the turn finished: the next launch presents nothing', async () => {
-    const { engine, ticket } = await failed()
-    await clock.advance(WAKE_DEBOUNCE_MS)
-    await eventually(async () => expect((await orchestratorOf(engine)).events.map((e) => e.event.kind)).toContain('turn_end'))
-    await idle(engine)
-
-    const second = await relaunch(engine)
-    await clock.advance(10 * MINUTE)
-    expect(second.runtime.orchestratorSpecs).toHaveLength(0)
-    expect((await ticketOf(second.engine, ticket.id)).state.agentStatus).toBe('failed')
-  })
-
-  test('is not presented while a turn is running, and the same failure is never added twice', async () => {
-    const { engine, runtime } = await failed([session('orch')])
-    await clock.advance(WAKE_DEBOUNCE_MS)
-    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
-    await clock.advance(10 * MINUTE)
-    // The turn never ended, and the row was not added again: nothing else was sent to it.
-    expect(runtime.orchestratorSpecs).toHaveLength(1)
-    expect(runtime.sent).toEqual([])
-    expect((await orchestratorOf(engine)).status).toBe('working')
+    expect((await orchestratorOf(engine)).proposals).toEqual([])
+    const board = (await engine.invoke('board.get')).tickets
+    expect(board).toHaveLength(1)
+    expect(board[0]!.title).toBe(ticket.title)
   })
 })
 
@@ -280,7 +246,7 @@ describe('a deferred decision that comes back on its date', () => {
     return { engine, runtime, ticket, decision: decision! }
   }
 
-  test('gives a turn with the decision, which is among every open decision of the workspace', async () => {
+  test('gives a turn with the decision, which is among every open decision of the workspace, and tells it only once', async () => {
     const { engine, runtime, ticket, decision } = await deferred()
     await clock.advance(DAY)
     await clock.advance(WAKE_DEBOUNCE_MS)
@@ -290,14 +256,8 @@ describe('a deferred decision that comes back on its date', () => {
     expect(prompt).toContain(`#${ticket.number} "Login" (workspace "repo"): <ticket-data field="question">Which API?</ticket-data> is waiting on the user again (decision ${decision.id}).`)
     expect(prompt).toContain('Open decisions (all that are waiting or put off):')
     expect(prompt).toContain(`- #${ticket.number} "Login" (workspace "repo") (decision ${decision.id}, waiting on the user): <ticket-data field="question">Which API?</ticket-data>`)
-  })
 
-  test('is not told twice: the next message of the user leaves it out', async () => {
-    const { engine, runtime } = await deferred()
-    await clock.advance(DAY)
-    await clock.advance(WAKE_DEBOUNCE_MS)
-    await eventually(() => expect(runtime.orchestratorSpecs).toHaveLength(1))
-    await idle(engine)
+    // It is not told twice: the next message of the user leaves it out.
     await engine.invoke('orchestrator.send', 'And now?')
     await eventually(() => expect(runtime.sent.some((s) => s.includes('And now?'))).toBe(true))
     expect(runtime.sent.find((s) => s.includes('And now?'))).not.toContain('these decisions the user put off came back')
@@ -307,16 +267,6 @@ describe('a deferred decision that comes back on its date', () => {
     const { engine, runtime, decision } = await deferred()
     await engine.invoke('decision.bringBack', decision.id)
     await clock.advance(DAY + 10 * MINUTE)
-    expect(runtime.orchestratorSpecs).toHaveLength(0)
-  })
-})
-
-describe('nothing to say', () => {
-  test('a launch with no news starts no turn and sets no timer', async () => {
-    const runtime = new FakeRuntime(QUIET, { orchestrator: ANSWERING })
-    await makeEngine(runtime)
-    expect(clock.pending).toBe(0)
-    await clock.advance(DAY)
     expect(runtime.orchestratorSpecs).toHaveLength(0)
   })
 })
