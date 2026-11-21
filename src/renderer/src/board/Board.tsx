@@ -116,11 +116,14 @@ function stickyTitle(fill: string): CSSProperties {
   const xs = 'var(--mantine-spacing-xs)'
   return {
     position: 'sticky',
-    top: HEADER_H,
+    // Tucked 1 px under the header (which is above it), so a fractional header height or zoom leaves no sliver for
+    // the cards to show through; the extra top padding keeps the content where it was.
+    top: `calc(${HEADER_H} - 1px)`,
     zIndex: 1,
     background: fill,
     margin: `calc(-1 * ${xs}) calc(-1 * ${xs}) 0`,
-    padding: `${xs} calc(${xs} + 4px) 0`,
+    // Every title row, and a strip's count, starts its text at the same height: the first line sits at the top.
+    padding: `calc(${xs} + 1px) calc(${xs} + 4px) 0`,
     height: TITLE_H,
     boxSizing: 'border-box'
   }
@@ -407,7 +410,8 @@ export function Board(): ReactElement {
     const root = rootRef.current
     const header = headerRef.current
     if (!root || !header) return
-    const measure = (): void => root.style.setProperty('--board-header-h', `${header.offsetHeight}px`)
+    const measure = (): void =>
+      root.style.setProperty('--board-header-h', `${header.getBoundingClientRect().height}px`)
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
@@ -601,7 +605,7 @@ const BoardColumn = memo(function BoardColumn({
       radius={0}
       bg={laneFill(id, isOver)}
     >
-      <Group justify="space-between" align="center" wrap="nowrap" style={stickyTitle(laneCss(id, isOver))}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap" style={stickyTitle(laneCss(id, isOver))}>
         <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
           {title}
         </Title>
@@ -761,7 +765,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
       }}
     >
       {open ? (
-        <Group justify="space-between" align="center" wrap="nowrap" style={stickyTitle(laneCss(id, isOver))}>
+        <Group justify="space-between" align="flex-start" wrap="nowrap" style={stickyTitle(laneCss(id, isOver))}>
           <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={headingId}>
             {title}
           </Title>

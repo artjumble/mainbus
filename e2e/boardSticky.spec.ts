@@ -55,6 +55,33 @@ test('the header and the column titles stay at the top while the board scrolls, 
     const t = (await title.boundingBox())!
     expect(t.y).toBeGreaterThanOrEqual(h.y + h.height - 1)
     expect(t.y).toBeLessThan(h.y + h.height + 40)
+
+    // No gap: each stuck title row starts at or just under the header's bottom edge, never below it.
+    const rows = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-lane]')).map((lane) => {
+        const row = lane.querySelector('h3')?.parentElement
+        return row ? row.getBoundingClientRect().top : null
+      })
+    )
+    const headerBottom = h.y + h.height
+    for (const top of rows) {
+      expect(top).not.toBeNull()
+      expect(top!).toBeLessThanOrEqual(headerBottom + 0.01)
+      expect(top!).toBeGreaterThanOrEqual(headerBottom - 1.5)
+    }
+
+    // Titles and counts form one line: the collapsed Needs you and Done counts, and each full column's title and count.
+    const centre = async (loc: ReturnType<Page['locator']>): Promise<number> => {
+      const b = (await loc.boundingBox())!
+      return b.y + b.height / 2
+    }
+    const reference = await centre(column(page, 'Needs you, no tickets').getByTestId('column-count'))
+    const line = [await centre(column(page, 'Done').getByTestId('column-count'))]
+    for (const name of ['Backlog', 'Ready', 'In progress', 'Review']) {
+      line.push(await centre(column(page, name).getByRole('heading', { name })))
+      line.push(await centre(column(page, name).getByTestId('column-count')))
+    }
+    for (const y of line) expect(Math.abs(y - reference)).toBeLessThanOrEqual(1)
     await expect(done).toBeInViewport()
     expect((await done.boundingBox())!.y).toBeLessThan(h.y + h.height + 120)
 
