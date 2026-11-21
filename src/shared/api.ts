@@ -457,7 +457,7 @@ export interface EngineCommands {
   'settings.setOrchestratorWebAccess'(on: boolean): AppSettings
   /**
    * "Review finished tickets for follow-ups": `on` turns the orchestrator's review of tickets that reach Done on or off, and
-   * `waitMinutes` (a whole number from 1 to 30) is how long it waits after the last one. Only the renderer can reach it.
+   * `waitMinutes` (a multiple of 0.5 from 1 to 30) is how long it waits after the last one. Only the renderer can reach it.
    */
   'settings.setReviewDone'(v: { on?: boolean; waitMinutes?: number }): AppSettings
   /**

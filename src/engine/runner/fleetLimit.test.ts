@@ -31,11 +31,6 @@ let tickets: Ticket[]
 
 const RESET_AT = FIXED_NOW.getTime() + 3_600_000
 
-async function git(args: string[]): Promise<void> {
-  const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], repoPath)
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-}
-
 const rejected = (resetsAt?: number): FakeStep => ({
   emit: { kind: 'rate_limit', status: 'rejected', ...(resetsAt === undefined ? {} : { resetsAt: Math.floor(resetsAt / 1000) }), windows: {} }
 })

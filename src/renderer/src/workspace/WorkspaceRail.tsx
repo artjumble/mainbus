@@ -25,7 +25,6 @@ import { useMainbus } from '../store'
 import { BaseBranchStep } from './BaseBranchStep'
 import { GitSetup } from './GitSetup'
 import { RailTile } from './RailTile'
-import classes from './WorkspaceRail.module.css'
 
 /** The rail's layout width: always collapsed to initials, so the board never shifts. */
 export const RAIL_WIDTH = 72

@@ -240,9 +240,9 @@ function PlaceholderLanes(): ReactElement {
         ) : (
           <Paper key={c.id} component="section" data-lane radius={0} bg={laneFill(c.id)} p="xs">
             {c.id === 'done' ? (
-              <StripBody title={c.title} count={0} headingId={`empty-${c.id}`} />
+              <StripBody title={c.title} count={0} headingId={`empty-${c.id}`} fill={laneCss(c.id)} />
             ) : (
-              <Group justify="space-between" mb="xs" px={4}>
+              <Group justify="space-between" align="flex-start" wrap="nowrap" style={stickyTitle(laneCss(c.id))}>
                 <Title order={3} size="xs" tt="uppercase" lts="0.04em" id={`empty-${c.id}`}>
                   {c.title}
                 </Title>

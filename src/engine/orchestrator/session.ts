@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises'
-import path from 'node:path'
 import type { EngineEvent } from '../../shared/api'
 import type { CreateTicketsPayload, Proposal } from '../../shared/proposals'
 import type { ImageRef } from '../../shared/attachments'

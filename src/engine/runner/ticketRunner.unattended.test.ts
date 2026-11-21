@@ -6,7 +6,7 @@ import { TicketRunner } from './ticketRunner'
 import { testUsage } from './testUsage'
 import { eventually } from '../testWait'
 
-import { count, failures, git, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
+import { count, failures, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
 
 installRunnerHooks()
 

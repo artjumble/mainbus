@@ -4,7 +4,6 @@ import type { AgentEvent } from '../../shared/events'
 import { FakeRuntime } from '../runtime/fakeRuntime'
 import { Normalizer } from '../runtime/normalize'
 import { type PermissionRequest } from '../runtime/types'
-import { TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
 
 import { count, installRunnerHooks, keepAlive, makeRunner, pausedRun, permission, repos, thread, ticket, tmp, waitForPending, waitForThread } from './ticketRunnerHarness'

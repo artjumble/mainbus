@@ -29,11 +29,6 @@ let emitted: EngineEvent[]
 let runners: TicketRunner[]
 let tickets: Ticket[]
 
-async function git(args: string[], cwd = repoPath): Promise<void> {
-  const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], cwd)
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-}
-
 /** An agent that stays open until it is sent a message, then hands off. */
 function handsOffWhenSent(spec: RunSpec): FakeStep[] {
   const role = /## Your role: (.+)/.exec(spec.appendSystemPrompt)![1]!

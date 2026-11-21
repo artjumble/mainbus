@@ -7,10 +7,9 @@ import { DISALLOWED_TOOLS } from '../roles/hardening'
 import { firstMessage } from '../roles/prompt'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { type RunSpec } from '../runtime/types'
-import { TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
 
-import { NUDGE, SUMMARY_USAGE, count, emitted, exists, failures, git, installRunnerHooks, keepAlive, makeRunner, paths, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
+import { NUDGE, SUMMARY_USAGE, emitted, exists, failures, git, installRunnerHooks, keepAlive, makeRunner, paths, permission, repos, thread, ticket, waitForPending, waitForThread } from './ticketRunnerHarness'
 
 installRunnerHooks()
 
