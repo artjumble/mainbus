@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
 import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketPatch, TicketSetup } from '../../shared/domain'
 import type { Db } from '../db/open'
@@ -15,7 +15,23 @@ export interface TicketRepo {
   get(id: string): Promise<Ticket>
   /** The ticket with this number in the workspace, or null. */
   byNumber(workspaceId: string, number: number): Promise<Ticket | null>
-  list(workspaceId: string): Promise<Ticket[]>
+  /** Every ticket of the workspace by number; archived ones too unless `includeArchived` is false. */
+  list(workspaceId: string, opts?: { includeArchived?: boolean }): Promise<Ticket[]>
+  /**
+   * Archives Done tickets: a view state only (manual_column and updated_at stay). If any isn't Done it throws and
+   * archives none. Archiving again keeps the first stamp.
+   */
+  archive(ids: string[]): Promise<Ticket[]>
+  /** Clears the archive mark; the tickets are Done on the board again. */
+  unarchive(ids: string[]): Promise<Ticket[]>
+  /**
+   * The workspace's archived tickets, newest archived first. `before` is the last ticket of the previous page
+   * (bulk archives share one timestamp, so the number breaks the tie). `query` matches like the board's search.
+   */
+  listArchived(
+    workspaceId: string,
+    opts?: { query?: string; before?: { archivedAt: string; number: number }; limit?: number }
+  ): Promise<Ticket[]>
   update(id: string, patch: TicketPatch): Promise<Ticket>
   /**
    * Intent is append-only: this is the only way to add to it, and nothing edits or removes an entry. The one exception is
@@ -91,6 +107,8 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     promotedFrom: row.promotedFrom,
     runSettings: row.runSettings === null ? null : (JSON.parse(row.runSettings) as RunSettings),
     setup: row.setup === null ? null : (JSON.parse(row.setup) as TicketSetup),
+    doneAt: row.doneAt,
+    archivedAt: row.archivedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -133,6 +151,27 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       .from(criteria)
       .where(eq(criteria.ticketId, ticketId))
       .orderBy(asc(criteria.position))
+  }
+
+  /** The tickets with their criteria loaded, in the order of `rows`. */
+  async function withCriteria(rows: TicketRow[]): Promise<Ticket[]> {
+    if (rows.length === 0) return []
+    const criteriaRows = await db
+      .select()
+      .from(criteria)
+      .where(
+        inArray(
+          criteria.ticketId,
+          rows.map((r) => r.id)
+        )
+      )
+      .orderBy(asc(criteria.position))
+    return rows.map((row) =>
+      toTicket(
+        row,
+        criteriaRows.filter((c) => c.ticketId === row.id).map(({ position, text, checked }) => ({ position, text, checked }))
+      )
+    )
   }
 
   async function get(id: string): Promise<Ticket> {
@@ -241,30 +280,74 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       return row ? toTicket(row, await criteriaFor(row.id)) : null
     },
 
-    async list(workspaceId) {
-      const rows = await db
-        .select()
-        .from(tickets)
-        .where(eq(tickets.workspaceId, workspaceId))
-        .orderBy(asc(tickets.number))
-      if (rows.length === 0) return []
-      const criteriaRows = await db
-        .select()
-        .from(criteria)
-        .where(
-          inArray(
-            criteria.ticketId,
-            rows.map((r) => r.id)
+    async list(workspaceId, opts) {
+      const where =
+        opts?.includeArchived === false
+          ? and(eq(tickets.workspaceId, workspaceId), isNull(tickets.archivedAt))
+          : eq(tickets.workspaceId, workspaceId)
+      return withCriteria(await db.select().from(tickets).where(where).orderBy(asc(tickets.number)))
+    },
+
+    async archive(ids) {
+      if (ids.length === 0) return []
+      const rows = await db.select().from(tickets).where(inArray(tickets.id, ids))
+      const missing = ids.find((id) => !rows.some((r) => r.id === id))
+      if (missing !== undefined) throw new Error(`Ticket not found: ${missing}`)
+      const notDone = rows.filter((r) => r.manualColumn !== 'done')
+      if (notDone.length > 0) {
+        const names = notDone.map((r) => `#${r.number}`).join(', ')
+        throw new Error(`Only Done tickets can be archived: ${names} ${notDone.length === 1 ? "isn't" : "aren't"} Done. Nothing was archived.`)
+      }
+      // A view state, not an edit: updated_at stays. Re-archiving keeps the first stamp.
+      await db
+        .update(tickets)
+        .set({ archivedAt: now().toISOString() })
+        .where(and(inArray(tickets.id, ids), eq(tickets.manualColumn, 'done'), isNull(tickets.archivedAt)))
+      return withCriteria(await db.select().from(tickets).where(inArray(tickets.id, ids)).orderBy(asc(tickets.number)))
+    },
+
+    async unarchive(ids) {
+      if (ids.length === 0) return []
+      const rows = await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.id, ids))
+      const missing = ids.find((id) => !rows.some((r) => r.id === id))
+      if (missing !== undefined) throw new Error(`Ticket not found: ${missing}`)
+      await db.update(tickets).set({ archivedAt: null }).where(inArray(tickets.id, ids))
+      return withCriteria(await db.select().from(tickets).where(inArray(tickets.id, ids)).orderBy(asc(tickets.number)))
+    },
+
+    async listArchived(workspaceId, opts) {
+      const limit = Math.min(200, Math.max(1, Math.floor(opts?.limit ?? 50)))
+      const conds: (SQL | undefined)[] = [eq(tickets.workspaceId, workspaceId), isNotNull(tickets.archivedAt)]
+      const before = opts?.before
+      if (before) {
+        conds.push(
+          or(
+            lt(tickets.archivedAt, before.archivedAt),
+            and(eq(tickets.archivedAt, before.archivedAt), lt(tickets.number, before.number))
           )
         )
-        .orderBy(asc(criteria.position))
-      return rows.map((row) =>
-        toTicket(
-          row,
-          criteriaRows
-            .filter((c) => c.ticketId === row.id)
-            .map(({ position, text, checked }) => ({ position, text, checked }))
-        )
+      }
+      const q = opts?.query?.trim().toLowerCase() ?? ''
+      if (q !== '') {
+        if (/^#\d+$/.test(q)) {
+          conds.push(eq(tickets.number, Number(q.slice(1))))
+        } else {
+          const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+          const text = or(
+            sql`lower(${tickets.title}) like ${like} escape '\\'`,
+            sql`exists (select 1 from json_each(${tickets.labels}) where lower(value) like ${like} escape '\\')`,
+            sql`exists (select 1 from json_each(${tickets.intent}) where lower(json_extract(value, '$.text')) like ${like} escape '\\')`
+          )
+          conds.push(/^\d+$/.test(q) ? or(eq(tickets.number, Number(q)), text) : text)
+        }
+      }
+      return withCriteria(
+        await db
+          .select()
+          .from(tickets)
+          .where(and(...conds))
+          .orderBy(desc(tickets.archivedAt), desc(tickets.number))
+          .limit(limit)
       )
     },
 
@@ -282,12 +365,15 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     },
 
     async setManualColumn(id, column, rank) {
-      if (column === 'done') await patchRow(id, { manualColumn: column })
-      else if (rank !== undefined) await patchRow(id, { manualColumn: column, rank })
-      else {
+      // Done again keeps the first entry time; leaving Done clears both, so only Done tickets are ever archived.
+      if (column === 'done') {
+        await patchRow(id, { manualColumn: column, doneAt: sql`coalesce(${tickets.doneAt}, ${now().toISOString()})` })
+      } else if (rank !== undefined) {
+        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, rank })
+      } else {
         const [row] = await db.select({ workspaceId: tickets.workspaceId }).from(tickets).where(eq(tickets.id, id))
         if (!row) throw new Error(`Ticket not found: ${id}`)
-        await patchRow(id, { manualColumn: column, rank: bottomRank(row.workspaceId) })
+        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, rank: bottomRank(row.workspaceId) })
       }
       return get(id)
     },

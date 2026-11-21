@@ -30,6 +30,8 @@ function ticket(overrides: Partial<Ticket> = {}): Ticket {
     promotedFrom: null,
     runSettings: null,
     setup: null,
+    doneAt: null,
+    archivedAt: null,
     createdAt: '2026-11-01T00:00:00.000Z',
     updatedAt: '2026-11-01T00:00:00.000Z',
     ...overrides

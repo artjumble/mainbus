@@ -157,6 +157,8 @@ describe('ticket repo', () => {
       promotedFrom: null,
       runSettings: null,
       setup: null,
+      doneAt: null,
+      archivedAt: null,
       createdAt: FIXED_NOW.toISOString(),
       updatedAt: FIXED_NOW.toISOString()
     })
@@ -378,5 +380,108 @@ describe('ticket repo', () => {
     await expect(repo.get('missing')).rejects.toThrow(/ticket/i)
     await expect(repo.update('missing', { title: 'x' })).rejects.toThrow(/ticket/i)
     await expect(repo.appendIntent('missing', 'x')).rejects.toThrow(/ticket/i)
+  })
+})
+
+describe('done_at and archiving', () => {
+  const at = (s: string) => {
+    clock = new Date(s)
+  }
+
+  it('setManualColumn sets doneAt on entering Done, keeps it on a repeat, clears doneAt and archivedAt on leaving', async () => {
+    const repo = createTicketRepo(db, now)
+    const t = await repo.create(input())
+    expect(t.doneAt).toBeNull()
+    at('2026-11-01T00:00:00.000Z')
+    expect((await repo.setManualColumn(t.id, 'done')).doneAt).toBe('2026-11-01T00:00:00.000Z')
+    at('2026-11-02T00:00:00.000Z')
+    expect((await repo.setManualColumn(t.id, 'done')).doneAt).toBe('2026-11-01T00:00:00.000Z')
+    await repo.archive([t.id])
+    const back = await repo.setManualColumn(t.id, 'ready')
+    expect(back.doneAt).toBeNull()
+    expect(back.archivedAt).toBeNull()
+  })
+
+  it('archive refuses non-Done tickets and archives none of a mixed batch; unknown ids throw', async () => {
+    const repo = createTicketRepo(db, now)
+    const done = await repo.setManualColumn((await repo.create(input())).id, 'done')
+    const ready = await repo.setManualColumn((await repo.create(input({ title: 'B' }))).id, 'ready')
+    await expect(repo.archive([done.id, ready.id])).rejects.toThrow(/Only Done tickets can be archived: #2 isn't Done\. Nothing was archived/)
+    expect((await repo.get(done.id)).archivedAt).toBeNull()
+    await expect(repo.archive(['missing'])).rejects.toThrow(/not found/i)
+    expect(await repo.archive([])).toEqual([])
+  })
+
+  it('archive leaves manualColumn and updatedAt alone and keeps the first stamp; unarchive restores', async () => {
+    const repo = createTicketRepo(db, now)
+    const done = await repo.setManualColumn((await repo.create(input())).id, 'done')
+    at('2026-11-05T00:00:00.000Z')
+    const [a] = await repo.archive([done.id])
+    expect(a!.archivedAt).toBe('2026-11-05T00:00:00.000Z')
+    expect(a!.manualColumn).toBe('done')
+    expect(a!.updatedAt).toBe(done.updatedAt)
+    at('2026-11-06T00:00:00.000Z')
+    expect((await repo.archive([done.id]))[0]!.archivedAt).toBe('2026-11-05T00:00:00.000Z')
+    const [u] = await repo.unarchive([done.id])
+    expect(u!.archivedAt).toBeNull()
+    expect(u!.manualColumn).toBe('done')
+    expect(u!.updatedAt).toBe(done.updatedAt)
+    await expect(repo.unarchive(['missing'])).rejects.toThrow(/not found/i)
+  })
+
+  it('list includes archived by default and leaves them out with includeArchived: false', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.setManualColumn((await repo.create(input())).id, 'done')
+    await repo.create(input({ title: 'B' }))
+    await repo.archive([a.id])
+    expect((await repo.list(workspaceId)).map((t) => t.number)).toEqual([1, 2])
+    expect((await repo.list(workspaceId, { includeArchived: false })).map((t) => t.number)).toEqual([2])
+  })
+
+  it('listArchived: newest first, compound cursor across a shared stamp, limit, scoped, only archived', async () => {
+    const repo = createTicketRepo(db, now)
+    const ids: string[] = []
+    for (let i = 0; i < 5; i++) ids.push((await repo.setManualColumn((await repo.create(input({ title: `T${i + 1}` }))).id, 'done')).id)
+    await repo.setManualColumn((await repo.create(input({ title: 'unarchived done' }))).id, 'done')
+    const other = await createWorkspaceRepo(db, now).create('/o', 'main', 'o', 'o')
+    const foreign = await repo.setManualColumn((await repo.create(input({ workspaceId: other.id }))).id, 'done')
+    at('2026-11-05T00:00:00.000Z')
+    await repo.archive(ids.slice(0, 3))
+    await repo.archive([foreign.id])
+    at('2026-11-06T00:00:00.000Z')
+    await repo.archive(ids.slice(3))
+    expect((await repo.listArchived(workspaceId)).map((t) => t.number)).toEqual([5, 4, 3, 2, 1])
+    const seen: number[] = []
+    let before: { archivedAt: string; number: number } | undefined
+    for (;;) {
+      const page = await repo.listArchived(workspaceId, { limit: 2, before })
+      if (page.length === 0) break
+      seen.push(...page.map((t) => t.number))
+      const last = page[page.length - 1]!
+      before = { archivedAt: last.archivedAt!, number: last.number }
+    }
+    expect(seen).toEqual([5, 4, 3, 2, 1])
+    expect(await repo.listArchived(workspaceId, { limit: 0 })).toHaveLength(1)
+    expect((await repo.listArchived(workspaceId))[0]!.criteria).toHaveLength(2)
+  })
+
+  it('listArchived query: #N, digits, title, label, intent text, and % as a literal', async () => {
+    const repo = createTicketRepo(db, now)
+    const mk = async (o: Partial<NewTicketInput>) => (await repo.setManualColumn((await repo.create(input(o))).id, 'done')).id
+    const ids = [
+      await mk({ title: 'Alpha', labels: ['bug'], intent: 'first words' }),
+      await mk({ title: 'Beta 100% sure', labels: ['Docs'], intent: 'second' }),
+      await mk({ title: 'Gamma 2 things', labels: [], intent: 'zebra here' })
+    ]
+    await repo.archive(ids)
+    const q = async (query: string) => (await repo.listArchived(workspaceId, { query })).map((t) => t.number).sort()
+    expect(await q('#2')).toEqual([2])
+    expect(await q('2')).toEqual([2, 3])
+    expect(await q('ALPHA')).toEqual([1])
+    expect(await q('docs')).toEqual([2])
+    expect(await q('zebra')).toEqual([3])
+    expect(await q('text')).toEqual([])
+    expect(await q('%')).toEqual([2])
+    expect(await q('_')).toEqual([])
   })
 })

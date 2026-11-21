@@ -14,7 +14,7 @@ async function dragBy(title: RegExp): Promise<string> {
   // Done's cards show only while it is open.
   act(() => screen.getByRole('region', { name: 'Done' }).focus())
   const card = screen.getByRole('button', { name: title })
-  const wrapper = card.closest<HTMLElement>('[style*="touch-action"]')!
+  const wrapper = card.closest<HTMLElement>('[data-ticket-card]')!.parentElement!
   await userEvent.pointer([
     { keys: '[MouseLeft>]', target: card, coords: { clientX: 10, clientY: 10 } },
     { target: card, coords: { clientX: 60, clientY: 60 } },
@@ -25,14 +25,22 @@ async function dragBy(title: RegExp): Promise<string> {
 
 test.each([
   ['backlog', 'not_started'],
-  ['in_progress', 'implementing'],
-  ['needs_you', 'waiting_on_you'],
   ['review', 'ready_for_review'],
   ['done', 'done']
 ] as const)('a card in %s can be picked up', async (column, phase) => {
   useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, tickets: [makeTicket({ title: 'Drag me' }, { column, phase })] }, true)
   renderWithMantine(<Board />)
   expect(await dragBy(/Drag me/)).toMatch(/translate3d\(/)
+})
+
+test.each([
+  ['in_progress', 'implementing'],
+  ['needs_you', 'waiting_on_you']
+] as const)('a card in %s cannot be picked up by pointer', async (column, phase) => {
+  const ticket = makeTicket({ title: 'Drag me' }, { column, phase })
+  useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, tickets: [ticket] }, true)
+  renderWithMantine(<Board />)
+  expect(await dragBy(/Drag me/)).toBe('')
 })
 
 test('a card whose move the engine has not answered cannot be picked up', async () => {
@@ -106,6 +114,17 @@ describe('moving a card by keyboard', () => {
     await vi.waitFor(() => expect(announced()).toBe(`Picked up ticket #${ticket.number} Drag me.`))
     await userEvent.keyboard('{Escape}')
     await vi.waitFor(() => expect(announced()).toMatch(/cancelled; it stays where it was/))
+  })
+
+  test.each([['in_progress'], ['needs_you']] as const)('a card in %s has no handle and Space picks nothing up', async (column) => {
+    const ticket = makeTicket({ title: 'Drag me' }, { column })
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket] }, true)
+    renderWithMantine(<Board />)
+    expect(screen.queryByRole('button', { name: `Move ticket #${ticket.number}` })).not.toBeInTheDocument()
+    expect(document.body.querySelector('[aria-roledescription="draggable"]')).toBeNull()
+    screen.getByRole('button', { name: /Drag me/ }).focus()
+    await userEvent.keyboard(' ')
+    expect(announced()).toBe('')
   })
 
   test('Enter on the title opens the ticket and does not pick the card up', async () => {

@@ -1,0 +1,101 @@
+import { Button, Group, Menu, Modal, Stack, Text } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
+import { useRef, useState, type ReactElement } from 'react'
+import { showError } from '../notify'
+import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
+
+const TARGETS: { id: ManualColumn; title: string }[] = [
+  { id: 'backlog', title: 'Backlog' },
+  { id: 'ready', title: 'Ready' },
+  { id: 'done', title: 'Done' }
+]
+
+const ASKED_MESSAGE = "This ticket's folder is no longer a git worktree. Open the ticket to decide whether to delete it."
+const DIRTY_MESSAGE = 'This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
+
+interface Props {
+  ticket: BoardTicket
+  /** Which agent's run is open (working, paused or waiting); null when no agent is. Moving the ticket stops it. */
+  openRun: { role: string; status: 'running' | 'paused' | 'waiting for you' } | null
+  disabled: boolean
+}
+
+/**
+ * The ticket view's move: the way out of In progress and Needs you, which the board doesn't allow by drag. A ticket
+ * with an open agent asks first, naming what the move does; Cancel is focused.
+ */
+export function MoveMenu({ ticket, openRun, disabled }: Props): ReactElement {
+  const move = useMainbus((s) => s.moveTicket)
+  const [asking, setAsking] = useState<ManualColumn | null>(null)
+  const [moving, setMoving] = useState(false)
+  const opener = useRef<HTMLButtonElement>(null)
+
+  function close(): void {
+    setAsking(null)
+    // The menu item that opened the question is gone: focus goes back to the control.
+    setTimeout(() => opener.current?.focus(), 0)
+  }
+
+  async function run(to: ManualColumn): Promise<void> {
+    setMoving(true)
+    try {
+      const result = await move(ticket.id, to)
+      if (result === 'dirty') {
+        notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
+      } else if (result === 'asked') {
+        notifications.show({ color: 'needs', title: 'Mainbus needs your answer first', message: ASKED_MESSAGE })
+      }
+    } catch (err) {
+      showError(err, "Can't move this ticket")
+    } finally {
+      setMoving(false)
+    }
+  }
+
+  function choose(to: ManualColumn): void {
+    if (openRun) setAsking(to)
+    else void run(to)
+  }
+
+  async function confirm(): Promise<void> {
+    const to = asking
+    if (to === null) return
+    await run(to)
+    close()
+  }
+
+  const target = TARGETS.find((t) => t.id === asking)?.title ?? ''
+  return (
+    <>
+      <Menu position="bottom-end" withinPortal>
+        <Menu.Target>
+          <Button ref={opener} size="compact-sm" variant="default" disabled={disabled || moving}>
+            Move to…
+          </Button>
+        </Menu.Target>
+        <Menu.Dropdown>
+          {TARGETS.map((t) => (
+            <Menu.Item key={t.id} disabled={ticket.state.column === t.id} onClick={() => choose(t.id)}>
+              {t.title}
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
+      <Modal opened={asking !== null && openRun !== null} onClose={close} title={`Move to ${target}`} returnFocus={false}>
+        <Stack gap="md">
+          <Text size="sm">
+            {`#${ticket.number} is ${openRun?.status ?? 'running'} (${openRun?.role ?? 'agent'}). Moving it to ${target} stops its agent; the work so far stays on its branch, but the run must start again. Move it?`}
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" data-autofocus onClick={close} disabled={moving}>
+              Cancel
+            </Button>
+            <Button color="red" onClick={() => void confirm()} loading={moving}>
+              Move and stop
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </>
+  )
+}

@@ -47,11 +47,12 @@ async function pasteImage(target: Locator, name: string): Promise<void> {
   )
 }
 
-async function expectNoAxeViolations(page: Page, what: string): Promise<void> {
+/** `rules` limits axe to those rules; a floating surface is outside the page's landmarks, so it is measured for colour contrast only. */
+async function expectNoAxeViolations(page: Page, what: string, rules?: string[]): Promise<void> {
   // Evaluated, not injected as a script tag, so the page's content security policy does not apply.
   await page.evaluate(axeSource)
-  const violations = await page.evaluate(async () => {
-    const results = await (window as unknown as { axe: { run: (c: Document) => Promise<{ violations: AxeViolation[] }> } }).axe.run(document)
+  const violations = await page.evaluate(async (rules) => {
+    const results = await (window as unknown as { axe: { run: (c: Document, o?: object) => Promise<{ violations: AxeViolation[] }> } }).axe.run(document, rules ? { runOnly: rules } : {})
     interface AxeViolation {
       id: string
       help: string
@@ -62,7 +63,7 @@ async function expectNoAxeViolations(page: Page, what: string): Promise<void> {
       help: v.help,
       nodes: v.nodes.map((n) => `${n.target.join(' ')}: ${n.failureSummary?.replace(/\s+/g, ' ').slice(0, 220) ?? ''}`)
     }))
-  })
+  }, rules)
   expect(violations, `axe violations on ${what}`).toEqual([])
 }
 
@@ -303,6 +304,18 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     // slot, so a later test's ticket would only queue.
     await page.locator('[data-event="permission"]').getByRole('button', { name: 'Allow once' }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+
+    // An open tooltip: a segment of the time report, hovered. Axe measures it as it is on screen, so it waits for the fade.
+    await page.getByRole('navigation', { name: 'Workspaces' }).hover()
+    await page.getByRole('button', { name: `Options for ${repoName}`, exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    const segment = page.getByRole('dialog', { name: 'Workspace settings' }).locator('[data-category]').first()
+    await segment.hover()
+    await expect(page.getByRole('tooltip')).toBeVisible()
+    await animationsSettled(page)
+    await expectNoAxeViolations(page, 'an open tooltip', ['color-contrast'])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toBeHidden()
   }, theme)
 })
 

@@ -509,6 +509,24 @@ describe('TicketRunner', () => {
     expect(await repos.allowRules.list(ticket.workspaceId)).toHaveLength(4)
   })
 
+  it('a Keychain read opens a card without Always allow, even with prefix and exact rules', async () => {
+    const command = 'security find-generic-password -s foo -w'
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'security *' })
+    await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: `=${command}` })
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+
+    const verdict = runtime.specs[0].onPermission(permission(command))
+    const decision = await waitForPending()
+    expect(decision).toMatchObject({ kind: 'permission', allowAlways: false })
+    await expect(runner.answer(decision.id, { kind: 'permission', choice: 'always_allow' }, 'thread')).rejects.toThrow(
+      /Always allow/
+    )
+    await runner.answer(decision.id, { kind: 'permission', choice: 'deny' }, 'thread')
+    expect(await verdict).toMatchObject({ allow: false })
+  })
+
   it('partial events are emitted but not stored', async () => {
     const runtime = new FakeRuntime([
       { emit: { kind: 'message', text: 'Hel', partial: true } },
