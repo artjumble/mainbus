@@ -47,6 +47,14 @@ async function launch(home: string, repo: string): Promise<{ app: ElectronApplic
   return { app, page }
 }
 
+/**
+ * Waits until the recording has run for a second by its own clock, which is how long the fake microphone's tone takes to
+ * come through, so the recording is not silence. (Its level meter reads zero between the tone's beeps, so it cannot say.)
+ */
+async function hearsTone(page: Page): Promise<void> {
+  await expect(page.getByText('0:01', { exact: true })).toBeVisible()
+}
+
 test('dictating into the orchestrator box puts the text in the box and sends nothing; Esc cancels', async () => {
   const { tmp, home, repo } = makeRepo()
   let app: ElectronApplication | undefined
@@ -62,8 +70,8 @@ test('dictating into the orchestrator box puts the text in the box and sends not
     await box.press('Control+Shift+Space')
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
     await expect(panel.getByText(/^\d+:\d\d$/)).toBeVisible()
-    // Let the fake microphone's tone run a moment, so the recording is not silence.
-    await page.waitForTimeout(600)
+    // The fake microphone's tone is heard: the recording is not silence.
+    await hearsTone(page)
     await box.press('Enter')
     await expect(box).toHaveValue('Hello This was dictated.')
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
@@ -74,7 +82,6 @@ test('dictating into the orchestrator box puts the text in the box and sends not
     // Esc cancels and leaves the text as it was.
     await box.press('Control+Shift+Space')
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
-    await page.waitForTimeout(300)
     await box.press('Escape')
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
     await expect(box).toHaveValue('Hello This was dictated.')
@@ -100,13 +107,12 @@ test('New ticket has the mic in "In your words" and "Spec", Esc while recording 
     const words = dialog.getByRole('textbox', { name: 'In your words' })
     await words.press('Control+Shift+Space')
     await expect(dialog.getByRole('button', { name: 'Dictate' }).first()).toHaveAttribute('aria-pressed', 'true')
-    await page.waitForTimeout(300)
     await words.press('Escape')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('button', { name: 'Dictate' }).first()).toHaveAttribute('aria-pressed', 'false')
 
     await words.press('Control+Shift+Space')
-    await page.waitForTimeout(600)
+    await hearsTone(page)
     await words.press('Enter')
     await expect(words).toHaveValue('This was dictated.')
 

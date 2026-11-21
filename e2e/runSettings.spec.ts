@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { keyboardDragReady } from './waits'
 import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -86,7 +87,8 @@ test("a Backlog ticket's saved run settings are what unattended mode starts it w
     await page.getByRole('button', { name: /Move ticket #1/ }).focus()
     await page.keyboard.press('Space')
     await expect(announced).toContainText('Picked up ticket #1 Add hello file')
-    await page.waitForTimeout(200)
+    // dnd-kit starts listening for the next key a moment after it announces the pick-up.
+    await keyboardDragReady(page)
     await page.keyboard.press('ArrowRight')
     await expect(announced).toContainText('ticket #1 Add hello file is over Ready')
     await page.keyboard.press('Space')

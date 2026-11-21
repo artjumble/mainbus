@@ -18,7 +18,10 @@ test('a loading Button in a Modal keeps its 44 px hit area, and its label only f
   expect(button).toHaveAttribute('data-loading')
   expect(button).toHaveClass(targets.target)
   // The label's box is what Mantine slides down while loading; the theme marks it so the slide is undone.
-  expect(button.querySelector('.mantine-Button-inner')).toHaveClass(targets.loadingContent)
+  const inner = screen.getByText('Choose folder…').closest(`.${targets.loadingContent}`)
+  expect(inner).not.toBeNull()
+  expect(inner).not.toBe(button)
+  expect(button).toContainElement(inner as HTMLElement)
 })
 
 test('a loading ActionIcon gets the same', () => {
@@ -29,5 +32,8 @@ test('a loading ActionIcon gets the same', () => {
   )
   const icon = screen.getByRole('button', { name: 'Refresh' })
   expect(icon).toHaveClass(targets.target)
-  expect(icon.querySelector('.mantine-ActionIcon-icon')).toHaveClass(targets.loadingContent)
+  const inner = screen.getByText('↻').closest(`.${targets.loadingContent}`)
+  expect(inner).not.toBeNull()
+  expect(inner).not.toBe(icon)
+  expect(icon).toContainElement(inner as HTMLElement)
 })

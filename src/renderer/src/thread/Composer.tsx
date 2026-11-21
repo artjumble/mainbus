@@ -320,7 +320,7 @@ export function Composer({
         >
           {box}
         </Combobox.EventsTarget>
-        <Combobox.Dropdown hidden={!open}>
+        <Combobox.Dropdown data-mention-list hidden={!open}>
           <Combobox.Options aria-label={mentions.label} onMouseDown={(e) => e.preventDefault()}>
             {filtered.map((o) => (
               <Combobox.Option key={o.id} value={o.id}>

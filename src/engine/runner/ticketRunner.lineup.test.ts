@@ -424,7 +424,7 @@ describe('TicketRunner through a lineup', () => {
     ])
     const { ticketRunId } = (await repos.runs.latest(ticket.id))!
     expect((await repos.runs.ticketRun(ticketRunId)).status).toBe('stopped')
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await runner.settled()
     expect(runtime.specs).toHaveLength(2)
   })
 

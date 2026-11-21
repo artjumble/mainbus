@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { keyboardDragReady } from './waits'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -145,7 +146,7 @@ test('the core flow works by keyboard alone: create, start, answer, move', async
     await page.keyboard.press('Space')
     await expect(announced).toContainText('Picked up ticket #2 Second ticket')
     // dnd-kit starts listening for the next key a moment after it announces the pick-up.
-    await page.waitForTimeout(200)
+    await keyboardDragReady(page)
     await page.keyboard.press('ArrowRight')
     await expect(announced).toContainText('ticket #2 Second ticket is over Ready')
     await page.keyboard.press('Space')

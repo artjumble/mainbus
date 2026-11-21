@@ -170,8 +170,13 @@ export class UnattendedMode {
   }
 
   /** Settles when nothing is left to look at and no start is under way (for tests). */
-  async settled(): Promise<void> {
-    while (this.evaluating || this.launches.size > 0) await Promise.all([this.evaluating, ...this.launches])
+  async settled(): Promise<boolean> {
+    let waited = false
+    while (this.evaluating || this.launches.size > 0) {
+      waited = true
+      await Promise.all([this.evaluating, ...this.launches])
+    }
+    return waited
   }
 
   // --- the queue ---

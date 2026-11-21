@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { EXPAND_CLOSE_MS } from '../src/renderer/src/expandOnHover'
+import { keyboardDragReady } from './waits'
 import { addWorkspace } from './addWorkspace'
 
 /**
@@ -152,7 +154,7 @@ test('the same move by keyboard: Space, Arrow Right onto the strip, Space', asyn
   await expect(announced).toContainText(/Picked up ticket #\d+ Ship two/)
   const number = /ticket #(\d+) Ship two/.exec((await announced.textContent()) ?? '')![1]
   // dnd-kit starts listening for the next key a moment after it announces the pick-up.
-  await page.waitForTimeout(200)
+  await keyboardDragReady(page)
   await page.keyboard.press('ArrowRight')
   await expect(announced).toContainText(`ticket #${number} Ship two is over Done`)
   await expect(done(page)).toHaveAttribute('data-expanded', 'true')
@@ -164,7 +166,9 @@ test('the same move by keyboard: Space, Arrow Right onto the strip, Space', asyn
   await expect.poll(() => worktrees(home)).toEqual([])
   // Focus is back on the card's handle, in Done, which stays open while it is there.
   await expect(done(page).getByRole('button', { name: `Move ticket #${number}`, exact: true })).toBeFocused()
-  await page.waitForTimeout(500)
+  // A negative check against an app timer: Done would collapse EXPAND_CLOSE_MS after the pointer left, and nothing on the
+  // page signals that it did not, so wait out the timer with a margin.
+  await page.waitForTimeout(EXPAND_CLOSE_MS + 200)
   await expect(done(page)).toHaveAttribute('data-expanded', 'true')
 })
 
@@ -216,7 +220,7 @@ test('a Done card dragged out to Ready stays in sight under the pointer, and lan
   await expect
     .poll(() =>
       page.evaluate(
-        ([px, py]) => document.elementFromPoint(px!, py!)?.closest('[data-card-title], .mantine-Paper-root')?.textContent ?? '',
+        ([px, py]) => document.elementFromPoint(px!, py!)?.closest('[data-card-title], [data-ticket-card]')?.textContent ?? '',
         [x, y]
       )
     )

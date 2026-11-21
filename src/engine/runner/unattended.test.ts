@@ -196,7 +196,7 @@ describe('unattended mode', () => {
     const h = await harness(runtimeFor({}), ['backlog'])
     await h.engine.invoke('unattended.set', true)
     await waitForState(h, { on: true, status: { kind: 'idle' } })
-    await new Promise((r) => setTimeout(r, 200))
+    await h.engine.settled()
     expect(h.awake).toMatchObject({ starts: 0, stops: 0 })
     expect(started(h)).toEqual([])
     // Switching off from idle has nothing to release.
@@ -217,7 +217,7 @@ describe('unattended mode', () => {
 
     await h.engine.invoke('unattended.set', true)
     await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumbers: [1] } })
-    await new Promise((r) => setTimeout(r, 200))
+    await h.engine.settled()
     expect(started(h)).toEqual([1])
     expect(await columnOf(h, 2)).toBe('ready')
     expect(h.awake.held()).toBe(true)
@@ -248,7 +248,7 @@ describe('unattended mode', () => {
     await waitForState(h, { on: true, status: { kind: 'other_working', ticketNumbers: [1] } })
 
     await h.engine.invoke('ticket.move', h.tickets[2]!.id, 'ready')
-    await new Promise((r) => setTimeout(r, 200))
+    await h.engine.settled()
     expect(await columnOf(h, 3)).toBe('ready')
     expect(started(h)).toEqual([1, 2])
 
@@ -271,7 +271,7 @@ describe('unattended mode', () => {
     await waitForState(h, { status: { kind: 'working', ticketNumbers: [1] } })
     await waitForColumn(h, 1, 'in_progress')
     // Give the queue every chance to start another.
-    await new Promise((r) => setTimeout(r, 300))
+    await h.engine.settled()
     expect(started(h)).toEqual([1])
     expect(await columnOf(h, 2)).toBe('ready')
     expect(h.awake.held()).toBe(true)
@@ -332,7 +332,7 @@ describe('unattended mode', () => {
     await waitForColumn(h, 1, 'in_progress')
     await h.engine.invoke('agent.stop', h.tickets[0]!.id)
     expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })
-    await new Promise((r) => setTimeout(r, 200))
+    await h.engine.settled()
     expect(started(h)).toEqual([1])
     expect(h.awake).toMatchObject({ starts: 1, stops: 1 })
   })
@@ -344,7 +344,7 @@ describe('unattended mode', () => {
     await waitForState(h, { status: { kind: 'working', ticketNumbers: [1] } })
     await h.engine.invoke('agent.pause', h.tickets[0]!.id)
     expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })
-    await new Promise((r) => setTimeout(r, 200))
+    await h.engine.settled()
     expect(started(h)).toEqual([1])
     const t1 = (await h.engine.invoke('board.get')).tickets.find((t) => t.number === 1)!
     expect(t1.state).toMatchObject({ column: 'in_progress', agentStatus: 'paused', pausedByUser: true })

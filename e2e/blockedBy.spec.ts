@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { keyboardDragReady } from './waits'
 import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -69,7 +70,6 @@ test('unattended mode skips a ticket blocked by another, and starts it once the 
     // Unattended mode leaves it in Ready.
     await page.getByRole('switch', { name: 'Unattended' }).check()
     await expect(page.getByTestId('unattended-status')).toHaveText(/Waiting for Ready tickets/)
-    await page.waitForTimeout(500)
     await expect(second).toBeVisible()
 
     // #1 moves to Done by keyboard; #2 starts by itself, lands in Review, and the chip is gone.
@@ -78,7 +78,7 @@ test('unattended mode skips a ticket blocked by another, and starts it once the 
     await page.keyboard.press('Space')
     await expect(announced).toContainText('Picked up ticket #1 First job')
     // dnd-kit starts listening for the next key a moment after it announces the pick-up.
-    await page.waitForTimeout(200)
+    await keyboardDragReady(page)
     await page.keyboard.press('ArrowRight')
     await expect(announced).toContainText('ticket #1 First job is over Done')
     await page.keyboard.press('Space')

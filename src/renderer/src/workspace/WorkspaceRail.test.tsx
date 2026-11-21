@@ -500,6 +500,6 @@ test('in the expanded rail, the needs-you count keeps its width and is never cli
   // jsdom has no layout, so these are the styles that keep the count whole.
   expect(getComputedStyle(badge).flexShrink).toBe('0')
   expect(getComputedStyle(badge).overflow).toBe('visible')
-  const label = badge.querySelector<HTMLElement>('.mantine-Badge-label')!
+  const label = badge.querySelector<HTMLElement>('[data-badge-label]')!
   expect(getComputedStyle(label).overflow).toBe('visible')
 })

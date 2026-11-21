@@ -504,7 +504,7 @@ export function Board(): ReactElement {
           <PlaceholderLanes />
           {/* The message lies over the lanes, on a surface of its own. */}
           <Center pos="absolute" inset={0} p="md">
-            <Paper withBorder shadow="sm" radius="md" maw={460} p="md">
+            <Paper data-board-empty withBorder shadow="sm" radius="md" maw={460} p="md">
               <Stack align="center" gap="sm" ta="center">
                 <Title order={3}>No tickets in {workspace?.name ?? 'this workspace'} yet</Title>
                 <Text c="dimmed">

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { EXPAND_CLOSE_MS } from '../src/renderer/src/expandOnHover'
 import { addWorkspace } from './addWorkspace'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -131,7 +132,9 @@ test('Options → Settings works from the expanded rail, which stays open while 
   await page.getByRole('button', { name: 'Options for bravo-repo' }).click()
   const menu = page.getByRole('menu')
   await menu.hover()
-  await page.waitForTimeout(500)
+  // A negative check against an app timer: the rail would collapse EXPAND_CLOSE_MS after the pointer left it, and
+  // nothing on the page signals that it did not, so wait out the timer with a margin.
+  await page.waitForTimeout(EXPAND_CLOSE_MS + 200)
   await expect(rail).toHaveAttribute('data-expanded', 'true')
   await expect(menu).toContainText('bravo-repo')
   await page.getByRole('menuitem', { name: 'Settings' }).click()

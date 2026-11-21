@@ -127,7 +127,7 @@ describe('the usage limit in the engine', () => {
     const { engine } = await makeEngine(runtime2)
     await waitFor(async () => expect(await engine.invoke('usage.get')).toMatchObject({ kind: 'limited', paused: 2 }))
     // Recovery has run its course without restarting anyone.
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await engine.settled()
     expect(runtime2.specs).toHaveLength(0)
     expect(await stateOf(engine, 'A')).toMatchObject({ agentStatus: 'paused', pausedByLimit: true })
     expect(await stateOf(engine, 'B')).toMatchObject({ agentStatus: 'paused', pausedByLimit: true })

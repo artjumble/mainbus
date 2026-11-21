@@ -111,7 +111,7 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     expect(await page.evaluate(() => Array.from(document.querySelectorAll('section[aria-labelledby^="column-"]')).every((c) => c.parentElement!.scrollWidth <= c.parentElement!.clientWidth))).toBe(true)
     expect(
       await page.evaluate(() =>
-        Array.from(document.querySelectorAll('section[aria-labelledby^="column-"] .mantine-Badge-label')).every((l) => l.scrollWidth <= l.clientWidth + 1)
+        Array.from(document.querySelectorAll('section[aria-labelledby^="column-"] [data-badge-label]')).every((l) => l.scrollWidth <= l.clientWidth + 1)
       )
     ).toBe(true)
 
@@ -181,7 +181,7 @@ test('Ticket detail: lineup strip, controls, thread with thinking and tool rows,
     await expect(tags).toHaveText(['PowerShell', 'Read', 'Edit'])
     const sizes = await tags.evaluateAll((all) =>
       all.map((tag) => {
-        const label = tag.querySelector('.mantine-Badge-label')!
+        const label = tag.querySelector('[data-badge-label]')!
         return { overflow: Math.max(tag.scrollWidth - tag.clientWidth, label.scrollWidth - label.clientWidth), height: tag.getBoundingClientRect().height }
       })
     )
