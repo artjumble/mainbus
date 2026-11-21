@@ -34,6 +34,8 @@ export const workspaces = sqliteTable(
     unattendedAtOnce: integer('unattended_at_once').notNull().default(1),
     /** Unattended mode is on for this workspace; remembered across a restart. */
     unattendedOn: integer('unattended_on', { mode: 'boolean' }).notNull().default(false),
+    /** "Archive Done tickets after": days after a ticket reached Done (or was last restored) that it is archived automatically; null is Off. */
+    autoArchiveDays: integer('auto_archive_days'),
     /** Set when the workspace was removed from Mainbus. The row stays so its tickets, history and proposal cards remain intact. */
     removedAt: text('removed_at'),
     createdAt: text('created_at').notNull()
@@ -122,6 +124,10 @@ export const tickets = sqliteTable(
     doneAt: text('done_at'),
     /** When a Done ticket was archived (left out of the board and the orchestrator's list); null when not archived. */
     archivedAt: text('archived_at'),
+    /** The archive batch (a sweep or the bulk action) that archived the ticket; null when archived by hand or not archived. */
+    archiveBatchId: text('archive_batch_id'),
+    /** When the ticket was last restored from the archive; the automatic sweep counts its days from here. */
+    restoredAt: text('restored_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },
@@ -541,3 +547,23 @@ export const orchestratorQueue = sqliteTable('orchestrator_queue', {
   queuedAt: text('queued_at').notNull(),
   heldReason: text('held_reason')
 })
+
+/** One automatic sweep or bulk "Archive Done older than…": the tickets it archived share its id, so "Restore all" can undo exactly them. */
+export const archiveBatches = sqliteTable(
+  'archive_batches',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** 'sweep' (automatic) or 'bulk' (the Done strip's action). */
+    kind: text('kind').notNull(),
+    olderThanDays: integer('older_than_days').notNull(),
+    count: integer('count').notNull(),
+    createdAt: text('created_at').notNull(),
+    /** Set when the notice was closed, restored or superseded by a newer batch. */
+    noticeClosedAt: text('notice_closed_at'),
+    restoredAt: text('restored_at')
+  },
+  (t) => [index('archive_batches_workspace_idx').on(t.workspaceId, t.createdAt)]
+)

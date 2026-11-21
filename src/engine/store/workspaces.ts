@@ -7,9 +7,11 @@ import {
   checkSetupTimeout,
   checkTestCommands,
   checkUnattendedAtOnce,
+  isArchiveAgeDays,
   REPORTS_FOLDER_DEFAULT,
   SETUP_TIMEOUT_DEFAULT,
   UNATTENDED_AT_ONCE_DEFAULT,
+  type ArchiveAgeDays,
   type RailBadgeInput,
   type ReportSettingsInput,
   type SetupSettingsInput,
@@ -58,6 +60,8 @@ export interface WorkspaceRepo {
   setTestCommands(id: string, commands: TestCommand[]): Promise<Workspace>
   /** Saves "Unattended: tickets at once" (a whole number from 1 to the largest agent cap); the engine checks the app's actual cap. */
   setUnattendedAtOnce(id: string, n: number): Promise<Workspace>
+  /** Saves "Archive Done tickets after" (null is Off, else 7, 14, 30 or 90 days); any other value throws and nothing is saved. */
+  setAutoArchiveDays(id: string, days: ArchiveAgeDays | null): Promise<Workspace>
   /** Whether unattended mode was on for this workspace when the app last ran. */
   unattendedOn(id: string): Promise<boolean>
   setUnattendedOn(id: string, on: boolean): Promise<void>
@@ -83,7 +87,8 @@ function toWorkspace(row: typeof workspaces.$inferSelect): Workspace {
     testCommands: parseTestCommands(row.testCommands),
     railLabel: row.railLabel,
     railColor: isRailColor(row.railColor) ? row.railColor : null,
-    unattendedAtOnce: row.unattendedAtOnce
+    unattendedAtOnce: row.unattendedAtOnce,
+    autoArchiveDays: isArchiveAgeDays(row.autoArchiveDays) ? row.autoArchiveDays : null
   }
 }
 
@@ -134,7 +139,8 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         testCommands: [],
         railLabel: null,
         railColor: null,
-        unattendedAtOnce: UNATTENDED_AT_ONCE_DEFAULT
+        unattendedAtOnce: UNATTENDED_AT_ONCE_DEFAULT,
+        autoArchiveDays: null
       }
       await db.insert(workspaces).values({ ...workspace, testCommands: '[]', createdAt: now().toISOString() })
       await insertDefaultLineup(db, workspace.id)
@@ -257,6 +263,14 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
       const checked = checkUnattendedAtOnce(n, AGENT_CAP_MAX)
       if (!checked.ok) throw new Error(checked.reason)
       await db.update(workspaces).set({ unattendedAtOnce: checked.n }).where(eq(workspaces.id, id))
+      const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
+      if (!row) throw new Error(`Workspace not found: ${id}`)
+      return toWorkspace(row)
+    },
+
+    async setAutoArchiveDays(id, days) {
+      if (days !== null && !isArchiveAgeDays(days)) throw new Error('Archive Done tickets after: choose Off, 7, 14, 30 or 90 days')
+      await db.update(workspaces).set({ autoArchiveDays: days }).where(eq(workspaces.id, id))
       const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id))
       if (!row) throw new Error(`Workspace not found: ${id}`)
       return toWorkspace(row)

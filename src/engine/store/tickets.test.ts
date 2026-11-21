@@ -429,6 +429,25 @@ describe('done_at and archiving', () => {
     await expect(repo.unarchive(['missing'])).rejects.toThrow(/not found/i)
   })
 
+  it('unarchive stamps restored_at and drops the batch id; leaving Done clears both', async () => {
+    const { eq } = await import('drizzle-orm')
+    const { tickets } = await import('../db/schema')
+    const repo = createTicketRepo(db, now)
+    const raw = async (id: string) => (await db.select().from(tickets).where(eq(tickets.id, id)))[0]!
+    const t = await repo.setManualColumn((await repo.create(input())).id, 'done')
+    await repo.archive([t.id])
+    await db.update(tickets).set({ archiveBatchId: 'batch-1' }).where(eq(tickets.id, t.id))
+    at('2026-11-07T00:00:00.000Z')
+    await repo.unarchive([t.id])
+    expect(await raw(t.id)).toMatchObject({ restoredAt: '2026-11-07T00:00:00.000Z', archiveBatchId: null, archivedAt: null })
+    await repo.setManualColumn(t.id, 'ready')
+    expect(await raw(t.id)).toMatchObject({ restoredAt: null, archiveBatchId: null })
+    await repo.setManualColumn(t.id, 'done')
+    await db.update(tickets).set({ restoredAt: 'x', archiveBatchId: 'y' }).where(eq(tickets.id, t.id))
+    await repo.setManualColumn(t.id, 'backlog', 5)
+    expect(await raw(t.id)).toMatchObject({ restoredAt: null, archiveBatchId: null })
+  })
+
   it('list includes archived by default and leaves them out with includeArchived: false', async () => {
     const repo = createTicketRepo(db, now)
     const a = await repo.setManualColumn((await repo.create(input())).id, 'done')

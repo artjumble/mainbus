@@ -32,6 +32,23 @@ export const AGENT_CAP_DEFAULT = 3
 export const UNATTENDED_AT_ONCE_MIN = 1
 export const UNATTENDED_AT_ONCE_DEFAULT = 1
 
+/** The ages (in days) "Archive Done tickets after" and the bulk "Archive Done older than…" offer. */
+export const ARCHIVE_AGE_DAYS = [7, 14, 30, 90] as const
+export type ArchiveAgeDays = (typeof ARCHIVE_AGE_DAYS)[number]
+export function isArchiveAgeDays(v: unknown): v is ArchiveAgeDays {
+  return (ARCHIVE_AGE_DAYS as readonly unknown[]).includes(v)
+}
+
+/** One automatic sweep or bulk archive that archived at least one ticket; "Restore all" undoes exactly its tickets. */
+export interface ArchiveBatch {
+  id: string
+  workspaceId: string
+  kind: 'sweep' | 'bulk'
+  olderThanDays: number
+  count: number
+  createdAt: string
+}
+
 /** A whole number from 1 to the app-wide "Agents running at once" limit passes. */
 export function checkUnattendedAtOnce(n: unknown, maxAgents: number): { ok: true; n: number } | { ok: false; reason: string } {
   if (typeof n === 'number' && Number.isInteger(n) && n >= UNATTENDED_AT_ONCE_MIN && n <= maxAgents) return { ok: true, n }
@@ -158,6 +175,8 @@ export interface Workspace {
   railColor: RailColor | null
   /** "Unattended: tickets at once": how many tickets unattended mode keeps working at once in this workspace. 1 (the default) is one at a time. */
   unattendedAtOnce: number
+  /** "Archive Done tickets after": Done tickets are archived this many days after they reached Done (or were last restored). null (the default) is Off. */
+  autoArchiveDays: ArchiveAgeDays | null
 }
 
 /** The rail tile settings; what is left out stays as it is, and null clears it back to the automatic value. */

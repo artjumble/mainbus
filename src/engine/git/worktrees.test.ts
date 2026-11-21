@@ -49,7 +49,7 @@ beforeEach(async () => {
   closeDb = testDb.cleanup
   cleanups = createCleanupRepo(testDb.db, () => FIXED_NOW)
   manager = new WorktreeManager(runGit, paths, cleanups)
-  ws = { id: 'ws-1', name: 'My repo', repoPath, baseBranch: 'main', slug: 'my-repo', openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1 }
+  ws = { id: 'ws-1', name: 'My repo', repoPath, baseBranch: 'main', slug: 'my-repo', openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1, autoArchiveDays: null }
 })
 
 afterEach(async () => {

@@ -77,6 +77,7 @@ import { createProposalService, type ProposalService } from './proposals/service
 import { ProcessSweeper } from './processes/sweep'
 import { createSetupCommandRunner, type SetupCommandRunner } from './setup/setupCommand'
 import { railCounts } from './state/railCounts'
+import { ArchiveSweeper, archiveCutoff, type ArchiveSweeperDeps } from './archive/sweeper'
 import { StuckDetector, realTimer, type StuckDetectorDeps } from './stuck/detector'
 import { headCommit, newestChange } from './stuck/files'
 import { firedAgainAfterRedirect } from './stuck/ladder'
@@ -101,6 +102,8 @@ export class SetupRequiredError extends Error {
     this.name = SETUP_REQUIRED
   }
 }
+
+const archiveDays = z.union([z.literal(7), z.literal(14), z.literal(30), z.literal(90)])
 
 export interface EngineConfig {
   paths: HomePaths
@@ -131,6 +134,8 @@ export interface EngineConfig {
   clock?: Clock
   /** The stuck detector's timer, interval and file probe; tests pass fakes. By default a real timer, once a minute. */
   stuck?: Partial<Pick<StuckDetectorDeps, 'timer' | 'intervalMs' | 'newestChange' | 'headCommit'>>
+  /** The automatic archive sweep's timer and interval; tests pass fakes. By default a real timer, once a day. */
+  archive?: Partial<Pick<ArchiveSweeperDeps, 'timer' | 'intervalMs'>>
   /** The freshness monitor's timer and interval; tests pass fakes. By default a real timer, every five minutes. */
   freshness?: Partial<Pick<FreshnessMonitorDeps, 'timer' | 'intervalMs'>>
   /** The base-branch tests' command runner, timer and intervals; tests pass fakes. By default the real runner and a real timer. */
@@ -344,6 +349,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       newestChange: cfg.stuck?.newestChange ?? ((worktreePath) => newestChange(worktreePath)),
       headCommit: cfg.stuck?.headCommit ?? ((worktreePath) => headCommit(cfg.git, worktreePath))
     })
+    const archiveSweeper = new ArchiveSweeper({
+      repos,
+      now,
+      emit,
+      timer: cfg.archive?.timer ?? realTimer,
+      ...(cfg.archive?.intervalMs !== undefined ? { intervalMs: cfg.archive.intervalMs } : {})
+    })
     const freshness = new FreshnessMonitor({
       repos,
       checker: freshnessChecker,
@@ -374,6 +386,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     // Holds that came due while Mainbus was closed are released before anything can start a ticket.
     await holds.start()
     stuckDetector.start()
+    await archiveSweeper.start()
     // Not waited for: the first measurements arrive on the board when they are done.
     freshness.start()
     void freshness.refreshAll().catch(() => {})
@@ -1503,6 +1516,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         emit({ type: 'board.changed', workspaceId: ws.id })
         return ws
       },
+      // Renderer-only, like the others. Sweeping at once means choosing 14 days archives what is already older, not tomorrow.
+      'workspace.setAutoArchiveDays': async (days, workspaceId) => {
+        const value = z.union([z.literal(7), z.literal(14), z.literal(30), z.literal(90), z.null()]).parse(days)
+        const ws = await repos.workspaces.setAutoArchiveDays((await requireWorkspace(workspaceId)).id, value)
+        await archiveSweeper.sweepWorkspace(ws)
+        emit({ type: 'board.changed', workspaceId: ws.id })
+        return ws
+      },
       // Renderer-only: this command runs outside the permission guard, so no agent can set it.
       'workspace.setSetupSettings': async (settings, workspaceId) => {
         const input = z
@@ -1535,7 +1556,33 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'board.get': async (workspaceId) => {
         const ws = workspaceId === undefined ? await repos.workspaces.focused() : await requireWorkspace(workspaceId)
-        return { tickets: ws ? await boardView(ws) : [], archived: ws ? await repos.tickets.countArchived(ws.id) : 0 }
+        return {
+          tickets: ws ? await boardView(ws) : [],
+          archived: ws ? await repos.tickets.countArchived(ws.id) : 0,
+          archiveNotice: ws ? await repos.archive.openNotice(ws.id) : null
+        }
+      },
+      'archive.countOlder': async (days, workspaceId) =>
+        repos.archive.countOlder((await requireWorkspace(workspaceId)).id, archiveCutoff(now(), archiveDays.parse(days)), 'bulk'),
+      'archive.olderThan': async (days, workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
+        const olderThanDays = archiveDays.parse(days)
+        const done = await repos.archive.archiveOlder(ws.id, { cutoff: archiveCutoff(now(), olderThanDays), basis: 'bulk', olderThanDays })
+        if (done !== null) emit({ type: 'board.changed', workspaceId: ws.id })
+        return done?.batch ?? null
+      },
+      'archive.restoreBatch': async (batchId) => {
+        const id = z.string().min(1).parse(batchId)
+        const workspaceId = (await repos.archive.batch(id))?.workspaceId
+        const restored = await repos.archive.restoreBatch(id)
+        if (workspaceId !== undefined) emit({ type: 'board.changed', workspaceId })
+        return restored
+      },
+      'archive.closeNotice': async (batchId) => {
+        const id = z.string().min(1).parse(batchId)
+        const workspaceId = (await repos.archive.batch(id))?.workspaceId
+        await repos.archive.closeNotice(id)
+        if (workspaceId !== undefined) emit({ type: 'board.changed', workspaceId })
       },
       'ticket.view': async (id) => {
         const ticket = await repos.tickets.get(id)
@@ -1904,6 +1951,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
             gate.dispose()
             holds.dispose()
             stuckDetector.dispose()
+            archiveSweeper.dispose()
             freshness.dispose()
             baseTests.dispose()
             wakeScheduler.dispose()

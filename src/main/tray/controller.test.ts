@@ -5,7 +5,7 @@ import { TrayController, type MenuEntry } from './controller'
 import { ticket } from './fixtures'
 import { recordingNotifier, recordTrayView } from './recording'
 
-const ws = (id: string): Workspace => ({ id, name: `repo-${id}`, repoPath: `/r/${id}`, baseBranch: 'main', slug: id, openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1 })
+const ws = (id: string): Workspace => ({ id, name: `repo-${id}`, repoPath: `/r/${id}`, baseBranch: 'main', slug: id, openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1, autoArchiveDays: null })
 
 class Fixture {
   boards = new Map<string, BoardTicket[]>([['w1', []]])
