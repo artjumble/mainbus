@@ -20,14 +20,21 @@ beforeEach(async () => {
   TICKETS = path.join(HOME, 'work', 'ws')
   WT = path.join(TICKETS, '1-fix')
   await fs.mkdir(CWD, { recursive: true })
-  REPO = await makeRepo(path.join(tmp, 'repo'))
-  await write('.gitignore', '.env\nsecrets/\n')
-  await write('.env', 'API_KEY=FAKE')
-  await write('src/index.ts', 'export {}\n')
-  await runGit(['add', '-A'], REPO)
-  await runGit(['commit', '-m', 'files'], REPO)
-  await runGit(['worktree', 'add', '-b', 't1', WT], REPO)
+  REPO = path.join(tmp, 'repo')
 })
+
+/** For the describes that read files: a repo with a credentials file, a source file and a ticket worktree. */
+function useRepo(): void {
+  beforeEach(async () => {
+    await makeRepo(REPO)
+    await write('.gitignore', '.env\nsecrets/\n')
+    await write('.env', 'API_KEY=FAKE')
+    await write('src/index.ts', 'export {}\n')
+    await runGit(['add', '-A'], REPO)
+    await runGit(['commit', '-m', 'files'], REPO)
+    await runGit(['worktree', 'add', '-b', 't1', WT], REPO)
+  })
+}
 
 afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -47,6 +54,8 @@ async function deniedFor(tool: string, input: Record<string, unknown>): Promise<
 }
 
 describe('orchestratorVerdict', () => {
+  useRepo()
+
   test('allows reads in the repo and its own folder, and the Mainbus read tools', async () => {
     const allowed: [string, Record<string, unknown>][] = [
       ['Read', { file_path: path.join(REPO, 'src', 'index.ts') }],
@@ -158,6 +167,8 @@ describe('web tools', () => {
 })
 
 describe('ticket folders', () => {
+  useRepo()
+
   test('allows Read, Glob and Grep in a ticket worktree, one made later too', async () => {
     await write('src/a.ts', 'export {}\n', WT)
     const later = path.join(TICKETS, '2-new')
@@ -196,6 +207,8 @@ describe('ticket folders', () => {
 })
 
 describe('a Grep that searches a folder', () => {
+  useRepo()
+
   test('is allowed over a repo whose only credential file is gitignored', async () => {
     expect(await verdict('Grep', { pattern: 'API_KEY|.', path: REPO, output_mode: 'content' })).toEqual({ allow: true })
   })

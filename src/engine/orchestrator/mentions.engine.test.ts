@@ -3,12 +3,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { runGit } from '../git/git'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
 import { eventually } from '../testWait'
+import { testHome } from '../testFixtures'
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -29,7 +30,7 @@ const TURNS: FakeStep[] = [
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-mentions-'))
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   runtime = new FakeRuntime([], { orchestrator: TURNS })
 })
 

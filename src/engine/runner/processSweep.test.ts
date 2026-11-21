@@ -6,13 +6,14 @@ import type { Ticket } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import { runGit } from '../git/git'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { ProcessSweeper, type ProcessInfo } from '../processes/sweep'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 const CLAUDE_PID = 5000
 const LATER = Date.now() + 60_000
@@ -82,17 +83,9 @@ const NOTICE = 'Mainbus ended 3 processes the Implementer left running: python3.
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-sweep-'))
   const repoPath = path.join(tmp, 'repo')
-  await fs.mkdir(repoPath)
-  const git = async (args: string[]): Promise<void> => {
-    const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], repoPath)
-    if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-  }
-  await git(['init', '-b', 'main'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
+  await copyTemplateRepo(repoPath)
 
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
   repos = createRepos(testDb.db, () => FIXED_NOW)

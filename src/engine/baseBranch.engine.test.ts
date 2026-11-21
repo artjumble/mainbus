@@ -4,9 +4,9 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createEngine, type Engine } from './index'
 import { runGit } from './git/git'
-import { resolveHome } from './home'
 import { FakeRuntime } from './runtime/fakeRuntime'
 import { eventually } from './testWait'
+import { testHome } from './testFixtures'
 
 vi.setConfig({ testTimeout: 60_000 })
 const WAIT = { timeout: 20_000, interval: 50 }
@@ -31,7 +31,7 @@ async function commit(file: string, content: string, cwd = repo): Promise<void> 
 
 async function makeEngine(runtime = new FakeRuntime([])): Promise<{ engine: Engine; runtime: FakeRuntime }> {
   const engine = await createEngine({
-    paths: resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir()),
+    paths: await testHome(path.join(tmp, 'home')),
     migrationsDir,
     runtime,
     git: runGit,

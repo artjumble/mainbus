@@ -6,7 +6,7 @@ import type { Ticket } from '../../shared/domain'
 import type { ThreadEvent } from '../../shared/events'
 import { runGit } from '../git/git'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { ProcessSweeper, type ProcessInfo } from '../processes/sweep'
 import { firstMessage } from '../roles/prompt'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
@@ -15,6 +15,7 @@ import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { RESTART_TEXT, TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 let tmp: string
 let repoPath: string
@@ -72,12 +73,8 @@ async function relaunch(runtime: FakeRuntime, extra: { processes?: ProcessSweepe
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-recovery-'))
   repoPath = path.join(tmp, 'repo')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  await copyTemplateRepo(repoPath)
+  paths = await testHome(path.join(tmp, 'home'))
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
   repos = createRepos(testDb.db, () => FIXED_NOW)

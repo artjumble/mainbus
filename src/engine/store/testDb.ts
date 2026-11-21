@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { LineupRole } from '../../shared/domain'
-import { resolveHome } from '../home'
+import { testHome } from '../testFixtures'
 import { openDb, type Db } from '../db/open'
 import type { LineupRepo } from './lineups'
 
@@ -13,7 +13,7 @@ export const FIXED_NOW = new Date('2026-10-30T12:00:00.000Z')
 /** Opens a migrated database in a temp home. Call `cleanup` in teardown: Windows can't delete an open DB file. */
 export async function openTestDb(): Promise<{ db: Db; cleanup: () => void }> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-store-'))
-  const paths = resolveHome({ MAINBUS_HOME: tmp }, 'dev', os.homedir())
+  const paths = await testHome(tmp)
   const handle = await openDb(paths, migrationsDir)
   return {
     db: handle.db,

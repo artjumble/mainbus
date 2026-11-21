@@ -8,9 +8,9 @@ import { runCommand } from '../git/command'
 import { FakeGh } from '../git/fakeGh'
 import { runGit } from '../git/git'
 import { FakeClock } from '../holds/clock'
-import { resolveHome } from '../home'
 import { FakeRuntime } from '../runtime/fakeRuntime'
 import { eventually } from '../testWait'
+import { testHome } from '../testFixtures'
 
 vi.setConfig({ testTimeout: 60_000 })
 const WAIT = { timeout: 20_000, interval: 50 }
@@ -53,7 +53,7 @@ async function makeEngine(): Promise<Engine> {
   gh = new FakeGh()
   clock = new FakeClock(new Date())
   runtime = new FakeRuntime([{ waitForSend: true }])
-  const paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  const paths = await testHome(path.join(tmp, 'home'))
   const e = await createEngine({
     paths,
     migrationsDir,

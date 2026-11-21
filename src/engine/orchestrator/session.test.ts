@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { EngineEvent } from '../../shared/api'
 import { runGit } from '../git/git'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
@@ -12,6 +12,7 @@ import type { ExecFn } from '../runtime/resolveClaude'
 import type { AgentRuntime } from '../runtime/types'
 import { RESUME_FAILED_NOTICE } from './session'
 import { eventually } from '../testWait'
+import { testHome } from '../testFixtures'
 
 const migrationsDir = path.join(import.meta.dirname, '..', 'db', 'migrations')
 const exec: ExecFn = async () => ({ code: 1, stdout: '', stderr: 'no claude here' })
@@ -24,7 +25,7 @@ let engines: Engine[]
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-orchestrator-'))
   repoPath = await makeRepo(path.join(tmp, 'repo'))
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  paths = await testHome(path.join(tmp, 'home'))
   engines = []
 })
 

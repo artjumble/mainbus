@@ -4,8 +4,9 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { runGit } from '../git/git'
-import { resolveHome, type HomePaths } from '../home'
+import type { HomePaths } from '../home'
 import { createEngine, type Engine } from '../index'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 import type { ExecFn } from '../runtime/resolveClaude'
 import type { AgentRuntime } from '../runtime/types'
 import { intakeEndpoint } from './endpoint'
@@ -25,21 +26,9 @@ export interface TestBoard {
   dispose(): Promise<void>
 }
 
-async function git(args: string[], cwd: string): Promise<void> {
-  const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], cwd)
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-}
-
 export async function makeRepo(dir: string): Promise<string> {
-  await fs.mkdir(dir, { recursive: true })
-  await git(['init', '-b', 'main'], dir)
-  // The repo's own identity, which commits Mainbus makes in it (an investigation's report) use, whatever the machine's is.
-  await git(['config', 'user.name', 'Test'], dir)
-  await git(['config', 'user.email', 'test@example.com'], dir)
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\n')
-  await git(['add', '.'], dir)
-  await git(['commit', '-m', 'initial'], dir)
-  return dir
+  // The repo has its own identity, which commits Mainbus makes in it (an investigation's report) use, whatever the machine's is.
+  return copyTemplateRepo(dir, { identity: true })
 }
 
 export async function makeTestBoard(
@@ -47,7 +36,7 @@ export async function makeTestBoard(
 ): Promise<TestBoard> {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-intake-'))
   const repoPath = await makeRepo(path.join(tmp, 'repo'))
-  const paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  const paths = await testHome(path.join(tmp, 'home'))
   const engine = await createEngine({ paths, migrationsDir, runtime: options.runtime ?? null, git: runGit, exec })
   if (options.openWorkspace !== false) await engine.invoke('workspace.open', repoPath)
   const endpoint = intakeEndpoint(paths.root)

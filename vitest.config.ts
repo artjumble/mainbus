@@ -4,6 +4,8 @@ import { configDefaults, defineConfig } from 'vitest/config'
 const NODE_INCLUDE = ['src/engine/**/*.test.ts', 'src/main/**/*.test.ts', 'src/shared/**/*.test.ts', 'src/cli/**/*.test.ts']
 // Few enough at once that their git processes don't starve each other (8 and 12 ran the full suite in about the same time).
 const HEAVY_WORKERS = 12
+// Builds the template git repos and the migrated database once; see src/engine/testFixtures.ts.
+const FIXTURES_SETUP = 'src/engine/testFixtures.setup.ts'
 
 /**
  * The test files that start real git or processes (a ticket start alone runs about 20 git processes). Under the full
@@ -82,6 +84,7 @@ export default defineConfig({
           // node:sqlite prints an ExperimentalWarning on import; keep test output clean.
           execArgv: ['--disable-warning=ExperimentalWarning'],
           include: NODE_INCLUDE,
+          globalSetup: [FIXTURES_SETUP],
           exclude: [...configDefaults.exclude, ...HEAVY_TESTS],
           // Vitest requires projects with different maxWorkers to run in different groups.
           sequence: { groupOrder: 1 }
@@ -94,6 +97,7 @@ export default defineConfig({
           globals: true,
           execArgv: ['--disable-warning=ExperimentalWarning'],
           include: HEAVY_TESTS,
+          globalSetup: [FIXTURES_SETUP],
           maxWorkers: HEAVY_WORKERS,
           sequence: { groupOrder: 0 },
           // Real git per ticket start, several times slower while other tests run.

@@ -9,13 +9,13 @@ import { FakeGh } from '../git/fakeGh'
 import { runGit } from '../git/git'
 import { PullRequestPublisher } from '../git/pullRequests'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome } from '../home'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { defaultLineup } from '../store/lineups'
 import { createRepos, type Repos } from '../store'
 import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 const BRANCH = 'mainbus/1-rate-limit-login'
 const PR = { url: 'https://github.com/example/repo/pull/1', number: 1 }
@@ -48,17 +48,13 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-runner-pr-'))
   repoPath = path.join(tmp, 'repo')
   origin = path.join(tmp, 'origin.git')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
+  await copyTemplateRepo(repoPath)
   // A local bare repository stands in for the remote: nothing here reaches a real one.
   await git(['init', '--bare', '-b', 'main', origin], tmp)
   await git(['remote', 'add', 'origin', origin])
   await git(['push', 'origin', 'main'])
 
-  const paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  const paths = await testHome(path.join(tmp, 'home'))
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
   repos = createRepos(testDb.db, () => FIXED_NOW)

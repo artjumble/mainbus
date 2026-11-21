@@ -8,7 +8,7 @@ import type { ThreadEvent } from '../../shared/events'
 import { usagePauseReason } from '../../shared/usage'
 import { runGit } from '../git/git'
 import { WorktreeManager } from '../git/worktrees'
-import { resolveHome, type HomePaths } from '../home'
+import { type HomePaths } from '../home'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { RunSpec } from '../runtime/types'
 import { createRepos, type Repos } from '../store'
@@ -16,6 +16,7 @@ import { FIXED_NOW, implementerOnly, openTestDb } from '../store/testDb'
 import { testUsage, type TestUsage } from './testUsage'
 import { TicketRunner, USAGE_RESUME_TEXT } from './ticketRunner'
 import { eventually } from '../testWait'
+import { copyTemplateRepo, testHome } from '../testFixtures'
 
 let tmp: string
 let repoPath: string
@@ -106,12 +107,8 @@ async function twoWorking(runtime: FakeRuntime, usage: TestUsage, cap = 3): Prom
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-fleet-'))
   repoPath = path.join(tmp, 'repo')
-  await fs.mkdir(repoPath)
-  await git(['init', '-b', 'main'])
-  await fs.writeFile(path.join(repoPath, 'README.md'), 'hello\n')
-  await git(['add', '.'])
-  await git(['commit', '-m', 'initial'])
-  paths = resolveHome({ MAINBUS_HOME: path.join(tmp, 'home') }, 'dev', os.homedir())
+  await copyTemplateRepo(repoPath)
+  paths = await testHome(path.join(tmp, 'home'))
   const testDb = await openTestDb()
   closeDb = testDb.cleanup
   repos = createRepos(testDb.db, () => FIXED_NOW)

@@ -35,6 +35,20 @@ async function failure(promise: Promise<unknown>): Promise<IntakeFailure> {
   return error as IntakeFailure
 }
 
+/** The intake handler on stub dependencies: for requests that are refused before they reach a board. */
+function stubHandler() {
+  const ws = { id: 'w', name: 'repo', repoPath: path.resolve('stub-repo') } as Parameters<Parameters<typeof createIntakeHandler>[0]['ticket']>[0]
+  const createTicket = vi.fn()
+  const handle = createIntakeHandler({
+    workspaces: async () => [ws],
+    ticketFolders: () => '/none',
+    createTicket,
+    tickets: async () => [],
+    ticket: async () => null
+  })
+  return { handle, createTicket }
+}
+
 describe('intake create', () => {
   it('creates the ticket in Backlog through ticket.create, marks the agent and emits board.changed', async () => {
     const { engine } = await board()
@@ -109,11 +123,18 @@ describe('intake create', () => {
     ['a relative repo', { ...valid, repo: 'repo' }, 'repo'],
     ['a title of the wrong type', { ...valid, title: 7 }, 'title']
   ])('rejects %s, naming the field, and creates nothing', async (_, params, field) => {
-    const { engine } = await board()
-    const error = await failure(engine.intake('create', params))
+    const { handle, createTicket } = stubHandler()
+    const error = await failure(handle('create', params as never))
     expect(error.code).toBe('invalid')
     expect(error.field).toBe(field)
     expect(error.message).toContain(field)
+    expect(createTicket).not.toHaveBeenCalled()
+  })
+
+  it('creates nothing on the board when a create through the engine is invalid', async () => {
+    const { engine } = await board()
+    const error = await failure(engine.intake('create', { ...valid, title: '' }))
+    expect(error.code).toBe('invalid')
     expect((await engine.invoke('board.get')).tickets).toEqual([])
   })
 
@@ -282,8 +303,8 @@ describe('intake list and get', () => {
   it.each(['openPr', 'ticket.openPr', 'push', 'setOpenPrOnReview', 'workspace.setOpenPrOnReview', 'ticket.saveReport', 'saveReport', 'workspace.setReportSettings', 'workspace.prepare', 'merge', 'ticket.merge', 'ticket.mergePreview', 'workspace.setMergeMethod', 'workspace.setBaseBranch'])(
     'has no way to make Mainbus push or commit: %s is unknown',
     async (method) => {
-      const { engine } = await board()
-      expect((await failure(engine.intake(method as 'get', { number: 1 }))).code).toBe('unknown_method')
+      const { handle } = stubHandler()
+      expect((await failure(handle(method as 'get', { number: 1 }))).code).toBe('unknown_method')
     }
   )
 })
