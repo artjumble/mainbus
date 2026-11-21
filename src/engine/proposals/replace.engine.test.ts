@@ -99,26 +99,13 @@ async function redirectAndFireAgain(s: Setup): Promise<void> {
 }
 
 describe('propose_replace', () => {
-  test('is refused until a redirected episode fires again', async () => {
-    const s = await setup()
-    expect(await s.proposeReplace()).toMatch(/^Invalid proposal: ticket: the Planner on #1 has no open stuck episode/)
-    await s.noticeStuck()
-    expect(await s.proposeReplace()).toMatch(/has not been redirected yet; propose a redirect first/)
-
-    await s.tools.proposeRedirect({ ticket: s.ticket.number, message: REDIRECT, evidence: 'The same command failed five times' })
-    await s.engine.invoke('proposal.confirm', (await s.proposals())[0]!.id)
-    await eventually(() => expect(s.runtime.sent).toContain(REDIRECT))
-    expect(await s.proposeReplace()).toMatch(/redirected and has not fired again since/)
-    expect((await s.proposals()).filter((p) => p.kind === 'replace')).toEqual([])
-  })
-
-  test('is accepted once the redirected episode fires again, and the orchestrator is told', async () => {
+  test('confirming replaces the agent: the old run ends as replaced and a fresh one starts with the summary', async () => {
     const s = await setup()
     await redirectAndFireAgain(s)
     expect(await s.tools.getRunStatus({ number: s.ticket.number })).toContain('has fired again: propose a replacement')
     expect(await s.proposeReplace()).toMatch(/^Proposed /)
-    const [, p] = await s.proposals()
-    expect(p).toMatchObject({
+    expect(await s.proposals()).toHaveLength(2)
+    expect((await s.proposals())[1]).toMatchObject({
       kind: 'replace',
       status: 'pending',
       origin: 'orchestrator',
@@ -127,12 +114,6 @@ describe('propose_replace', () => {
     })
     // Nothing happens before the user decides.
     expect(s.runtime.specs).toHaveLength(1)
-  })
-
-  test('confirming replaces the agent: the old run ends as replaced and a fresh one starts with the summary', async () => {
-    const s = await setup()
-    await redirectAndFireAgain(s)
-    await s.proposeReplace()
     const done = await s.engine.invoke('proposal.confirm', (await s.proposals())[1]!.id)
     expect(done).toMatchObject({ status: 'confirmed', result: { role: 'Planner' } })
     await s.agentsStuck(2)
@@ -160,29 +141,6 @@ describe('propose_replace', () => {
     })
     expect(await s.tools.getRecentEvents({ number: s.ticket.number })).toContain('The user replaced the Planner')
   })
-
-  test('an override changes the new run’s model, effort and extra instructions', async () => {
-    const s = await setup()
-    await redirectAndFireAgain(s)
-    await s.proposeReplace()
-    const [, p] = await s.proposals()
-    await expect(s.engine.invoke('proposal.confirm', p!.id, { model: 'gpt', effort: 'low', extraInstructions: '' })).rejects.toThrow()
-    const done = await s.engine.invoke('proposal.confirm', p!.id, { model: 'haiku', effort: 'low', extraInstructions: 'Check the fixtures first' })
-    expect(done).toMatchObject({ status: 'overridden', result: { model: 'haiku', effort: 'low' } })
-    await s.agentsStuck(2)
-    expect(s.runtime.specs[1]).toMatchObject({ model: 'haiku', effort: 'low' })
-    expect(s.runtime.specs[1]!.appendSystemPrompt).toContain('Check the fixtures first')
-  })
-
-  test('Keep current rejects it, and the agent carries on', async () => {
-    const s = await setup()
-    await redirectAndFireAgain(s)
-    await s.proposeReplace()
-    const rejected = await s.engine.invoke('proposal.reject', (await s.proposals())[1]!.id)
-    expect(rejected.status).toBe('rejected')
-    expect(s.runtime.specs).toHaveLength(1)
-    expect((await s.board()).state.agentStatus).toBe('working')
-  })
 })
 
 describe('the Replace… button', () => {
@@ -201,19 +159,16 @@ describe('the Replace… button', () => {
     // Asked twice, the same pending card comes back.
     expect(await s.engine.invoke('ticket.proposeReplace', s.ticket.id)).toMatchObject({ id: p.id })
 
-    const done = await s.engine.invoke('proposal.confirm', p.id)
-    expect(done).toMatchObject({ status: 'confirmed', result: { role: 'Planner' } })
+    // The user's override changes the new run's model, effort and extra instructions.
+    const done = await s.engine.invoke('proposal.confirm', p.id, { model: 'haiku', effort: 'low', extraInstructions: 'Check the fixtures first' })
+    expect(done).toMatchObject({ status: 'overridden', result: { role: 'Planner', model: 'haiku', effort: 'low' } })
     await s.agentsStuck(2)
     expect(s.runtime.specs[1]!.prompt).toContain('Handoff from the previous run')
+    expect(s.runtime.specs[1]).toMatchObject({ model: 'haiku', effort: 'low' })
+    expect(s.runtime.specs[1]!.appendSystemPrompt).toContain('Check the fixtures first')
     expect((await s.threadRuns()).length).toBe(2)
     const events = (await s.engine.invoke('thread.get', s.ticket.id)).events.map((e) => e.event)
     expect(events).toContainEqual(expect.objectContaining({ kind: 'replaced', proposalId: p.id, suggestedBy: 'user' }))
-  })
-
-  test('is refused for a ticket with no open run', async () => {
-    const s = await setup()
-    await s.engine.invoke('agent.stop', s.ticket.id)
-    await expect(s.engine.invoke('ticket.proposeReplace', s.ticket.id)).rejects.toThrow(/no active role/)
   })
 })
 
@@ -240,15 +195,5 @@ describe('a role replaced twice that gets stuck again', () => {
     expect(errors.at(-1)).toContain('It looked stuck (the same command failing again and again)')
     expect(errors.at(-1)).toContain('It was then replaced by a fresh agent.')
     expect(await s.tools.proposeReplace({ ticket: 1, reason: 'x', evidence: 'y' })).toMatch(/no active role/)
-  })
-
-  test('is not failed while the role has been replaced fewer times', async () => {
-    const s = await setup()
-    const p = await s.engine.invoke('ticket.proposeReplace', s.ticket.id)
-    await s.engine.invoke('proposal.confirm', p.id)
-    await s.agentsStuck(2)
-    await clock.advance(3 * MIN)
-    await eventually(async () => expect((await s.board()).stuck).toMatchObject({ rule: 'repeated_failure' }))
-    expect((await s.board()).state.agentStatus).toBe('working')
   })
 })

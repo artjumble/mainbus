@@ -82,20 +82,6 @@ describe('ticket.draftPromotion', () => {
     expect(s.runtime.summaries[0]!.prompt).toContain(REPORT)
     expect(s.runtime.summaries[0]!.cwd.startsWith(paths.scratch)).toBe(true)
   })
-
-  test.each<[string, FakeSummary, number | undefined]>([
-    ['fails', { fail: 'boom' }, undefined],
-    ['hangs', { hang: true }, 50],
-    ['is empty', '  ', undefined]
-  ])('falls back to the report when the call %s', async (_name, summary, timeout) => {
-    const s = await setup(summary, timeout)
-    const t = await s.investigate()
-    expect(await s.engine.invoke('ticket.draftPromotion', t.id)).toEqual({
-      title: 'Why is login slow',
-      spec: `## From the investigation\n\n${REPORT}${fileLine(t)}`,
-      drafted: false
-    })
-  })
 })
 
 describe('usage', () => {

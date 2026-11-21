@@ -3,8 +3,9 @@ import userEvent from '@testing-library/user-event'
 import type { Proposal, ProposalKindName, RoleControlPayload } from '../../../shared/proposals'
 import { invoke } from '../api'
 import { useMainbus } from '../store'
-import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
+import { renderWithMantine } from '../test-utils'
 import { ProposalCard } from './ProposalCard'
+import { expectCardAccessible } from './proposalTestUtils'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
@@ -83,7 +84,5 @@ test('a failed one shows why', () => {
 })
 
 test('the card has no axe violations (it offers no Override editor)', async () => {
-  renderWithMantine(<ProposalCard proposal={proposal('pause')} />)
-  expect(screen.queryByRole('button', { name: 'Override' })).not.toBeInTheDocument()
-  await expectNoAxeViolations()
+  await expectCardAccessible(proposal('pause'), { override: false })
 })

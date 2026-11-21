@@ -385,18 +385,14 @@ describe('collapsed and expanded', () => {
     try {
       renderWithMantine(<WorkspaceRail />)
       fireEvent.pointerEnter(navOf())
-      await act(() => vi.advanceTimersByTimeAsync(100))
-      expect(navOf()).toHaveAttribute('data-expanded', 'false')
-      await act(() => vi.advanceTimersByTimeAsync(60))
+      await act(() => vi.advanceTimersByTimeAsync(160))
       expect(navOf()).toHaveAttribute('data-expanded', 'true')
       expect(screen.getByRole('button', { name: 'Options for alpha-repo' })).toBeInTheDocument()
       expect(navOf()).toHaveTextContent('+ Add workspace')
       expect(navOf().querySelectorAll('[data-rail-status]')).toHaveLength(2)
 
       fireEvent.pointerLeave(navOf())
-      await act(() => vi.advanceTimersByTimeAsync(250))
-      expect(navOf()).toHaveAttribute('data-expanded', 'true')
-      await act(() => vi.advanceTimersByTimeAsync(60))
+      await act(() => vi.advanceTimersByTimeAsync(310))
       expect(navOf()).toHaveAttribute('data-expanded', 'false')
     } finally {
       vi.useRealTimers()

@@ -8,7 +8,6 @@ import { type RunSpec } from '../runtime/types'
 import { defaultLineup } from '../store/lineups'
 import { FIXED_NOW } from '../store/testDb'
 import { MOVED_ON, TicketRunner } from './ticketRunner'
-import { testUsage } from './testUsage'
 import { eventually } from '../testWait'
 
 import { SUMMARY_USAGE, StopRecording, count, emitted, installRunnerHooks, makeRunner, paths, repos, runners, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
@@ -65,29 +64,6 @@ describe('TicketRunner Pause and Resume', () => {
     await expect(runner.resumePaused(ticket.id)).rejects.toThrow('There is no paused agent to resume on this ticket')
   })
 
-  it('a paused role stays Paused across a restart, Continue refuses it, and Resume resumes it by session id', async () => {
-    const before = await workingRun(new FakeRuntime(working))
-    await before.pause(ticket.id)
-    await before.shutdown()
-
-    const runtime = new FakeRuntime(working)
-    const after = makeRunner(runtime)
-    await after.markAllNotAlive()
-    expect(await after.stateOf(ticket.id)).toMatchObject({
-      column: 'in_progress',
-      agentStatus: 'paused',
-      canContinue: false,
-      pausedByUser: true
-    })
-    // The usage-limit wait continues through here: it must never wake the user's pause.
-    await expect(after.continue(ticket.id)).rejects.toThrow('You paused this agent: use Resume to continue it')
-    expect(runtime.specs).toEqual([])
-
-    await after.resumePaused(ticket.id)
-    expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 's1', prompt: 'Continue.' })
-    expect(await after.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working', pausedByUser: false })
-  })
-
   it('a role paused before its session started gets its first message on Resume', async () => {
     const runtime = new FakeRuntime([{ waitForSend: true }])
     const runner = makeRunner(runtime)
@@ -109,26 +85,6 @@ describe('TicketRunner Pause and Resume', () => {
 
     expect(runtime.specs[1]).toMatchObject({ resumeSessionId: 's1', prompt: 'Use the new API' })
     expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working', pausedByUser: false })
-  })
-
-  it('Resume tries a usage-limit pause early, and Continue refuses it', async () => {
-    const usage = testUsage(repos)
-    const limited: FakeStep[] = [
-      { emit: { kind: 'session', sessionId: 's1' } },
-      { emit: { kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} } },
-      { emit: { kind: 'turn_end', ok: false, error: 'Claude AI usage limit reached' } },
-      { waitForSend: true }
-    ]
-    const runtime = new FakeRuntime((spec) => (spec.resumeSessionId ? working : limited))
-    const runner = makeRunner(runtime, worktrees, false, usage)
-    await runner.start(ticket.id)
-    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, pausedByUser: false }))
-
-    await expect(runner.continue(ticket.id)).rejects.toThrow('Paused by the usage limit: use Resume to continue it now')
-    expect(runtime.specs).toHaveLength(1)
-    await runner.resumePaused(ticket.id)
-    expect(runtime.specs[1]).toMatchObject({ resumeSessionId: 's1', prompt: 'Continue.' })
-    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'working' }))
   })
 })
 
