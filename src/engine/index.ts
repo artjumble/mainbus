@@ -976,8 +976,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return ticket && { ...ticket, state: await runner.stateOf(ticket.id) }
     }
 
-    const boardView = async (ws: Workspace, opts?: { includeArchived?: boolean }): Promise<BoardTicket[]> => {
-      const tickets = await repos.tickets.list(ws.id, { includeArchived: opts?.includeArchived ?? false })
+    const boardView = async (ws: Workspace, opts?: { includeArchived?: boolean }): Promise<BoardTicket[]> =>
+      boardTicketsOf(ws, await repos.tickets.list(ws.id, { includeArchived: opts?.includeArchived ?? false }))
+
+    /** The board's view of these tickets of the workspace, archived or not. */
+    const boardTicketsOf = async (ws: Workspace, tickets: Ticket[]): Promise<BoardTicket[]> => {
+      const promotions = await repos.tickets.promotions(ws.id)
       const holdOf = new Map((await repos.holds.activeOf('ticket')).map((h) => [h.targetId, h]))
       // Read once, for every ticket that hasn't run yet.
       const lineups = new Map<Lineup, Promise<LineupRole[]>>()
@@ -1001,6 +1005,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           attachments: attached.filter((a) => a.ticketId === t.id),
           blockedBy: blockedBy.get(t.id) ?? [],
           dependencyNotes: dependencyNotes.get(t.id) ?? [],
+          promotion: {
+            from: promotions.find((p) => p.to.id === t.id)?.from ?? null,
+            to: promotions.find((p) => p.from.id === t.id)?.to ?? null
+          },
           edits: edited
             .filter((e) => e.ticketId === t.id)
             .map(({ id, at, fields, intentAdded, undoneAt }) => ({ id, at, fields, userWords: intentAdded.length, undoneAt })),
@@ -1523,7 +1531,27 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
       'board.get': async (workspaceId) => {
         const ws = workspaceId === undefined ? await repos.workspaces.focused() : await requireWorkspace(workspaceId)
-        return { tickets: ws ? await boardView(ws) : [] }
+        return { tickets: ws ? await boardView(ws) : [], archived: ws ? await repos.tickets.countArchived(ws.id) : 0 }
+      },
+      'ticket.view': async (id) => {
+        const ticket = await repos.tickets.get(id)
+        const ws = await requireWorkspace(ticket.workspaceId)
+        return (await boardTicketsOf(ws, [ticket]))[0]!
+      },
+      'archive.list': async (opts, workspaceId) => {
+        const ws = await requireWorkspace(workspaceId)
+        const parsed = z
+          .strictObject({
+            query: z.string().max(500).optional(),
+            before: z.strictObject({ archivedAt: z.string(), number: z.number().int() }).optional(),
+            limit: z.number().int().min(1).max(200).optional()
+          })
+          .parse(opts ?? {})
+        const rows = await repos.tickets.listArchived(ws.id, parsed)
+        return {
+          tickets: rows.map((t) => ({ id: t.id, number: t.number, title: t.title, labels: t.labels, kind: t.kind, doneAt: t.doneAt, archivedAt: t.archivedAt! })),
+          total: await repos.tickets.countArchived(ws.id, { query: parsed.query })
+        }
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.

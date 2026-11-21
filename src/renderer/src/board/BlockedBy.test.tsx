@@ -11,7 +11,7 @@ vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 const initial = useMainbus.getState()
 
-const blocker = (number: number, done: boolean) => ({ id: `b${number}`, number, title: `B${number}`, done })
+const blocker = (number: number, done: boolean) => ({ id: `b${number}`, number, title: `B${number}`, done, archived: false })
 const others = [
   makeTicket({ id: 'a', number: 1, title: 'Schema' }),
   makeTicket({ id: 'b', number: 2, title: 'Api', manualColumn: 'done' }),
@@ -57,7 +57,7 @@ describe('the ticket view picker', () => {
 
   test('shows the saved blockers', () => {
     useMainbus.setState({ tickets: others })
-    const t = makeTicket({ id: 'c', number: 3, blockedBy: [{ id: 'a', number: 1, title: 'Schema', done: false }] })
+    const t = makeTicket({ id: 'c', number: 3, blockedBy: [{ id: 'a', number: 1, title: 'Schema', done: false, archived: false }] })
     renderWithMantine(<ContextPane ticket={t} events={[]} decisions={[]} />)
     expect(within(screen.getByRole('region', { name: 'Blocked by' })).getAllByText('#1 Schema').length).toBeGreaterThan(0)
   })

@@ -709,7 +709,20 @@ export interface Blocker {
   number: number
   title: string
   done: boolean
+  /** It is Done and archived: off the board, but still a ticket you can open. */
+  archived: boolean
 }
+
+/** A pointer to another ticket, as a promotion link shows it. */
+export interface TicketRef {
+  id: string
+  number: number
+  title: string
+  archived: boolean
+}
+
+/** What the Archive view lists for each archived ticket. */
+export type ArchivedTicket = Pick<Ticket, 'id' | 'number' | 'title' | 'labels' | 'kind' | 'doneAt'> & { archivedAt: string }
 
 /** What happened with a ticket's blockers, for its Activity and the orchestrator. */
 export interface DependencyNote {

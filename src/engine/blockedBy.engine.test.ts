@@ -64,7 +64,7 @@ describe('creating and editing blockers', () => {
     const { engine } = await makeEngine()
     const a = await newTicket(engine, 'First')
     const b = await newTicket(engine, 'Second', 'backlog', [a.id])
-    expect((await ticketOf(engine, b.id)).blockedBy).toEqual([{ id: a.id, number: 1, title: 'First', done: false }])
+    expect((await ticketOf(engine, b.id)).blockedBy).toEqual([{ id: a.id, number: 1, title: 'First', done: false, archived: false }])
     expect((await ticketOf(engine, a.id)).blockedBy).toEqual([])
   })
 

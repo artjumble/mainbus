@@ -1,6 +1,7 @@
 import { AppShell, Button, Center, Loader, Stack, Text, Title, VisuallyHidden } from '@mantine/core'
 import { useEffect, useState, useSyncExternalStore, type ReactElement } from 'react'
 import { Announcer } from './Announcer'
+import { ArchiveView } from './archive/ArchiveView'
 import { Board } from './board/Board'
 import { startNavigation } from './navigation'
 import { showError } from './notify'
@@ -39,6 +40,7 @@ export function App(): ReactElement {
   const loadError = useMainbus((s) => s.loadError)
   const load = useMainbus((s) => s.load)
   const currentTicketId = useMainbus((s) => s.currentTicketId)
+  const archiveOpen = useMainbus((s) => s.archiveOpen)
   const [panelOpen, setPanelOpen] = useState(readPanelOpen)
   // The width the user chose; a small window shows it clamped, without losing it.
   const [panelWidth, setPanelWidth] = useState(readPanelWidth)
@@ -176,6 +178,7 @@ export function App(): ReactElement {
     if (!setup.ok) return <SetupScreen />
     if (!workspace) return <OpenWorkspace />
     if (currentTicketId) return <TicketView />
+    if (archiveOpen) return <ArchiveView />
     return <Board />
   }
 }

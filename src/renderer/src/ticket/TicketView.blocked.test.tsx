@@ -15,7 +15,7 @@ const initial = useMainbus.getState()
 
 function show(blockers: { number: number; done: boolean }[]) {
   const ticket = makeTicket(
-    { title: 'Add dark mode', number: 12, blockedBy: blockers.map((b) => ({ id: `b${b.number}`, number: b.number, title: `B${b.number}`, done: b.done })) },
+    { title: 'Add dark mode', number: 12, blockedBy: blockers.map((b) => ({ id: `b${b.number}`, number: b.number, title: `B${b.number}`, done: b.done, archived: false })) },
     { column: 'ready' }
   )
   useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })

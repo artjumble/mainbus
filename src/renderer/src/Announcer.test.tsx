@@ -6,7 +6,7 @@ import { expectNoAxeViolations, makeDecision, makeTicket, renderWithMantine, wor
 vi.mock('./api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), openFolder: vi.fn() }))
 
 const initial = useMainbus.getState()
-const status = (): HTMLElement => screen.getByRole('status')
+const status = (): HTMLElement => screen.getByTestId('announcer')
 
 function show(tickets: ReturnType<typeof makeTicket>[], ws = workspace): void {
   act(() => useMainbus.setState({ workspace: ws, workspaceLoaded: true, boardLoaded: true, tickets }))

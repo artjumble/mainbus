@@ -30,6 +30,21 @@ interface MainbusState {
   loadError: string | null
   /** Set by clicking a card; the ticket view (Task 14) reads it. */
   currentTicketId: string | null
+  /**
+   * The open ticket when it isn't on the board (archived): read with `ticket.view` and kept fresh by every board
+   * read. null while it loads, when the ticket is on the board, or when it can't be read.
+   */
+  offBoardTicket: BoardTicket | null
+  /** The first read of \`offBoardTicket\` is under way. */
+  offBoardLoading: boolean
+  /** How many archived tickets the board leaves out. */
+  archivedCount: number
+  /** The Archive view is showing (instead of the board). */
+  archiveOpen: boolean
+  /** What the Archive's search box starts with: the board's search when "N more in the Archive" opened it. */
+  archiveQuery: string
+  /** A sentence for screen readers (archived, restored); `n` counts them so the same one is read again. */
+  announcement: { text: string; n: number } | null
   /** Unattended mode, as the engine last reported it. */
   unattended: UnattendedState
   /** Where the app stands on the usage limit, as the engine last reported it. */
@@ -54,6 +69,9 @@ interface MainbusState {
   modelOptions: ModelOption[]
 
   setSearch(query: string): void
+  openArchive(query?: string): void
+  closeArchive(): void
+  announce(text: string): void
   /** Keeps the offered models, here (for the selects) and in shared/models (for every label and check). */
   setModelOptions(options: ModelOption[]): void
   askOrchestrator(text: string): void
@@ -167,6 +185,29 @@ function oneAtATime(read: () => Promise<void>): () => Promise<void> {
   return next
 }
 
+/**
+ * Keeps `offBoardTicket` right for the open ticket: read by id while it isn't among `board` (the tickets just read),
+ * dropped once it is, so a ticket archived or restored from its own view follows the change.
+ */
+async function followOffBoardTicket(board: BoardTicket[]): Promise<void> {
+  const { currentTicketId, offBoardTicket } = useMainbus.getState()
+  // On the board, the board's copy is shown; refreshBoard drops the off-board one together with the new tickets.
+  if (currentTicketId === null || board.some((t) => t.id === currentTicketId)) return
+  // Only a first read shows a spinner; later reads of the same ticket keep what is on screen.
+  if (offBoardTicket === null) useMainbus.setState({ offBoardLoading: true })
+  try {
+    const view = await invoke('ticket.view', currentTicketId)
+    if (useMainbus.getState().currentTicketId !== currentTicketId) return
+    const found = view && view.id === currentTicketId ? view : null
+    const previous = useMainbus.getState().offBoardTicket
+    if (found === null ? previous !== null : !previous || !isEqual(previous, found)) useMainbus.setState({ offBoardTicket: found })
+  } catch {
+    if (useMainbus.getState().currentTicketId === currentTicketId && offBoardTicket !== null) useMainbus.setState({ offBoardTicket: null })
+  } finally {
+    if (useMainbus.getState().offBoardLoading) useMainbus.setState({ offBoardLoading: false })
+  }
+}
+
 export const useMainbus = create<MainbusState>()((set, get) => ({
   setup: null,
   workspace: null,
@@ -178,6 +219,12 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   boardLoaded: false,
   loadError: null,
   currentTicketId: null,
+  offBoardTicket: null,
+  offBoardLoading: false,
+  archivedCount: 0,
+  archiveOpen: false,
+  archiveQuery: '',
+  announcement: null,
   unattended: UNATTENDED_OFF,
   usage: { kind: 'ok' },
   pendingMoves: {},
@@ -188,6 +235,9 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   modelOptions: modelOptions(),
 
   setSearch: (search) => set({ search }),
+  openArchive: (query = '') => set({ archiveOpen: true, archiveQuery: query }),
+  closeArchive: () => set({ archiveOpen: false, archiveQuery: '' }),
+  announce: (text) => set((s) => ({ announcement: { text, n: (s.announcement?.n ?? 0) + 1 } })),
   setModelOptions: (options) => {
     setModelOptions(options)
     set({ modelOptions: modelOptions() })
@@ -253,7 +303,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   async reloadFocused() {
     const workspace = await invoke('workspace.get')
     const changed = workspace?.id !== get().workspace?.id
-    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
+    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, offBoardTicket: null, archivedCount: 0, archiveOpen: false, archiveQuery: '', tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
     })
     if (!workspace) return
     await get().refreshBoard()
@@ -261,11 +311,15 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   },
 
   refreshBoard: oneAtATime(async () => {
-    const { tickets } = await invoke('board.get')
+    const { tickets, archived } = await invoke('board.get')
+    if (archived !== undefined && archived !== get().archivedCount) set({ archivedCount: archived })
+    await followOffBoardTicket(tickets)
     const previous = get().tickets
     const stable = stabilize(previous, tickets)
+    // The open ticket is on the board (again): its off-board copy goes in the same update that brings the board's.
+    const backOnBoard = get().offBoardTicket !== null && stable.some((t) => t.id === get().currentTicketId)
     if (stable === previous) {
-      if (!get().boardLoaded) set({ boardLoaded: true })
+      if (!get().boardLoaded || backOnBoard) set({ boardLoaded: true, ...(backOnBoard ? { offBoardTicket: null } : {}) })
       return
     }
     // Mainbus's changes (not the person's own) get an outline for a few seconds.
@@ -274,12 +328,16 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     set((s) => {
       const recent = Object.fromEntries(Object.entries(s.recentlyChanged).filter(([, at]) => now - at < RECENT_MS))
       for (const id of changed) recent[id] = now
-      return { tickets: stable, recentlyChanged: recent, boardLoaded: true }
+      return { tickets: stable, recentlyChanged: recent, boardLoaded: true, ...(backOnBoard ? { offBoardTicket: null } : {}) }
     })
   }),
 
-  openTicket: (id) => set({ currentTicketId: id }),
-  closeTicket: () => set({ currentTicketId: null }),
+  openTicket(id) {
+    set((s) => ({ currentTicketId: id, offBoardTicket: s.offBoardTicket?.id === id ? s.offBoardTicket : null }))
+    // A ticket that isn't on the board (archived) is read by id.
+    if (!get().tickets.some((t) => t.id === id)) void followOffBoardTicket(get().tickets)
+  },
+  closeTicket: () => set({ currentTicketId: null, offBoardTicket: null }),
 
   async moveTicket(id, to) {
     set((s) => ({ pendingMoves: { ...s.pendingMoves, [id]: to } }))
