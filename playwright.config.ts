@@ -7,12 +7,12 @@ const SERIAL_SPECS = [
   '**/tray.spec.ts', // tray, OS notifications and window visibility
   '**/appWindow.spec.ts', // maximized OS window state
   '**/loadingButtons.spec.ts', // hover-revealed buttons
-  '**/doneColumn.spec.ts', // hover, focus and drag opening of Done, with fixed sleeps
+  '**/doneColumn.spec.ts', // hover, focus and drag opening of Done, with a wait on its collapse timer
   '**/workspaceRailExpand.spec.ts', // rail hover and focus expansion
   '**/keyboard.spec.ts', // focus rings and Tab order
   '**/needsYouColumn.spec.ts', // Done hover, and widths sampled frame by frame
-  '**/a11y.spec.ts', // rail hover, focus and animation sleeps
-  '**/artboards.spec.ts', // hover, and animation-settle sleeps before screenshots
+  '**/a11y.spec.ts', // rail hover, focus and animation timing
+  '**/artboards.spec.ts', // hover, and animation timing before screenshots
   '**/updateFromMain.spec.ts' // hovers Done, and waits on a git freshness probe that is slow under load
 ]
 

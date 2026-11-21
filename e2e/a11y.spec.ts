@@ -7,6 +7,7 @@ import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { addWorkspace } from './addWorkspace'
 import { themeOf } from '../src/shared/domain'
+import { animationsSettled, boxStable, keyboardDragReady } from './waits'
 import { THEME_IDS, makeRepo, useTheme, type ThemeId } from './artboardHelpers'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -189,14 +190,17 @@ async function withSession(body: (page: Page, repoName: string) => Promise<void>
   // Always set, light included: an earlier test may have left Match Windows on.
   await useTheme(page, theme)
   // The shell's navbar and aside settle into place just after the first paint; measure after that.
-  await page.waitForTimeout(500)
+  await animationsSettled(page)
+  await boxStable(page.getByRole('navigation', { name: 'Workspaces' }))
+  await boxStable(page.getByRole('complementary', { name: 'Orchestrator' }))
   await body(page, repoName)
 }
 
-async function createTicket(page: Page, title: string): Promise<void> {
+async function createTicket(page: Page, title: string, column?: 'ready'): Promise<void> {
   await page.getByRole('button', { name: 'New ticket' }).click()
   await page.getByLabel('Title').fill(title)
   await page.getByLabel('In your words').fill('Add hello.txt')
+  if (column) await page.getByLabel('Column').selectOption(column)
   await page.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByRole('dialog', { name: 'New ticket' })).toBeHidden()
 }
@@ -238,11 +242,12 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await page.keyboard.press('Space')
     await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('Picked up')
     // dnd-kit starts listening for the next key a moment after it announces the pick-up.
-    await page.waitForTimeout(200)
+    await keyboardDragReady(page)
     await page.keyboard.press('Escape')
     await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('cancelled')
     // A card being dragged is drawn faded; contrast is measured once it is dropped back.
-    await page.waitForTimeout(300)
+    await expect(page.getByRole('button', { name: 'Move ticket #2' })).not.toHaveAttribute('aria-pressed', 'true')
+    await animationsSettled(page)
     await expectNoAxeViolations(page, 'the board with cards')
     expect(await smallTargets(page), 'small targets on the board').toEqual([])
 
@@ -283,9 +288,7 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     const drawer = page.getByRole('dialog', { name: 'Mainbus settings' })
     await expect(drawer.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
     // Axe measures colours as they are on screen, so wait for the drawer to finish fading in.
-    await expect
-      .poll(() => page.locator('.mantine-Drawer-root', { has: drawer }).evaluate((root) => root.getAnimations({ subtree: true }).length))
-      .toBe(0)
+    await animationsSettled(page)
     await expectNoAxeViolations(page, 'the Mainbus settings')
     expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the Mainbus settings').toEqual([])
 
@@ -315,20 +318,17 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
 test('reduced motion stops the outline fade and the spinners', async () => {
   await withSession(async (page) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await createTicket(page, 'Add hello file')
-    // Put the ticket in Ready, and after the grace for the person's own change let unattended mode start it:
-    // that is Mainbus's change, so the card is outlined, and for reduced motion the outline is still (no fade).
-    await page.getByRole('button', { name: /Add hello file/ }).focus()
-    await page.keyboard.press('Shift+F10')
-    await page.getByRole('menuitem', { name: 'Move to Ready' }).click()
+    // Create the ticket straight into Ready (a new ticket is never counted as the person's own change, so there is no
+    // grace to wait out) and let unattended mode start it: that is Mainbus's change, so the card is outlined, and for
+    // reduced motion the outline is still (no fade).
+    await createTicket(page, 'Add hello file', 'ready')
     await expect(page.getByRole('region', { name: 'Ready' }).getByText('Add hello file')).toBeVisible()
-    await page.waitForTimeout(2500)
     await page.getByRole('switch', { name: 'Unattended' }).check()
     await expect(page.locator('[data-recently-changed]').first()).toHaveAttribute('data-recently-changed', 'still')
     // No spinner on the page animates, wherever one is showing.
-    const animations = await page.evaluate(() =>
-      Array.from(document.querySelectorAll<HTMLElement>('.mantine-Loader-root, .mantine-Loader-root *')).map((el) => getComputedStyle(el).animationName)
+    const endless = await page.evaluate(() =>
+      document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations === Infinity).length
     )
-    expect(animations.filter((a) => a !== 'none')).toEqual([])
+    expect(endless).toBe(0)
   })
 })

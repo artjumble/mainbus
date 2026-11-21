@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { animationsSettled } from './waits'
 import { addWorkspace } from './addWorkspace'
 import { INVOKE_CHANNEL, OPEN_FOLDER_CHANNEL } from '../src/shared/api'
 import { makeRepo, THEME_IDS, useTheme } from './artboardHelpers'
@@ -27,16 +28,17 @@ function overflowOf(dialog: Locator): Promise<number> {
 }
 
 /** The button's hit area (its ::after), and how far its label's box reaches below the button. */
-function boxesOf(button: Locator): Promise<{ hitWidth: number; hitHeight: number; labelBelow: number }> {
-  return button.evaluate((el) => {
+async function boxesOf(button: Locator, label: Locator): Promise<{ hitWidth: number; hitHeight: number; labelBelow: number }> {
+  // The label moves with Mantine's inner box, which is what slides down while loading.
+  const labelBox = (await label.boundingBox())!
+  return button.evaluate((el, labelBottom) => {
     const after = getComputedStyle(el, '::after')
-    const inner = el.querySelector('.mantine-Button-inner')!
     return {
       hitWidth: parseFloat(after.width),
       hitHeight: parseFloat(after.height),
-      labelBelow: inner.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom
+      labelBelow: labelBottom - el.getBoundingClientRect().bottom
     }
-  })
+  }, labelBox.y + labelBox.height)
 }
 
 /** Checks the dialog has no scrollbar with the button at rest, hovered and focused. */
@@ -99,8 +101,8 @@ test('a loading button adds no scrollbar to the Add workspace and Remove workspa
     await expect(remove).toHaveAttribute('data-loading', 'true')
     for (const theme of THEME_IDS) {
       await useTheme(page, theme)
-      // Past Mantine's 150 ms slide of the label, which is when the scrollbar came.
-      await page.waitForTimeout(300)
+      // Past Mantine's slide of the label, which is when the scrollbar came.
+      await animationsSettled(removeDialog)
       expect(await overflowOf(removeDialog), `Remove workspace loading, ${theme}`).toBeLessThanOrEqual(0)
     }
     await page.keyboard.press('Escape')
@@ -119,10 +121,10 @@ test('a loading button adds no scrollbar to the Add workspace and Remove workspa
     await expect(choose).toHaveAttribute('data-loading', 'true')
     for (const theme of THEME_IDS) {
       await useTheme(page, theme)
-      await page.waitForTimeout(300)
+      await animationsSettled(addDialog)
       expect(await overflowOf(addDialog), `Add workspace loading, ${theme}`).toBeLessThanOrEqual(0)
       // The spinning button keeps its 44 px hit area, and its faded label stays in the button.
-      const boxes = await boxesOf(choose)
+      const boxes = await boxesOf(choose, choose.getByText('Choose folder…'))
       expect(boxes.hitWidth, theme).toBeGreaterThanOrEqual(44)
       expect(boxes.hitHeight, theme).toBeGreaterThanOrEqual(44)
       expect(boxes.labelBelow, theme).toBeLessThanOrEqual(0)

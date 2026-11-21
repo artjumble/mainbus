@@ -56,7 +56,7 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
     const needsYou = page.getByRole('region', { name: 'Needs you' })
     const waiting = page.getByRole('region', { name: 'Waiting on you' })
     const boardCard = (title: string) =>
-      needsYou.locator('.mantine-Paper-root').filter({ has: page.getByRole('button', { name: new RegExp(title) }) })
+      needsYou.locator('[data-ticket-card]').filter({ has: page.getByRole('button', { name: new RegExp(title) }) })
     const panelCard = (title: string) => waiting.locator('[data-event="waiting-decision"]').filter({ hasText: title })
     for (const title of TITLES) {
       await expect(boardCard(title)).toBeVisible()

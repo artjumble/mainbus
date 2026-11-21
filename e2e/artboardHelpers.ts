@@ -115,10 +115,9 @@ async function withArtboardIn(theme: ThemeId, options: Options, body: (board: Ar
  */
 export async function shot(page: Page, slug: string): Promise<void> {
   fs.mkdirSync(SHOTS, { recursive: true })
-  // Let the recently-changed outline and other short animations settle, so the pictures can be compared.
-  await page.waitForTimeout(300)
   const theme = (await page.locator('html').getAttribute('data-mainbus-theme')) ?? 'light'
-  await page.screenshot({ path: path.join(SHOTS, `${slug}${theme === 'light' ? '' : `-${theme}`}.png`) })
+  // Playwright finishes the short animations (the recently-changed outline) and stops endless ones before the picture.
+  await page.screenshot({ path: path.join(SHOTS, `${slug}${theme === 'light' ? '' : `-${theme}`}.png`), animations: 'disabled' })
 }
 
 export interface NewTicket {
@@ -183,7 +182,7 @@ export function laneLayout(page: Page): Promise<LaneLayout> {
       laneBorders: lanes.flatMap((l) => [parseFloat(getComputedStyle(l).borderTopWidth), parseFloat(getComputedStyle(l).borderBottomWidth)]),
       cardBorders: lanes.flatMap((l) =>
         Array.from(l.querySelectorAll('[data-card-title]')).map((t) =>
-          parseFloat(getComputedStyle(t.closest('.mantine-Paper-root')!).borderTopWidth)
+          parseFloat(getComputedStyle(t.closest('[data-ticket-card]')!).borderTopWidth)
         )
       )
     }

@@ -50,7 +50,7 @@ test('a message that answers the agent\'s question settles the card everywhere a
 
     const needsYou = page.getByRole('region', { name: 'Needs you' })
     const waiting = page.getByRole('region', { name: 'Waiting on you' })
-    const boardCard = needsYou.locator('.mantine-Paper-root').filter({ has: page.getByRole('button', { name: /Alpha/ }) })
+    const boardCard = needsYou.locator('[data-ticket-card]').filter({ has: page.getByRole('button', { name: /Alpha/ }) })
     const panelCard = waiting.locator('[data-event="waiting-decision"]').filter({ hasText: 'Alpha' })
     await expect(boardCard).toBeVisible()
     await expect(panelCard).toBeVisible()

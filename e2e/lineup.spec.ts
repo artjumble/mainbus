@@ -344,7 +344,7 @@ test('Pause and Resume the active role, then Skip to the next role and past the 
     await expect(page.getByText('Planner: reading the ticket.')).toBeVisible()
 
     // Pause: the role is Paused, with a chip beside the phase, and Resume instead of Pause.
-    const chip = page.locator('.mantine-Badge-label', { hasText: /^Paused$/ })
+    const chip = page.locator('[data-badge-label]', { hasText: /^Paused$/ })
     await expect(chip).toHaveCount(0)
     await page.getByRole('button', { name: 'Pause', exact: true }).click()
     await expect(chip).toBeVisible()

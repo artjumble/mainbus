@@ -127,7 +127,7 @@ for (const theme of ['light', 'dark'] as const)
       expect(dropdown!.x).toBeGreaterThanOrEqual(bounds!.x - 1)
       expect(dropdown!.x + dropdown!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width + 1)
       expect(dropdown!.y).toBeGreaterThanOrEqual(0)
-      const shadow = await page.locator('.mantine-Combobox-dropdown').evaluate((e) => getComputedStyle(e).boxShadow)
+      const shadow = await page.locator('[data-mention-list]').evaluate((e) => getComputedStyle(e).boxShadow)
       expect(shadow).not.toBe('none')
     } finally {
       await app?.close()
