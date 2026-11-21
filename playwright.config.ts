@@ -1,4 +1,8 @@
 import { defineConfig } from '@playwright/test'
+import { installLaunchRetry } from './e2e/launchRetry'
+
+// One retry of a failed Electron launch ("Process failed to launch!") for every spec; see e2e/launchRetry.ts.
+installLaunchRetry()
 
 // Specs that depend on hover, focus, the tray, OS notifications, window state
 // or animation timing run one at a time, in their own project. Everything else
