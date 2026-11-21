@@ -65,6 +65,21 @@ test('clicking a card opens that ticket', async () => {
   expect(useMainbus.getState().currentTicketId).toBe(ticket.id)
 })
 
+test.each(['in_progress', 'needs_you'] as const)('a %s card still opens on click, has no handle or menu, and a drop of it moves nothing', async (column) => {
+  const ticket = makeTicket({ title: 'Open me' }, { column })
+  showBoard(ticket)
+  renderWithMantine(<Board />)
+  expect(screen.queryByRole('button', { name: `Move ticket #${ticket.number}` })).not.toBeInTheDocument()
+  drag(ticket.id, 'ready')
+  drag(ticket.id, 'done')
+  expect(calls()).toEqual([])
+  const title = screen.getByRole('button', { name: /Open me/ })
+  fireEvent.contextMenu(title)
+  expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+  await userEvent.click(title)
+  expect(useMainbus.getState().currentTicketId).toBe(ticket.id)
+})
+
 test('dragging a card from Backlog to Ready calls ticket.move', async () => {
   const ticket = makeTicket({}, { column: 'backlog' })
   showBoard(ticket)
