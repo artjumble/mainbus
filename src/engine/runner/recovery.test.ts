@@ -127,9 +127,15 @@ describe('restart recovery', () => {
     await before.shutdown()
 
     const runtime = new FakeRuntime(working)
-    await relaunch(runtime)
-
+    const runner = makeRunner(runtime)
+    await runner.markAllNotAlive()
+    // Until recovery resumes it, the ticket is Paused with Continue available.
     expect((await repos.decisions.get(pending.id)).status).toBe('expired')
+    expect(await repos.decisions.pending(t.id)).toEqual([])
+    expect(await runner.stateOf(t.id)).toMatchObject({ column: 'in_progress', agentStatus: 'paused', canContinue: true, pausedByUser: false })
+
+    await runner.recover({ resume: true })
+    await runner.queueSettled()
     expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 's1', prompt: RESTART_TEXT })
   })
 
@@ -144,9 +150,12 @@ describe('restart recovery', () => {
     const runner = await relaunch(runtime)
 
     expect(runtime.specs).toHaveLength(0)
-    expect(await runner.stateOf(t.id)).toMatchObject({ agentStatus: 'paused', pausedByUser: true })
+    expect(await runner.stateOf(t.id)).toMatchObject({ column: 'in_progress', agentStatus: 'paused', canContinue: false, pausedByUser: true })
+    await expect(runner.continue(t.id)).rejects.toThrow('You paused this agent: use Resume to continue it')
+    expect(runtime.specs).toHaveLength(0)
     await runner.resumePaused(t.id)
-    expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 'session-1-a' })
+    expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 'session-1-a', prompt: 'Continue.' })
+    expect(await runner.stateOf(t.id)).toMatchObject({ agentStatus: 'working', pausedByUser: false })
   })
 
   it('leaves a run waiting on a question waiting, and the answer resumes it', async () => {
@@ -174,8 +183,10 @@ describe('restart recovery', () => {
     expect((await repos.decisions.get(question!.id)).status).toBe('pending')
     expect(await runner.stateOf(t.id)).toMatchObject({ column: 'needs_you' })
     await runner.answer(question!.id, { kind: 'option', index: 1 }, 'thread')
-    expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 's1' })
+    expect(runtime.specs[0]).toMatchObject({ resumeSessionId: 's1', cwd: (await repos.tickets.get(t.id)).worktreePath })
     expect(runtime.specs[0]!.prompt).toContain('New API')
+    expect((await repos.decisions.get(question!.id)).status).toBe('answered')
+    expect(await runner.stateOf(t.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
   })
 
   it('leaves a run waiting only on a deferred decision alone', async () => {

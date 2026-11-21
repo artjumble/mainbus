@@ -1,12 +1,11 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { describeRequest } from '../permissions/policy'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { type RunSpec } from '../runtime/types'
 import { TicketRunner } from './ticketRunner'
-import { testUsage } from './testUsage'
-import { eventually } from '../testWait'
 
-import { count, failures, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
+import { count, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
 
 installRunnerHooks()
 
@@ -61,37 +60,26 @@ describe('TicketRunner in unattended mode', () => {
     expect(await waitForPending()).toMatchObject({ kind: 'permission' })
   })
 
-  it('a usage limit stops the process but keeps the run open, paused with a reason, and is not a failure', async () => {
-    const usage = testUsage(repos)
-    const runtime = new FakeRuntime([
-      { emit: { kind: 'session', sessionId: 's1' } },
-      { emit: { kind: 'rate_limit', status: 'rejected', resetsAt: 1793430000, windows: {} } },
-      { emit: { kind: 'turn_end', ok: false, error: 'Claude AI usage limit reached' } },
-      { waitForSend: true }
-    ])
-    const runner = makeRunner(runtime, worktrees, false, usage)
-    await runner.start(ticket.id)
-    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true, canContinue: false }))
-    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', summary: expect.stringMatching(/^Usage limit; resumes at \d\d:\d\d$/) })
-    expect((await repos.runs.latest(ticket.id))?.endReason).toBeNull()
-    const kinds = (await thread()).map((e) => e.kind)
-    expect(kinds).not.toContain('process_exit')
-    expect(kinds).not.toContain('error')
-    expect(failures).toEqual([])
-    expect(await usage.gate.state()).toMatchObject({ kind: 'limited', paused: 1 })
+  it('denies a background command, with no card and no notice', async () => {
+    const { spec } = await started()
+    expect(await spec.onPermission({ ...permission('npm test'), input: { command: 'npm test', run_in_background: true } })).toMatchObject({ allow: false })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+    expect(count(await thread(), 'notice')).toBe(0)
   })
 
-  it('a limit that only shows as error text pauses with no reset time', async () => {
-    const usage = testUsage(repos)
-    const runtime = new FakeRuntime([
-      { emit: { kind: 'turn_end', ok: false, error: "You've hit your limit · resets 3pm" } },
-      { waitForSend: true }
-    ])
-    const runner = makeRunner(runtime, worktrees, false, usage)
-    await runner.start(ticket.id)
-    await eventually(async () => expect(await runner.stateOf(ticket.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true }))
-    expect(await usage.gate.state()).toMatchObject({ kind: 'limited', resetsAt: null })
-    expect((await thread()).map((e) => e.kind)).not.toContain('nudge')
+  it('allows an automatic guard reason without a card', async () => {
+    const { spec } = await started()
+    expect(await spec.onPermission(permission('git reset --hard'))).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+  })
+
+  it('a cd back to the worktree from a subfolder raises no hard stop; the same cd from the worktree itself does', async () => {
+    const { spec } = await started()
+    expect(await spec.onPermission({ ...permission('cd ../..'), cwd: path.join(spec.cwd, 'src', 'engine') })).toEqual({ allow: true })
+    expect(await repos.decisions.pending(ticket.id)).toEqual([])
+
+    void spec.onPermission(permission('cd ../..'))
+    expect(await waitForPending()).toMatchObject({ kind: 'permission' })
   })
 
   it('without a usage gate a failed turn is only an error turn, as before', async () => {

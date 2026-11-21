@@ -6,7 +6,6 @@ import { describeRequest } from '../permissions/policy'
 import { DISALLOWED_TOOLS } from '../roles/hardening'
 import { firstMessage } from '../roles/prompt'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
-import { type RunSpec } from '../runtime/types'
 import { eventually } from '../testWait'
 
 import { NUDGE, SUMMARY_USAGE, emitted, exists, failures, git, installRunnerHooks, keepAlive, makeRunner, paths, permission, repos, thread, ticket, waitForPending, waitForThread } from './ticketRunnerHarness'
@@ -461,60 +460,6 @@ describe('TicketRunner', () => {
     const nextAgentAt = events.findIndex((e) => e.kind === 'message' && e.text === 'Checked X too')
     expect(userAt).toBeGreaterThan(events.findIndex((e) => e.kind === 'message' && e.text === 'Looking at login'))
     expect(userAt).toBeLessThan(nextAgentAt)
-  })
-
-  // Review Focus 3
-  it('after a restart, a pending permission is expired and the ticket is Paused with Continue', async () => {
-    const before = makeRunner(
-      new FakeRuntime([{ requestPermission: { toolName: 'Bash', input: { command: 'npm run build' }, toolUseId: 'tool-1' } }])
-    )
-    await before.start(ticket.id)
-    const decision = await waitForPending()
-    expect(decision.kind).toBe('permission')
-
-    // The app restarts: a new runner over the same database, with no live processes.
-    const after = makeRunner(new FakeRuntime(keepAlive))
-    await after.markAllNotAlive()
-
-    expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'expired' })
-    expect(await repos.decisions.pending(ticket.id)).toEqual([])
-    expect(await after.stateOf(ticket.id)).toEqual({
-      column: 'in_progress',
-      phase: 'implementing',
-      agentStatus: 'paused',
-      summary: null,
-      canContinue: true,
-      pausedByUser: false,
-      deferredUntil: null
-    })
-  })
-
-  it('answering a question after a restart resumes the session and delivers the answer', async () => {
-    const before = makeRunner(
-      new FakeRuntime([
-        { emit: { kind: 'session', sessionId: 'session-1' } },
-        { callTool: 'askUser', args: { question: 'Which API?', options: ['Old API', 'New API'] } },
-        { emit: { kind: 'turn_end', ok: true } },
-        { exit: 0 }
-      ])
-    )
-    await before.start(ticket.id)
-    await waitForThread((e) => e.kind === 'process_exit')
-
-    const runtime = new FakeRuntime(keepAlive)
-    const after = makeRunner(runtime)
-    await after.markAllNotAlive()
-    const decision = await waitForPending() // questions survive a restart
-    expect(decision.kind).toBe('question')
-
-    await after.answer(decision.id, { kind: 'option', index: 0 }, 'thread')
-
-    const spec = runtime.specs.at(-1) as RunSpec
-    expect(spec.resumeSessionId).toBe('session-1')
-    expect(spec.prompt).toBe('Answer: Old API')
-    expect(spec.cwd).toBe((await repos.tickets.get(ticket.id)).worktreePath)
-    expect(await repos.decisions.get(decision.id)).toMatchObject({ status: 'answered' })
-    expect(await after.stateOf(ticket.id)).toMatchObject({ column: 'in_progress', agentStatus: 'working' })
   })
 
   it('a force-push permission opens a card without Always allow, even with a matching rule', async () => {

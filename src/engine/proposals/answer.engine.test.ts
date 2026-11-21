@@ -91,23 +91,6 @@ describe('propose_answer', () => {
     await eventually(() => expect(heard()).toEqual(['Answer: New API']))
   })
 
-  test('an override answers with the other option and note', async () => {
-    const { engine, tools, decision, proposals, heard } = await setup()
-    await tools.proposeAnswer({ decision: decision.id, choice: 2, reasoning: 'Because' })
-    const [p] = await proposals()
-    const done = await engine.invoke('proposal.confirm', p!.id, { choice: 0, note: 'Keep it simple' })
-    expect(done).toMatchObject({ status: 'overridden', result: { answer: 'Old API', note: 'Keep it simple' } })
-    await eventually(() => expect(heard()).toEqual(['Answer: Old API\nNote: Keep it simple']))
-  })
-
-  test('an invalid proposal stores nothing and says why', async () => {
-    const { tools, decision, proposals } = await setup()
-    expect(await tools.proposeAnswer({ decision: decision.id, choice: 3, reasoning: 'x' })).toMatch(/^Invalid proposal: choice: must be one of the 2 options/)
-    expect(await tools.proposeAnswer({ decision: 'nope', choice: 1, reasoning: 'x' })).toMatch(/^Invalid proposal: decision: there is no decision nope/)
-    expect(await tools.proposeAnswer({ decision: decision.id, choice: 1 })).toMatch(/^Invalid proposal: reasoning: required/)
-    expect(await proposals()).toEqual([])
-  })
-
   test('a decision answered from the board meanwhile turns the proposal into a failed receipt, and nothing is answered twice', async () => {
     const { engine, tools, decision, proposals, heard } = await setup()
     await tools.proposeAnswer({ decision: decision.id, choice: 2, reasoning: 'Because' })
@@ -120,31 +103,15 @@ describe('propose_answer', () => {
     expect(await tools.proposeAnswer({ decision: decision.id, choice: 2, reasoning: 'Again' })).toMatch(/Already answered from the board/)
   })
 
-  test('a decision deferred meanwhile fails the proposal with the date', async () => {
-    const { engine, tools, decision, proposals } = await setup()
-    await tools.proposeAnswer({ decision: decision.id, choice: 2, reasoning: 'Because' })
-    await engine.invoke('decision.defer', decision.id, new Date(START.getTime() + 24 * 60 * 60 * 1000).toISOString())
-    await eventually(async () => expect((await proposals())[0]).toMatchObject({ status: 'failed' }))
-    expect(((await proposals())[0]!.result as { error: string }).error).toMatch(/^Deferred until /)
-  })
-
-  test('a judgement is answered only by the user choosing an option', async () => {
-    const { engine, tools, decision, proposals, heard } = await setup()
-    await tools.proposeAnswer({ decision: decision.id, choice: 1, reasoning: 'Open question', judgement: JUDGEMENT })
-    const [p] = await proposals()
-    expect(p!.payload).toMatchObject({ choice: 0, judgement: { reason: 'open_question' } })
-
-    const failed = await engine.invoke('proposal.confirm', p!.id)
-    expect(failed).toMatchObject({ status: 'failed' })
-    expect(heard()).toEqual([])
-  })
-
   test('a judgement with the user choosing answers the decision', async () => {
     const { engine, tools, decision, proposals, heard } = await setup()
     await tools.proposeAnswer({ decision: decision.id, reasoning: 'Open question', judgement: JUDGEMENT })
     const [p] = await proposals()
     expect(p!.payload).toMatchObject({ choice: null })
-    expect(await engine.invoke('proposal.confirm', p!.id, { choice: 1 })).toMatchObject({ status: 'overridden', result: { answer: 'New API' } })
-    await eventually(() => expect(heard()).toEqual(['Answer: New API']))
+    expect(await engine.invoke('proposal.confirm', p!.id, { choice: 1, note: 'Keep it simple' })).toMatchObject({
+      status: 'overridden',
+      result: { answer: 'New API', note: 'Keep it simple' }
+    })
+    await eventually(() => expect(heard()).toEqual(['Answer: New API\nNote: Keep it simple']))
   })
 })

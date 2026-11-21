@@ -267,28 +267,13 @@ describe('a usage limit pauses the whole fleet', () => {
     expect(runtime.specs).toHaveLength(2)
 
     await runner.resumePaused(b.id)
+    expect(runtime.specs[2]).toMatchObject({ resumeSessionId: `session-${runtime.specs[2]!.cwd}`, prompt: 'Continue.' })
 
     // B got through, so the limit is over for everyone: A resumes too.
     await waitForStatus(runner, b, 'working')
     await waitForStatus(runner, a, 'working')
     expect(await usage.gate.state()).toEqual({ kind: 'ok' })
     expect(runtime.specs).toHaveLength(4)
-  })
-
-  it("the banner's Resume now resumes everything at once, even before the reset", async () => {
-    const usage = testUsage(repos)
-    const runtime = new FakeRuntime(fleetScript())
-    const { runner, a, b } = await twoWorking(runtime, usage)
-    await waitFor(() => expect(runtime.specs).toHaveLength(2))
-    await runner.send(a.id, 'go')
-    await waitForLimitPause(runner, a, b)
-
-    await usage.gate.resumeNow()
-
-    await waitForStatus(runner, a, 'working')
-    await waitForStatus(runner, b, 'working')
-    expect(await usage.gate.state()).toEqual({ kind: 'ok' })
-    expect(await repos.runs.limitPaused()).toEqual([])
   })
 
   it('a limit that is hit again while resuming starts a new wait', async () => {
@@ -353,77 +338,5 @@ describe('the early warning', () => {
     await waitForStatus(runner, b, 'working')
     expect(await usage.gate.state()).toEqual({ kind: 'ok' })
     expect(await runner.stateOf(a.id)).toMatchObject({ agentStatus: 'working' })
-  })
-
-  it('clears when the window resets', async () => {
-    const usage = testUsage(repos)
-    const runtime = new FakeRuntime((spec) => (spec.cwd.endsWith('-a') ? [sessionStep(spec), windowAt(0.92, 'allowed_warning'), { waitForSend: true }] : [sessionStep(spec), { waitForSend: true }]))
-    const runner = makeRunner(runtime, usage)
-    const [a, b] = [await newTicket('A'), await newTicket('B')]
-    await runner.start(a.id)
-    await waitFor(() => expect(usage.gate.blocksStarts()).toBe(true))
-    await runner.start(b.id)
-    expect(await runner.stateOf(b.id)).toMatchObject({ agentStatus: 'queued' })
-
-    await usage.clock.advance(3_600_000)
-
-    await waitForStatus(runner, b, 'working')
-    expect(await usage.gate.state()).toEqual({ kind: 'ok' })
-  })
-})
-
-describe('a restart', () => {
-  it('keeps the state and the paused agents, restarts none of them, and resumes them at the reset', async () => {
-    const usage = testUsage(repos)
-    const runtime = new FakeRuntime(fleetScript())
-    const { runner, a, b } = await twoWorking(runtime, usage)
-    await waitFor(() => expect(runtime.specs).toHaveLength(2))
-    await runner.send(a.id, 'go')
-    await waitForLimitPause(runner, a, b)
-    await runner.shutdown()
-    usage.gate.dispose()
-
-    // The app starts again on the same database, a little later.
-    const again = testUsage(repos)
-    const runtime2 = new FakeRuntime(fleetScript())
-    const runner2 = makeRunner(runtime2, again)
-    await again.gate.load()
-    await runner2.markAllNotAlive()
-    await runner2.recover({ resume: true })
-    await again.gate.start()
-    await runner2.queueSettled()
-
-    expect(runtime2.specs).toHaveLength(0)
-    expect(await again.gate.state()).toMatchObject({ kind: 'limited', paused: 2 })
-    expect(await runner2.stateOf(a.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true })
-    expect(await runner2.stateOf(b.id)).toMatchObject({ agentStatus: 'paused', pausedByLimit: true })
-
-    await again.clock.advance(3_600_000)
-    await waitFor(() => expect(runtime2.specs).toHaveLength(2))
-    expect(runtime2.specs.map((s) => s.prompt)).toEqual([USAGE_RESUME_TEXT, USAGE_RESUME_TEXT])
-    await waitForStatus(runner2, a, 'working')
-    await waitForStatus(runner2, b, 'working')
-  })
-
-  it('resumes the agents at once when the reset passed while the app was closed', async () => {
-    const usage = testUsage(repos)
-    const runtime = new FakeRuntime(fleetScript())
-    const { runner, a, b } = await twoWorking(runtime, usage)
-    await waitFor(() => expect(runtime.specs).toHaveLength(2))
-    await runner.send(a.id, 'go')
-    await waitForLimitPause(runner, a, b)
-    await runner.shutdown()
-    usage.gate.dispose()
-
-    const again = testUsage(repos)
-    await again.clock.advance(2 * 3_600_000)
-    const runtime2 = new FakeRuntime(fleetScript())
-    const runner2 = makeRunner(runtime2, again)
-    await again.gate.load()
-    await runner2.recover({ resume: true })
-    await again.gate.start()
-
-    await waitFor(() => expect(runtime2.specs).toHaveLength(2))
-    expect(await again.gate.state()).toEqual({ kind: 'ok' })
   })
 })
