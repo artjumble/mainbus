@@ -17,6 +17,7 @@ import {
   Radio,
   Switch,
   Tabs,
+  Tooltip,
   UnstyledButton,
   type CSSVariablesResolver,
   type MantineColorsTuple,
@@ -417,7 +418,8 @@ function mantineTheme(def: ThemeDef, scheme: ThemeScheme): MantineThemeOverride 
       UnstyledButton: UnstyledButton.extend({ classNames: { root: targets.target } }),
       Anchor: Anchor.extend({ classNames: { root: targets.target } }),
       Input: Input.extend({ classNames: { input: targets.field } }),
-      Menu: Menu.extend({ classNames: { item: targets.menuItem } }),
+      // Mantine hovers a menu item with dark-4 in the dark scheme, which dimmed text (an item's description) does not meet 4.5:1 on.
+      Menu: Menu.extend({ classNames: { item: targets.menuItem }, styles: { dropdown: { '--menu-item-hover': 'var(--mainbus-menu-item-hover)' } } }),
       Loader: Loader.extend({ classNames: { root: targets.loader } }),
       Modal: Modal.extend({ defaultProps: dialog }),
       Tabs: Tabs.extend({ classNames: { tab: targets.tab } }),
@@ -427,6 +429,9 @@ function mantineTheme(def: ThemeDef, scheme: ThemeScheme): MantineThemeOverride 
       Switch: Switch.extend({ classNames: { root: targets.choice, label: targets.choiceLabel, track: targets.switchTrack } }),
       // Esc closes a popover, and focus goes back to what opened it.
       Popover: Popover.extend({ defaultProps: { returnFocus: true } }),
+      // Mantine's dark tooltip is gray-2 under black, which in these dark ramps is dark grey under dark text. A tooltip
+      // is the inverse of the page in every theme (the text colour as its ground, the surface as its text).
+      Tooltip: Tooltip.extend({ styles: { tooltip: { backgroundColor: 'var(--mainbus-tooltip-bg)', color: 'var(--mainbus-tooltip-fg)' } } }),
       Drawer: Drawer.extend({ defaultProps: dialog })
     }
   }
@@ -469,6 +474,9 @@ function cssVariablesResolverOf(def: ThemeDef, scheme: ThemeScheme): CSSVariable
       '--mantine-color-anchor': p.anchor,
       '--mantine-color-error': p.error,
       '--mainbus-color-strong-border': p.strongBorder,
+      '--mainbus-menu-item-hover': scheme === 'light' ? 'var(--mantine-color-gray-1)' : p.raised,
+      '--mainbus-tooltip-bg': p.text,
+      '--mainbus-tooltip-fg': p.surface,
       '--mainbus-color-lane': p.lane,
       '--mainbus-color-card-border': p.cardBorder,
       ...Object.fromEntries(Object.entries(def.code).map(([token, color]) => [`--mainbus-code-${token}`, color])),
