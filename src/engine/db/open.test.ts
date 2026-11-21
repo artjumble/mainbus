@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { count, eq, sql, type SQL } from 'drizzle-orm'
+import { count, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHome, type HomePaths } from '../home'
 import { openDb } from './open'
@@ -10,7 +10,7 @@ import { createLineupRepo, defaultInvestigateLineup, defaultLineup, insertDefaul
 import { createPresetRepo, defaultPresets } from '../store/presets'
 import { createRunRepo } from '../store/runs'
 import { createHoldRepo } from '../store/holds'
-import { criteria, lineupRoles, tickets, workspaces } from './schema'
+import { criteria, lineupPresets, lineupRoles, tickets, workspaces } from './schema'
 
 const realMigrations = path.join(import.meta.dirname, 'migrations')
 
@@ -184,6 +184,56 @@ describe('openDb', () => {
     expect(ids.size).toBe(2)
     const [ticket] = await db.select().from(tickets)
     expect(ticket).toMatchObject({ id: 't1', kind: 'change', report: null })
+  })
+
+  it('migration 0039 repairs string-typed preset settings, leaves correct ones alone, and is harmless twice', async () => {
+    const first = await open(firstMigrations(39))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w1', '2026-10-30T00:00:00.000Z')`
+    )
+    const good = '{"excludedRoleIds":["a"],"roles":{},"extraInstructions":null,"roleNames":{"a":"A"}}'
+    const bad = JSON.stringify({
+      excludedRoleIds: '["a","b"]',
+      roles: {},
+      extraInstructions: null,
+      roleNames: '{"a":"A","b":"B"}'
+    })
+    const notJson = JSON.stringify({ excludedRoleIds: 'oops', roles: {}, extraInstructions: null, roleNames: {} })
+    const rows = [['good', good], ['bad', bad], ['notjson', notJson]]
+    for (const [i, [id, settings]] of rows.entries()) {
+      await first.db.run(
+        sql`insert into lineup_presets (id, workspace_id, position, name, settings, created_at)
+            values (${id}, 'w1', ${i + 100}, ${id}, ${settings}, '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    first.close()
+    closers = []
+
+    const read = async (h: Awaited<ReturnType<typeof open>>) =>
+      Object.fromEntries(
+        (await h.db.select({ id: lineupPresets.id, settings: lineupPresets.settings }).from(lineupPresets).where(inArray(lineupPresets.id, ['good', 'bad', 'notjson']))).map(
+          (r) => [r.id, r.settings]
+        )
+      )
+    const second = await open()
+    const repaired = await read(second)
+    expect(JSON.parse(repaired.bad!)).toEqual({
+      excludedRoleIds: ['a', 'b'],
+      roles: {},
+      extraInstructions: null,
+      roleNames: { a: 'A', b: 'B' }
+    })
+    expect(repaired.good).toBe(good)
+    expect(repaired.notjson).toBe(notJson)
+    second.close()
+    closers = []
+
+    // Running the same SQL again changes nothing.
+    const sqlText = fs.readFileSync(path.join(realMigrations, '0039_repair_preset_json.sql'), 'utf8')
+    const third = await open()
+    for (const stmt of sqlText.split('--> statement-breakpoint')) await third.db.run(sql.raw(stmt))
+    expect(await read(third)).toEqual(repaired)
   })
 
   it('seeds the built-in presets for every existing workspace, as the code seeds them for a new one, after a backup', async () => {

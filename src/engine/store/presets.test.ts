@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PRESET_NAME_MAX, type RunSettings } from '../../shared/domain'
 import { presetRunSettings } from '../../shared/runSettings'
 import type { Db } from '../db/open'
+import { sql } from 'drizzle-orm'
 import { createLineupRepo } from './lineups'
 import { createPresetRepo, defaultPresets, type PresetRepo } from './presets'
 import { FIXED_NOW, openTestDb } from './testDb'
@@ -20,6 +21,17 @@ beforeEach(async () => {
 afterEach(() => cleanup())
 
 const NONE: RunSettings = { excludedRoleIds: [], roles: {}, extraInstructions: null, roleNames: {} }
+
+describe('a preset stored with string-typed settings', () => {
+  it('is read as the array and object it holds, and a value that is not JSON fails clearly', async () => {
+    const stored = JSON.stringify({ excludedRoleIds: '["a"]', roles: {}, extraInstructions: null, roleNames: '{"a":"A"}' })
+    await db.run(sql`insert into lineup_presets (id, workspace_id, position, name, settings, created_at)
+      values ('p-str', ${workspaceId}, 50, 'Str', ${stored}, '2026-10-30T00:00:00.000Z')`)
+    expect((await repo.get('p-str'))!.settings).toEqual({ ...NONE, excludedRoleIds: ['a'], roleNames: { a: 'A' } })
+    await db.run(sql`update lineup_presets set settings = ${JSON.stringify({ ...NONE, excludedRoleIds: 'oops' })} where id = 'p-str'`)
+    await expect(repo.get('p-str')).rejects.toThrow(/Str.*damaged/)
+  })
+})
 
 describe('the built-in presets', () => {
   it('seeds a new workspace with Full, Quick fix and Docs, in that order', async () => {
