@@ -665,15 +665,23 @@ export class SdkRuntime implements AgentRuntime {
         ),
         sdk.tool(
           'list_tickets',
-          "A workspace's tickets: number, title, column, phase, active role and labels.",
+          "A workspace's tickets: number, title, column, phase, active role and labels. Archived tickets (old Done ones) are left out and counted at the end; get_ticket still reads them by number.",
           {
             workspace,
             column: z
               .enum(['backlog', 'ready', 'in_progress', 'needs_you', 'review', 'done'])
               .optional()
-              .describe('Only the tickets in this column')
+              .describe('Only the tickets in this column'),
+            archived: z.boolean().optional().describe('True lists only the archived tickets instead of the rest')
           },
-          async (a) => toolText(await t.listTickets({ ...(a.workspace !== undefined ? { workspace: a.workspace } : {}), ...(a.column !== undefined ? { column: a.column } : {}) }))
+          async (a) =>
+            toolText(
+              await t.listTickets({
+                ...(a.workspace !== undefined ? { workspace: a.workspace } : {}),
+                ...(a.column !== undefined ? { column: a.column } : {}),
+                ...(a.archived !== undefined ? { archived: a.archived } : {})
+              })
+            )
         ),
         sdk.tool(
           'get_ticket',

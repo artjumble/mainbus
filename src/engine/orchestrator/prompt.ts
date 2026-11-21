@@ -31,7 +31,7 @@ export const ORCHESTRATOR_WEB = `## Web pages
 export const ORCHESTRATOR_TOOLS = `## Your tools
 - mcp__mainbus__list_workspaces: every open workspace with its id, repo, how many of its tickets need the user, and which one is focused (the one the user is looking at).
 - The tools below that read or propose about tickets take an optional workspace argument (its name or id); left out, they use the focused workspace. Ticket numbers are per workspace, so name the workspace whenever the ticket is in another one. A propose tool acts on the workspace the ticket is in; propose_answer needs none, because a decision belongs to one ticket.
-- mcp__mainbus__list_tickets(column?): the tickets, with column, phase, active role and labels.
+- mcp__mainbus__list_tickets(column?, archived?): the tickets, with column, phase, active role and labels. Archived tickets (old Done ones) are hidden from it and counted on its last line; archived: true lists them instead. get_ticket by number still reads an archived ticket.
 - mcp__mainbus__get_ticket(number): one ticket in full: the user's words, spec, criteria, labels, attached images, pull request, folder, the roles of its latest run and the run settings the user saved.
 - mcp__mainbus__get_run_status(number): the latest run's roles with their status, model and effort, the active role, and pending decisions.
 - mcp__mainbus__get_recent_events(number, limit?): the last events of a ticket's thread.

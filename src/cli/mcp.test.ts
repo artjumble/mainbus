@@ -64,6 +64,18 @@ describe('mainbus mcp', () => {
     }
     expect(listed.tickets).toEqual([expect.objectContaining({ number: 1, source: expect.objectContaining({ agent: 'my-mcp-client' }) })])
 
+    // An archived ticket is left out by default, counted, listed with archived: true, and still readable.
+    await b.engine.invoke('ticket.create', { title: 'Old', intent: 'old', spec: '', criteria: [], labels: [], column: 'ready' })
+    const old = (await b.engine.invoke('board.get')).tickets.find((x) => x.title === 'Old')!
+    await b.engine.invoke('ticket.move', old.id, 'done')
+    await b.engine.invoke('ticket.archive', [old.id])
+    const hidden = JSON.parse(textOf(await client.callTool({ name: 'list_tickets', arguments: {} }))) as { tickets: { number: number }[]; archivedCount: number }
+    expect(hidden.tickets.map((x) => x.number)).toEqual([1])
+    expect(hidden.archivedCount).toBe(1)
+    const shown = JSON.parse(textOf(await client.callTool({ name: 'list_tickets', arguments: { archived: true } }))) as { tickets: { number: number }[] }
+    expect(shown.tickets.map((x) => x.number)).toEqual([old.number])
+    expect(JSON.parse(textOf(await client.callTool({ name: 'get_ticket', arguments: { number: old.number } })))).toMatchObject({ title: 'Old' })
+
     const got = JSON.parse(textOf(await client.callTool({ name: 'get_ticket', arguments: { number: 1 } }))) as Record<string, unknown>
     expect(got).toMatchObject({ number: 1, title: 'Spotted a bug', criteria: [{ text: 'Tabs survive', checked: false }] })
   })

@@ -80,7 +80,7 @@ describe('intake server', () => {
     )
     expect(replies).toEqual([
       { id: 'a', result: { number: 1, title: 'From an agent', column: 'backlog' } },
-      { id: 'b', result: { tickets: [expect.objectContaining({ number: 1, column: 'backlog' })] } }
+      { id: 'b', result: { tickets: [expect.objectContaining({ number: 1, column: 'backlog' })], archivedCount: 0 } }
     ])
     expect((await engine.invoke('board.get')).tickets).toHaveLength(1)
   })
@@ -96,7 +96,7 @@ describe('intake server', () => {
     expect(closed).toBe(false)
     expect(replies).toEqual([
       { id: 1, error: { code: 'invalid', message: expect.stringContaining('column'), field: 'column' } },
-      { id: 2, result: { tickets: [] } }
+      { id: 2, result: { tickets: [], archivedCount: 0 } }
     ])
   })
 
@@ -128,7 +128,7 @@ describe('intake server', () => {
     expect(noNewline.replies).toEqual([{ id: null, error: { code: 'too_large', message: expect.any(String) } }])
 
     expect((await engine.invoke('board.get')).tickets).toEqual([])
-    expect(await request(target, 'list', { cwd })).toEqual({ tickets: [] })
+    expect(await request(target, 'list', { cwd })).toEqual({ tickets: [], archivedCount: 0 })
   })
 
   it('accepts a line of exactly MAX_LINE_BYTES', async () => {
@@ -137,7 +137,7 @@ describe('intake server', () => {
     const padded = `${envelope.slice(0, -1)}${' '.repeat(MAX_LINE_BYTES - Buffer.byteLength(envelope))}}\n`
     expect(Buffer.byteLength(padded)).toBe(MAX_LINE_BYTES + 1)
     const { replies } = await exchange(target.endpoint, padded, 1_000)
-    expect(replies).toEqual([{ id: 1, result: { tickets: [] } }])
+    expect(replies).toEqual([{ id: 1, result: { tickets: [], archivedCount: 0 } }])
   })
 
   it('fits the largest valid request, even when every character is escaped', async () => {

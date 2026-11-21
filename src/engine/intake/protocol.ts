@@ -63,6 +63,8 @@ export interface ListParams {
   /** Absolute path of the caller's folder: the workspace whose repo contains it is the one listed. */
   cwd: string
   column?: Column
+  /** True lists the archived tickets (Done ones moved off the board) instead of the rest; omitted or false leaves them out. */
+  archived?: boolean
 }
 
 export interface GetParams {
@@ -117,6 +119,7 @@ export interface IntakeTicketDetail extends IntakeStatus {
 
 export interface IntakeResults {
   create: { number: number; title: string; column: 'backlog' }
-  list: { tickets: IntakeTicketSummary[] }
+  /** `archivedCount` is how many archived tickets the workspace has, whichever were listed. */
+  list: { tickets: IntakeTicketSummary[]; archivedCount: number }
   get: IntakeTicketDetail
 }

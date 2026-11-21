@@ -39,7 +39,8 @@ export interface IntakeDeps {
   ticketFolders(ws: Workspace): string
   /** The same path as the ticket.create command: stores the ticket and emits board.changed. */
   createTicket(ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket>
-  tickets(ws: Workspace): Promise<(Ticket & { state: TicketState })[]>
+  /** The workspace's tickets; archived ones only with `includeArchived`. */
+  tickets(ws: Workspace, opts?: { includeArchived?: boolean }): Promise<(Ticket & { state: TicketState })[]>
   /** One ticket by number, or null; loads only that ticket. */
   ticket(ws: Workspace, number: number): Promise<(Ticket & { state: TicketState }) | null>
   /** What is known about the workspace's base-branch tests; without it none is shown. */
@@ -63,7 +64,7 @@ const createSchema = z.strictObject({
 
 const cwdField = z.string().max(1_000, 'must be at most 1000 characters')
 
-const listSchema = z.strictObject({ cwd: cwdField, column: z.enum(COLUMNS).optional() })
+const listSchema = z.strictObject({ cwd: cwdField, column: z.enum(COLUMNS).optional(), archived: z.boolean().optional() })
 
 const getSchema = z.strictObject({ cwd: cwdField, number: z.number().int().positive() })
 
@@ -148,7 +149,11 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
     async list(params) {
       const p = parse(listSchema, params)
       const ws = await workspaceFor(p.cwd, 'cwd')
-      const tickets: IntakeTicketSummary[] = (await deps.tickets(ws))
+      const all = await deps.tickets(ws, { includeArchived: true })
+      const archivedCount = all.filter((t) => t.archivedAt !== null).length
+      const tickets: IntakeTicketSummary[] = all
+        // Archived tickets are listed alone with `archived: true`, and left out otherwise.
+        .filter((t) => (t.archivedAt !== null) === (p.archived === true))
         .filter((t) => p.column === undefined || t.state.column === p.column)
         .map((t) => ({
           number: t.number,
@@ -160,7 +165,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
           createdAt: t.createdAt,
           updatedAt: t.updatedAt
         }))
-      return { tickets }
+      return { tickets, archivedCount }
     },
 
     async get(params) {

@@ -204,6 +204,53 @@ describe('list_tickets', () => {
     expect(await tools.listTickets({ column: 'review' })).toBe('No tickets in Review in shop.')
     expect(await tools.listTickets({ column: 'doing' })).toMatch(/^Unknown column "doing"/)
   })
+
+  describe('archived tickets', () => {
+    async function archivedTickets(n: number): Promise<Ticket[]> {
+      const made: Ticket[] = []
+      for (let i = 0; i < n; i++) {
+        const created = await ticket({ title: `Old ${i}` })
+        const t = await repos.tickets.setManualColumn(created.id, 'done')
+        views.set(t.id, { state: { column: 'done', phase: 'done' }, lineup: [] })
+        made.push(t)
+      }
+      await repos.tickets.archive(made.map((t) => t.id))
+      return made
+    }
+
+    test('leaves them out by default and ends with the count', async () => {
+      await ticket({ title: 'Open one' })
+      await archivedTickets(3)
+      const out = await tools.listTickets({})
+      expect(out).toContain('Tickets in shop (1):')
+      expect(out).not.toContain('Old 0')
+      expect(out.endsWith('(+3 archived; pass archived: true to list them)')).toBe(true)
+    })
+
+    test('archived: true lists them alone', async () => {
+      await ticket({ title: 'Open one' })
+      await archivedTickets(2)
+      const out = await tools.listTickets({ archived: true })
+      expect(out).toContain('Archived tickets in shop (2):')
+      expect(out).toContain('Old 0')
+      expect(out).not.toContain('Open one')
+      expect(out).not.toContain('pass archived: true')
+    })
+
+    test('with only archived tickets, says none are listed and counts them', async () => {
+      await archivedTickets(2)
+      expect(await tools.listTickets({})).toBe('No tickets in shop.\n(+2 archived; pass archived: true to list them)')
+    })
+
+    test('150 archived tickets add only the count line, and get_ticket still reads one', async () => {
+      await ticket({ title: 'Open one' })
+      const before = await tools.listTickets({})
+      const made = await archivedTickets(150)
+      const after = await tools.listTickets({})
+      expect(after).toBe(`${before}\n(+150 archived; pass archived: true to list them)`)
+      expect(await tools.getTicket({ number: made[0].number })).toContain('Old 0')
+    })
+  })
 })
 
 describe('get_ticket', () => {

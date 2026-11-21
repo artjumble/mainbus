@@ -279,6 +279,7 @@ describe('intake list and get', () => {
       criteria: [],
       labels: [],
       pr: { url: 'https://github.com/o/r/pull/9', number: 9 },
+      archivedAt: null,
       createdAt: 'c',
       updatedAt: 'u',
       state
@@ -292,6 +293,39 @@ describe('intake list and get', () => {
     })
     expect((await handle('list', { cwd: '/r' })).tickets[0]).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
     expect(await handle('get', { cwd: '/r', number: 4 })).toMatchObject({ prUrl: 'https://github.com/o/r/pull/9' })
+  })
+
+  it('list leaves archived tickets out and counts them; archived: true lists them alone; get still reads one', async () => {
+    const ws = { id: 'w', name: 'repo', repoPath: '/r' } as Parameters<Parameters<typeof createIntakeHandler>[0]['ticket']>[0]
+    const make = (number: number, archivedAt: string | null) =>
+      ({
+        number,
+        title: `T${number}`,
+        intent: [],
+        spec: '',
+        criteria: [],
+        labels: [],
+        pr: null,
+        archivedAt,
+        createdAt: 'c',
+        updatedAt: 'u',
+        state: { column: archivedAt ? 'done' : 'ready', phase: 'not_started', agentStatus: null }
+      }) as unknown as Awaited<ReturnType<Parameters<typeof createIntakeHandler>[0]['ticket']>> & object
+    const all = [make(1, null), ...Array.from({ length: 150 }, (_, i) => make(i + 2, '2026-11-01T00:00:00.000Z'))]
+    const handle = createIntakeHandler({
+      workspaces: async () => [ws],
+      ticketFolders: () => '/none',
+      createTicket: vi.fn(),
+      tickets: async (_ws, opts) => (opts?.includeArchived ? all : all.filter((t) => t.archivedAt === null)),
+      ticket: async (_ws, n) => all.find((t) => t.number === n) ?? null
+    })
+    const plain = await handle('list', { cwd: '/r' })
+    expect(plain.tickets.map((t) => t.number)).toEqual([1])
+    expect(plain.archivedCount).toBe(150)
+    const archived = await handle('list', { cwd: '/r', archived: true })
+    expect(archived.tickets).toHaveLength(150)
+    expect(archived.tickets.every((t) => t.column === 'done')).toBe(true)
+    expect(await handle('get', { cwd: '/r', number: 7 })).toMatchObject({ number: 7, title: 'T7' })
   })
 
   it('rejects unknown methods', async () => {
