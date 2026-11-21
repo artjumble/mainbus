@@ -1,6 +1,7 @@
 import { NumberInput, Radio, Select, Stack, Title } from '@mantine/core'
 import { useMainbus } from '../store'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import { AGENT_CAP_MAX, AGENT_CAP_MIN, ARCHIVE_AGE_DAYS, isArchiveAgeDays, UNATTENDED_AT_ONCE_MIN, type WhenClosed } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
@@ -101,8 +102,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
       <BaseBranchSettings opened={opened} />
       <RailBadgeSettings opened={opened} />
       <NumberInput
-        label="Agents running at once"
-        description="More than this wait as Queued and start first in, first out as others finish. The orchestrator doesn't count. Lowering it stops no running agent."
+        {...fieldInfo("Agents running at once", "More than this wait as Queued and start first in, first out as others finish. The orchestrator doesn't count. Lowering it stops no running agent.")}
         min={AGENT_CAP_MIN}
         max={AGENT_CAP_MAX}
         allowDecimal={false}
@@ -111,11 +111,10 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         value={maxAgents ?? ''}
         disabled={maxAgents === null || saving}
         onChange={(v) => void save(v)}
-        w={160}
+        styles={{ wrapper: { width: 160 } }}
       />
       <NumberInput
-        label="Unattended: tickets at once"
-        description={'How many Ready tickets unattended mode works on at once in this workspace, up to Agents running at once. Tickets you start by hand count too. Tickets started together branch from the same main and can conflict: link tickets that touch the same area with "blocked by" so they run one after another. Lowering it stops no ticket.'}
+        {...fieldInfo("Unattended: tickets at once", 'How many Ready tickets unattended mode works on at once in this workspace, up to Agents running at once. Tickets you start by hand count too. Tickets started together branch from the same main and can conflict: link tickets that touch the same area with "blocked by" so they run one after another. Lowering it stops no ticket.')}
         min={UNATTENDED_AT_ONCE_MIN}
         max={maxAgents ?? AGENT_CAP_MAX}
         allowDecimal={false}
@@ -124,17 +123,16 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         value={workspace?.unattendedAtOnce ?? ''}
         disabled={workspace === null || maxAgents === null || savingAtOnce}
         onChange={(v) => void saveAtOnce(v)}
-        w={160}
+        styles={{ wrapper: { width: 160 } }}
       />
       <Select
-        label="Archive Done tickets after"
-        description="Done tickets leave the board this long after they reached Done, and stay in the Archive. A ticket you restore starts its time again. Off keeps every Done ticket on the board."
+        {...fieldInfo("Archive Done tickets after", "Done tickets leave the board this long after they reached Done, and stay in the Archive. A ticket you restore starts its time again. Off keeps every Done ticket on the board.")}
         data={[{ value: 'off', label: 'Off' }, ...ARCHIVE_AGE_DAYS.map((d) => ({ value: String(d), label: `${d} days` }))]}
         value={workspace?.autoArchiveDays == null ? 'off' : String(workspace.autoArchiveDays)}
         allowDeselect={false}
         disabled={workspace === null || savingArchive}
         onChange={(v) => void saveAutoArchive(v)}
-        w={160}
+        styles={{ wrapper: { width: 160 } }}
       />
       <Radio.Group
         label="When I close the window"

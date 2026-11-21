@@ -1,5 +1,6 @@
 import { Group, NativeSelect, NumberInput, Stack, Switch, Text } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import { isReviewWait, REVIEW_DONE_WAIT_DEFAULT, REVIEW_DONE_WAIT_MAX, REVIEW_DONE_WAIT_MIN, type Effort } from '../../../shared/domain'
 import { EFFORTS, effortLabel } from '../../../shared/models'
 import { ORCHESTRATOR_MODEL_NOTE, type OrchestratorFamily } from '../../../shared/orchestratorModel'
@@ -108,15 +109,13 @@ export function OrchestratorSettings({ opened }: { opened: boolean }): ReactElem
     <Stack gap="md">
       {opened && <OrchestratorModelSettings />}
       <Switch
-        label="Review finished tickets for follow-ups"
-        description="When a ticket that ran reaches Done, the orchestrator reads what its agents left behind and proposes follow-up tickets for you to confirm. These turns use your plan, and a run of tickets finishing together is one review."
+        {...fieldInfo("Review finished tickets for follow-ups", "When a ticket that ran reaches Done, the orchestrator reads what its agents left behind and proposes follow-up tickets for you to confirm. These turns use your plan, and a run of tickets finishing together is one review.")}
         checked={review?.on ?? true}
         disabled={review === null}
         onChange={(e) => void saveReview({ on: e.currentTarget.checked })}
       />
       <NumberInput
-        label="Wait before reviewing (minutes)"
-        description="How long after the last ticket reached Done the orchestrator waits, so a run of merges becomes one review."
+        {...fieldInfo("Wait before reviewing (minutes)", "How long after the last ticket reached Done the orchestrator waits, so a run of merges becomes one review.")}
         value={review?.waitMinutes ?? REVIEW_DONE_WAIT_DEFAULT}
         min={REVIEW_DONE_WAIT_MIN}
         max={REVIEW_DONE_WAIT_MAX}
@@ -131,8 +130,7 @@ export function OrchestratorSettings({ opened }: { opened: boolean }): ReactElem
         }}
       />
       <Switch
-        label="Let the orchestrator read web pages"
-        description="It can open pages you link and search the web. Pages are read as data, never as instructions; addresses on this computer or your local network are always refused."
+        {...fieldInfo("Let the orchestrator read web pages", "It can open pages you link and search the web. Pages are read as data, never as instructions; addresses on this computer or your local network are always refused.")}
         checked={webAccess ?? true}
         disabled={webAccess === null}
         onChange={(e) => void save(e.currentTarget.checked)}

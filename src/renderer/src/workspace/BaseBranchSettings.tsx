@@ -1,5 +1,6 @@
 import { Button, Group, Select, Stack, Text } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import { baseBranchWarning } from '../../../shared/baseBranch'
 import { invoke } from '../api'
 import { showError } from '../notify'
@@ -42,8 +43,7 @@ export function BaseBranchSettings({ opened }: { opened: boolean }): ReactElemen
     <Stack gap="xs" aria-label="Base branch">
       <Group align="flex-end" gap="sm">
         <Select
-          label="Base branch"
-          description="New tickets branch from it, and freshness checks, base-branch tests, merges and new pull requests use it. Existing tickets keep their branches, and their open pull requests aren't retargeted."
+          {...fieldInfo("Base branch", "New tickets branch from it, and freshness checks, base-branch tests, merges and new pull requests use it. Existing tickets keep their branches, and their open pull requests aren't retargeted.")}
           data={info ? branchSelectData(info, missing ? (base ?? undefined) : undefined) : base ? [{ value: base, label: base }] : []}
           value={value}
           onChange={setValue}

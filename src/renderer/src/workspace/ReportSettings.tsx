@@ -1,5 +1,6 @@
 import { Button, Group, Stack, Switch, TextInput, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import { checkReportsFolder, type ReportSettingsInput } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
@@ -41,8 +42,7 @@ export function ReportSettings({ opened }: { opened: boolean }): ReactElement {
         Investigation reports
       </Title>
       <Switch
-        label="Save investigation reports in the repo"
-        description="When an Investigate ticket submits its report, Mainbus saves it as a markdown file and commits it on the ticket's branch. It reaches the base branch when you merge, like any ticket's work. If the repository is public, so are the reports."
+        {...fieldInfo("Save investigation reports in the repo", "When an Investigate ticket submits its report, Mainbus saves it as a markdown file and commits it on the ticket's branch. It reaches the base branch when you merge, like any ticket's work. If the repository is public, so are the reports.")}
         checked={on}
         disabled={workspace === null || saving}
         onChange={(e) => void save({ saveReports: e.currentTarget.checked })}
@@ -55,8 +55,7 @@ export function ReportSettings({ opened }: { opened: boolean }): ReactElement {
       >
         <Stack gap="xs">
           <TextInput
-            label="Reports folder"
-            description="Relative to the repository. Each report is saved as <date>-<ticket number>-<title>.md in it."
+            {...fieldInfo("Reports folder", "Relative to the repository. Each report is saved as <date>-<ticket number>-<title>.md in it.")}
             value={folder}
             onChange={(e) => setFolder(e.currentTarget.value)}
             error={workspace !== null && !checked.ok ? checked.reason : undefined}
