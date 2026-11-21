@@ -58,11 +58,11 @@ test('a Reviewer at work shows the blue working chip', () => {
   const working = makeTicket({}, { column: 'in_progress', phase: 'implementing', agentStatus: 'working' })
   const reviewing = makeTicket({}, { column: 'in_progress', phase: 'reviewing', agentStatus: 'working' })
   const { unmount } = renderWithMantine(<TicketCard ticket={working} onOpen={() => {}} />)
-  const workingColor = screen.getByText('Implementing').closest('.mantine-Badge-root')?.getAttribute('style')
+  const workingColor = screen.getByText('Implementing').closest('[data-phase-chip]')?.getAttribute('style')
   expect(workingColor).toMatch(/--badge-bg/)
   unmount()
   renderWithMantine(<TicketCard ticket={reviewing} onOpen={() => {}} />)
-  expect(screen.getByText('Reviewing').closest('.mantine-Badge-root')?.getAttribute('style')).toBe(workingColor)
+  expect(screen.getByText('Reviewing').closest('[data-phase-chip]')?.getAttribute('style')).toBe(workingColor)
 })
 
 test('a role the user paused shows a Paused chip beside the phase; another pause does not', () => {
@@ -188,7 +188,7 @@ describe('the recently changed outline', () => {
     })) as unknown as typeof window.matchMedia
   }
   const outlined = (): string | null =>
-    screen.getByText('Implementing').closest('.mantine-Paper-root')?.getAttribute('data-recently-changed') ?? null
+    screen.getByText('Implementing').closest('[data-ticket-card]')?.getAttribute('data-recently-changed') ?? null
 
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
@@ -257,15 +257,15 @@ test.each([
   ['testing', 'needs_you', 'failed', '✕ Failed in Testing']
 ] as const)('the %s chip leads with a symbol: "%s %s" reads %s', (phase, column, agentStatus, text) => {
   const { container } = renderWithMantine(<TicketCard ticket={makeTicket({}, { phase, column, agentStatus })} onOpen={() => {}} />)
-  expect(container.querySelector('.mantine-Badge-root')).toHaveTextContent(text)
+  expect(container.querySelector('[data-phase-chip]')).toHaveTextContent(text)
 })
 
 test('a failed card has a dashed border and a Needs you card an orange one', () => {
   const failed = renderWithMantine(<TicketCard ticket={makeTicket({}, { column: 'needs_you', phase: 'testing', agentStatus: 'failed' })} onOpen={() => {}} />)
-  expect(failed.container.querySelector<HTMLElement>('.mantine-Paper-root')!.style.border).toContain('dashed')
+  expect(failed.container.querySelector<HTMLElement>('[data-ticket-card]')!.style.border).toContain('dashed')
   failed.unmount()
   const needs = renderWithMantine(<TicketCard ticket={makeTicket({}, { column: 'needs_you', phase: 'waiting_on_you', agentStatus: 'waiting_on_you' })} onOpen={() => {}} />)
-  expect(needs.container.querySelector<HTMLElement>('.mantine-Paper-root')!.style.border).toContain('needs-6')
+  expect(needs.container.querySelector<HTMLElement>('[data-ticket-card]')!.style.border).toContain('needs-6')
 })
 
 test('the handle shares the number\'s row, and the title keeps a gutter clear of the handle\'s hit area', async () => {

@@ -2,6 +2,7 @@ import {
   ActionIcon,
   alpha,
   Anchor,
+  Badge,
   Button,
   CloseButton,
   DEFAULT_THEME,
@@ -408,6 +409,8 @@ function mantineTheme(def: ThemeDef, scheme: ThemeScheme): MantineThemeOverride 
     respectReducedMotion: true,
     components: {
       // Controls smaller than 44 px get a hit area of that size (see targets.module.css).
+      // The label's own data attribute is the test handle for a chip's text (see e2e and unit tests); Badge has no other.
+      Badge: Badge.extend({ defaultProps: { attributes: { label: { 'data-badge-label': 'true' } } } }),
       Button: Button.extend({ classNames: { root: targets.target, inner: targets.loadingContent } }),
       ActionIcon: ActionIcon.extend({ classNames: { root: targets.target, icon: targets.loadingContent } }),
       CloseButton: CloseButton.extend({ classNames: { root: targets.target } }),

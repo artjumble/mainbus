@@ -35,7 +35,7 @@ test('the list is a real dropdown with its own width, and holds every option', a
   const { box } = setup()
   await userEvent.type(box, '@')
   const list = await screen.findByRole('listbox', { name: 'Workspaces' })
-  const dropdown = list.closest<HTMLElement>('.mantine-Combobox-dropdown')!
+  const dropdown = list.closest<HTMLElement>('[data-mention-list]')!
   expect(dropdown).not.toBeNull()
   // jsdom has no layout; Mantine writes the width as calc(<n>rem * scale), 16px to the rem.
   expect(parseFloat(dropdown.style.width.replace('calc(', '')) * 16).toBeGreaterThanOrEqual(200)

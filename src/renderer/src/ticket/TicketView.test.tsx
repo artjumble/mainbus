@@ -88,7 +88,7 @@ test('TicketView controls follow state: canContinue shows Continue, and Stop so 
 
 describe('Pause, Resume and Skip to next role', () => {
   /** The Paused chip in the header, not the lineup strip's "Paused" for the role. */
-  const CHIP = { selector: '.mantine-Badge-label' }
+  const CHIP = { selector: '[data-badge-label]' }
 
   test('a working role can be paused or skipped; a paused one resumed, skipped or stopped, and Continue is not offered', async () => {
     const working = show({ phase: 'implementing', agentStatus: 'working', column: 'in_progress' }, strip('i'))

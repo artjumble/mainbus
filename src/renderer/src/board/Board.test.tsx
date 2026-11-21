@@ -513,7 +513,7 @@ describe('lanes', () => {
     // The Needs you tint.
     expect(fill('Needs you')).toContain('--mantine-color-needs-0')
 
-    const card = (title: string): HTMLElement => screen.getByRole('button', { name: title }).closest<HTMLElement>('.mantine-Paper-root')!
+    const card = (title: string): HTMLElement => screen.getByRole('button', { name: title }).closest<HTMLElement>('[data-ticket-card]')!
     for (const title of ['Plain', 'Waiting']) {
       expect(card(title)).toHaveAttribute('data-with-border')
       expect(card(title).style.getPropertyValue('--paper-shadow')).not.toBe('')
@@ -544,7 +544,7 @@ describe('lanes', () => {
       expect(lane).not.toHaveAttribute('data-with-border')
       expect(lane.style.border).toBe('')
     }
-    expect(screen.getByText(/No tickets in .* yet/).closest('.mantine-Paper-root')).toHaveAttribute('data-with-border')
+    expect(screen.getByText(/No tickets in .* yet/).closest('[data-board-empty]')).toHaveAttribute('data-with-border')
   })
 
   test('the empty board has the real board\'s tracks and fills: Needs you the tinted collapsed strip, Done the strip', () => {

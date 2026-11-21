@@ -68,6 +68,7 @@ export function PhaseChip({ state }: { state: TicketState }): ReactElement {
   return (
     // Sentence case, and the text wraps rather than being cut off: in a narrow column the state must stay readable.
     <Badge
+      data-phase-chip
       color={chip.color}
       variant={chip.variant}
       size="sm"
@@ -169,6 +170,7 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
   return (
     // A click on the card's empty area opens the ticket too, as a pointer convenience; the title is the control.
     <Paper
+      data-ticket-card={ticket.id}
       withBorder
       p="sm"
       // Narrow sides: in a narrow column the title keeps room for its 44 px hit area beside the handle.

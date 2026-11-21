@@ -53,7 +53,7 @@ test.each([
   // jsdom has no layout, so the measured check is in the artboard e2e test; here, the styles that keep the tag whole.
   expect(getComputedStyle(tag).flexShrink).toBe('0')
   expect(getComputedStyle(tag).overflow).toBe('visible')
-  const label = tag.querySelector<HTMLElement>('.mantine-Badge-label')!
+  const label = tag.querySelector<HTMLElement>('[data-badge-label]')!
   expect(getComputedStyle(label).overflow).toBe('visible')
   expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
   const target = document.querySelector<HTMLElement>('[data-tool-target]')!
@@ -100,7 +100,7 @@ test('in a narrow row with a very long command, the Failed tag and the name tag 
     expect(tag).toHaveTextContent(new RegExp(`^${text}$`))
     expect(getComputedStyle(tag).flexShrink).toBe('0')
     expect(getComputedStyle(tag).overflow).toBe('visible')
-    const label = tag.querySelector<HTMLElement>('.mantine-Badge-label')!
+    const label = tag.querySelector<HTMLElement>('[data-badge-label]')!
     expect(getComputedStyle(label).overflow).toBe('visible')
     expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
   }
