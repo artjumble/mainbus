@@ -118,7 +118,7 @@ test('a screenshot pasted into the orchestrator panel reaches the orchestrator, 
 
     // Two more screenshots, images only, dropped into the box: the orchestrator drafts a ticket with both, and the
     // user unticks one before creating it.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await dropImages(box, ['menu.png', 'footer.png'])
     await expect(toSend.getByRole('img', { name: 'footer.png' })).toBeVisible()
     await panel.getByRole('button', { name: 'Send' }).click()

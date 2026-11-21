@@ -73,7 +73,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
 
     // The second can't start: it shows Queued, first in line, in progress with its phase unchanged.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await page.getByRole('button', { name: /Second ticket/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.getByText('Queued · 1st').first()).toBeVisible()
@@ -81,7 +81,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
       ['Planner ○ Queued · 1st', 'Implementer ○ Not started', 'Reviewer ○ Not started'],
       { useInnerText: true }
     )
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     const inProgress = page.getByRole('region', { name: 'In progress' })
     await expect(inProgress.getByText('Second ticket')).toBeVisible()
     await expect(inProgress.getByText('Queued · 1st')).toBeVisible()
@@ -94,7 +94,7 @@ test('with room for one agent, the second ticket shows Queued and starts when th
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
 
     // The slot is free: the second ticket's agents start, and it is no longer queued.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('First ticket')).toBeVisible()
     await page.getByRole('button', { name: /Second ticket/ }).click()
     await expect(page.getByText('Implementer: adding the file.')).toBeVisible()

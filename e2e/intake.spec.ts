@@ -148,7 +148,7 @@ test('agents file tickets through the CLI and the MCP server, and the board show
     await expect(fromAgent.getByText('Keep tabs.')).toBeVisible()
     await expect(fromAgent.getByText('from e2e-agent (reported)')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Your words' }).getByText("You haven't added your own words yet.")).toBeVisible()
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     // The settings drawer shows the dev setup lines for this home.
     await page.getByRole('button', { name: 'Workspace settings' }).click()

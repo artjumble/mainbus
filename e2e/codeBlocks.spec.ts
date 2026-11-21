@@ -59,7 +59,7 @@ test('a permission for a heredoc command shows as a code block, and an orchestra
     await page.getByLabel('First message (starts the lineup)').fill('Please add the limiter')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.locator('[data-event="permission"]')).toContainText('Planner wants to run')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     // The panel's card: the command is a code block with Copy, capped with Show all, and the reason below.
     const waiting = page.getByRole('region', { name: 'Waiting on you' })
@@ -131,7 +131,7 @@ test('answering two permissions in the panel, the third card arrives with its bu
     await page.getByLabel('First message (starts the lineup)').fill('Please add the limiter')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.locator('[data-event="permission"]')).toContainText('Planner wants to run')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     const waiting = page.getByRole('region', { name: 'Waiting on you' })
     const cards = waiting.locator('[data-event="waiting-decision"]')

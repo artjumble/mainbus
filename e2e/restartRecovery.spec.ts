@@ -60,7 +60,7 @@ test('after the app is killed mid-run, the working agents resume and a pending q
       await page.getByRole('button', { name: new RegExp(title) }).click()
       await page.getByRole('button', { name: 'Start', exact: true }).click()
       await expect(page.getByText('Planner: on it.')).toBeVisible()
-      await page.getByRole('button', { name: /board/ }).click()
+      await page.getByRole('button', { name: /^← .* board$/ }).click()
     }
 
     // The third runs only its Implementer, which asks a question and waits for the answer.
@@ -73,7 +73,7 @@ test('after the app is killed mid-run, the working agents resume and a pending q
     await expect(dialog).toHaveCount(0)
     await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Needs you' }).getByText('Charlie ticket')).toBeVisible()
 
     // Killed, not closed: nothing shuts down in order.
@@ -86,7 +86,7 @@ test('after the app is killed mid-run, the working agents resume and a pending q
       await page.getByRole('button', { name: new RegExp(title) }).click()
       await expect(page.getByText('Planner: back after the restart.')).toBeVisible()
       await expect(page.getByText('Planner: on it.')).toBeVisible()
-      await page.getByRole('button', { name: /board/ }).click()
+      await page.getByRole('button', { name: /^← .* board$/ }).click()
     }
 
     // The question is still pending, and its answer reaches the agent.

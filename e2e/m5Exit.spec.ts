@@ -131,7 +131,7 @@ test('M5 exit: a looping agent is detected, redirected, detected again and repla
     await expect(activity.getByRole('button', { name: 'View proposal' })).toHaveCount(2)
 
     // The ticket is in Review.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Alpha')).toBeVisible()
   } finally {
     await app?.close().catch(() => {})

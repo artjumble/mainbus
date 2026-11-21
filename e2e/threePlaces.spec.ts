@@ -50,7 +50,7 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
       await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
       await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
       await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
-      await page.getByRole('button', { name: /board/ }).click()
+      await page.getByRole('button', { name: /^← .* board$/ }).click()
     }
 
     const needsYou = page.getByRole('region', { name: 'Needs you' })
@@ -72,7 +72,7 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
       if (note) await expect(page.locator('[data-event="decision"]')).toContainText(note)
       await expect(page.getByText('Got your answer, planning it.')).toHaveCount(1)
       await expect(page.getByText(`Decision: Where should hello.txt go? → docs folder (you, from ${answeredFrom})`)).toHaveCount(1)
-      await page.getByRole('button', { name: /board/ }).click()
+      await page.getByRole('button', { name: /^← .* board$/ }).click()
     }
 
     // 1. The board card.
@@ -99,7 +99,7 @@ test('M4 exit, part one: three decisions answered from the board, the panel and 
     await page.locator('[data-event="decision"]').getByRole('button', { name: 'Answer', exact: true }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('✓ Answered: docs folder')
     await expect(page.getByRole('region', { name: 'Waiting on you' })).toHaveCount(0)
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expectResolved('Gamma', 'the thread')
   } finally {
     await app?.close().catch(() => {})

@@ -109,7 +109,7 @@ test('a pasted screenshot reaches every role without a card, one attached mid-ru
     ])
 
     // 4. Moved to Done, its folder goes but the images stay.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await page.getByRole('button', { name: /Fix the login page/ }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Move to Done' }).click()
     const done = page.getByRole('region', { name: 'Done' })

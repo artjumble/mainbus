@@ -78,7 +78,7 @@ test('the rail adds a second workspace, switches between them, and counts a deci
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     // Its badge counts it; answering with Later… > Tomorrow takes it away.
     await expect(entryA.getByLabel('1 need you')).toBeVisible()

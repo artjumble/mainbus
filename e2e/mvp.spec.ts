@@ -85,7 +85,7 @@ test('ticket goes from idea to review with a question, a permission and a restar
 
     // 5. The ticket lands in Review.
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
 
     // 6. Restart on the same home: the ticket is still in Review and its thread is intact.

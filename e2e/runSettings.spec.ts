@@ -75,7 +75,7 @@ test("a Backlog ticket's saved run settings are what unattended mode starts it w
     await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
 
     // Back on the board: the card shows the custom run, still in Backlog.
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(backlog.getByText('Custom run')).toBeVisible()
 
     // Unattended mode on, with nothing in Ready yet.

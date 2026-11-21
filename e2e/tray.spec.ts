@@ -99,7 +99,7 @@ test('closing the window with an agent working keeps it running in the tray; the
     await page.getByRole('button', { name: /Alpha ticket/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.getByText('Planner: on it.')).toBeVisible()
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'In progress' }).getByText('Alpha ticket')).toBeVisible()
     await expect.poll(() => tray(app, (h) => h.tooltip())).toBe('Mainbus: 1 working')
 
@@ -171,7 +171,7 @@ test('a ticket reaching Needs you while the window is hidden gets one toast, and
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect.poll(() => tray(app, (h) => h.tooltip())).toContain('1 needs you')
 
     // Later… > Tomorrow: the decision leaves Needs you, and the agent is still open, so closing hides the window.
