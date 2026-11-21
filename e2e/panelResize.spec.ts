@@ -76,12 +76,17 @@ test('dragging the panel edge resizes it within the limits; the width survives a
     expect(layout.asideRight).toBeCloseTo(layout.windowWidth, 0)
 
     const drag = async (dx: number): Promise<void> => {
+      const before = Number(await separator.getAttribute('aria-valuenow'))
+      const min = Number(await separator.getAttribute('aria-valuemin'))
+      const max = Number(await separator.getAttribute('aria-valuemax'))
       const box = (await separator.boundingBox())!
       const x = box.x + box.width / 2
       const y = box.y + box.height / 2
       await page.mouse.move(x, y)
       await page.mouse.down()
       await page.mouse.move(x + dx, y, { steps: 10 })
+      // Let go only once the last pointer moves have been applied: the panel grows as the pointer goes left.
+      await expect(separator).toHaveAttribute('aria-valuenow', String(Math.min(max, Math.max(min, before - dx))))
       await page.mouse.up()
     }
 

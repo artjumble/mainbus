@@ -66,6 +66,22 @@ function layOutColumns(): void {
   })
 }
 
+/**
+ * Resolves once a click on the page reaches its target. dnd-kit's pointer sensor, when it lets go of a drag, keeps a
+ * document-level listener that swallows clicks for 50 ms more. An earlier test's drag (dragBy holds the mouse down)
+ * is let go of by the Escape of the next test, so a click in the test after it can be swallowed.
+ */
+async function untilClicksReachPage(): Promise<void> {
+  await vi.waitFor(() => {
+    let reached = false
+    const probe = (): void => void (reached = true)
+    document.addEventListener('click', probe)
+    document.body.click()
+    document.removeEventListener('click', probe)
+    expect(reached).toBe(true)
+  })
+}
+
 describe('moving a card by keyboard', () => {
   // jsdom has no scrollIntoView, which dnd-kit calls when a keyboard drag starts.
   beforeEach(() => {
@@ -96,6 +112,7 @@ describe('moving a card by keyboard', () => {
     const ticket = show()
     renderWithMantine(<Board />)
     screen.getByRole('button', { name: /Drag me/ }).focus()
+    await untilClicksReachPage()
     await userEvent.keyboard('{Enter}')
     expect(useMainbus.getState().currentTicketId).toBe(ticket.id)
     expect(announced()).toBe('')
