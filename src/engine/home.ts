@@ -27,26 +27,35 @@ export function invocationDir(env: Record<string, string | undefined>, script: s
   return env.npm_lifecycle_event === script && env.INIT_CWD ? env.INIT_CWD : cwd
 }
 
+/** The per-OS default data home, used when MAINBUS_HOME is not set. */
+function defaultRoot(env: Record<string, string | undefined>, suffix: string, homedir: string, platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    return env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, `Mainbus${suffix}`) : path.join(homedir, `.mainbus${suffix}`)
+  }
+  if (platform === 'darwin') return path.join(homedir, 'Library', 'Application Support', `Mainbus${suffix}`)
+  // Linux and the rest: XDG_DATA_HOME (an absolute path, per the spec), else ~/.local/share.
+  const xdg = env.XDG_DATA_HOME && path.isAbsolute(env.XDG_DATA_HOME) ? env.XDG_DATA_HOME : path.join(homedir, '.local', 'share')
+  return path.join(xdg, `mainbus${suffix}`)
+}
+
 /**
  * Resolves the Mainbus data home.
  * MAINBUS_HOME wins, resolved against `baseDir` when relative (the app and the CLI both pass the directory
- * they were run from, so the same relative MAINBUS_HOME names the same home); otherwise %LOCALAPPDATA%\Mainbus (stable) or \Mainbus-dev (dev),
- * and off Windows (no LOCALAPPDATA) ~/.mainbus or ~/.mainbus-dev.
+ * they were run from, so the same relative MAINBUS_HOME names the same home); otherwise, by OS:
+ * Windows %LOCALAPPDATA%\Mainbus (stable) or \Mainbus-dev (dev), or ~/.mainbus[-dev] without LOCALAPPDATA;
+ * macOS ~/Library/Application Support/Mainbus[-dev]; Linux $XDG_DATA_HOME/mainbus[-dev], else ~/.local/share/mainbus[-dev].
  * Worktrees live under `work`, not `worktrees`, so path-based rules in a user's Claude config don't match.
  */
 export function resolveHome(
   env: Record<string, string | undefined>,
   mode: 'stable' | 'dev',
   homedir: string,
-  baseDir: string = process.cwd()
+  baseDir: string = process.cwd(),
+  platform: NodeJS.Platform = process.platform
 ): HomePaths {
   const suffix = mode === 'dev' ? '-dev' : ''
   const override = env.MAINBUS_HOME
-  const root = override
-    ? path.resolve(baseDir, override)
-    : env.LOCALAPPDATA
-      ? path.join(env.LOCALAPPDATA, `Mainbus${suffix}`)
-      : path.join(homedir, `.mainbus${suffix}`)
+  const root = override ? path.resolve(baseDir, override) : defaultRoot(env, suffix, homedir, platform)
   return {
     root,
     db: path.join(root, 'mainbus.db'),

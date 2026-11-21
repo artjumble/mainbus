@@ -25,8 +25,8 @@ describe('resolveHome', () => {
 
   it('stable and dev default to different LOCALAPPDATA folders', () => {
     const env = { LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' }
-    const stable = resolveHome(env, 'stable', 'C:\\Users\\x')
-    const dev = resolveHome(env, 'dev', 'C:\\Users\\x')
+    const stable = resolveHome(env, 'stable', 'C:\\Users\\x', undefined, 'win32')
+    const dev = resolveHome(env, 'dev', 'C:\\Users\\x', undefined, 'win32')
     expect(stable.root).toBe(p.join(env.LOCALAPPDATA, 'Mainbus'))
     expect(dev.root).toBe(p.join(env.LOCALAPPDATA, 'Mainbus-dev'))
     expect(stable.db).toBe(p.join(stable.root, 'mainbus.db'))
@@ -34,11 +34,33 @@ describe('resolveHome', () => {
     expect(dev.backups).toBe(p.join(dev.root, 'backups'))
   })
 
-  it('falls back to ~/.mainbus without LOCALAPPDATA', () => {
-    const stable = resolveHome({}, 'stable', p.join(p.sep, 'home', 'x'))
-    const dev = resolveHome({}, 'dev', p.join(p.sep, 'home', 'x'))
+  it('Windows falls back to ~/.mainbus without LOCALAPPDATA', () => {
+    const stable = resolveHome({}, 'stable', p.join(p.sep, 'home', 'x'), undefined, 'win32')
+    const dev = resolveHome({}, 'dev', p.join(p.sep, 'home', 'x'), undefined, 'win32')
     expect(stable.root).toBe(p.join(p.sep, 'home', 'x', '.mainbus'))
     expect(dev.root).toBe(p.join(p.sep, 'home', 'x', '.mainbus-dev'))
+  })
+
+  it('macOS defaults to Application Support', () => {
+    const h = p.join(p.sep, 'Users', 'x')
+    expect(resolveHome({ LOCALAPPDATA: 'ignored' }, 'stable', h, undefined, 'darwin').root).toBe(p.join(h, 'Library', 'Application Support', 'Mainbus'))
+    expect(resolveHome({}, 'dev', h, undefined, 'darwin').root).toBe(p.join(h, 'Library', 'Application Support', 'Mainbus-dev'))
+  })
+
+  it('Linux defaults to XDG_DATA_HOME, else ~/.local/share', () => {
+    const h = p.join(p.sep, 'home', 'x')
+    const xdg = p.resolve(p.sep, 'data')
+    expect(resolveHome({ XDG_DATA_HOME: xdg }, 'stable', h, undefined, 'linux').root).toBe(p.join(xdg, 'mainbus'))
+    expect(resolveHome({ XDG_DATA_HOME: xdg }, 'dev', h, undefined, 'linux').root).toBe(p.join(xdg, 'mainbus-dev'))
+    expect(resolveHome({}, 'stable', h, undefined, 'linux').root).toBe(p.join(h, '.local', 'share', 'mainbus'))
+    expect(resolveHome({ XDG_DATA_HOME: 'relative' }, 'stable', h, undefined, 'linux').root).toBe(p.join(h, '.local', 'share', 'mainbus'))
+  })
+
+  it('MAINBUS_HOME overrides the default on every OS', () => {
+    const mb = p.resolve(p.sep, 'mb')
+    for (const platform of ['win32', 'darwin', 'linux'] as const) {
+      expect(resolveHome({ MAINBUS_HOME: mb, LOCALAPPDATA: 'x', XDG_DATA_HOME: 'y' }, 'stable', 'h', undefined, platform).root).toBe(mb)
+    }
   })
 })
 
