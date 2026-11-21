@@ -31,7 +31,7 @@ export type PermissionVerdict = { allow: true } | { allow: false; message: strin
 export interface OrchestratorReadToolHandlers {
   listWorkspaces(): Promise<string>
   /** Each of these takes an optional `workspace` (name or id); the focused one when left out. */
-  listTickets(a: { workspace?: string; column?: string }): Promise<string>
+  listTickets(a: { workspace?: string; column?: string; archived?: boolean }): Promise<string>
   getTicket(a: { workspace?: string; number: number }): Promise<string>
   getRunStatus(a: { workspace?: string; number: number }): Promise<string>
   getRecentEvents(a: { workspace?: string; number: number; limit?: number }): Promise<string>

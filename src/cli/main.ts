@@ -157,10 +157,16 @@ async function ticket(io: Io, target: IntakeTarget, args: string[]): Promise<num
         args: rest,
         strict: true,
         allowPositionals: false,
-        options: { column: { type: 'string' }, json: { type: 'boolean' } }
+        options: { column: { type: 'string' }, archived: { type: 'boolean' }, json: { type: 'boolean' } }
       })
-      const result = await request(target, 'list', values.column === undefined ? { cwd: io.cwd } : { cwd: io.cwd, column: values.column })
-      io.stdout(`${values.json ? JSON.stringify(result.tickets, null, 2) : formatList(result.tickets)}\n`)
+      const result = await request(target, 'list', {
+        cwd: io.cwd,
+        ...(values.column === undefined ? {} : { column: values.column }),
+        ...(values.archived ? { archived: true } : {})
+      })
+      const hidden =
+        !values.archived && result.archivedCount > 0 ? `\n(+${result.archivedCount} archived; pass --archived to list them)` : ''
+      io.stdout(`${values.json ? JSON.stringify(result.tickets, null, 2) : formatList(result.tickets) + hidden}\n`)
       return EXIT.ok
     }
     case 'show': {

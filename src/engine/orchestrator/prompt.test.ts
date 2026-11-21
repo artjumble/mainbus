@@ -24,6 +24,12 @@ describe('buildOrchestratorPrompt', () => {
     }
   })
 
+  test('says archived tickets are hidden from list_tickets, and that get_ticket still reads them', () => {
+    expect(prompt).toContain('mcp__mainbus__list_tickets(column?, archived?)')
+    expect(prompt).toMatch(/Archived tickets .* hidden from it/)
+    expect(prompt).toContain('get_ticket by number still reads an archived ticket')
+  })
+
   test('names the ticket tools with their arguments', () => {
     expect(prompt).toContain('mcp__mainbus__propose_create_tickets')
     expect(prompt).toContain('mcp__mainbus__create_tickets(workspace, tickets, request_messages_back?, context?)')

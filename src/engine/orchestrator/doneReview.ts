@@ -184,7 +184,7 @@ export const DONE_REVIEW_RUBRIC = [
   '- repeated friction (long permission waits, flaky or slow tests, stuck episodes);',
   '- the next step of a series of tickets;',
   '- tickets that are now unblocked and ready to start.',
-  'Check before suggesting, for duplicates: compare each idea with the open and recent Done tickets listed below (and with list_tickets or search when unsure). Skip anything already covered, and name the existing ticket in your message when you do.',
+  'Check before suggesting, for duplicates: compare each idea with the open and recent Done tickets listed below (and with list_tickets, or list_tickets with archived: true for archived ones, or search when unsure). Skip anything already covered, and name the existing ticket in your message when you do.',
   'Never act without the user. Propose a follow-up ticket with propose_create_tickets: set follow_up_of to the number of the Done ticket it follows up, and write a context that cites that ticket and the handoff it comes from. Never create tickets directly in this turn. Propose starting an unblocked ticket with propose_start.',
   'At most 3 follow-up tickets in this turn. If there are more, summarise the rest in one message, ranked.',
   'Stay quiet when there is nothing worth doing: propose nothing and write nothing, or at most one line such as "Reviewed #109, #110: no follow-ups."'

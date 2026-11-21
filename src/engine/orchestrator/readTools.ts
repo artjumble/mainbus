@@ -407,19 +407,23 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       return `Workspaces (${all.length}):\n${lines.join('\n')}`
     },
 
-    async listTickets({ workspace, column }) {
+    async listTickets({ workspace, column, archived }) {
       if (column !== undefined && !Object.hasOwn(COLUMNS, column)) {
         return `Unknown column "${oneLine(column)}". The columns are: ${Object.keys(COLUMNS).join(', ')}.`
       }
-      const b = await board(workspace)
+      const b = await board(workspace, { includeArchived: true })
       if (typeof b === 'string') return b
       const usage = await usageNow()
+      // Archived tickets are listed alone with `archived: true`, and left out otherwise.
+      const archivedCount = b.tickets.filter((t) => t.archivedAt !== null).length
       const tickets = inBoardOrder(
-        b.tickets.filter((t) => column === undefined || t.state.column === column),
+        b.tickets.filter((t) => (t.archivedAt !== null) === (archived === true) && (column === undefined || t.state.column === column)),
         (t) => t.state.column
       )
+      const kind = archived === true ? 'archived tickets' : 'tickets'
       const where = column === undefined ? '' : ` in ${COLUMNS[column as Column]}`
-      if (tickets.length === 0) return `No tickets${where} in ${oneLine(b.ws.name)}.`
+      const hidden = archived !== true && archivedCount > 0 ? `\n(+${archivedCount} archived; pass archived: true to list them)` : ''
+      if (tickets.length === 0) return `No ${kind}${where} in ${oneLine(b.ws.name)}.${hidden}`
       const line = (t: (typeof tickets)[number]): string =>
           `- ${title(t)} · ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]} · active role: ${activeRole(t)} · labels: ${labels(t)}` +
           queuedText(t) +
@@ -435,7 +439,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         const note = c === 'backlog' ? ', in order (top first)' : c === 'ready' ? ', in order (top first; unattended mode starts from the top)' : ''
         return [`${COLUMNS[c]}${note}:\n${inColumn.map(line).join('\n')}`]
       })
-      return `Tickets${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${sections.join('\n')}`
+      return `${kind[0].toUpperCase()}${kind.slice(1)}${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${sections.join('\n')}${hidden}`
     },
 
     async getTicket({ workspace, number }) {

@@ -968,8 +968,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     await proposals.failUnfinished()
 
     // The intake's tickets need only their state; the board's carry their lineup strip as well.
-    const boardTickets = async (ws: { id: string }) => {
-      const tickets = await repos.tickets.list(ws.id, { includeArchived: false })
+    const boardTickets = async (ws: { id: string }, opts?: { includeArchived?: boolean }) => {
+      const tickets = await repos.tickets.list(ws.id, { includeArchived: opts?.includeArchived ?? false })
       return Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) })))
     }
     /** The workspace's tickets now in this ranked column, top first. */

@@ -86,11 +86,21 @@ export function createMcpServer(target: IntakeTarget, cwd: string): McpServer {
       title: 'List Mainbus tickets',
       description:
         "Lists the tickets on the user's Mainbus board (number, title, column, phase, labels, who filed it, pull request). " +
-        'Call it before create_ticket to avoid duplicates. Optionally filter by column.',
-      inputSchema: { column: z.enum(COLUMNS).optional().describe('Only tickets in this column') }
+        'Call it before create_ticket to avoid duplicates. Optionally filter by column. Archived tickets (old Done ones) are left out; ' +
+        'archivedCount says how many there are, archived: true lists them instead of the rest, and get_ticket reads any ticket by number.',
+      inputSchema: {
+        column: z.enum(COLUMNS).optional().describe('Only tickets in this column'),
+        archived: z.boolean().optional().describe('True lists only the archived tickets; the default leaves them out')
+      }
     },
-    ({ column }) =>
-      call(async () => JSON.stringify(await request(target, 'list', column === undefined ? { cwd } : { cwd, column }), null, 2))
+    ({ column, archived }) =>
+      call(async () =>
+        JSON.stringify(
+          await request(target, 'list', { cwd, ...(column === undefined ? {} : { column }), ...(archived === undefined ? {} : { archived }) }),
+          null,
+          2
+        )
+      )
   )
 
   server.registerTool(
