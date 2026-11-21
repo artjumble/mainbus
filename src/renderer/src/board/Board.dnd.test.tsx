@@ -90,7 +90,7 @@ describe('moving a card by keyboard', () => {
   afterEach(() => vi.restoreAllMocks())
 
   const handle = (n: number): HTMLElement => screen.getByRole('button', { name: `Move ticket #${n}` })
-  const announced = (): string => document.body.querySelector('[aria-live]')?.textContent ?? ''
+  const announced = (): string => document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent ?? ''
 
   function show(): ReturnType<typeof makeTicket> {
     const ticket = makeTicket({ title: 'Drag me' }, { column: 'backlog' })
@@ -136,7 +136,7 @@ describe('moving a card by keyboard', () => {
     await vi.waitFor(() => expect(announced()).toMatch(/is over Ready/))
     await userEvent.keyboard(' ')
     await vi.waitFor(() => expect(move).toHaveBeenCalledWith(ticket.id, 'ready'))
-    expect(announced()).toMatch(/was dropped on Ready/)
+    expect(announced()).toMatch(/moved to position 1 of 1 in Ready/)
   })
 
   test('the lane a card is over is highlighted, over its fill, and goes back to the fill after', async () => {
@@ -238,9 +238,9 @@ describe('Done around the end of a drag', () => {
     act(() => done().focus())
     screen.getByRole('button', { name: `Move ticket #${ticket.number}` }).focus()
     await userEvent.keyboard(' ')
-    await vi.waitFor(() => expect(document.body.querySelector('[aria-live]')?.textContent).toMatch(/Picked up/))
+    await vi.waitFor(() => expect(document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent).toMatch(/Picked up/))
     await userEvent.keyboard('{Escape}')
-    await vi.waitFor(() => expect(document.body.querySelector('[aria-live]')?.textContent).toMatch(/cancelled/))
+    await vi.waitFor(() => expect(document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent).toMatch(/cancelled/))
     // Focus is back on the card, inside Done: it stays open. Once focus moves on, it collapses.
     await new Promise((r) => setTimeout(r, 400))
     expect(done()).toHaveAttribute('data-expanded', 'true')
@@ -270,7 +270,7 @@ describe('Done around the end of a drag', () => {
     await userEvent.keyboard(' ')
     await userEvent.keyboard('{ArrowRight}')
     await userEvent.keyboard(' ')
-    await vi.waitFor(() => expect(document.body.querySelector('[aria-live]')?.textContent).toMatch(/dropped on Done/))
+    await vi.waitFor(() => expect(document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent).toMatch(/dropped on Done/))
     act(() => screen.getByRole('textbox', { name: 'Search tickets' }).focus())
     await new Promise((r) => setTimeout(r, 700))
     expect(done()).toHaveAttribute('data-expanded', 'true')
