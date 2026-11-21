@@ -250,25 +250,19 @@ export function WorkspaceRail(): ReactElement {
       <Stack gap="md">
         {/* With no workspace yet, the welcome screen offers Add workspace itself. */}
         {workspaces.length > 0 && (
-          <Stack gap={6}>
-            <Button
-              variant="default"
-              size="xs"
-              fullWidth
-              onClick={() => setAdding(true)}
-              aria-label="Add workspace"
-              styles={{ root: { borderStyle: 'dashed' } }}
-            >
-              <Text component="span" size="xs" aria-hidden>
-                {expanded ? '+ Add workspace' : '+'}
-              </Text>
-            </Button>
-            {expanded && (
-              <Text size="xs" c="dimmed">
-                Pick a local repo folder to add it.
-              </Text>
-            )}
-          </Stack>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="xs"
+            fullWidth
+            onClick={() => setAdding(true)}
+            aria-label="Add workspace"
+            justify={expanded ? 'flex-start' : 'center'}
+          >
+            <Text component="span" size="xs" aria-hidden>
+              {expanded ? '+ Add workspace' : '+'}
+            </Text>
+          </Button>
         )}
         {/* One button, collapsed or expanded, so the drawer can give focus back to it whatever the rail did meanwhile. */}
         <Button
