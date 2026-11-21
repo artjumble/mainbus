@@ -3,7 +3,9 @@ import type { BoardTicket, OpenWorkspaceOptions, PrepareOptions, WorkspaceSummar
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { modelOptions, setModelOptions, type ModelOption } from '../../shared/models'
 import { invoke, onEngineEvent } from './api'
+import { compareRank } from '../../shared/boardOrder'
 import { asOwnChange, isOwnChange } from './board/ownChanges'
+import { displayRank } from './board/reorder'
 import { errorMessage } from './notify'
 
 export type { BoardTicket }
@@ -54,6 +56,8 @@ interface MainbusState {
    * their target column at once; `tickets` keeps the engine's view, so refreshes meanwhile don't undo the move.
    */
   pendingMoves: Record<string, ManualColumn>
+  /** The rank a card is shown at, by ticket id, while the engine has not answered a reorder or a move with a place. */
+  pendingRanks: Record<string, number>
   /**
    * A proposal the panel should show: it expands if collapsed and scrolls to the card. `n` counts reveals, so
    * revealing the same proposal again shows it again.
@@ -104,7 +108,10 @@ interface MainbusState {
    * the board is read again before the overlay goes, so the card does not flicker back. Rejects with the
    * engine's reason when it refuses; on 'dirty' or a rejection the card returns to its real column.
    */
-  moveTicket(id: string, to: ManualColumn): Promise<'moved' | 'dirty' | 'asked'>
+  /** `before` is the ticket the card is dropped above in Backlog or Ready; left out, it goes to the bottom. */
+  moveTicket(id: string, to: ManualColumn, before?: string | null): Promise<'moved' | 'dirty' | 'asked'>
+  /** Moves a card within its column (Backlog or Ready), above the ticket `before`, or to the bottom when null. */
+  reorderTicket(id: string, before: string | null): Promise<void>
   /** Switches unattended mode; rejects with the engine's reason when it can't be switched on. */
   setUnattended(on: boolean): Promise<void>
   /** Asks the engine for a start proposal for a Backlog or Ready ticket (the card dragged into In progress), then shows it. */
@@ -137,6 +144,20 @@ function stabilize(previous: BoardTicket[], next: BoardTicket[]): BoardTicket[] 
     return old && isEqual(old, t) ? old : t
   })
   return merged.length === previous.length && merged.every((t, i) => t === previous[i]) ? previous : merged
+}
+
+/** The rank a card moved into `column` shows at until the engine answers. */
+function pendingRank(
+  s: { tickets: BoardTicket[]; pendingMoves: Record<string, string>; pendingRanks: Record<string, number> },
+  id: string,
+  column: string,
+  before: string | null
+): number {
+  const inColumn = s.tickets
+    .filter((t) => (s.pendingMoves[t.id] ?? t.state.column) === column)
+    .map((t) => ({ id: t.id, rank: s.pendingRanks[t.id] ?? t.rank, number: t.number }))
+    .sort(compareRank)
+  return displayRank(inColumn, id, before)
 }
 
 /** How long a card's outline is kept in the store; the longest it is ever shown. */
@@ -228,6 +249,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   unattended: UNATTENDED_OFF,
   usage: { kind: 'ok' },
   pendingMoves: {},
+  pendingRanks: {},
   revealedProposal: null,
   search: '',
   recentlyChanged: {},
@@ -339,18 +361,41 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   },
   closeTicket: () => set({ currentTicketId: null, offBoardTicket: null }),
 
-  async moveTicket(id, to) {
-    set((s) => ({ pendingMoves: { ...s.pendingMoves, [id]: to } }))
+  async moveTicket(id, to, before) {
+    set((s) => ({
+      pendingMoves: { ...s.pendingMoves, [id]: to },
+      ...(to !== 'done' ? { pendingRanks: { ...s.pendingRanks, [id]: pendingRank(s, id, to, before ?? null) } } : {})
+    }))
     try {
       return await asOwnChange(id, async () => {
-        const result = await invoke('ticket.move', id, to)
+        // The place goes to the engine only when there is one: a move to the bottom is the two-argument call.
+        const result =
+          before === undefined || before === null ? await invoke('ticket.move', id, to) : await invoke('ticket.move', id, to, before)
         if (result === 'moved') await get().refreshBoard()
         return result
       })
     } finally {
       set((s) => {
         const { [id]: _settled, ...rest } = s.pendingMoves
-        return { pendingMoves: rest }
+        const { [id]: _rank, ...ranks } = s.pendingRanks
+        return { pendingMoves: rest, pendingRanks: ranks }
+      })
+    }
+  },
+
+  async reorderTicket(id, before) {
+    const column = get().tickets.find((t) => t.id === id)?.state.column
+    if (column !== 'backlog' && column !== 'ready') throw new Error('Only Backlog and Ready can be reordered')
+    set((s) => ({ pendingRanks: { ...s.pendingRanks, [id]: pendingRank(s, id, column, before) } }))
+    try {
+      await asOwnChange(id, async () => {
+        await invoke('ticket.reorder', id, before)
+        await get().refreshBoard()
+      })
+    } finally {
+      set((s) => {
+        const { [id]: _rank, ...ranks } = s.pendingRanks
+        return { pendingRanks: ranks }
       })
     }
   },

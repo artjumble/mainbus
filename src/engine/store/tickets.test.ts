@@ -86,6 +86,35 @@ describe('ticket repo', () => {
     expect((await repo.setSetup(t.id, null)).setup).toBeNull()
   })
 
+  it('puts new tickets at the bottom: create, createMany and a promoted ticket take increasing ranks', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.create(input())
+    const [b, c] = await repo.createMany([input({ title: 'B' }), input({ title: 'C' })])
+    const p = await repo.createPromoted(a, { title: 'P', spec: '' })
+    expect([a, b!, c!, p].map((t) => t.rank)).toEqual([1, 2, 3, 4])
+  })
+
+  it('moves into Backlog or Ready to the bottom, or to the rank given; Done keeps the rank', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.create(input({ column: 'ready' }))
+    const b = await repo.create(input({ column: 'ready' }))
+    expect((await repo.setManualColumn(a.id, 'backlog')).rank).toBe(3)
+    expect((await repo.setManualColumn(b.id, 'backlog', 0.5)).rank).toBe(0.5)
+    expect(await repo.setManualColumn(a.id, 'done')).toMatchObject({ manualColumn: 'done', rank: 3 })
+    expect((await repo.setManualColumn(a.id, 'ready')).rank).toBe(4)
+  })
+
+  it('sets a rank, or all of several in one batch', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.create(input())
+    const b = await repo.create(input())
+    expect((await repo.setRank(a.id, 'bottom')).rank).toBe(3)
+    expect((await repo.setRank(b.id, -4)).rank).toBe(-4)
+    await repo.setRanks([{ id: a.id, rank: 10 }, { id: b.id, rank: 20 }])
+    expect([(await repo.get(a.id)).rank, (await repo.get(b.id)).rank]).toEqual([10, 20])
+    await repo.setRanks([])
+  })
+
   it("records the report's file: its path, then the commit or why the save failed", async () => {
     const repo = createTicketRepo(db, now)
     const t = await repo.create({ ...input(), kind: 'investigate' })
@@ -106,6 +135,7 @@ describe('ticket repo', () => {
       id: expect.any(String),
       workspaceId,
       number: 1,
+      rank: 1,
       kind: 'change',
       title: 'Add login',
       intent: [{ text: 'Let people log in', at: FIXED_NOW.toISOString() }],

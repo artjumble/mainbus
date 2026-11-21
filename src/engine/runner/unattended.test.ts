@@ -166,6 +166,15 @@ describe('unattended mode', () => {
     expect(statuses).not.toContainEqual(expect.objectContaining({ kind: 'stopped' }))
   })
 
+  it('starts the Ready ticket at the top after a reorder, not the lowest number', { timeout: 30_000 }, async () => {
+    const h = await harness(runtimeFor({}), ['ready', 'ready', 'ready'])
+    await h.engine.invoke('ticket.reorder', h.tickets[2]!.id, h.tickets[0]!.id)
+
+    await h.engine.invoke('unattended.set', true)
+    await waitForState(h, { on: true, status: { kind: 'idle' } })
+    expect(started(h)).toEqual([3, 1, 2])
+  })
+
   it('is off at launch, works through Ready lowest number first, then stays on and waits when Ready is empty', async () => {
     const h = await harness(runtimeFor({}), ['ready', 'backlog', 'ready'])
     expect(await h.engine.invoke('unattended.get')).toEqual({ on: false, status: { kind: 'off' } })
@@ -646,7 +655,7 @@ describe('UnattendedMode with several tickets at once', () => {
 
   /** Tickets #1..#count, all Ready; `start` makes a ticket working. */
   function multi(count: number, atOnce: number) {
-    const tickets = Array.from({ length: count }, (_, i) => ({ id: `t${i + 1}`, number: i + 1 }) as Ticket)
+    const tickets = Array.from({ length: count }, (_, i) => ({ id: `t${i + 1}`, number: i + 1, rank: i + 1 }) as Ticket)
     const states = new Map<string, TicketState>(tickets.map((t) => [t.id, ready]))
     const box = { atOnce, limit: null as number | null, held: new Set<string>(), blocked: new Set<string>(), failStart: new Set<string>() }
     const startedIds: string[] = []
@@ -678,7 +687,7 @@ describe('UnattendedMode with several tickets at once', () => {
       await mode.settled()
     }
     const numbers = (): number[] => startedIds.map((id) => Number(id.slice(1)))
-    return { mode, states, box, runner, awake, change, numbers }
+    return { mode, states, box, runner, awake, change, numbers, tickets }
   }
 
   it('starts up to N tickets, lowest numbers first, skipping held and blocked ones', async () => {
@@ -694,6 +703,19 @@ describe('UnattendedMode with several tickets at once', () => {
     expect(m.awake).toEqual({ starts: 1, stops: 0 })
     m.mode.dispose()
     expect(m.awake).toEqual({ starts: 1, stops: 1 })
+  })
+
+  it('starts from the top of Ready by rank, not number, skipping held and blocked ones; N > 1 takes them top-down', async () => {
+    const m = multi(5, 3)
+    // Top to bottom: #4, #2 (held), #5, #1 (blocked), #3.
+    const rank: Record<string, number> = { t4: 1, t2: 2, t5: 3, t1: 4, t3: 5 }
+    for (const t of m.tickets) t.rank = rank[t.id]!
+    m.box.held.add('t2')
+    m.box.blocked.add('t1')
+    await m.mode.set(true)
+    await m.mode.settled()
+    expect(m.numbers()).toEqual([4, 5, 3])
+    m.mode.dispose()
   })
 
   it('with N = 1 it starts one ticket at a time', async () => {

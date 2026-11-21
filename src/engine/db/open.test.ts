@@ -100,6 +100,27 @@ describe('openDb', () => {
     expect(ticket).toMatchObject({ prUrl: null, prNumber: null, prError: null })
   })
 
+  it("backfills each ticket's rank with its number, so the board's order is unchanged", async () => {
+    // The migrations as they were before 0042 (ticket ranks).
+    const first = await open(firstMigrations(42))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    for (const n of [1, 2, 3]) {
+      await first.db.run(
+        sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+            values (${`t${n}`}, 'w1', ${n}, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+      )
+    }
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    const rows = await db.select().from(tickets)
+    expect(rows.map((r) => [r.number, r.rank])).toEqual([[1, 1], [2, 2], [3, 3]])
+  })
+
   it("turns each workspace's role into its lineup's Implementer, between the default Planner and Reviewer", async () => {
     // The migrations as they were before lineups: one role per workspace.
     const first = await open(firstMigrations(2))
