@@ -110,7 +110,7 @@ function Receipt({ result }: { result: AnswerResult }): ReactElement {
  * consequence, and its buttons are the options themselves: nothing is pre-selected and there is no Confirm.
  */
 export const answerView: ProposalView<AnswerPayload, AnswerResult, AnswerEdit> = {
-  summary: (p) => (p.judgement ? `Needs your judgement: ${REASONS[p.judgement.reason]}` : `Answer #${p.number}: ${p.question}`),
+  summary: (p) => (p.judgement ? `Needs your judgment: ${REASONS[p.judgement.reason]}` : `Answer #${p.number}: ${p.question}`),
   Body,
   initialEdit: (p) => ({ choice: String(p.choice ?? ''), note: p.note ?? '' }),
   Editor,
