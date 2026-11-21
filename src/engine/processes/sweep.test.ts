@@ -196,13 +196,15 @@ describe.runIf(process.platform !== 'win32')('ProcessSweeper on POSIX, with real
     const child = spawn(process.execPath, ['-e', childScript], { cwd, stdio: ['ignore', 'pipe', 'ignore'], detached: true })
     const plain = spawn(process.execPath, ['-e', SLEEPER], { cwd, stdio: 'ignore' })
     const other = spawn(process.execPath, ['-e', SLEEPER], { cwd, stdio: 'ignore', detached: true })
+    // Listen before anything else awaits: the child exits 300 ms after starting, and ps can be slower than that.
+    const exited = new Promise((r) => child.once('exit', r))
     let reported = ''
     child.stdout!.on('data', (d) => (reported += d))
     const sweeper = new ProcessSweeper(undefined, (p, r) => endProcessGroup(p, r, { graceMs: 500 }))
     let grandchildren: number[] = []
     try {
       const startedAt = (await new ProcessSweeper().startTime(child.pid!)) ?? Date.now()
-      await new Promise((r) => child.once('exit', r))
+      await exited
       grandchildren = (/grandchildren ([\d,]+)/.exec(reported)?.[1] ?? '').split(',').map(Number)
       expect(grandchildren).toHaveLength(2)
       expect(grandchildren.every(isAlive)).toBe(true)

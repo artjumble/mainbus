@@ -39,7 +39,7 @@ describe('TicketRunner in unattended mode', () => {
     ['a push', 'git push origin main'],
     ['a force-push', 'git push --force origin main'],
     ['a credentials read', 'cat ~/.npmrc'],
-    ['a write outside the folder', 'rm -rf C:\\Users\\u\\x'],
+    ['a write outside the folder', process.platform === 'win32' ? 'rm -rf C:\\Users\\u\\x' : 'rm -rf /home/u/x'],
     ['git config', 'git config user.name x']
   ])('%s still opens a card', async (_name, command) => {
     const { spec } = await started()

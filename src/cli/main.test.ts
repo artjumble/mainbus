@@ -119,7 +119,7 @@ describe('mainbus ticket create', () => {
     [{ title: 'T', intent: 'I', column: 'ready' }, 'column'],
     [{ title: 'T', intent: 'I', priority: 1 }, 'priority'],
     [{ title: 'x'.repeat(201), intent: 'I' }, 'title'],
-    [{ title: 'T', intent: 'I', repo: 'C:\\somewhere\\else' }, 'repo'],
+    [{ title: 'T', intent: 'I', repo: path.resolve('/somewhere/else') }, 'repo'],
     [{ title: 'T', intent: 'I', agent: '' }, 'source.agent']
   ])('reports engine validation of %j with the field (exit 2)', async (input, field) => {
     const r = await run(['ticket', 'create', '--json', '-'], { readStdin: async () => JSON.stringify(input) })

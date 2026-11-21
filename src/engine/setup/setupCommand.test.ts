@@ -151,7 +151,8 @@ class OwnChildSweeper extends ProcessSweeper {
   override async sweep(root: ProcessRef): Promise<ProcessInfo[]> {
     this.swept.push(root.pid)
     if (process.platform === 'win32') await new Promise((resolve) => execFile('taskkill.exe', ['/PID', String(root.pid), '/T', '/F'], { windowsHide: true }, resolve))
-    else process.kill(root.pid, 'SIGKILL')
+    // The runner starts the command as a group leader off Windows, so this ends the group the test started.
+    else process.kill(-root.pid, 'SIGKILL')
     return []
   }
 }
