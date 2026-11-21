@@ -58,6 +58,8 @@ export type FakeStep =
    * relative to it) when the step is reached: put it first to prove something happened before the run's first event.
    */
   | { expectFile: string }
+  /** Waits, checking about every 50 ms, until this file exists in the run's folder (a path relative to it), or the run stops: holds a turn open until a test lets it go. */
+  | { waitForFile: string }
   /**
    * Fails the script, with an error event and the run closed, unless the run was launched with this model and effort,
    * or, for the orchestrator, was changed to them since.
@@ -499,6 +501,11 @@ export class FakeRuntime implements AgentRuntime {
           if (!spec.appendSystemPrompt.includes(step.expectSystemPrompt)) throw new Error(`The system prompt lacks "${step.expectSystemPrompt}"`)
         } else if ('expectFile' in step) {
           if (!fs.existsSync(path.resolve(spec.cwd, step.expectFile))) throw new Error(`The run's folder lacks "${step.expectFile}"`)
+        } else if ('waitForFile' in step) {
+          const file = path.resolve(spec.cwd, step.waitForFile)
+          if (!within(spec.cwd, file)) throw new Error(`waitForFile: ${step.waitForFile} is outside the run's folder`)
+          while (!fs.existsSync(file) && !run.stopped) await new Promise<void>((resolve) => setTimeout(resolve, 50))
+          if (run.stopped) return
         } else if ('expectModel' in step) {
           const launched = spec.kind === 'orchestrator' ? { model: run.model, effort: run.effort } : { model: spec.model, effort: spec.effort }
           if (launched.model !== step.expectModel.model || launched.effort !== step.expectModel.effort) {

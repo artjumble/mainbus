@@ -31,7 +31,14 @@ let emit: (e: EngineEvent) => void
 let seq = 0
 const ev = (event: ThreadEvent): StoredEvent => ({ runId: 'o1', seq: ++seq, at: '2026-11-01T10:00:00.000Z', event })
 
-function history(events: StoredEvent[] = [], status: OrchestratorThread['status'] = 'idle', proposals: Proposal[] = []): void {
+const NO_QUEUE: OrchestratorThread['queue'] = { items: [], held: null }
+
+function history(
+  events: StoredEvent[] = [],
+  status: OrchestratorThread['status'] = 'idle',
+  proposals: Proposal[] = [],
+  queue: OrchestratorThread['queue'] = NO_QUEUE
+): void {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'orchestrator.get') {
       return {
@@ -39,7 +46,8 @@ function history(events: StoredEvent[] = [], status: OrchestratorThread['status'
         runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }],
         events,
         proposals,
-        edits: []
+        edits: [],
+        queue
       } satisfies OrchestratorThread
     }
     return undefined
@@ -207,7 +215,7 @@ test('a status that arrives while the history loads is applied after it', async 
   )
   renderWithMantine(<Panel />)
   act(() => emit({ type: 'orchestrator.status', status: 'working' }))
-  await act(async () => answer({ status: 'idle', runs: [], events: [], proposals: [], edits: [] }))
+  await act(async () => answer({ status: 'idle', runs: [], events: [], proposals: [], edits: [], queue: NO_QUEUE }))
   expect(screen.getByText('Working…')).toBeInTheDocument()
 })
 
@@ -682,7 +690,7 @@ describe('images in a message', () => {
     ]
     mockInvoke.mockImplementation(async (command: string, id?: string) => {
       if (command === 'orchestrator.get') {
-        return { status: 'idle', runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }], events, proposals: [], edits: [] } satisfies OrchestratorThread
+        return { status: 'idle', runs: [{ id: 'o1', startedAt: '', endedAt: null, endReason: null }], events, proposals: [], edits: [], queue: NO_QUEUE } satisfies OrchestratorThread
       }
       if (command === 'orchestrator.image') return `data:image/png;base64,${id}`
       return undefined
@@ -756,4 +764,120 @@ test('a workspace picked with @ is sent with the message, as an id', async () =>
   await userEvent.click(await screen.findByRole('option', { name: /hunter/ }))
   await userEvent.type(box, 'for X{Enter}')
   expect(mockInvoke).toHaveBeenCalledWith('orchestrator.send', 'ticket in @hunter for X', undefined, ['w2'])
+})
+
+describe('queued messages', () => {
+  const queued = (id: string, text: string, images: { id: string; filename: string }[] = []) => ({
+    id,
+    text,
+    images,
+    mentions: [],
+    queuedAt: '2026-11-01T10:00:00.000Z'
+  })
+  const TWO = { items: [queued('q1', 'Second thing'), queued('q2', 'Third thing')], held: null }
+
+  test('sending while it works queues the message, with Stop still there', async () => {
+    history([], 'working')
+    renderWithMantine(<Panel />)
+    await screen.findByText('Working…')
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message the orchestrator' }), 'one more{Enter}')
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.send', 'one more')
+  })
+
+  test('each queued message shows as a pending bubble with its place, in order', async () => {
+    history([ev({ kind: 'user_message', text: 'First' })], 'working', [], TWO)
+    renderWithMantine(<Panel />)
+    const list = await screen.findByRole('list', { name: 'Queued messages' })
+    const items = within(list).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('Queued · 1st')
+    expect(items[0]).toHaveTextContent('Second thing')
+    expect(items[1]).toHaveTextContent('Queued · 2nd')
+    expect(items[1]).toHaveTextContent('Third thing')
+  })
+
+  test('follows the queue as it changes, and shows the images of a queued message', async () => {
+    mockInvoke.mockImplementation(async (command: string, id?: string) => {
+      if (command === 'orchestrator.get') {
+        return { status: 'working', runs: [], events: [], proposals: [], edits: [], queue: NO_QUEUE } satisfies OrchestratorThread
+      }
+      if (command === 'orchestrator.image') return `data:image/png;base64,${id}`
+      return undefined
+    })
+    renderWithMantine(<Panel />)
+    await screen.findByText('Working…')
+    expect(screen.queryByRole('list', { name: 'Queued messages' })).not.toBeInTheDocument()
+
+    act(() => emit({ type: 'orchestrator.queue', queue: { items: [queued('q1', 'See this', [{ id: 'img-1', filename: 'a.png' }])], held: null } }))
+    const list = screen.getByRole('list', { name: 'Queued messages' })
+    expect(await within(list).findByRole('group', { name: 'Images sent' })).toBeInTheDocument()
+    act(() => emit({ type: 'orchestrator.queue', queue: NO_QUEUE }))
+    expect(screen.queryByRole('list', { name: 'Queued messages' })).not.toBeInTheDocument()
+  })
+
+  test('Remove and Send now act on that message, with names that say which', async () => {
+    history([], 'working', [], TWO)
+    renderWithMantine(<Panel />)
+    await screen.findByRole('list', { name: 'Queued messages' })
+    await userEvent.click(screen.getByRole('button', { name: 'Remove queued message 2' }))
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.removeQueued', 'q2')
+    await userEvent.click(screen.getByRole('button', { name: 'Send queued message 1 now' }))
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.sendQueuedNow', 'q1')
+  })
+
+  test('Edit opens the words, Save sends the new ones, Cancel and Escape leave it as it was', async () => {
+    history([], 'working', [], TWO)
+    renderWithMantine(<Panel />)
+    await screen.findByRole('list', { name: 'Queued messages' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit queued message 1' }))
+    const box = screen.getByRole('textbox', { name: 'Edit queued message 1' })
+    expect(box).toHaveValue('Second thing')
+    await userEvent.clear(box)
+    await userEvent.type(box, 'Changed')
+    await userEvent.click(screen.getByRole('button', { name: 'Save queued message 1' }))
+    expect(mockInvoke).toHaveBeenCalledWith('orchestrator.editQueued', 'q1', 'Changed')
+    expect(screen.queryByRole('textbox', { name: 'Edit queued message 1' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit queued message 2' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Edit queued message 2' }), ' more{Escape}')
+    expect(screen.queryByRole('textbox', { name: 'Edit queued message 2' })).not.toBeInTheDocument()
+    expect(mockInvoke).not.toHaveBeenCalledWith('orchestrator.editQueued', 'q2', expect.anything())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit queued message 2' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel editing queued message 2' }))
+    expect(screen.getByText('Third thing')).toBeInTheDocument()
+  })
+
+  test('a refused edit is reported and the editor stays open', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'orchestrator.get') {
+        return { status: 'working', runs: [], events: [], proposals: [], edits: [], queue: TWO } satisfies OrchestratorThread
+      }
+      if (command === 'orchestrator.editQueued') throw new Error('That message was already sent')
+      return undefined
+    })
+    renderWithMantine(<Panel />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit queued message 1' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Edit queued message 1' }), '!')
+    await userEvent.click(screen.getByRole('button', { name: 'Save queued message 1' }))
+    expect(await screen.findByText('Could not change the message')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Edit queued message 1' })).toHaveValue('Second thing!')
+  })
+
+  test('a held queue says why it was not sent', async () => {
+    const note = "Not sent: the orchestrator's turn failed. Send one now to send them, or remove them."
+    history([], 'failed', [], { ...TWO, held: note })
+    renderWithMantine(<Panel />)
+    expect(await screen.findByText(note)).toBeInTheDocument()
+  })
+
+  test('the queue sits in a polite live region, and has no axe violations', async () => {
+    history([], 'working', [], TWO)
+    const { container } = renderWithMantine(<Panel />)
+    const list = await screen.findByRole('list', { name: 'Queued messages' })
+    expect(list.closest('[aria-live="polite"]')).not.toBeNull()
+    await expectNoAxeViolations(container)
+  })
 })

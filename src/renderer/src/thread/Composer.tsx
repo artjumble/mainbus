@@ -51,6 +51,11 @@ interface Props {
   /** A turn is running: the button inside the box is Stop (calls `onStop`), and typing goes on. */
   working?: boolean
   onStop?: () => Promise<void>
+  /**
+   * While `working`, Send stays next to Stop: the message is the caller's to queue. Without it a turn under way leaves
+   * only Stop (a ticket's thread, where the message would join the turn).
+   */
+  sendWhileWorking?: boolean
   /** Text to put in the box, then focus it with the caret at the end; applied again whenever `n` changes. */
   prefill?: { text: string; n: number } | null
   /** Called once the prefill is in the box. */
@@ -77,6 +82,7 @@ export function Composer({
   enterSends = false,
   working = false,
   onStop,
+  sendWhileWorking = false,
   prefill = null,
   onPrefilled,
   onAttach,
@@ -132,7 +138,7 @@ export function Composer({
   }, [prefill?.n])
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const canSend = (text.trim() !== '' || canSendEmpty) && !sending && !working
+  const canSend = (text.trim() !== '' || canSendEmpty) && !sending && (sendWhileWorking || !working)
 
   /** Looks at where the caret is: whether an @ is being typed there. */
   function track(value: string, caret: number): void {
@@ -222,6 +228,7 @@ export function Composer({
   }
 
   const showStop = working && onStop !== undefined
+  const showSend = !showStop || sendWhileWorking
 
   // A pasted image is attached; text pasted with it still goes into the box.
   function onPaste(e: ClipboardEvent): void {
@@ -263,17 +270,18 @@ export function Composer({
       onPaste={onPaste}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      rightSectionWidth={(sendLabel === 'Send' ? 72 : 130) + (dictation ? 36 : 0)}
+      rightSectionWidth={(sendLabel === 'Send' ? 72 : 130) + (dictation ? 36 : 0) + (showStop && sendWhileWorking ? 64 : 0)}
       rightSectionProps={{ style: { alignItems: 'flex-end', padding: 6 } }}
       rightSection={
         /* 8 px apart: each control's 44 px hit area runs 8 px past its edge. */
         <Group gap={8} wrap="nowrap">
           {dictation?.mic}
-          {showStop ? (
+          {showStop && (
             <Button size="compact-sm" variant="default" loading={stopping} onClick={() => void stop()}>
               Stop
             </Button>
-          ) : (
+          )}
+          {showSend && (
             <Button size="compact-sm" disabled={!canSend} loading={sending} onClick={() => void send()}>
               {sendLabel}
             </Button>

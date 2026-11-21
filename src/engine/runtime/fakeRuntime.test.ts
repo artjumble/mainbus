@@ -460,6 +460,41 @@ describe('expectFile', () => {
   })
 })
 
+describe('waitForFile', () => {
+  test('holds the run until the file appears in its folder', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-waitforfile-'))
+    try {
+      const rt = new FakeRuntime([{ waitForFile: 'go' }, { emit: { kind: 'message', text: 'ok' } }, { exit: 0 }])
+      const handle = await rt.start({ ...makeSpec().spec, cwd })
+      const events: AgentEvent[] = []
+      const read = (async () => {
+        for await (const e of rt.events(handle)) events.push(e)
+      })()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(events).toEqual([])
+      fs.writeFileSync(path.join(cwd, 'go'), 'x')
+      await read
+      expect(events).toEqual([{ kind: 'message', text: 'ok' }])
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('ends when the run is stopped', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-waitforfile-'))
+    try {
+      const rt = new FakeRuntime([{ waitForFile: 'never' }, { emit: { kind: 'message', text: 'ok' } }])
+      const handle = await rt.start({ ...makeSpec().spec, cwd })
+      await rt.stop(handle)
+      const events: AgentEvent[] = []
+      for await (const e of rt.events(handle)) events.push(e)
+      expect(events).toEqual([])
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('expectModel', () => {
   async function play(model: string, effort: 'low' | 'high'): Promise<AgentEvent[]> {
     const script: FakeStep[] = [{ expectModel: { model: 'opus', effort: 'high' } }, { emit: { kind: 'message', text: 'ok' } }, { exit: 0 }]

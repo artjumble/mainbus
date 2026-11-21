@@ -144,3 +144,21 @@ test('an image pasted or dropped into the box is attached, and text pasted with 
   expect(fireEvent.paste(box, { clipboardData: transfer([], 'plain text') })).toBe(true)
   expect(onAttach).not.toHaveBeenCalled()
 })
+
+test('with sendWhileWorking, Stop and Send are both there while working, and Enter sends', async () => {
+  const onSend = vi.fn(async () => {})
+  const onStop = vi.fn(async () => {})
+  renderWithMantine(<Composer onSend={onSend} enterSends working onStop={onStop} sendWhileWorking />)
+  expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  expect(send()).toBeDisabled()
+  await userEvent.type(screen.getByRole('textbox'), 'next one{Enter}')
+  expect(onSend).toHaveBeenCalledWith('next one')
+  expect(screen.getByRole('textbox')).toHaveValue('')
+  await userEvent.click(screen.getByRole('button', { name: 'Stop' }))
+  expect(onStop).toHaveBeenCalled()
+})
+
+test('with sendWhileWorking, the composer has no axe violations', async () => {
+  const { container } = renderWithMantine(<Composer onSend={async () => {}} working onStop={async () => {}} sendWhileWorking label="Message" />)
+  await expectNoAxeViolations(container)
+})

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EngineEvent } from '../../../shared/api'
 import type { TicketEdit } from '../../../shared/domain'
-import type { OrchestratorStatus, StoredEvent, ThreadRun } from '../../../shared/events'
+import type { OrchestratorQueue, OrchestratorStatus, StoredEvent, ThreadRun } from '../../../shared/events'
 import type { Proposal } from '../../../shared/proposals'
 import { invoke, onEngineEvent } from '../api'
 import { showError } from '../notify'
@@ -16,6 +16,8 @@ export interface OrchestratorThreadState {
   proposals: Record<string, Proposal>
   /** Every edit it made to a ticket, by id: their receipts are in the thread. */
   edits: Record<string, TicketEdit>
+  /** The user's messages waiting for the turn under way to end. */
+  queue: OrchestratorQueue
 }
 
 /**
@@ -26,6 +28,8 @@ function threadRun(id: string): ThreadRun {
   return { id, ticketRunId: 'orchestrator', role: 'Orchestrator' }
 }
 
+const NO_QUEUE: OrchestratorQueue = { items: [], held: null }
+
 function apply(state: OrchestratorThreadState, e: EngineEvent): OrchestratorThreadState {
   if (e.type === 'orchestrator.appended') {
     const { runId } = e.event
@@ -33,6 +37,7 @@ function apply(state: OrchestratorThreadState, e: EngineEvent): OrchestratorThre
     return { ...state, events: mergeEvent(state.events, e.event), runs }
   }
   if (e.type === 'orchestrator.status') return { ...state, status: e.status }
+  if (e.type === 'orchestrator.queue') return { ...state, queue: e.queue }
   if (e.type === 'proposal.changed') return { ...state, proposals: { ...state.proposals, [e.proposal.id]: e.proposal } }
   if (e.type === 'ticketEdit.changed') return { ...state, edits: { ...state.edits, [e.edit.id]: e.edit } }
   return state
@@ -62,13 +67,13 @@ export function useOrchestratorThread(): OrchestratorThreadState | null {
         const runs = Object.fromEntries(history.runs.map((r) => [r.id, threadRun(r.id)]))
         const proposals = Object.fromEntries(history.proposals.map((p) => [p.id, p]))
         const edits = Object.fromEntries(history.edits.map((x) => [x.id, x]))
-        setState(held.reduce(apply, { events, status: history.status, runs, proposals, edits }))
+        setState(held.reduce(apply, { events, status: history.status, runs, proposals, edits, queue: history.queue ?? NO_QUEUE }))
       },
       (err: unknown) => {
         if (cancelled) return
         loaded = true
         showError(err, 'Could not load the orchestrator')
-        setState({ events: [], status: 'idle', runs: {}, proposals: {}, edits: {} })
+        setState({ events: [], status: 'idle', runs: {}, proposals: {}, edits: {}, queue: NO_QUEUE })
       }
     )
     return () => {

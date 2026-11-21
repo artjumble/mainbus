@@ -194,6 +194,22 @@ export interface OrchestratorRun {
   endReason: 'resume_failed' | null
 }
 
+/** A message the user sent while the orchestrator was working: it is sent as a turn of its own, in order, once the turn ends. */
+export interface QueuedMessage {
+  id: string
+  text: string
+  images: ImageRef[]
+  /** The workspace ids the user picked from the @ list. */
+  mentions: string[]
+  queuedAt: string
+}
+
+/** The messages waiting to be sent, first first. `held` says why they are waiting for the user (a failed turn), or is null. */
+export interface OrchestratorQueue {
+  items: QueuedMessage[]
+  held: string | null
+}
+
 /** The orchestrator's whole thread: every run, oldest first, their events, and every proposal it made. */
 export interface OrchestratorThread {
   status: OrchestratorStatus
@@ -202,6 +218,8 @@ export interface OrchestratorThread {
   proposals: Proposal[]
   /** Every edit the orchestrator made to a ticket, oldest first. */
   edits: TicketEdit[]
+  /** The user's messages waiting for the turn under way to end. */
+  queue: OrchestratorQueue
 }
 
 /** The agent run a thread event belongs to: its ticket run and its role's name. */

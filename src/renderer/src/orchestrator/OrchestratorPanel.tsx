@@ -11,6 +11,7 @@ import { showError } from '../notify'
 import { useMainbus } from '../store'
 import { Composer } from '../thread/Composer'
 import { Thread } from '../thread/Thread'
+import { QueuedMessages } from './QueuedMessages'
 import { DEFAULT_PANEL_WIDTH } from './panelState'
 import { useOrchestratorModel } from './useOrchestratorModel'
 import { useOrchestratorThread } from './useOrchestratorThread'
@@ -108,6 +109,23 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
     }
   }
 
+  async function queuedAction(command: 'orchestrator.removeQueued' | 'orchestrator.sendQueuedNow', id: string, failed: string): Promise<void> {
+    try {
+      await invoke(command, id)
+    } catch (err) {
+      showError(err, failed)
+    }
+  }
+
+  async function editQueued(id: string, text: string): Promise<void> {
+    try {
+      await invoke('orchestrator.editQueued', id, text)
+    } catch (err) {
+      showError(err, 'Could not change the message')
+      throw err
+    }
+  }
+
   const working = thread?.status === 'working'
   const full = images.length >= IMAGES_PER_MESSAGE
 
@@ -170,6 +188,12 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           </Group>
         )}
       </div>
+      <QueuedMessages
+        queue={thread?.queue ?? { items: [], held: null }}
+        onEdit={editQueued}
+        onRemove={(id) => queuedAction('orchestrator.removeQueued', id, 'Could not remove the message')}
+        onSendNow={(id) => queuedAction('orchestrator.sendQueuedNow', id, 'Could not send the message')}
+      />
       <Stack p="sm" pt={4} gap={6}>
         {images.length > 0 && <MessageImages images={images} onRemove={(i) => setImages((now) => now.filter((_, j) => j !== i))} />}
         <Composer
@@ -178,6 +202,7 @@ export function OrchestratorPanel({ open, onOpenChange }: Props): ReactElement {
           enterSends
           working={working}
           onStop={stop}
+          sendWhileWorking
           onSend={send}
           mentions={{
             label: 'Workspaces',

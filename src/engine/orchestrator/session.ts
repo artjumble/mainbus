@@ -7,7 +7,7 @@ import type { EditedField, Effort, IntentAddition, Ticket, TicketEdit, Workspace
 import { describeEdit } from '../../shared/ticketEdit'
 import { sessionUsageSoFar } from '../../shared/usageTotals'
 import { parseEditInput, type EditInput } from '../tickets/edit'
-import type { AgentEvent, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
+import type { AgentEvent, OrchestratorQueue, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadEvent } from '../../shared/events'
 import type { ProposalKindName } from '../../shared/proposals'
 import { answeredBlock, type AnsweredDecision } from './answeredBlock'
 import { releasedHoldsBlock, type ReleasedHold } from './releasedHoldsBlock'
@@ -30,6 +30,7 @@ import {
 } from '../runtime/types'
 import { isUsageLimitText, type UsageLimit } from '../runner/usageLimit'
 import type { OrchestratorRepo } from '../store/orchestrator'
+import type { OrchestratorQueueRepo, QueueRow } from '../store/orchestratorQueue'
 import type { Wake, WakeRepo } from '../store/wakes'
 import { ORCHESTRATOR_DISALLOWED } from './config'
 import { ORCHESTRATOR_EFFORT_DEFAULT, ORCHESTRATOR_MODEL_DEFAULT } from '../../shared/orchestratorModel'
@@ -37,13 +38,16 @@ import { withHeader } from './header'
 import { oneLine } from '../roles/prompt'
 import { mentionsLine, resolveMentions } from './mentions'
 import { MAX_MENTIONS } from '../../shared/mentions'
-import { imageListText, type OrchestratorImages } from './images'
+import { imageListText, type OrchestratorImages, type StoredImage } from './images'
 import { orchestratorVerdict } from './permissions'
 import { resolveTargetWorkspace, resolveWorkspaceRef } from './workspaceRef'
 import { buildOrchestratorPrompt } from './prompt'
 
 export const EMPTY_MESSAGE = 'Type a message first'
 export const BUSY_MESSAGE = 'The orchestrator is still working: wait for it, or Stop it first'
+export const ALREADY_SENT_MESSAGE = 'That message was already sent'
+/** Why the queue waits for the user after a turn failed. */
+export const QUEUE_HELD_TURN_FAILED = "Not sent: the orchestrator's turn failed. Send one now to send them, or remove them."
 export const RESUME_FAILED_NOTICE =
   "Couldn't resume the earlier conversation; started a new one from a digest of its last messages."
 
@@ -96,6 +100,8 @@ const SHUTDOWN_SETTLE_MS = 5000
 
 export interface OrchestratorDeps {
   repo: OrchestratorRepo
+  /** The user's messages waiting for the turn under way to end. */
+  queue: OrchestratorQueueRepo
   runtime: AgentRuntime
   /** The data home: the orchestrator works in its `orchestrator` folder. */
   homeRoot: string
@@ -252,6 +258,8 @@ export class OrchestratorSession {
   private turn: Turn | null = null
   /** Wake turns queued or being started. */
   private starting = 0
+  /** The queued messages, first first: a mirror of the store, which is the truth. */
+  private queued: QueueRow[] = []
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -267,8 +275,42 @@ export class OrchestratorSession {
       runs: runs.map(({ id, startedAt, endedAt, endReason }) => ({ id, startedAt, endedAt, endReason })),
       events,
       proposals: await this.deps.proposals.list(),
-      edits: await this.deps.edits()
+      edits: await this.deps.edits(),
+      queue: this.queueView()
     }
+  }
+
+  /** Reads the queue from the store: call once at launch, before anything is sent or woken. */
+  async loadQueue(): Promise<void> {
+    this.queued = await this.deps.queue.list()
+  }
+
+  private get held(): string | null {
+    return this.queued[0]?.heldReason ?? null
+  }
+
+  private queueView(): OrchestratorQueue {
+    return {
+      items: this.queued.map(({ id, text, images, mentions, queuedAt }) => ({ id, text, images, mentions, queuedAt })),
+      held: this.held
+    }
+  }
+
+  /** Re-reads the queue after a change and tells the panel. */
+  private async queueChanged(): Promise<void> {
+    this.queued = await this.deps.queue.list()
+    this.deps.emit({ type: 'orchestrator.queue', queue: this.queueView() })
+  }
+
+  /** Messages are waiting and nothing holds them back: they go before any wake turn. */
+  private get queueWaiting(): boolean {
+    return this.queued.length > 0 && this.held === null
+  }
+
+  private async holdQueue(reason: string): Promise<void> {
+    if (this.queued.length === 0) return
+    await this.deps.queue.holdAll(reason)
+    await this.queueChanged()
   }
 
   /** A message of the user: text, images (at most 5, checked like attachments) or both. */
@@ -281,12 +323,90 @@ export class OrchestratorSession {
     const checked = this.deps.images.check(images)
     if (!checked.ok) throw new Error(checked.error)
     if (typeof text !== 'string' || (text.trim() === '' && checked.files.length === 0)) throw new Error(EMPTY_MESSAGE)
-    return this.serial(() => this.sendNow(text, checked.files, (mentions as string[] | null | undefined) ?? []))
+    const picked = (mentions as string[] | null | undefined) ?? []
+    return this.serial(async () => {
+      if (this.shuttingDown) throw new Error('Mainbus is shutting down')
+      // Decided here, in the chain: a turn under way (or messages ahead of this one) means it waits its turn, and is
+      // never fed into the turn under way.
+      if (this.status === 'working' || this.queued.length > 0) return this.enqueue(text, checked.files, picked)
+      return this.sendNow(text, checked.files, picked)
+    })
+  }
+
+  private async enqueue(text: string, files: { name: string; bytes: Uint8Array }[], picked: string[]): Promise<void> {
+    if (!(await this.deps.focused())) throw new Error(this.deps.workspaceRequired)
+    const stored = await this.deps.images.store(files)
+    await this.deps.queue.add({ text, images: stored.map((i) => ({ id: i.id, filename: i.filename })), mentions: picked, heldReason: this.held })
+    await this.queueChanged()
+    void this.drain()
+  }
+
+  /** Changes the words of a queued message; its images and picked mentions stay. */
+  editQueued(id: string, text: string): Promise<void> {
+    return this.serial(async () => {
+      const row = this.queued.find((r) => r.id === id)
+      if (!row) throw new Error(ALREADY_SENT_MESSAGE)
+      if (typeof text !== 'string' || (text.trim() === '' && row.images.length === 0)) throw new Error(EMPTY_MESSAGE)
+      if (!(await this.deps.queue.setText(id, text))) throw new Error(ALREADY_SENT_MESSAGE)
+      await this.queueChanged()
+    })
+  }
+
+  removeQueued(id: string): Promise<void> {
+    return this.serial(async () => {
+      if (!this.queued.some((r) => r.id === id) || (await this.deps.queue.remove(id)) === null) throw new Error(ALREADY_SENT_MESSAGE)
+      await this.queueChanged()
+    })
+  }
+
+  /**
+   * Puts a queued message first and lets the queue go (it may have been held after a failed turn); a turn under way is
+   * interrupted like Stop does, and the message is sent as soon as it ends. The rest follow in order.
+   */
+  async sendQueuedNow(id: string): Promise<void> {
+    await this.serial(async () => {
+      if (this.shuttingDown) throw new Error('Mainbus is shutting down')
+      if (!(await this.deps.queue.moveToFront(id))) throw new Error(ALREADY_SENT_MESSAGE)
+      await this.deps.queue.releaseAll()
+      await this.queueChanged()
+      if (this.live && this.status === 'working') await this.deps.runtime.interrupt(this.live.handle)
+    })
+    await this.drain()
+  }
+
+  /**
+   * Sends the first queued message as a turn of its own when nothing is running and the queue isn't held; the end of
+   * that turn sends the next. A message that can't be sent holds the queue, with the reason, for the user.
+   */
+  async drain(): Promise<void> {
+    await this.serial(async () => {
+      if (this.shuttingDown || this.status === 'working' || this.queued.length === 0 || this.held !== null) return
+      const row = this.queued[0]!
+      try {
+        await this.deliver(row.text, () => this.queuedImages(row), row.mentions, () => this.dequeue(row.id))
+      } catch (err) {
+        await this.holdQueue(`Not sent: ${errorText(err)}. Send one now to try again, or remove it.`).catch(() => {})
+      }
+    }).catch(() => {})
+  }
+
+  /** A queued message's images, from their files, checked again. */
+  private async queuedImages(row: QueueRow): Promise<{ stored: StoredImage[]; promptImages: PromptImage[] }> {
+    const ids = row.images.map((i) => i.id)
+    const stored = await this.deps.images.byIds(ids)
+    if (stored.length !== ids.length) throw new Error('An image of the message is gone')
+    return { stored, promptImages: await Promise.all(ids.map((id) => this.deps.images.forPrompt(id))) }
+  }
+
+  /** The message is in the thread now: it is no longer queued. */
+  private async dequeue(id: string): Promise<void> {
+    await this.deps.queue.remove(id)
+    await this.queueChanged().catch(() => {})
   }
 
   /** True while a turn is running or a wake turn is being started. */
   get busy(): boolean {
-    return this.status === 'working' || this.starting > 0
+    return this.status === 'working' || this.starting > 0 || this.queueWaiting
   }
 
   /**
@@ -322,7 +442,27 @@ export class OrchestratorSession {
     return result
   }
 
-  private async sendNow(text: string, files: { name: string; bytes: Uint8Array }[], picked: string[]): Promise<void> {
+  private sendNow(text: string, files: { name: string; bytes: Uint8Array }[], picked: string[]): Promise<void> {
+    return this.deliver(
+      text,
+      async () => {
+        const stored = await this.deps.images.store(files)
+        return { stored, promptImages: stored.map((i, n) => ({ mime: i.mime, base64: Buffer.from(files[n]!.bytes).toString('base64') })) }
+      },
+      picked
+    )
+  }
+
+  /**
+   * Starts the turn that answers one message of the user. `loadImages` stores or reads the message's images once the
+   * turn is sure to be tried; `afterRecorded` runs when the message is in the thread.
+   */
+  private async deliver(
+    text: string,
+    loadImages: () => Promise<{ stored: StoredImage[]; promptImages: PromptImage[] }>,
+    picked: string[],
+    afterRecorded?: () => Promise<void>
+  ): Promise<void> {
     if (this.shuttingDown) throw new Error('Mainbus is shutting down')
     // A message sent mid-turn would join the turn under way (at its next tool boundary), so the turn's one
     // message would no longer be the user's only one; a proposal's intent must be the words of its own turn.
@@ -342,14 +482,13 @@ export class OrchestratorSession {
     const outcomes = blocks.length === 0 ? null : blocks.join('\n\n')
     const opened = (body: string): string => (outcomes === null ? body : `${outcomes}\n\n${body}`)
     // Stored before the turn starts, so the message's record and the orchestrator's paths name files that exist.
-    const stored = await this.deps.images.store(files)
+    const { stored, promptImages } = await loadImages()
     const refs = stored.map((i) => ({ id: i.id, filename: i.filename }))
     // The images go in as image blocks, seen in this turn; their names and paths follow the user's words.
     const words = stored.length === 0 ? text : `${text === '' ? '' : `${text}\n\n`}${imageListText(stored)}`
     const mentioned = resolveMentions(text, picked, await this.deps.workspaces())
     const prompt = withHeader(ws, this.deps.now(), words, mentionsLine(mentioned))
     const mentions = mentioned.resolved.map((r) => ({ token: r.token, workspaceId: r.ws.id, name: r.ws.name }))
-    const promptImages = stored.map((i, n) => ({ mime: i.mime, base64: Buffer.from(files[n]!.bytes).toString('base64') }))
     await this.beginTurn(
       ws,
       {
@@ -361,12 +500,14 @@ export class OrchestratorSession {
       { kind: 'user', message: text, images: refs },
       prompt,
       opened,
-      promptImages
+      promptImages,
+      afterRecorded
     )
   }
 
   private async wakeNow(rows: Wake[]): Promise<void> {
-    if (this.shuttingDown || this.status === 'working') return
+    // The user's queued messages go first; the rows stay pending and ride along in a later turn.
+    if (this.shuttingDown || this.status === 'working' || this.queueWaiting) return
     const ws = await this.deps.focused()
     if (!ws) return
     const { presented, gone, open, openTickets } = await this.deps.wakeItems(rows)
@@ -400,7 +541,8 @@ export class OrchestratorSession {
     turn: Turn,
     prompt: string,
     wrap: (body: string) => string,
-    images: PromptImage[] = []
+    images: PromptImage[] = [],
+    afterRecorded?: () => Promise<void>
   ): Promise<void> {
     // The SDK fixes the folders a session can read at launch: a workspace opened or removed since means starting it
     // again (resuming the same conversation), so every repo stays readable.
@@ -413,6 +555,7 @@ export class OrchestratorSession {
       // The panel shows what the user typed; the agent gets it with the header.
       const live = this.live
       await this.record(live.runId, shown)
+      await afterRecorded?.()
       this.setStatus('working')
       this.turn = turn
       try {
@@ -421,6 +564,7 @@ export class OrchestratorSession {
         this.turn = null
         this.setStatus('idle')
         if (turn.kind === 'wake') this.deps.onTurnEnded?.(false)
+        await this.holdQueue(QUEUE_HELD_TURN_FAILED).catch(() => {})
         throw err
       }
       return
@@ -430,6 +574,7 @@ export class OrchestratorSession {
     const open = await this.deps.repo.latestOpen()
     let runId = open?.id ?? (await this.deps.repo.create()).id
     const message = await this.record(runId, shown)
+    await afterRecorded?.()
     this.setStatus('working')
     this.turn = turn
     try {
@@ -454,6 +599,7 @@ export class OrchestratorSession {
       await this.record(runId, { kind: 'error', message: errorText(err) }).catch(() => {})
       this.setStatus('failed')
       if (turn.kind === 'wake') this.deps.onTurnEnded?.(false)
+      await this.holdQueue(QUEUE_HELD_TURN_FAILED).catch(() => {})
       throw err
     }
   }
@@ -862,7 +1008,10 @@ export class OrchestratorSession {
     // A wake turn cut short leaves its rows pending.
     if (cutShort?.kind === 'wake') this.deps.onTurnEnded?.(false)
     await this.record(live.runId, { kind: 'process_exit', code: null }).catch(() => {})
-    if (this.status === 'working') this.setStatus('failed')
+    if (this.status === 'working') {
+      this.setStatus('failed')
+      await this.holdQueue(QUEUE_HELD_TURN_FAILED).catch(() => {})
+    }
   }
 
   private async onEvent(live: Live, event: AgentEvent): Promise<void> {
@@ -896,6 +1045,9 @@ export class OrchestratorSession {
         }
       }
       if (turn?.kind === 'wake' || finished) this.deps.onTurnEnded?.(finished)
+      // A turn that ended well, or that the user stopped, sends the next queued message; a failed one holds them for the user.
+      if (event.ok || event.interrupted) void this.drain()
+      else await this.holdQueue(QUEUE_HELD_TURN_FAILED).catch(() => {})
     }
   }
 

@@ -436,20 +436,17 @@ describe('proposals', () => {
     expect(runtime.sent[0]).toContain(`- Proposal ${proposal!.id} (create tickets): rejected by the user.`)
   })
 
-  test('a message sent while a turn is running is refused, and nothing is recorded or sent', async () => {
+  test('a message sent while a turn is running is queued, and never reaches the turn under way', async () => {
     const runtime = new FakeRuntime([], { orchestrator: [{ emit: { kind: 'session', sessionId: 'sess-1' } }, { waitForSend: true }] })
     const { engine } = await makeEngine(runtime)
     await engine.invoke('orchestrator.send', 'First ask')
     expect(await status(engine)).toBe('working')
-    const before = (await engine.invoke('orchestrator.get')).events.length
 
-    await expect(engine.invoke('orchestrator.send', 'Second ask')).rejects.toThrow(
-      'The orchestrator is still working: wait for it, or Stop it first'
-    )
+    await engine.invoke('orchestrator.send', 'Second ask')
     expect(runtime.sent).toEqual([])
     const thread = await engine.invoke('orchestrator.get')
     expect(thread.events.filter((e) => e.event.kind === 'user_message').map((e) => (e.event as { text: string }).text)).toEqual(['First ask'])
-    expect(thread.events.length).toBeGreaterThanOrEqual(before)
+    expect(thread.queue.items.map((i) => i.text)).toEqual(['Second ask'])
     expect(thread.status).toBe('working')
 
     await (await liveTools(runtime)).proposeCreateTickets({ tickets: [{ title: 'From the first' }] })

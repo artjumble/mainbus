@@ -48,7 +48,7 @@ import type {
 import type { TicketTime, WorkspaceTimeReport } from './timeBreakdown'
 import type { UsageTotals } from './usageTotals'
 import type { MergeMethod, MergeOptions, MergeOutcome, MergePlan, MergePreview } from './merge'
-import type { OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
+import type { OrchestratorQueue, OrchestratorStatus, OrchestratorThread, StoredEvent, ThreadRun } from './events'
 import type { Proposal } from './proposals'
 import type { OrchestratorFamily, OrchestratorModelState } from './orchestratorModel'
 import type { ModelOption } from './models'
@@ -201,6 +201,8 @@ export type EngineEvent =
   /** An event of the orchestrator's thread; partial ones carry seq 0, as in a ticket's thread. */
   | { type: 'orchestrator.appended'; event: StoredEvent }
   | { type: 'orchestrator.status'; status: OrchestratorStatus }
+  /** The queue of the user's messages waiting for the orchestrator's turn to end changed. */
+  | { type: 'orchestrator.queue'; queue: OrchestratorQueue }
   /** The orchestrator's model or effort setting changed, or its model list was read: what its next turn uses. */
   | { type: 'orchestrator.model'; state: OrchestratorModelState }
   /** The models offered for agents' roles were read from the user's `claude`. */
@@ -509,8 +511,16 @@ export interface EngineCommands {
    * Starts the conversation on the first message, or resumes it after a restart. `images` go with it (at most 5,
    * checked like attachments); a message with neither text nor images is rejected. `mentions` are the ids of
    * the workspaces the user picked from the @ list; `@name` typed by hand is resolved by the engine.
+   * While a turn is running (or messages are already queued) the message is queued instead: it is sent as a turn of its
+   * own, in order, once the turn ends, and never reaches the turn under way.
    */
   'orchestrator.send'(text: string, images?: NewAttachment[], mentions?: string[]): void
+  /** Changes the words of a queued message (its images and picked mentions stay); rejected once it was sent. */
+  'orchestrator.editQueued'(id: string, text: string): void
+  /** Takes a message out of the queue; rejected once it was sent. */
+  'orchestrator.removeQueued'(id: string): void
+  /** Interrupts the turn under way (if any) and sends this queued message at once; the rest follow in order. */
+  'orchestrator.sendQueuedNow'(id: string): void
   /** An image sent to the orchestrator, as a data URL: the renderer's only way to its file. */
   'orchestrator.image'(id: string): string
   /** Interrupts the turn under way; the conversation goes on with the next message. */
