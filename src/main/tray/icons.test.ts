@@ -17,11 +17,14 @@ describe('trayIcon', () => {
     expect(bm.buffer.equals(base.buffer)).toBe(true)
   })
 
-  test.each([...TRAY_SIZES])('at %i px, the orange dot is drawn in the bottom right only when asked', (size) => {
+  test.each([...TRAY_SIZES])('at %i px, the white dot with a navy ring is drawn in the bottom right only when asked', (size) => {
     const base = glyph(size)
     const dotted = trayIcon(base, true)
     const c = Math.floor(size * 0.72)
-    expect(pixelAt(dotted, c, c)).toEqual([0xf0, 0x5a, 0x1a, 255])
+    expect(pixelAt(dotted, c, c)).toEqual([255, 255, 255, 255])
+    // The ring: just outside the dot's 20% radius, along the row through its centre.
+    const ringX = Math.floor(size * 0.72 + size * 0.2 + size / 32)
+    expect(pixelAt(dotted, ringX, c)).toEqual([0x01, 0x16, 0x27, 255])
     expect(pixelAt(trayIcon(base, false), c, c)[3]).toBe(0)
     // The rest of the glyph is kept, and the glyph itself isn't drawn on.
     expect(pixelAt(dotted, 0, 0)).toEqual([0, 0, 0, 255])
@@ -49,7 +52,7 @@ describe('trayIconSet', () => {
 
   test('puts the dot on every size when asked, and on none otherwise', () => {
     const at = (bm: Bitmap) => pixelAt(bm, Math.floor(bm.width * 0.72), Math.floor(bm.width * 0.72))
-    for (const { bitmap } of trayIconSet(glyph, true)) expect(at(bitmap)).toEqual([0xf0, 0x5a, 0x1a, 255])
+    for (const { bitmap } of trayIconSet(glyph, true)) expect(at(bitmap)).toEqual([255, 255, 255, 255])
     for (const { bitmap } of trayIconSet(glyph, false)) expect(at(bitmap)[3]).toBe(0)
   })
 })

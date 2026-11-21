@@ -38,11 +38,10 @@ function trayImage(dir: string, shade: TrayShade, dot: boolean): NativeImage {
 }
 
 /**
- * The real tray icon, from the app's icons in `dir`: the white glyph on a dark taskbar, the black one on a light one,
- * following Windows' taskbar setting as it changes.
+ * The real tray icon, from the app's icons in `dir`: the orange glyph on light and dark taskbars alike.
  */
 export function electronTrayView(dir: string): TrayView {
-  const shade = (): TrayShade => (nativeTheme.shouldUseDarkColorsForSystemIntegratedUI ? 'white' : 'black')
+  const shade = (): TrayShade => 'orange'
   const images = new Map<string, NativeImage>()
   const imageFor = (dot: boolean): NativeImage => {
     const key = `${shade()}:${dot}`

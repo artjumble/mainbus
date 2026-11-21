@@ -15,10 +15,11 @@ const dir = join(scripts, '..', 'design', 'icons')
 const LIGHT = '#F3F3F3' // Windows 11 light taskbar
 const DARK = '#202020' // Windows 11 dark taskbar
 const NIGHT_OWL_GROUND = '#011627'
-const DOT = '#B5530F' // Needs-you orange
-// The tray's dot, as src/main/tray/icons.ts draws it: centre at 72% of the size, radius 26%.
+const DOT = '#FFFFFF' // The tray's needs-you dot: white, with a navy ring
+const DOT_RING = '#011627'
+// The tray's dot, as src/main/tray/icons.ts draws it: centre at 72% of the size, radius 20% plus a ring of 1/16.
 const DOT_CENTRE = 0.72
-const DOT_RADIUS = 0.26
+const DOT_RADIUS = 0.2 + 1 / 16
 
 // The app palette to Night Owl's (src/renderer/src/theme.ts): tile, lanes, links, foreground.
 const NIGHT_OWL = { '#1E3F99': '#0B2942', '#3A5FC4': '#1D3B53', '#7E9BE6': '#5F7E97', '#F4F4F1': '#82AAFF' }
@@ -78,7 +79,7 @@ const style = `
   .cell { display: flex; gap: 16px; align-items: center; padding: 16px; border-radius: 8px }
   .icon { position: relative; display: inline-block; flex: none }
   .icon img { display: block }
-  .dot { position: absolute; border-radius: 50%; background: ${DOT} }
+  .dot { position: absolute; border-radius: 50%; background: ${DOT}; border: 1px solid ${DOT_RING}; box-shadow: inset 0 0 0 0 ${DOT_RING} }
   canvas.zoom { width: 64px; height: 64px; image-rendering: pixelated; flex: none }
   .head { display: flex; gap: 12px; margin-bottom: 6px; color: #5b6168 }
   .head div { padding-left: 16px }
@@ -116,7 +117,7 @@ const sysIcon = (fg) => `<span style="width:12px;height:12px;border-radius:50%;b
 function taskbar(c, bg, fg) {
   return `<div class="bar" style="background:${bg};color:${fg}">
     <span class="apps">${otherApp(fg)}${otherApp(fg)}<span class="btn">${img(c.small, 16)}<i style="background:${fg}"></i></span>${otherApp(fg)}</span>
-    <span class="tray">${sysIcon(fg)}${sysIcon(fg)}${img(c.small, 16)}${img(c.small, 16, true)}<span class="clock">09:41</span></span>
+    <span class="tray">${sysIcon(fg)}${sysIcon(fg)}${img(c.tray ?? c.small, 16)}${img(c.tray ?? c.small, 16, true)}<span class="clock">09:41</span></span>
   </div>`
 }
 
@@ -129,8 +130,8 @@ const taskbarHtml = `<!doctype html><html><head><style>${style}
   .clock { font-size: 12px; margin-left: 6px }
 </style></head><body>
   <h1>Mainbus icon concepts in the taskbar and tray</h1>
-  <p class="note">Real pixels: 16 px in a taskbar button and in the tray, without and with the tray's orange "needs you" dot (src/main/tray/icons.ts geometry).</p>
-  ${concepts
+  <p class="note">Real pixels: 16 px in a taskbar button and in the tray, without and with the tray's "needs you" dot, white with a navy ring (src/main/tray/icons.ts geometry). The first row is the real tray glyph.</p>
+  ${[{ num: '', name: 'Mainbus tray (orange glyph)', small: read('mainbus.svg'), tray: read('mainbus-tray-orange.svg') }, ...concepts]
     .map(
       (c) => `<div class="row"><div class="label"><b>${c.num}</b>${c.name}</div>${taskbar(c, LIGHT, '#1F1F1F')}${taskbar(c, DARK, '#F3F3F3')}</div>`
     )
