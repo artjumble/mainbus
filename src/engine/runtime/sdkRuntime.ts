@@ -665,7 +665,7 @@ export class SdkRuntime implements AgentRuntime {
         ),
         sdk.tool(
           'list_tickets',
-          "A workspace's tickets: number, title, column, phase, active role and labels.",
+          "A workspace's tickets: number, title, column, phase, active role and labels. Backlog and Ready are listed in the board's order, top first: the user's priority.",
           {
             workspace,
             column: z

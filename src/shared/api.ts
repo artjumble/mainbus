@@ -340,7 +340,12 @@ export interface EngineCommands {
    */
   'ticket.undoEdit'(editId: string): TicketEdit
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
-  'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done'): 'moved' | 'dirty' | 'asked'
+  'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done', before?: string | null): 'moved' | 'dirty' | 'asked'
+  /**
+   * Moves a ticket within its column, Backlog or Ready: just above the ticket `before`, or to the bottom when null.
+   * Refused when the ticket is in another column, or `before` isn't in the same column. Not a move: nothing else changes.
+   */
+  'ticket.reorder'(id: string, before: string | null): void
   /**
    * Holds the ticket, optionally until a date (ISO, in the future): unattended mode and start proposals leave it
    * alone. It doesn't touch a running agent. A held ticket keeps its hold and takes the new date and reason.

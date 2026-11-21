@@ -58,6 +58,7 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     id: `t${counter}`,
     workspaceId: 'w1',
     number: counter,
+    rank: counter,
     kind: 'change',
     title: `Ticket ${counter}`,
     intent: [{ text: 'words', at: '2026-10-30T00:00:00.000Z' }],

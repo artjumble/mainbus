@@ -1,0 +1,4 @@
+[
+  { "emit": { "kind": "session", "sessionId": "e2e-session" } },
+  { "waitForSend": true }
+]

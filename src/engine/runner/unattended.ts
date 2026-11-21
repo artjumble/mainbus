@@ -1,3 +1,4 @@
+import { compareRank } from '../../shared/boardOrder'
 import type { EngineEvent } from '../../shared/api'
 import type { Ticket, TicketState, UnattendedState, UnattendedStatus } from '../../shared/domain'
 
@@ -51,7 +52,7 @@ type Outcome =
 
 /**
  * Unattended mode of one workspace: keeps up to N tickets working (N is "Unattended: tickets at once", 1 by default),
- * starting the lowest-numbered Ready tickets that aren't held or blocked. A ticket stops counting once it reaches Review,
+ * starting the Ready tickets from the top of Ready that aren't held or blocked. A ticket stops counting once it reaches Review,
  * is waiting on the user in Needs you, fails, or is stopped or paused; that frees a place for the next. Tickets started by
  * hand count toward N, and nothing new starts while a usage limit holds. With Ready empty it stays on and waits for a
  * ticket to arrive there. It starts tickets through the runner's own start, and never merges, pushes or moves a ticket.
@@ -260,9 +261,9 @@ export class UnattendedMode {
     }
   }
 
-  /** Fills the free places with the lowest-numbered startable Ready tickets, unless a usage limit holds; then says what it is doing. */
+  /** Fills the free places with the startable Ready tickets from the top of Ready, unless a usage limit holds; then says what it is doing. */
   private async fill(atOnce: number, mineLimited: boolean): Promise<void> {
-    const tickets = [...(await this.deps.tickets())].sort((a, b) => a.number - b.number)
+    const tickets = [...(await this.deps.tickets())].sort(compareRank)
     const held = (await this.deps.held?.()) ?? new Set<string>()
     const blocked = (await this.deps.blocked?.()) ?? new Set<string>()
     const others: number[] = []
