@@ -19,6 +19,7 @@ import { useThread } from '../thread/useThread'
 import { ContextPane } from './ContextPane'
 import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
+import { MoveMenu } from './MoveMenu'
 import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
 import { RunSettingsModal, runSettingsEditable } from './RunSettingsModal'
@@ -418,6 +419,18 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                   Promote
                 </Button>
               )}
+              <MoveMenu
+                ticket={ticket}
+                disabled={busy || moving}
+                openRun={
+                  runOpen
+                    ? {
+                        role: activeRole?.name ?? 'agent',
+                        status: agentStatus === 'waiting_on_you' ? 'waiting for you' : pausedByUser || pausedByLimit ? 'paused' : 'running'
+                      }
+                    : null
+                }
+              />
               {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
               {ticket.hold && (
                 <Button

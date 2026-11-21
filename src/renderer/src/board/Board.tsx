@@ -423,6 +423,7 @@ export function Board(): ReactElement {
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
     if (!ticket || target === null) return
+    if (ticket.state.column === 'in_progress' || ticket.state.column === 'needs_you') return
     if (isManual(target)) void moveTicket(ticket, target)
     else if (target === 'in_progress') void onPropose(ticket)
   }
@@ -802,9 +803,9 @@ interface DraggableProps {
 }
 
 /**
- * Any card can be dragged; only drop targets are restricted. The same move is also reachable without dragging:
- * a menu opened by right-click, the context-menu key or Shift+F10 on the focused card. A card being moved
- * can't be moved again until the engine answers.
+ * Cards can be dragged, except in In progress and Needs you; only drop targets are restricted. The same move is also
+ * reachable without dragging: a menu opened by right-click, the context-menu key or Shift+F10 on the focused card.
+ * A card being moved can't be moved again until the engine answers.
  */
 const DraggableTicket = memo(function DraggableTicket({
   ticket,
@@ -816,9 +817,12 @@ const DraggableTicket = memo(function DraggableTicket({
   onMerge
 }: DraggableProps): ReactElement {
   const moving = movingTo !== null
+  // A running ticket can't be dragged or moved from the board: leaving In progress or Needs you stops its agent, so
+  // it takes the ticket view's confirmed move.
+  const locked = ticket.state.column === 'in_progress' || ticket.state.column === 'needs_you'
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
     id: ticket.id,
-    disabled: moving
+    disabled: moving || locked
   })
   // Pointer drags start anywhere on the card; a keyboard drag only from the handle, so Enter on the title still opens.
   const { onKeyDown: dragKeyDown, ...pointerListeners } = listeners ?? {}
@@ -837,6 +841,19 @@ const DraggableTicket = memo(function DraggableTicket({
       e.preventDefault()
       openMenu()
     }
+  }
+
+  if (locked) {
+    return (
+      <div
+        style={{
+          position: 'relative',
+          scrollMarginTop: `calc(${HEADER_H} + ${TITLE_H} + var(--mantine-spacing-xs))`
+        }}
+      >
+        <TicketCard ticket={ticket} cleaningUp={movingTo === 'done'} changedAt={changedAt} onOpen={onOpen} />
+      </div>
+    )
   }
 
   return (
