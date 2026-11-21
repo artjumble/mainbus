@@ -281,6 +281,11 @@ export interface EngineCommands {
    */
   'workspace.setRailBadge'(badge: RailBadgeInput, workspaceId?: string): Workspace
   /**
+   * "Unattended: tickets at once": how many of the workspace's tickets unattended mode keeps working at once. A whole number
+   * from 1 to "Agents running at once" (default 1); anything else is refused with the reason. Renderer only, like the switch above.
+   */
+  'workspace.setUnattendedAtOnce'(n: number, workspaceId?: string): Workspace
+  /**
    * The setup command Mainbus runs in each new ticket folder, and its timeout in minutes; what is left out stays as it is.
    * A command with a line break, or a timeout outside 1 to 60, is refused with the reason. The command runs outside the
    * agents' permissions, so only the renderer can reach this.

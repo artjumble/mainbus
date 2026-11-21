@@ -267,6 +267,13 @@
       "when": 1795107955521,
       "tag": "0037_rail_badge",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1795215647276,
+      "tag": "0038_unattended_at_once",
+      "breakpoints": true
     }
   ]
 }

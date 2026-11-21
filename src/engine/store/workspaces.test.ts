@@ -32,7 +32,7 @@ describe('workspace repo', () => {
       reportsFolder: 'docs/investigations',
       setupCommand: '',
       setupTimeoutMinutes: 15,
-      testCommands: [], railLabel: null, railColor: null
+      testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1
     })
     expect(await repo.get(created.id)).toEqual(created)
   })
@@ -40,7 +40,7 @@ describe('workspace repo', () => {
   it('has no rail badge by default, saves one, and clears it', async () => {
     const repo = createWorkspaceRepo(db, () => FIXED_NOW)
     const ws = await repo.create('/r', 'main', 'r', 'r')
-    expect(ws).toMatchObject({ railLabel: null, railColor: null })
+    expect(ws).toMatchObject({ railLabel: null, railColor: null, unattendedAtOnce: 1 })
     expect(await repo.setRailBadge(ws.id, { label: ' ab ', color: 'grape' })).toMatchObject({ railLabel: 'ab', railColor: 'grape' })
     expect(await repo.setRailBadge(ws.id, { label: null })).toMatchObject({ railLabel: null, railColor: 'grape' })
     await expect(repo.setRailBadge(ws.id, { label: 'abcd' })).rejects.toThrow()
@@ -152,5 +152,17 @@ describe('workspace repo', () => {
     expect([await repo.unattendedOn(a.id), await repo.unattendedOn(b.id)]).toEqual([true, false])
     await repo.setUnattendedOn(a.id, false)
     expect(await repo.unattendedOn(a.id)).toBe(false)
+  })
+
+  it('has "tickets at once" 1 by default, saves a whole number, and refuses others', async () => {
+    const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+    const a = await repo.create('/a', 'main', 'a')
+    expect(a.unattendedAtOnce).toBe(1)
+    expect((await repo.setUnattendedAtOnce(a.id, 4)).unattendedAtOnce).toBe(4)
+    expect((await repo.get(a.id))?.unattendedAtOnce).toBe(4)
+    for (const n of [0, 1.5, 11, -1, Number.NaN]) {
+      await expect(repo.setUnattendedAtOnce(a.id, n)).rejects.toThrow('whole number from 1 to')
+    }
+    expect((await repo.get(a.id))?.unattendedAtOnce).toBe(4)
   })
 })

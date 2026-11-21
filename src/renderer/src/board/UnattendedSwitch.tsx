@@ -9,6 +9,19 @@ function hhmm(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** "#4", "#4, #7", or "3 tickets" when the list would be long. */
+function ticketList(numbers: number[]): string {
+  return numbers.length <= 2 ? numbers.map((n) => `#${n}`).join(', ') : `${numbers.length} tickets`
+}
+
+/** The full list, for a tooltip, when the text only counts the tickets. */
+function fullList(status: UnattendedStatus): string | undefined {
+  if ((status.kind === 'working' || status.kind === 'other_working') && status.ticketNumbers.length > 2) {
+    return status.ticketNumbers.map((n) => `#${n}`).join(', ')
+  }
+  return undefined
+}
+
 export function unattendedText(status: UnattendedStatus): string {
   switch (status.kind) {
     case 'off':
@@ -16,11 +29,11 @@ export function unattendedText(status: UnattendedStatus): string {
     case 'starting':
       return 'Looking for a Ready ticket'
     case 'working':
-      return `Working on #${status.ticketNumber}`
+      return `Working on ${ticketList(status.ticketNumbers)}`
     case 'idle':
       return status.skipped ? 'No Ready ticket could be started; waiting for Ready tickets' : 'Waiting for Ready tickets'
     case 'other_working':
-      return `Waiting for #${status.ticketNumber} to finish`
+      return `Waiting for ${ticketList(status.ticketNumbers)} to finish`
     case 'waiting':
       return `Waiting for the usage limit to reset at ${hhmm(status.until)}`
     case 'stopped':
@@ -53,7 +66,7 @@ export function UnattendedSwitch(): ReactElement {
         disabled={pending}
         onChange={(e) => void toggle(e.currentTarget.checked)}
       />
-      <Text size="sm" c="dimmed" data-testid="unattended-status">
+      <Text size="sm" c="dimmed" data-testid="unattended-status" title={fullList(state.status)}>
         {unattendedText(state.status)}
       </Text>
     </Group>
