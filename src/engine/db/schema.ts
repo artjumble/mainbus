@@ -133,7 +133,8 @@ export const tickets = sqliteTable(
   },
   (t) => [
     uniqueIndex('tickets_workspace_number_uq').on(t.workspaceId, t.number),
-    index('tickets_workspace_archived_idx').on(t.workspaceId, t.archivedAt)
+    index('tickets_workspace_archived_idx').on(t.workspaceId, t.archivedAt),
+    index('tickets_promoted_from_idx').on(t.promotedFrom).where(sql`${t.promotedFrom} is not null`)
   ]
 )
 

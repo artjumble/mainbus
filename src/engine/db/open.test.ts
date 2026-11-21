@@ -868,7 +868,7 @@ describe('openDb', () => {
     expect(idx).toHaveLength(1)
   })
 
-  it('migration 0044 indexes agent_runs.ticket_run_id, and the per-run lookup uses it', async () => {
+  it('migration 0044 indexes agent_runs.ticket_run_id and tickets.promoted_from, and the lookups use them', async () => {
     const { db } = await open()
     const idx = await db.all(sql`select name from sqlite_master where type = 'index' and name = 'agent_runs_ticket_run_idx'`)
     expect(idx).toHaveLength(1)
@@ -876,5 +876,11 @@ describe('openDb', () => {
       sql`explain query plan select * from agent_runs where ticket_run_id = 'x' order by started_at, rowid`
     )
     expect(JSON.stringify(plan)).toContain('USING INDEX agent_runs_ticket_run_idx')
+    const promoted = await db.all<unknown[]>(sql`explain query plan select id from tickets where promoted_from is not null`)
+    expect(JSON.stringify(promoted)).toContain('USING INDEX tickets_promoted_from_idx')
+    const live = await db.all<unknown[]>(
+      sql`explain query plan select * from tickets where workspace_id = 'w' and archived_at is null order by number + 0`
+    )
+    expect(JSON.stringify(live)).toContain('USING INDEX tickets_workspace_archived_idx')
   })
 })

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "504ead0c-d992-42bf-9433-8a6b983141e8",
+  "id": "da7b276e-956a-46f0-bb57-7dbd06ab36e2",
   "prevId": "fb1fb53c-037e-431f-b4ee-bf310da3de80",
   "tables": {
     "agent_events": {
@@ -2308,6 +2308,14 @@
             "archived_at"
           ],
           "isUnique": false
+        },
+        "tickets_promoted_from_idx": {
+          "name": "tickets_promoted_from_idx",
+          "columns": [
+            "promoted_from"
+          ],
+          "isUnique": false,
+          "where": "\"tickets\".\"promoted_from\" is not null"
         }
       },
       "foreignKeys": {
