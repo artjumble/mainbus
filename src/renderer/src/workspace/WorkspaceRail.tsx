@@ -38,26 +38,50 @@ export function railStatus(w: WorkspaceSummary): string {
   return '○ Idle'
 }
 
-/** The needs-you count; a space (not drawn in a flex row) keeps the visible text "repo 1", as the label has it. */
-function needsBadge(w: WorkspaceSummary, expanded: boolean): ReactElement {
+/** The needs-you count, over the tile's top-right corner. */
+function needsBadge(w: WorkspaceSummary): ReactElement {
   return (
-    <>
-      {' '}
-      <Badge
-        color="needs"
-        variant="filled"
-        circle
-        size={expanded ? 'md' : 'sm'}
-        data-needs-you
-        {...ROW_BADGE}
-        {...(expanded ? {} : { pos: 'absolute', top: -6, right: -6 })}
-        role="img"
-        aria-hidden
-        aria-label={`${w.needsYou} need you`}
-      >
-        {w.needsYou}
-      </Badge>
-    </>
+    <Badge
+      color="needs"
+      variant="filled"
+      circle
+      size="sm"
+      data-needs-you
+      {...ROW_BADGE}
+      pos="absolute"
+      top={-6}
+      right={-6}
+      role="img"
+      aria-hidden
+      aria-label={`${w.needsYou} need you`}
+    >
+      {w.needsYou}
+    </Badge>
+  )
+}
+
+/** Working: a filled circle; idle: an empty one. Both 12 px with their ring, centred where the needs-you badge is. */
+function activityCircle(w: WorkspaceSummary): ReactElement {
+  return (
+    <Box
+      role={w.active ? 'img' : undefined}
+      aria-label={w.active ? 'agents working' : undefined}
+      aria-hidden={w.active ? undefined : true}
+      data-activity={w.active ? 'working' : 'idle'}
+      pos="absolute"
+      top={-4}
+      right={-4}
+      w={12}
+      h={12}
+      style={{
+        boxSizing: 'border-box',
+        borderRadius: '50%',
+        // The ring in the rail's background keeps it clean over the tile's edge; the border is the hollow circle.
+        boxShadow: '0 0 0 2px var(--mantine-color-body)',
+        border: w.active ? '2px solid var(--mantine-color-working-filled)' : '2px solid var(--mantine-color-dimmed)',
+        background: w.active ? 'var(--mantine-color-working-filled)' : 'var(--mantine-color-body)'
+      }}
+    />
   )
 }
 
@@ -173,23 +197,11 @@ export function WorkspaceRail(): ReactElement {
                 }}
               >
                 <Group gap={expanded ? 6 : 4} wrap="nowrap" justify={expanded ? undefined : 'center'}>
-                  {/* Always laid out, so the name doesn't shift when the dot comes and goes. */}
-                  <Box
-                    role={w.active ? 'img' : undefined}
-                    aria-label={w.active ? 'agents working' : undefined}
-                    data-activity={w.active ? '' : undefined}
-                    w={8}
-                    h={8}
-                    style={{
-                      flexShrink: 0,
-                      borderRadius: '50%',
-                      background: w.active ? 'var(--mantine-color-working-filled)' : 'transparent'
-                    }}
-                  />
-                  {/* Collapsed, the needs-you badge sits over the tile's corner: a row of dot, tile and badge wouldn't fit. */}
+                  {/* One indicator over the tile's top-right corner: the needs-you count, else a filled circle while
+                      working, else an empty one. They share one centre, so a change of state moves nothing. */}
                   <Box pos="relative" style={{ flexShrink: 0, display: 'flex' }}>
                     <RailTile label={badges.get(w.id)!.label} color={badges.get(w.id)!.color} bold={w.id === focusedId} />
-                    {!expanded && w.needsYou > 0 && needsBadge(w, false)}
+                    {w.needsYou > 0 ? needsBadge(w) : activityCircle(w)}
                   </Box>
                   {/* The button's label already says all of this, so the text stays out of the screen reader's name. */}
                   {expanded && (
@@ -197,7 +209,6 @@ export function WorkspaceRail(): ReactElement {
                       {w.name}
                     </Text>
                   )}
-                  {expanded && w.needsYou > 0 && needsBadge(w, true)}
                 </Group>
               </UnstyledButton>
               {expanded && (

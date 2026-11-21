@@ -160,8 +160,13 @@ test('the widest custom labels stay inside the collapsed rail, with room for the
     await expect(async () => {
       const [t, b, n] = await Promise.all([tile.boundingBox(), button.boundingBox(), rail.boundingBox()])
       expect(t!.x + t!.width).toBeLessThanOrEqual(b!.x + b!.width)
-      // The needs-you badge overhangs the tile's corner by 6 px.
+      // The corner indicator (the needs-you badge, or the working or idle circle) overhangs the tile's corner by up to 6 px.
       expect(t!.x + t!.width + 6).toBeLessThanOrEqual(n!.x + n!.width)
+      const corner = await button.locator('[data-needs-you],[data-activity]').boundingBox()
+      expect(corner!.x + corner!.width).toBeGreaterThan(t!.x + t!.width - 8)
+      expect(corner!.x + corner!.width).toBeLessThanOrEqual(t!.x + t!.width + 6)
+      expect(corner!.y).toBeLessThan(t!.y + 8)
+      expect(corner!.x + corner!.width).toBeLessThanOrEqual(n!.x + n!.width)
     }).toPass()
   }
 })

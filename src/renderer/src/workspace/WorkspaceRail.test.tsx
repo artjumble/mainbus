@@ -96,7 +96,7 @@ test('each workspace has an entry with its activity dot and needs-you count', ()
   const rail = screen.getByRole('navigation', { name: 'Workspaces' })
   const a = within(rail).getByRole('button', { name: /^alpha-repo/ })
   expect(a).toHaveAttribute('aria-current', 'true')
-  expect(within(a).getByLabelText('agents working')).toBeInTheDocument()
+  expect(a).toHaveAccessibleName(/agents working/)
   expect(within(a).getByLabelText('1 need you')).toHaveTextContent('1')
   const b = within(rail).getByRole('button', { name: /^bravo/ })
   expect(b).not.toHaveAttribute('aria-current')
@@ -373,8 +373,9 @@ describe('collapsed and expanded', () => {
     // The initials are drawn from an attribute, so they aren't text the label must contain.
     expect(a.querySelector('[data-initials]')).toHaveAttribute('data-initials', 'AR')
     expect(a).not.toHaveTextContent('alpha-repo')
-    expect(within(a).getByLabelText('agents working')).toBeInTheDocument()
+    // Needing you takes the corner over working; the button's name still says both.
     expect(within(a).getByLabelText('1 need you')).toBeInTheDocument()
+    expect(a).toHaveAccessibleName(/agents working/)
     expect(screen.queryByRole('button', { name: /^Options for/ })).not.toBeInTheDocument()
     expect(navOf().querySelector('[data-rail-status]')).toBeNull()
   })
@@ -491,15 +492,54 @@ describe('collapsed and expanded', () => {
   })
 })
 
-test('in the expanded rail, the needs-you count keeps its width and is never clipped beside a long name', async () => {
+describe('the corner indicator', () => {
+  const idle = { ...bravo, active: false, needsYou: 0, working: 0 }
+  const working = { ...bravo, id: 'w', name: 'working-repo', active: true, needsYou: 0 }
+  const needs = { ...bravo, id: 'n', name: 'needs-repo', active: true, needsYou: 2 }
+
+  function setup(): void {
+    useMainbus.setState({ workspace: alpha, workspaces: [idle, working, needs] })
+    engine()
+  }
+
+  test('idle shows an empty circle, working a filled one, needs-you the count only', () => {
+    setup()
+    renderWithMantine(<WorkspaceRail />)
+    const entry = (name: RegExp): HTMLElement => screen.getByRole('button', { name })
+    const i = entry(/^bravo/).querySelector('[data-activity]')!
+    expect(i).toHaveAttribute('data-activity', 'idle')
+    expect(i).toHaveAttribute('aria-hidden', 'true')
+    expect(getComputedStyle(i as HTMLElement).background).toContain('var(--mantine-color-body)')
+    const w = entry(/^working-repo/).querySelector('[data-activity]')!
+    expect(w).toHaveAttribute('data-activity', 'working')
+    expect(within(entry(/^working-repo/)).getByLabelText('agents working')).toBe(w)
+    expect(getComputedStyle(w as HTMLElement).background).toContain('working-filled')
+    const n = entry(/^needs-repo/)
+    expect(n.querySelector('[data-needs-you]')).toHaveTextContent('2')
+    expect(n.querySelector('[data-activity]')).toBeNull()
+  })
+
+  test('all three sit on the tile\'s top-right corner, in a box with the tile, and nothing is left of it', async () => {
+    setup()
+    renderWithMantine(<WorkspaceRail />)
+    for (const expandedRail of [false, true]) {
+      if (expandedRail) await expand()
+      for (const name of [/^bravo/, /^working-repo/, /^needs-repo/]) {
+        const tile = tileOf(name)
+        const indicator = screen.getByRole('button', { name }).querySelector<HTMLElement>('[data-activity],[data-needs-you]')!
+        expect(indicator.parentElement).toBe(tile.parentElement)
+        expect(indicator.style.right || getComputedStyle(indicator).right).toMatch(/-/)
+        expect(tile.previousElementSibling).toBeNull()
+      }
+    }
+  })
+})
+
+test('in the expanded rail, the needs-you count sits on the tile, not beside the name', async () => {
   engine()
   renderWithMantine(<WorkspaceRail />)
   const nav = await expand()
   const badge = nav.querySelector<HTMLElement>('[data-needs-you]')!
   expect(badge).toHaveTextContent('1')
-  // jsdom has no layout, so these are the styles that keep the count whole.
-  expect(getComputedStyle(badge).flexShrink).toBe('0')
-  expect(getComputedStyle(badge).overflow).toBe('visible')
-  const label = badge.querySelector<HTMLElement>('[data-badge-label]')!
-  expect(getComputedStyle(label).overflow).toBe('visible')
+  expect(badge.parentElement).toBe(tileOf(/^alpha-repo/).parentElement)
 })
