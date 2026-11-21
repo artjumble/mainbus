@@ -106,6 +106,7 @@ describe('ticket repo', () => {
       id: expect.any(String),
       workspaceId,
       number: 1,
+      rank: 1,
       kind: 'change',
       title: 'Add login',
       intent: [{ text: 'Let people log in', at: FIXED_NOW.toISOString() }],

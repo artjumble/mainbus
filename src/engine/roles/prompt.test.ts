@@ -40,6 +40,7 @@ const ticket: Ticket = {
   id: 't1',
   workspaceId: 'w1',
   number: 14,
+  rank: 14,
   kind: 'change',
   title: 'Rate-limit login',
   intent: [

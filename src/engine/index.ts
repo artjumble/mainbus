@@ -51,6 +51,7 @@ import { LOCKFILES, updateInstructions, updateRoleOf } from './freshness/update'
 import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
 import { Attachments, type AttachmentWithPath } from './attachments/attachments'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
+import { compareRank, isRanked, placement } from '../shared/boardOrder'
 import { COLUMNS, createReadTools } from './orchestrator/readTools'
 import { ticketTimeFor, workspaceTimeFor } from './time/report'
 import type { AnsweredDecision } from './orchestrator/answeredBlock'
@@ -967,10 +968,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     await proposals.failUnfinished()
 
     // The intake's tickets need only their state; the board's carry their lineup strip as well.
-    const boardTickets = async (ws: Workspace) => {
+    const boardTickets = async (ws: { id: string }) => {
       const tickets = await repos.tickets.list(ws.id)
       return Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) })))
     }
+    /** The workspace's tickets now in this ranked column, top first. */
+    const columnInOrder = async (workspaceId: string, column: 'backlog' | 'ready') =>
+      (await boardTickets({ id: workspaceId })).filter((t) => t.state.column === column).sort(compareRank)
     const boardTicket = async (ws: Workspace, number: number) => {
       const ticket = await repos.tickets.byNumber(ws.id, number)
       return ticket && { ...ticket, state: await runner.stateOf(ticket.id) }
@@ -1605,12 +1609,33 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       // Reached only through `invoke` (the renderer's IPC): only the user undoes the orchestrator's edit.
       'ticket.undoEdit': (editId) => undoEdit(editId),
-      'ticket.move': async (id, column) => {
+      'ticket.move': async (id, column, before) => {
         if (column === 'done') return moveTicketToDone(id)
+        if (before !== undefined && before !== null && typeof before !== 'string') throw new Error('before must be a ticket id or null')
+        let rank: number | undefined
+        if (typeof before === 'string') {
+          const ticket = await repos.tickets.get(id)
+          const inColumn = await columnInOrder(ticket.workspaceId, column)
+          const place = placement(inColumn, id, before)
+          await repos.tickets.setRanks(place.rebalance)
+          if (place.rank !== 'bottom') rank = place.rank
+        }
         ;(await modeOfTicket(id))?.userMoved(id, column)
-        await runner.moveToColumn(id, column)
+        await runner.moveToColumn(id, column, rank)
         if (column === 'ready') await proposeStartIfAsked(id)
         return 'moved'
+      },
+      'ticket.reorder': async (id, before) => {
+        if (before !== null && typeof before !== 'string') throw new Error('before must be a ticket id or null')
+        const ticket = await repos.tickets.get(id)
+        const { column } = await runner.stateOf(id)
+        if (!isRanked(column)) throw new Error(`#${ticket.number} is in ${COLUMNS[column]}; only Backlog and Ready can be reordered`)
+        const inColumn = await columnInOrder(ticket.workspaceId, column)
+        if (before !== null && !inColumn.some((t) => t.id === before)) throw new Error(`That ticket isn't in ${COLUMNS[column]} any more`)
+        const place = placement(inColumn, id, before)
+        await repos.tickets.setRanks(place.rebalance)
+        await repos.tickets.setRank(id, place.rank)
+        emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
       },
       'ticket.draftPromotion': async (id) => {
         const ticket = await repos.tickets.get(id)

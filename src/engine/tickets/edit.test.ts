@@ -8,6 +8,7 @@ function ticket(overrides: Partial<Ticket> = {}): Ticket {
     id: 't1',
     workspaceId: 'w1',
     number: 7,
+    rank: 7,
     kind: 'change',
     title: 'Login',
     intent: [{ text: 'Add login', at: '2026-11-01T00:00:00.000Z' }],

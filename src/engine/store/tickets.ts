@@ -22,7 +22,15 @@ export interface TicketRepo {
    * the Undo of an orchestrator edit (TicketEditRepo.undo), which removes the entries that edit appended moments before.
    */
   appendIntent(id: string, text: string): Promise<Ticket>
-  setManualColumn(id: string, column: 'backlog' | 'ready' | 'done'): Promise<Ticket>
+  /**
+   * Moves the ticket to a column. Into Backlog or Ready it takes `rank` (a position among that column) or, with none
+   * given, the bottom; Done leaves the rank as it is.
+   */
+  setManualColumn(id: string, column: 'backlog' | 'ready' | 'done', rank?: number): Promise<Ticket>
+  /** Sets the ticket's rank (a number, or 'bottom' for after every other ticket in the workspace). */
+  setRank(id: string, rank: number | 'bottom'): Promise<Ticket>
+  /** Sets several ranks in one batch (a rebalance). */
+  setRanks(entries: { id: string; rank: number }[]): Promise<void>
   /** Whether the ticket was to be proposed for starting once in Ready; clears the flag, so it answers true once. */
   takeStartWhenReady(id: string): Promise<boolean>
   setWorktree(id: string, branch: string, path: string | null): Promise<Ticket>
@@ -54,6 +62,11 @@ export interface TicketRepo {
 
 type TicketRow = typeof tickets.$inferSelect
 
+/** One statement, so the rank is taken atomically with the insert or update, like the ticket number. */
+function bottomRank(workspaceId: SQL | string): SQL {
+  return sql`(select coalesce(max(${tickets.rank}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${workspaceId})`
+}
+
 function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
   return {
     id: row.id,
@@ -66,6 +79,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     criteria: ticketCriteria,
     labels: JSON.parse(row.labels) as string[],
     manualColumn: row.manualColumn as Ticket['manualColumn'],
+    rank: row.rank,
     branch: row.branch,
     worktreePath: row.worktreePath,
     pr: row.prUrl !== null && row.prNumber !== null ? { url: row.prUrl, number: row.prNumber } : null,
@@ -161,6 +175,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       spec: input.spec,
       labels: JSON.stringify(input.labels),
       manualColumn: input.column,
+      rank: bottomRank(input.workspaceId),
       startWhenReady: input.startWhenReady === true,
       runSettings: input.runSettings ? JSON.stringify(input.runSettings) : null,
       createdAt: at,
@@ -184,6 +199,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       spec: fields.spec,
       labels: JSON.stringify(original.labels),
       manualColumn: 'ready',
+      rank: bottomRank(original.workspaceId),
       report: original.report,
       promotedFrom: original.id,
       createdAt: at,
@@ -265,9 +281,31 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       return get(id)
     },
 
-    async setManualColumn(id, column) {
-      await patchRow(id, { manualColumn: column })
+    async setManualColumn(id, column, rank) {
+      if (column === 'done') await patchRow(id, { manualColumn: column })
+      else if (rank !== undefined) await patchRow(id, { manualColumn: column, rank })
+      else {
+        const [row] = await db.select({ workspaceId: tickets.workspaceId }).from(tickets).where(eq(tickets.id, id))
+        if (!row) throw new Error(`Ticket not found: ${id}`)
+        await patchRow(id, { manualColumn: column, rank: bottomRank(row.workspaceId) })
+      }
       return get(id)
+    },
+
+    async setRank(id, rank) {
+      if (rank !== 'bottom') await patchRow(id, { rank })
+      else {
+        const [row] = await db.select({ workspaceId: tickets.workspaceId }).from(tickets).where(eq(tickets.id, id))
+        if (!row) throw new Error(`Ticket not found: ${id}`)
+        await patchRow(id, { rank: bottomRank(row.workspaceId) })
+      }
+      return get(id)
+    },
+
+    async setRanks(entries) {
+      if (entries.length === 0) return
+      const [first, ...rest] = entries.map((e) => db.update(tickets).set({ rank: e.rank }).where(eq(tickets.id, e.id)))
+      await db.batch([first!, ...rest])
     },
 
     async takeStartWhenReady(id) {

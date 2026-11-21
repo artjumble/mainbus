@@ -187,8 +187,8 @@ describe('list_tickets', () => {
     const base = { id: 'h', targetKind: 'ticket', createdBy: 'user', createdAt: 'x', releasedAt: null, reason: null } as const
     holds.set(held.id, { ...base, targetId: held.id, until: '2026-11-04T00:00:00.000Z' })
     const list = (await tools.listTickets({})).split('\n')
-    expect(list[1]).toContain("· held by the user until 2026-11-04 (don't propose starting it)")
-    expect(list[2]).not.toContain('held')
+    expect(list[2]).toContain("· held by the user until 2026-11-04 (don't propose starting it)")
+    expect(list[3]).not.toContain('held')
     expect(await tools.getTicket({ number: held.number })).toContain('held by the user until 2026-11-04')
     holds.set(held.id, { ...base, targetId: held.id, until: null })
     expect(await tools.listTickets({})).toContain('held by the user until the user releases it')

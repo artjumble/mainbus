@@ -410,6 +410,8 @@ export interface Ticket {
   criteria: Criterion[]
   labels: string[]
   manualColumn: 'backlog' | 'ready' | 'done'
+  /** Position within Backlog and Ready (smaller is higher; ties break by number). Only compared inside those columns. */
+  rank: number
   branch: string | null
   worktreePath: string | null
   /** The pull request Mainbus opened (or adopted) for the ticket's branch. */

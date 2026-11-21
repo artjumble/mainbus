@@ -7,6 +7,7 @@ const ticket: Ticket = {
   id: 't-1',
   workspaceId: 'w-1',
   number: 5,
+  rank: 5,
   kind: 'change',
   title: 'Add login',
   intent: [],
