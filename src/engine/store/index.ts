@@ -1,6 +1,7 @@
 import type { Db } from '../db/open'
 import { createAllowRuleRepo, type AllowRuleRepo } from './allowRules'
 import { createBaseTestRepo, type BaseTestRepo } from './baseTests'
+import { createArchiveRepo, type ArchiveRepo } from './archive'
 import { createAttachmentRepo, type AttachmentRepo } from './attachments'
 import { createCleanupRepo, type PendingCleanupRepo } from './cleanups'
 import { createDependencyRepo, type DependencyRepo } from './dependencies'
@@ -25,6 +26,7 @@ export interface Repos {
   lineups: LineupRepo
   presets: PresetRepo
   tickets: TicketRepo
+  archive: ArchiveRepo
   ticketEdits: TicketEditRepo
   attachments: AttachmentRepo
   allowRules: AllowRuleRepo
@@ -50,6 +52,7 @@ export function createRepos(db: Db, now: () => Date): Repos {
     lineups: createLineupRepo(db),
     presets: createPresetRepo(db, now),
     tickets,
+    archive: createArchiveRepo(db, now),
     ticketEdits: createTicketEditRepo(db, now, tickets),
     attachments: createAttachmentRepo(db, now),
     allowRules: createAllowRuleRepo(db),

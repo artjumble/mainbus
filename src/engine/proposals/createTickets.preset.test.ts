@@ -18,7 +18,7 @@ const ws: Workspace = {
   reportsFolder: 'docs/investigations',
   setupCommand: '',
   setupTimeoutMinutes: 15,
-  testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1
+  testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1, autoArchiveDays: null
 }
 
 const LINEUP = [

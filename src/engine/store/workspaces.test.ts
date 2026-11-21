@@ -32,7 +32,7 @@ describe('workspace repo', () => {
       reportsFolder: 'docs/investigations',
       setupCommand: '',
       setupTimeoutMinutes: 15,
-      testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1
+      testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1, autoArchiveDays: null
     })
     expect(await repo.get(created.id)).toEqual(created)
   })
@@ -164,5 +164,26 @@ describe('workspace repo', () => {
       await expect(repo.setUnattendedAtOnce(a.id, n)).rejects.toThrow('whole number from 1 to')
     }
     expect((await repo.get(a.id))?.unattendedAtOnce).toBe(4)
+  })
+})
+
+describe('Archive Done tickets after', () => {
+  it('is Off by default, persists per workspace, and rejects other values', async () => {
+    const { db, cleanup } = await openTestDb()
+    try {
+      const repo = createWorkspaceRepo(db, () => FIXED_NOW)
+      const a = await repo.create('/a', 'main', 'a', 'a')
+      const b = await repo.create('/b', 'main', 'b', 'b')
+      expect(a.autoArchiveDays).toBeNull()
+
+      expect((await repo.setAutoArchiveDays(a.id, 14)).autoArchiveDays).toBe(14)
+      expect((await repo.get(a.id))?.autoArchiveDays).toBe(14)
+      expect((await repo.get(b.id))?.autoArchiveDays).toBeNull()
+      await expect(repo.setAutoArchiveDays(a.id, 5 as never)).rejects.toThrow(/7, 14, 30 or 90/)
+      expect((await repo.get(a.id))?.autoArchiveDays).toBe(14)
+      expect((await repo.setAutoArchiveDays(a.id, null)).autoArchiveDays).toBeNull()
+    } finally {
+      cleanup()
+    }
   })
 })

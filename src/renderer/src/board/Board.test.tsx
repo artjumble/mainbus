@@ -1007,6 +1007,54 @@ describe('the Archive on the board', () => {
     expect(useMainbus.getState().archiveQuery).toBe('')
   })
 
+  describe('Archive older…', () => {
+    let countFor: Record<number, number>
+    beforeEach(() => {
+      countFor = { 7: 5, 14: 3, 30: 0, 90: 0 }
+      mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+        if (command === 'archive.countOlder') return countFor[args[0] as number]
+        if (command === 'archive.olderThan') return { id: 'b1', workspaceId: 'w', kind: 'bulk', olderThanDays: args[0], count: countFor[args[0] as number], createdAt: '' }
+        return { tickets: useMainbus.getState().tickets, archived: 0 }
+      })
+    })
+
+    test('shows the count for the chosen age, and confirming archives that age and announces it', async () => {
+      showBoard(shipped('Old work'))
+      renderWithMantine(<Board />)
+      act(() => done().focus())
+      await userEvent.click(screen.getByRole('button', { name: 'Archive older…' }))
+
+      expect(await screen.findByText('3 Done tickets reached Done more than 14 days ago.')).toBeInTheDocument()
+      await userEvent.click(screen.getByText('7 days'))
+      expect(await screen.findByText('5 Done tickets reached Done more than 7 days ago.')).toBeInTheDocument()
+      expect(mockInvoke).toHaveBeenCalledWith('archive.countOlder', 7)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Archive 5 tickets' }))
+      await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('archive.olderThan', 7))
+      await vi.waitFor(() => expect(useMainbus.getState().announcement?.text).toBe('Archived 5 Done tickets'))
+      await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+
+    test('a zero count disables the confirm button and nothing is archived', async () => {
+      showBoard(shipped('Old work'))
+      renderWithMantine(<Board />)
+      act(() => done().focus())
+      await userEvent.click(screen.getByRole('button', { name: 'Archive older…' }))
+      await userEvent.click(await screen.findByText('30 days'))
+
+      expect(await screen.findByText('No Done tickets reached Done more than 30 days ago.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled()
+      expect(mockInvoke).not.toHaveBeenCalledWith('archive.olderThan', expect.anything())
+    })
+
+    test('there is no button without Done tickets', () => {
+      showBoard()
+      renderWithMantine(<Board />)
+      act(() => done().focus())
+      expect(screen.queryByRole('button', { name: 'Archive older…' })).not.toBeInTheDocument()
+    })
+  })
+
   test('with nothing archived there is no Archive button', () => {
     showBoard(shipped('Old work'))
     renderWithMantine(<Board />)

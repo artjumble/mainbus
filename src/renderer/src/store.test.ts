@@ -77,7 +77,7 @@ test('a refresh asked for while one is running waits for it, then reads the boar
   expect(useMainbus.getState().tickets).toEqual([second])
 })
 
-const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge' as const, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1 }
+const focused = { id: 'w1', name: 'repo', repoPath: '/r', baseBranch: 'main', slug: 'repo', openPrOnReview: false, mergeMethod: 'merge' as const, saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1, autoArchiveDays: null }
 
 test('startSync refreshes the board on board.changed and stops after unsubscribe', async () => {
   let listener: (e: EngineEvent) => void = () => {}
@@ -394,6 +394,16 @@ describe('a ticket that is not on the board (archived)', () => {
     mockInvoke.mockResolvedValue({ tickets: [], archived: 4 })
     await useMainbus.getState().refreshBoard()
     expect(useMainbus.getState().archivedCount).toBe(4)
+  })
+
+  test('board.get keeps the archive notice, drops it when the engine stops sending it', async () => {
+    const batch = { id: 'b1', workspaceId: 'w1', kind: 'sweep' as const, olderThanDays: 14, count: 3, createdAt: '2026-11-10T00:00:00.000Z' }
+    mockInvoke.mockResolvedValue({ tickets: [], archived: 3, archiveNotice: batch })
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().archiveNotice).toEqual(batch)
+    mockInvoke.mockResolvedValue({ tickets: [], archived: 3, archiveNotice: null })
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().archiveNotice).toBeNull()
   })
 
   test('openTicket for an id off the board reads it with ticket.view', async () => {

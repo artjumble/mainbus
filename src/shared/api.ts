@@ -3,6 +3,8 @@
 import type { Attachment } from './attachments'
 import type {
   AgentLauncher,
+  ArchiveAgeDays,
+  ArchiveBatch,
   AllowRule,
   Blocker,
   ArchivedTicket,
@@ -292,6 +294,11 @@ export interface EngineCommands {
    */
   'workspace.setUnattendedAtOnce'(n: number, workspaceId?: string): Workspace
   /**
+   * "Archive Done tickets after": null (Off, the default) or 7, 14, 30 or 90 days; anything else is refused. Choosing a
+   * number sweeps the workspace at once; after that the sweep runs at start-up and daily. Renderer only, like the switch above.
+   */
+  'workspace.setAutoArchiveDays'(days: ArchiveAgeDays | null, workspaceId?: string): Workspace
+  /**
    * The setup command Mainbus runs in each new ticket folder, and its timeout in minutes; what is left out stays as it is.
    * A command with a line break, or a timeout outside 1 to 60, is refused with the reason. The command runs outside the
    * agents' permissions, so only the renderer can reach this.
@@ -310,7 +317,21 @@ export interface EngineCommands {
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
   'github.check'(workspaceId?: string): GhStatus
   /** The tickets of the workspace (the focused one unless given). */
-  'board.get'(workspaceId?: string): { tickets: BoardTicket[]; /** How many archived tickets the board leaves out. */ archived: number }
+  'board.get'(workspaceId?: string): {
+    tickets: BoardTicket[]
+    /** How many archived tickets the board leaves out. */
+    archived: number
+    /** The newest sweep or bulk archive whose notice is still open ("Restore all archived by this"); null when none. */
+    archiveNotice: ArchiveBatch | null
+  }
+  /** How many of the workspace's Done tickets reached Done more than `days` days ago and aren't archived: the bulk action's confirmation. Renderer only. */
+  'archive.countOlder'(days: ArchiveAgeDays, workspaceId?: string): number
+  /** Archives every Done ticket that reached Done more than `days` days ago, as one batch; null when there were none. Renderer only. */
+  'archive.olderThan'(days: ArchiveAgeDays, workspaceId?: string): ArchiveBatch | null
+  /** Restores the tickets the batch archived (and only those); returns how many came back. Renderer only. */
+  'archive.restoreBatch'(batchId: string): number
+  /** Closes the batch's notice without restoring anything. Renderer only. */
+  'archive.closeNotice'(batchId: string): void
   /** One ticket as the board shows it, archived or not: how the app opens a ticket that isn't on the board. */
   'ticket.view'(id: string): BoardTicket
   /**

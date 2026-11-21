@@ -335,7 +335,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       const rows = await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.id, ids))
       const missing = ids.find((id) => !rows.some((r) => r.id === id))
       if (missing !== undefined) throw new Error(`Ticket not found: ${missing}`)
-      await db.update(tickets).set({ archivedAt: null }).where(inArray(tickets.id, ids))
+      // A restore gives the ticket a fresh window: the automatic sweep counts its days from now.
+      await db
+        .update(tickets)
+        .set({ archivedAt: null, archiveBatchId: null, restoredAt: now().toISOString() })
+        .where(and(inArray(tickets.id, ids), isNotNull(tickets.archivedAt)))
       return withCriteria(await db.select().from(tickets).where(inArray(tickets.id, ids)).orderBy(asc(tickets.number)))
     },
 
@@ -409,11 +413,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       if (column === 'done') {
         await patchRow(id, { manualColumn: column, doneAt: sql`coalesce(${tickets.doneAt}, ${now().toISOString()})` })
       } else if (rank !== undefined) {
-        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, rank })
+        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, archiveBatchId: null, restoredAt: null, rank })
       } else {
         const [row] = await db.select({ workspaceId: tickets.workspaceId }).from(tickets).where(eq(tickets.id, id))
         if (!row) throw new Error(`Ticket not found: ${id}`)
-        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, rank: bottomRank(row.workspaceId) })
+        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, archiveBatchId: null, restoredAt: null, rank: bottomRank(row.workspaceId) })
       }
       return get(id)
     },

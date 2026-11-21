@@ -57,6 +57,8 @@ import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
 import { MergeModal } from '../ticket/MergeModal'
+import { ArchiveNotice } from '../archive/ArchiveNotice'
+import { ArchiveOlderModal } from '../archive/ArchiveOlderModal'
 import { cardRects, laneOf, makeCoordinates, slotIn } from './reorder'
 import { matchesSearch } from './search'
 import { TicketCard } from './TicketCard'
@@ -319,6 +321,9 @@ export function Board(): ReactElement {
   const [creating, setCreating] = useState(false)
   // The ticket in Review whose Merge… dialog is open.
   const [mergeTarget, setMergeTarget] = useState<BoardTicket | null>(null)
+  // "Archive all Done older than…" is open. Held here, not in the Done strip, which closes when focus leaves it.
+  const [archiveOlderOpen, setArchiveOlderOpen] = useState(false)
+  const openArchiveOlder = useCallback(() => setArchiveOlderOpen(true), [])
   const openSettings = useMainbus((s) => s.openSettings)
   const filtering = search.trim() !== ''
   const filteringRef = useRef(filtering)
@@ -663,6 +668,8 @@ export function Board(): ReactElement {
         </Group>
       </Group>
 
+      <ArchiveNotice />
+
       {empty ? (
         <Box pos="relative" style={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column' }}>
           {/* The lanes the board will have, full height, with their names: no scrolling, they share the width. */}
@@ -718,7 +725,7 @@ export function Board(): ReactElement {
                 onArchive
               }
               return c.id === 'done' ? (
-                <DoneColumn key={c.id} {...props} />
+                <DoneColumn key={c.id} {...props} onArchiveOlder={openArchiveOlder} />
               ) : (
                 <BoardColumn key={c.id} {...props} collapsed={c.id === 'needs_you' && needsYouCollapsed} />
               )
@@ -728,6 +735,7 @@ export function Board(): ReactElement {
       )}
 
       <NewTicketModal opened={creating} onClose={closeNewTicket} />
+      <ArchiveOlderModal opened={archiveOlderOpen} onClose={() => setArchiveOlderOpen(false)} />
       {mergeTarget !== null && <MergeModal opened ticket={mergeTarget} onClose={() => setMergeTarget(null)} />}
     </Stack>
   )
@@ -874,7 +882,7 @@ function ColumnCards({
  * over Review, without moving the other columns: on hover, while focus is inside it, and while a card is
  * dragged over it or out of it. Closed, its cards are hidden from sight, the tab order and screen readers.
  */
-const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, ...rest }: ColumnProps): ReactElement {
+const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, onArchiveOlder, ...rest }: ColumnProps & { onArchiveOlder: () => void }): ReactElement {
   const { setNodeRef, isOver, active } = useDroppable({ id })
   const { measureDroppableContainers } = useDndContext()
   const reducedMotion = useReducedMotion()
@@ -1000,6 +1008,17 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
           styles={{ root: { marginBottom: 'var(--mantine-spacing-xs)' } }}
         >
           Archive ({archivedCount})
+        </Button>
+      )}
+      {open && tickets.length > 0 && (
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          data-archive-older-button
+          onClick={onArchiveOlder}
+          styles={{ root: { marginBottom: 'var(--mantine-spacing-xs)' } }}
+        >
+          Archive older…
         </Button>
       )}
       <ColumnCards tickets={tickets} pendingMoves={pendingMoves} {...rest} hidden={!open} />
