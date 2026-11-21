@@ -2,7 +2,9 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { win32 } from 'node:path'
+import { posix } from 'node:path'
 import type { ClaudeSetup } from '../../shared/domain'
+import { defaultDirFs, wellKnownBinDirs } from './shellPath'
 
 export type ExecFn = (file: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>
 
@@ -40,22 +42,30 @@ async function tryExec(exec: ExecFn, file: string, args: string[]) {
 /** What the native-installer fallback looks at; injectable so tests don't depend on the machine. */
 export interface FallbackFs {
   exists: (path: string) => boolean
-  /** The user's home folder (%USERPROFILE%). */
+  /** The user's home folder (%USERPROFILE% on Windows, $HOME elsewhere). */
   home: string
+  /** Names inside a folder (used to find the newest nvm Node); `[]` when unreadable. */
+  list?: (dir: string) => string[]
 }
 
-const defaultFallbackFs = (): FallbackFs => ({ exists: existsSync, home: process.env.USERPROFILE || homedir() })
+const defaultFallbackFs = (platform: NodeJS.Platform): FallbackFs => ({
+  exists: existsSync,
+  home: platform === 'win32' ? process.env.USERPROFILE || homedir() : process.env.HOME || homedir(),
+  list: defaultDirFs.list
+})
 
 /**
  * Finds the user's official `claude` binary and checks that it is logged in.
  * On Windows only an `.exe` can be spawned without a shell, so `.cmd` shims are skipped.
  * If PATH has no `.exe`, the native installer's `%USERPROFILE%\.local\bin\claude.exe` is tried: an app started
  * from the Start menu can have a narrower PATH than a terminal.
+ * On macOS and Linux, if `which` finds nothing, the common install folders (see `wellKnownBinDirs`) are tried in
+ * order: an app started from Finder, the Dock or a desktop entry can have a narrower PATH too.
  */
 export async function resolveClaude(
   exec: ExecFn,
   platform: NodeJS.Platform = process.platform,
-  fallbackFs: FallbackFs = defaultFallbackFs()
+  fallbackFs: FallbackFs = defaultFallbackFs(platform)
 ): Promise<ClaudeSetup> {
   const windows = platform === 'win32'
   const found = windows ? await tryExec(exec, 'where.exe', ['claude']) : await tryExec(exec, 'which', ['claude'])
@@ -64,6 +74,20 @@ export async function resolveClaude(
   if (!claudePath && windows) {
     const native = win32.join(fallbackFs.home, '.local', 'bin', 'claude.exe')
     if (fallbackFs.exists(native)) claudePath = native
+  }
+  if (!claudePath && !windows) {
+    for (const dir of wellKnownBinDirs(
+      fallbackFs.home,
+      { exists: fallbackFs.exists, list: fallbackFs.list ?? (() => []) },
+      platform,
+      false
+    )) {
+      const candidate = posix.join(dir, 'claude')
+      if (fallbackFs.exists(candidate)) {
+        claudePath = candidate
+        break
+      }
+    }
   }
   if (!claudePath) {
     const why = found.code === 0 ? 'only non-.exe launchers were found' : firstLine(found.stderr) || 'not on PATH'

@@ -16,6 +16,7 @@ import { startIntakeServer, type IntakeServer } from '../engine/intake/server'
 import { FakeRuntime, orchestratorScriptFromFile, scriptFromFile, type FakeScriptFile } from '../engine/runtime/fakeRuntime'
 import { execFileNode, resolveClaude, type ExecFn } from '../engine/runtime/resolveClaude'
 import { SdkRuntime } from '../engine/runtime/sdkRuntime'
+import { applyLoginShellPath } from '../engine/runtime/shellPath'
 import type { AgentRuntime } from '../engine/runtime/types'
 import { iconDir, windowIconFile } from './appIcon'
 import { isAppUrl, isExternalWebUrl } from './appUrl'
@@ -276,6 +277,7 @@ if (!app.requestSingleInstanceLock()) {
       session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) =>
         allowed(permission, details as Parameters<typeof allowPermission>[1], webContents?.getURL() ?? '')
       )
+      await applyLoginShellPath(process.env)
       const { runtime, exec, commands } = await chooseRuntime(clock)
       engine = await createEngine({
         paths: home,

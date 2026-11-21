@@ -565,6 +565,13 @@ describe('SdkRuntime', () => {
     expect(process.env.ANTHROPIC_API_KEY).toBe('should-not-leak') // the parent is untouched
   })
 
+  test('passes the (login-shell) PATH of the app to the agent', async () => {
+    vi.stubEnv('PATH', '/mainbus-test/bin')
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec())
+    expect(Object.values(f.calls[0].options.env)).toContain('/mainbus-test/bin')
+  })
+
   test("names the app's data home in MAINBUS_AGENT_HOME, never an inherited one", async () => {
     vi.stubEnv('MAINBUS_AGENT_HOME', '/inherited')
     const f = fakeSdk()

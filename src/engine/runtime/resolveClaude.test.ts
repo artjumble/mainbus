@@ -19,7 +19,7 @@ function fakeExec(table: Record<string, Result | Error>): { exec: ExecFn; calls:
 
 const EXE = 'C:\\Users\\x\\.local\\bin\\claude.exe'
 /** No native-install fallback: keeps the not_found tests independent of the machine they run on. */
-const NO_FALLBACK = { exists: () => false, home: 'C:\\Users\\x' }
+const NO_FALLBACK = { exists: () => false, home: 'C:\\Users\\x', list: () => [] }
 
 describe('resolveClaude', () => {
   test('not_found when where.exe fails', async () => {
@@ -79,10 +79,70 @@ describe('resolveClaude', () => {
       })
     })
 
-    test('is not tried off Windows', async () => {
-      const { exec, calls } = fakeExec({ 'which claude': { code: 1, stdout: '', stderr: '' } })
-      await resolveClaude(exec, 'linux', { exists: () => true, home: '/home/x' })
-      expect(calls).toEqual(['which claude'])
+    test('the Windows fallback ignores the POSIX folders', async () => {
+      const { exec } = fakeExec(missing)
+      const r = await resolveClaude(exec, 'win32', {
+        exists: (p) => p === '/usr/local/bin/claude',
+        home,
+        list: () => []
+      })
+      expect(r).toMatchObject({ ok: false, reason: 'not_found' })
+    })
+  })
+
+  describe('macOS and Linux install locations', () => {
+    const home = '/home/x'
+    const noWhich = { 'which claude': { code: 1, stdout: '', stderr: '' } }
+    const ready = (p: string) => ({ [`${p} --version`]: ok('2.1.314 (Claude Code)'), [`${p} auth status`]: ok('ok') })
+    const locations: [string, string, NodeJS.Platform][] = []
+    for (const platform of ['darwin', 'linux'] as const) {
+      for (const p of [
+        '/home/x/.local/bin/claude',
+        '/home/x/.claude/local/claude',
+        '/opt/homebrew/bin/claude',
+        '/usr/local/bin/claude',
+        '/home/x/.npm-global/bin/claude',
+        '/home/x/.volta/bin/claude',
+        '/home/x/.nvm/versions/node/v22.1.0/bin/claude'
+      ]) {
+        locations.push([platform, p, platform])
+      }
+    }
+    locations.push(['linux', '/home/linuxbrew/.linuxbrew/bin/claude', 'linux'])
+
+    test.each(locations)('%s: finds %s when which finds nothing', async (_n, path, platform) => {
+      const { exec } = fakeExec({ ...noWhich, ...ready(path) })
+      const r = await resolveClaude(exec, platform, {
+        exists: (p) => p === path,
+        home,
+        list: (d) => (d === '/home/x/.nvm/versions/node' ? ['v22.1.0'] : [])
+      })
+      expect(r).toEqual({ ok: true, path, version: '2.1.314' })
+    })
+
+    test('which wins over the fallbacks', async () => {
+      const { exec } = fakeExec({ 'which claude': ok('/bin/claude'), ...ready('/bin/claude') })
+      const r = await resolveClaude(exec, 'linux', { exists: () => true, home, list: () => [] })
+      expect(r).toMatchObject({ ok: true, path: '/bin/claude' })
+    })
+
+    test('uses the newest nvm Node', async () => {
+      const newest = '/home/x/.nvm/versions/node/v20.11.0/bin/claude'
+      const { exec } = fakeExec({ ...noWhich, ...ready(newest) })
+      const only = await resolveClaude(exec, 'darwin', {
+        exists: (p) => p === newest,
+        home,
+        list: () => ['v9.0.0', 'v20.11.0', 'junk']
+      })
+      expect(only).toMatchObject({ ok: true, path: newest })
+    })
+
+    test('not_found when nothing exists', async () => {
+      const { exec } = fakeExec(noWhich)
+      expect(await resolveClaude(exec, 'linux', { exists: () => false, home, list: () => [] })).toMatchObject({
+        ok: false,
+        reason: 'not_found'
+      })
     })
   })
 

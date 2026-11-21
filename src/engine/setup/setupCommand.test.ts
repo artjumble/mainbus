@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyLoginShellPath } from '../runtime/shellPath'
 import { ProcessSweeper, type ProcessInfo, type ProcessRef } from '../processes/sweep'
 import { createSetupCommandRunner, type SetupCommandRequest } from './setupCommand'
 
@@ -55,6 +56,29 @@ describe('the real setup command runner', () => {
     expect(await real(result.tail[0]!)).toBe(await real(cwd))
     expect(result.tail[1]).toBe(tempDir)
     expect(result.tail[2]).toBe(tempDir)
+  })
+
+  it('inherits the PATH that applyLoginShellPath set', async () => {
+    const original = process.env.PATH ?? ''
+    const marker = '/mainbus-login-shell/bin'
+    // Computed on a copy: the real PATH on Windows has drive-letter colons, which the POSIX merge would split.
+    const copy: NodeJS.ProcessEnv = { PATH: '', SHELL: '/bin/zsh', HOME: '/home/x' }
+    await applyLoginShellPath(copy, {
+      platform: 'darwin',
+      run: async (_s, args) => {
+        const m = /'(__MAINBUS_PATH_[^']+)'/.exec(args[1]!)![1]
+        return { kind: 'ok', stdout: `${m}${marker}${m}` }
+      }
+    })
+    expect(copy.PATH).toBe(marker)
+    vi.stubEnv('PATH', `${copy.PATH}${path.delimiter}${original}`)
+    try {
+      const result = await createSetupCommandRunner()(request(node('console.log(process.env.PATH)')))
+      expect(result.exitCode).toBe(0)
+      expect(result.tail.join('\n')).toContain(marker)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('ends a command that outlasts the timeout, through the sweeper', async () => {
