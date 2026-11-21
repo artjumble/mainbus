@@ -81,6 +81,8 @@ export function makeTicket(overrides: Partial<BoardTicket> = {}, state: Partial<
     blockedBy: [],
     dependencyNotes: [],
     freshness: null,
+    doneAt: null,
+    archivedAt: null,
     createdAt: '2026-10-30T00:00:00.000Z',
     updatedAt: '2026-10-30T00:00:00.000Z',
     hold: null,

@@ -116,10 +116,17 @@ export const tickets = sqliteTable(
     runSettings: text('run_settings'),
     /** The state of the workspace's setup command in this ticket's folder (JSON of TicketSetup); null when none applies. */
     setup: text('setup'),
+    /** When the ticket last entered Done; null outside Done. Backfilled from updated_at for tickets already Done, so approximate. */
+    doneAt: text('done_at'),
+    /** When a Done ticket was archived (left out of the board and the orchestrator's list); null when not archived. */
+    archivedAt: text('archived_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },
-  (t) => [uniqueIndex('tickets_workspace_number_uq').on(t.workspaceId, t.number)]
+  (t) => [
+    uniqueIndex('tickets_workspace_number_uq').on(t.workspaceId, t.number),
+    index('tickets_workspace_archived_idx').on(t.workspaceId, t.archivedAt)
+  ]
 )
 
 export const criteria = sqliteTable(

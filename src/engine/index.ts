@@ -968,7 +968,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     // The intake's tickets need only their state; the board's carry their lineup strip as well.
     const boardTickets = async (ws: Workspace) => {
-      const tickets = await repos.tickets.list(ws.id)
+      const tickets = await repos.tickets.list(ws.id, { includeArchived: false })
       return Promise.all(tickets.map(async (t) => ({ ...t, state: await runner.stateOf(t.id) })))
     }
     const boardTicket = async (ws: Workspace, number: number) => {
@@ -976,8 +976,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       return ticket && { ...ticket, state: await runner.stateOf(ticket.id) }
     }
 
-    const boardView = async (ws: Workspace): Promise<BoardTicket[]> => {
-      const tickets = await repos.tickets.list(ws.id)
+    const boardView = async (ws: Workspace, opts?: { includeArchived?: boolean }): Promise<BoardTicket[]> => {
+      const tickets = await repos.tickets.list(ws.id, { includeArchived: opts?.includeArchived ?? false })
       const holdOf = new Map((await repos.holds.activeOf('ticket')).map((h) => [h.targetId, h]))
       // Read once, for every ticket that hasn't run yet.
       const lineups = new Map<Lineup, Promise<LineupRole[]>>()
@@ -1621,6 +1621,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'ticket.promote': (id, fields) => promoteTicket(id, fields),
       'ticket.hold': (id, opts) => holds.hold(id, opts),
       'ticket.unhold': (id) => holds.unhold(id),
+      'ticket.archive': async (ids) => {
+        const archived = await repos.tickets.archive(z.array(z.string().min(1)).parse(ids))
+        for (const workspaceId of new Set(archived.map((t) => t.workspaceId))) emit({ type: 'board.changed', workspaceId })
+      },
+      'ticket.unarchive': async (ids) => {
+        const restored = await repos.tickets.unarchive(z.array(z.string().min(1)).parse(ids))
+        for (const workspaceId of new Set(restored.map((t) => t.workspaceId))) emit({ type: 'board.changed', workspaceId })
+      },
       'ticket.setRunSettings': (id, settings) => setRunSettings(id, settings),
       'ticket.openPr': (id) => runner.openPr(id),
       'ticket.saveReport': (id) => runner.saveReport(id),

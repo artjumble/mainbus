@@ -25,8 +25,8 @@ export interface ReadToolDeps {
   focused(): Promise<Workspace | null>
   /** Every open workspace, oldest first. */
   list(): Promise<Workspace[]>
-  /** The workspace's tickets as the board shows them: state and lineup strip. */
-  board(ws: Workspace): Promise<BoardTicket[]>
+  /** The workspace's tickets as the board shows them: state and lineup strip. Archived ones are left out unless asked for. */
+  board(ws: Workspace, opts?: { includeArchived?: boolean }): Promise<BoardTicket[]>
   /** Where the app stands on the usage limit; without it nothing is said about it. */
   usage?: () => Promise<UsageState>
   /** The images the user attached to the ticket, with where their files are; without it none are listed. */
@@ -317,14 +317,14 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
   const usageNow = async (): Promise<UsageState> => (await deps.usage?.()) ?? { kind: 'ok' }
 
   /** The named workspace (the focused one by default) and its board, or the text to answer with instead. */
-  async function board(ref?: string): Promise<{ ws: Workspace; tickets: BoardTicket[] } | string> {
+  async function board(ref?: string, opts?: { includeArchived?: boolean }): Promise<{ ws: Workspace; tickets: BoardTicket[] } | string> {
     const found = resolveWorkspaceRef(await deps.list(), await deps.focused(), ref)
     if (!found.ok) return found.text
-    return { ws: found.ws, tickets: await deps.board(found.ws) }
+    return { ws: found.ws, tickets: await deps.board(found.ws, opts) }
   }
 
   async function ticket(number: number, ref?: string): Promise<{ ws: Workspace; t: BoardTicket } | string> {
-    const b = await board(ref)
+    const b = await board(ref, { includeArchived: true })
     if (typeof b === 'string') return b
     const t = b.tickets.find((x) => x.number === number)
     return t ? { ws: b.ws, t } : `No ticket #${number} in ${oneLine(b.ws.name)}.`
@@ -435,7 +435,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const { t } = found
       const byAgent = filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''
       const criteria = t.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
-      const promoted = (await deps.board(found.ws))
+      const promoted = (await deps.board(found.ws, { includeArchived: true }))
         .filter((x) => x.promotedFrom === t.id || x.id === t.promotedFrom)
         .map((x) => (x.id === t.promotedFrom ? `Promoted from ${title(x)}` : `Promoted to ${title(x)}`))
       const run = await latestRun(t)

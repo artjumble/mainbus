@@ -349,6 +349,13 @@ export interface EngineCommands {
   /** Releases the ticket's hold; nothing happens when it has none. */
   'ticket.unhold'(id: string): void
   /**
+   * Archives Done tickets: they leave the board and the orchestrator's default list, and stay Done everywhere else
+   * (blockers, reports, usage). If any isn't Done, it refuses and archives none.
+   */
+  'ticket.archive'(ids: string[]): void
+  /** Puts archived tickets back in Done on the board. */
+  'ticket.unarchive'(ids: string[]): void
+  /**
    * Saves the run settings every start of the ticket uses unless it chooses its own; null clears them, back to the
    * lineup's defaults. Only while the ticket is in Backlog or Ready with no run open.
    */
