@@ -433,6 +433,10 @@ export interface Ticket {
   runSettings: RunSettings | null
   /** The workspace's setup command in this ticket's folder; null when none applies. */
   setup: TicketSetup | null
+  /** When it last entered Done; null outside Done. Backfilled ones are approximate. */
+  doneAt: string | null
+  /** Set only on Done tickets: archived ones leave the board and the orchestrator's list, and stay Done everywhere else. */
+  archivedAt: string | null
   createdAt: string
   updatedAt: string
 }

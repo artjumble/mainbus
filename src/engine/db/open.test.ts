@@ -819,4 +819,31 @@ describe('openDb', () => {
       )
     ).rejects.toThrow()
   })
+
+  it('migration 0041 backfills done_at from updated_at for Done tickets only, and adds archived_at and its index', async () => {
+    const first = await open(firstMigrations(41))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w1', '2026-10-30T00:00:00.000Z')`
+    )
+    for (const [id, n, column, updated] of [
+      ['done1', 1, 'done', '2026-11-02T00:00:00.000Z'],
+      ['ready1', 2, 'ready', '2026-11-03T00:00:00.000Z']
+    ] as const) {
+      await first.db.run(
+        sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+            values (${id}, 'w1', ${n}, 'change', 'T', '[]', '', '[]', ${column}, '2026-10-30T00:00:00.000Z', ${updated})`
+      )
+    }
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    const rows = await db.select().from(tickets)
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
+    expect(byId.done1).toMatchObject({ doneAt: '2026-11-02T00:00:00.000Z', archivedAt: null })
+    expect(byId.ready1).toMatchObject({ doneAt: null, archivedAt: null })
+    const idx = await db.all(sql`select name from sqlite_master where type = 'index' and name = 'tickets_workspace_archived_idx'`)
+    expect(idx).toHaveLength(1)
+  })
 })
