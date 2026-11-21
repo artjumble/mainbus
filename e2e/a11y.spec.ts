@@ -311,7 +311,11 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await page.getByRole('menuitem', { name: 'Settings' }).click()
     const segment = page.getByRole('dialog', { name: 'Workspace settings' }).locator('[data-category]').first()
     await segment.hover()
-    await expect(page.getByRole('tooltip')).toBeVisible()
+    const tooltip = page.getByRole('tooltip')
+    await expect(tooltip).toBeVisible()
+    // The fade-in starts a frame after the tooltip mounts, so "no animation running" can hold before it begins:
+    // wait for full opacity itself, then for anything else still moving.
+    await expect(tooltip).toHaveCSS('opacity', '1')
     await animationsSettled(page)
     await expectNoAxeViolations(page, 'an open tooltip', ['color-contrast'])
     await page.keyboard.press('Escape')
