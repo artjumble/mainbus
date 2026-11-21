@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketPatch, TicketSetup } from '../../shared/domain'
+import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketRef, TicketPatch, TicketSetup } from '../../shared/domain'
 import type { Db } from '../db/open'
 import { criteria, tickets } from '../db/schema'
 
@@ -32,13 +32,25 @@ export interface TicketRepo {
     workspaceId: string,
     opts?: { query?: string; before?: { archivedAt: string; number: number }; limit?: number }
   ): Promise<Ticket[]>
+  /** How many archived tickets match the query (all of them without one), paging ignored. */
+  countArchived(workspaceId: string, opts?: { query?: string }): Promise<number>
+  /** Every promotion in the workspace, archived tickets included: the Investigate ticket and the Change ticket made from it. */
+  promotions(workspaceId: string): Promise<{ from: TicketRef; to: TicketRef }[]>
   update(id: string, patch: TicketPatch): Promise<Ticket>
   /**
    * Intent is append-only: this is the only way to add to it, and nothing edits or removes an entry. The one exception is
    * the Undo of an orchestrator edit (TicketEditRepo.undo), which removes the entries that edit appended moments before.
    */
   appendIntent(id: string, text: string): Promise<Ticket>
-  setManualColumn(id: string, column: 'backlog' | 'ready' | 'done'): Promise<Ticket>
+  /**
+   * Moves the ticket to a column. Into Backlog or Ready it takes `rank` (a position among that column) or, with none
+   * given, the bottom; Done leaves the rank as it is.
+   */
+  setManualColumn(id: string, column: 'backlog' | 'ready' | 'done', rank?: number): Promise<Ticket>
+  /** Sets the ticket's rank (a number, or 'bottom' for after every other ticket in the workspace). */
+  setRank(id: string, rank: number | 'bottom'): Promise<Ticket>
+  /** Sets several ranks in one batch (a rebalance). */
+  setRanks(entries: { id: string; rank: number }[]): Promise<void>
   /** Whether the ticket was to be proposed for starting once in Ready; clears the flag, so it answers true once. */
   takeStartWhenReady(id: string): Promise<boolean>
   setWorktree(id: string, branch: string, path: string | null): Promise<Ticket>
@@ -70,6 +82,11 @@ export interface TicketRepo {
 
 type TicketRow = typeof tickets.$inferSelect
 
+/** One statement, so the rank is taken atomically with the insert or update, like the ticket number. */
+function bottomRank(workspaceId: SQL | string): SQL {
+  return sql`(select coalesce(max(${tickets.rank}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${workspaceId})`
+}
+
 function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
   return {
     id: row.id,
@@ -82,6 +99,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     criteria: ticketCriteria,
     labels: JSON.parse(row.labels) as string[],
     manualColumn: row.manualColumn as Ticket['manualColumn'],
+    rank: row.rank,
     branch: row.branch,
     worktreePath: row.worktreePath,
     pr: row.prUrl !== null && row.prNumber !== null ? { url: row.prUrl, number: row.prNumber } : null,
@@ -128,6 +146,26 @@ export function appendIntentStatement(db: Db, id: string, entry: IntentEntry): B
     .update(tickets)
     .set({ intent: sql`json_insert(${tickets.intent}, '$[#]', json(${JSON.stringify(entry)}))`, updatedAt: entry.at })
     .where(eq(tickets.id, id))
+}
+
+/** The conditions for a workspace's archived tickets that match the board's search; `query` is optional. */
+function archivedMatch(workspaceId: string, rawQuery: string | undefined): (SQL | undefined)[] {
+  const conds: (SQL | undefined)[] = [eq(tickets.workspaceId, workspaceId), isNotNull(tickets.archivedAt)]
+  const q = rawQuery?.trim().toLowerCase() ?? ''
+  if (q !== '') {
+    if (/^#\d+$/.test(q)) {
+      conds.push(eq(tickets.number, Number(q.slice(1))))
+    } else {
+      const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+      const text = or(
+        sql`lower(${tickets.title}) like ${like} escape '\\'`,
+        sql`exists (select 1 from json_each(${tickets.labels}) where lower(value) like ${like} escape '\\')`,
+        sql`exists (select 1 from json_each(${tickets.intent}) where lower(json_extract(value, '$.text')) like ${like} escape '\\')`
+      )
+      conds.push(/^\d+$/.test(q) ? or(eq(tickets.number, Number(q)), text) : text)
+    }
+  }
+  return conds
 }
 
 export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
@@ -200,6 +238,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       spec: input.spec,
       labels: JSON.stringify(input.labels),
       manualColumn: input.column,
+      rank: bottomRank(input.workspaceId),
       startWhenReady: input.startWhenReady === true,
       runSettings: input.runSettings ? JSON.stringify(input.runSettings) : null,
       createdAt: at,
@@ -223,6 +262,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       spec: fields.spec,
       labels: JSON.stringify(original.labels),
       manualColumn: 'ready',
+      rank: bottomRank(original.workspaceId),
       report: original.report,
       promotedFrom: original.id,
       createdAt: at,
@@ -301,7 +341,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
 
     async listArchived(workspaceId, opts) {
       const limit = Math.min(200, Math.max(1, Math.floor(opts?.limit ?? 50)))
-      const conds: (SQL | undefined)[] = [eq(tickets.workspaceId, workspaceId), isNotNull(tickets.archivedAt)]
+      const conds = archivedMatch(workspaceId, opts?.query)
       const before = opts?.before
       if (before) {
         conds.push(
@@ -311,20 +351,6 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
           )
         )
       }
-      const q = opts?.query?.trim().toLowerCase() ?? ''
-      if (q !== '') {
-        if (/^#\d+$/.test(q)) {
-          conds.push(eq(tickets.number, Number(q.slice(1))))
-        } else {
-          const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
-          const text = or(
-            sql`lower(${tickets.title}) like ${like} escape '\\'`,
-            sql`exists (select 1 from json_each(${tickets.labels}) where lower(value) like ${like} escape '\\')`,
-            sql`exists (select 1 from json_each(${tickets.intent}) where lower(json_extract(value, '$.text')) like ${like} escape '\\')`
-          )
-          conds.push(/^\d+$/.test(q) ? or(eq(tickets.number, Number(q)), text) : text)
-        }
-      }
       return withCriteria(
         await db
           .select()
@@ -333,6 +359,36 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
           .orderBy(desc(tickets.archivedAt), desc(tickets.number))
           .limit(limit)
       )
+    },
+
+    async countArchived(workspaceId, opts) {
+      const [row] = await db
+        .select({ n: sql<number>`count(*)` })
+        .from(tickets)
+        .where(and(...archivedMatch(workspaceId, opts?.query)))
+      return Number(row?.n ?? 0)
+    },
+
+    async promotions(workspaceId) {
+      const rows = await db
+        .select({ id: tickets.id, promotedFrom: tickets.promotedFrom })
+        .from(tickets)
+        .where(and(eq(tickets.workspaceId, workspaceId), isNotNull(tickets.promotedFrom)))
+      if (rows.length === 0) return []
+      const ids = [...new Set(rows.flatMap((r) => [r.id, r.promotedFrom!]))]
+      const refs = new Map(
+        (
+          await db
+            .select({ id: tickets.id, number: tickets.number, title: tickets.title, archivedAt: tickets.archivedAt })
+            .from(tickets)
+            .where(inArray(tickets.id, ids))
+        ).map((r) => [r.id, { id: r.id, number: r.number, title: r.title, archived: r.archivedAt !== null }] as const)
+      )
+      return rows.flatMap((r) => {
+        const from = refs.get(r.promotedFrom!)
+        const to = refs.get(r.id)
+        return from && to ? [{ from, to }] : []
+      })
     },
 
     async update(id, patch) {
@@ -348,15 +404,34 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       return get(id)
     },
 
-    async setManualColumn(id, column) {
+    async setManualColumn(id, column, rank) {
       // Done again keeps the first entry time; leaving Done clears both, so only Done tickets are ever archived.
-      await patchRow(
-        id,
-        column === 'done'
-          ? { manualColumn: column, doneAt: sql`coalesce(${tickets.doneAt}, ${now().toISOString()})` }
-          : { manualColumn: column, doneAt: null, archivedAt: null }
-      )
+      if (column === 'done') {
+        await patchRow(id, { manualColumn: column, doneAt: sql`coalesce(${tickets.doneAt}, ${now().toISOString()})` })
+      } else if (rank !== undefined) {
+        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, rank })
+      } else {
+        const [row] = await db.select({ workspaceId: tickets.workspaceId }).from(tickets).where(eq(tickets.id, id))
+        if (!row) throw new Error(`Ticket not found: ${id}`)
+        await patchRow(id, { manualColumn: column, doneAt: null, archivedAt: null, rank: bottomRank(row.workspaceId) })
+      }
       return get(id)
+    },
+
+    async setRank(id, rank) {
+      if (rank !== 'bottom') await patchRow(id, { rank })
+      else {
+        const [row] = await db.select({ workspaceId: tickets.workspaceId }).from(tickets).where(eq(tickets.id, id))
+        if (!row) throw new Error(`Ticket not found: ${id}`)
+        await patchRow(id, { rank: bottomRank(row.workspaceId) })
+      }
+      return get(id)
+    },
+
+    async setRanks(entries) {
+      if (entries.length === 0) return
+      const [first, ...rest] = entries.map((e) => db.update(tickets).set({ rank: e.rank }).where(eq(tickets.id, e.id)))
+      await db.batch([first!, ...rest])
     },
 
     async takeStartWhenReady(id) {

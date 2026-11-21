@@ -150,7 +150,7 @@ test('the core flow works by keyboard alone: create, start, answer, move', async
     await page.keyboard.press('ArrowRight')
     await expect(announced).toContainText('ticket #2 Second ticket is over Ready')
     await page.keyboard.press('Space')
-    await expect(announced).toContainText('ticket #2 Second ticket was dropped on Ready')
+    await expect(announced).toContainText('#2 moved to position 1 of 1 in Ready')
     await expect(page.getByRole('region', { name: 'Ready' }).getByText('Second ticket')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Backlog' }).getByText('Second ticket')).toHaveCount(0)
 

@@ -86,6 +86,35 @@ describe('ticket repo', () => {
     expect((await repo.setSetup(t.id, null)).setup).toBeNull()
   })
 
+  it('puts new tickets at the bottom: create, createMany and a promoted ticket take increasing ranks', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.create(input())
+    const [b, c] = await repo.createMany([input({ title: 'B' }), input({ title: 'C' })])
+    const p = await repo.createPromoted(a, { title: 'P', spec: '' })
+    expect([a, b!, c!, p].map((t) => t.rank)).toEqual([1, 2, 3, 4])
+  })
+
+  it('moves into Backlog or Ready to the bottom, or to the rank given; Done keeps the rank', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.create(input({ column: 'ready' }))
+    const b = await repo.create(input({ column: 'ready' }))
+    expect((await repo.setManualColumn(a.id, 'backlog')).rank).toBe(3)
+    expect((await repo.setManualColumn(b.id, 'backlog', 0.5)).rank).toBe(0.5)
+    expect(await repo.setManualColumn(a.id, 'done')).toMatchObject({ manualColumn: 'done', rank: 3 })
+    expect((await repo.setManualColumn(a.id, 'ready')).rank).toBe(4)
+  })
+
+  it('sets a rank, or all of several in one batch', async () => {
+    const repo = createTicketRepo(db, now)
+    const a = await repo.create(input())
+    const b = await repo.create(input())
+    expect((await repo.setRank(a.id, 'bottom')).rank).toBe(3)
+    expect((await repo.setRank(b.id, -4)).rank).toBe(-4)
+    await repo.setRanks([{ id: a.id, rank: 10 }, { id: b.id, rank: 20 }])
+    expect([(await repo.get(a.id)).rank, (await repo.get(b.id)).rank]).toEqual([10, 20])
+    await repo.setRanks([])
+  })
+
   it("records the report's file: its path, then the commit or why the save failed", async () => {
     const repo = createTicketRepo(db, now)
     const t = await repo.create({ ...input(), kind: 'investigate' })
@@ -106,6 +135,7 @@ describe('ticket repo', () => {
       id: expect.any(String),
       workspaceId,
       number: 1,
+      rank: 1,
       kind: 'change',
       title: 'Add login',
       intent: [{ text: 'Let people log in', at: FIXED_NOW.toISOString() }],
@@ -453,5 +483,34 @@ describe('done_at and archiving', () => {
     expect(await q('text')).toEqual([])
     expect(await q('%')).toEqual([2])
     expect(await q('_')).toEqual([])
+  })
+
+  it('countArchived counts the matches of a query, ignoring paging and unarchived tickets', async () => {
+    const repo = createTicketRepo(db, now)
+    const mk = async (title: string) => (await repo.setManualColumn((await repo.create(input({ title }))).id, 'done')).id
+    const ids = [await mk('Alpha one'), await mk('Alpha two'), await mk('Beta')]
+    await mk('Alpha not archived')
+    expect(await repo.countArchived(workspaceId)).toBe(0)
+    await repo.archive(ids)
+    expect(await repo.countArchived(workspaceId)).toBe(3)
+    expect(await repo.countArchived(workspaceId, { query: 'alpha' })).toBe(2)
+    expect(await repo.countArchived(workspaceId, { query: '#3' })).toBe(1)
+    expect(await repo.countArchived(workspaceId, { query: 'nothing' })).toBe(0)
+  })
+
+  it('promotions pairs each Change ticket with its source, archived ones included', async () => {
+    const repo = createTicketRepo(db, now)
+    const original = await repo.create(input({ kind: 'investigate', column: 'ready' }))
+    await repo.setReport(original.id, '# Findings')
+    const promoted = await repo.createPromoted(await repo.get(original.id), { title: 'Fix it', spec: 'Do X' })
+    expect(await repo.promotions(workspaceId)).toEqual([
+      {
+        from: { id: original.id, number: original.number, title: original.title, archived: false },
+        to: { id: promoted.id, number: promoted.number, title: 'Fix it', archived: false }
+      }
+    ])
+    await repo.setManualColumn(original.id, 'done')
+    await repo.archive([original.id])
+    expect((await repo.promotions(workspaceId))[0]!.from.archived).toBe(true)
   })
 })

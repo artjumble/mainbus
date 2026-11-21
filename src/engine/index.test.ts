@@ -426,7 +426,7 @@ describe('workspace.open', () => {
     const engine = await makeEngine(new FakeRuntime([]))
     await expect(engine.invoke('ticket.create', newTicket)).rejects.toThrow('Open a workspace first')
     await expect(engine.invoke('lineup.get')).rejects.toThrow('Open a workspace first')
-    expect(await engine.invoke('board.get')).toEqual({ tickets: [] })
+    expect(await engine.invoke('board.get')).toEqual({ tickets: [], archived: 0 })
     expect(await engine.invoke('allowRules.list')).toEqual([])
   })
 })

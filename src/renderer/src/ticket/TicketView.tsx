@@ -34,13 +34,16 @@ const CONTEXT_WIDTH = 380
 /** The split view for one ticket: its context on the left, the live agent thread on the right. */
 export function TicketView(): ReactElement {
   const ticketId = useMainbus((s) => s.currentTicketId)
-  const ticket = useMainbus((s) => s.tickets.find((t) => t.id === ticketId))
+  // An archived ticket isn't on the board: the store reads it by id.
+  const ticket = useMainbus((s) => s.tickets.find((t) => t.id === ticketId) ?? (s.offBoardTicket?.id === ticketId ? s.offBoardTicket : undefined))
+  const loading = useMainbus((s) => s.offBoardLoading)
   const workspace = useMainbus((s) => s.workspace)
   const closeTicket = useMainbus((s) => s.closeTicket)
+  const fromArchive = useMainbus((s) => s.archiveOpen)
 
   const back = (
     <Anchor component="button" type="button" size="sm" onClick={closeTicket} style={{ alignSelf: 'flex-start' }}>
-      {`← ${workspace?.name ?? 'Workspace'} board`}
+      {fromArchive ? '← Archive' : `← ${workspace?.name ?? 'Workspace'} board`}
     </Anchor>
   )
 
@@ -48,7 +51,11 @@ export function TicketView(): ReactElement {
     return (
       <Stack p="md" gap="md">
         {back}
-        <Text>This ticket is no longer on the board.</Text>
+        {loading ? (
+          <Loader size="sm" aria-label="Loading the ticket" />
+        ) : (
+          <Text>This ticket is no longer on the board.</Text>
+        )}
       </Stack>
     )
   }
@@ -72,6 +79,11 @@ export function TicketView(): ReactElement {
           <StuckChip stuck={ticket.stuck} />
           <FreshnessChip freshness={ticket.freshness} done={ticket.manualColumn === 'done'} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
+          {ticket.archivedAt !== null && (
+            <Badge variant="light" color="gray" size="sm" radius="sm" tt="none">
+              Archived
+            </Badge>
+          )}
           <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" ml="auto">
             Source: Local
           </Badge>
@@ -87,6 +99,11 @@ export function TicketView(): ReactElement {
         {ticket.state.column === 'done' && (
           <Text size="sm" c="dimmed">
             Done tickets are read-only. Move it back to Ready to change it.
+          </Text>
+        )}
+        {ticket.archivedAt !== null && (
+          <Text size="sm" c="dimmed">
+            This ticket is archived. Restore puts it back in Done.
           </Text>
         )}
       </Stack>
@@ -170,7 +187,8 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const [askingStart, setAskingStart] = useState(false)
   const openBlocked = openBlockers(ticket.blockedBy)
   const [promoting, setPromoting] = useState(false)
-  const promoted = useMainbus((s) => s.tickets.some((x) => x.promotedFrom === ticket.id))
+  const promoted = ticket.promotion.to !== null
+  const announce = useMainbus((s) => s.announce)
   // A replaced run opened on its own, read-only; null for the live thread.
   const [viewing, setViewing] = useState<string | null>(null)
   const proposeReplace = useMainbus((s) => s.proposeReplace)
@@ -273,6 +291,19 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
       started.current = false
     }, 'Could not send your message')
     if (!delivered) throw new Error('not sent')
+  }
+
+  /** Archives the Done ticket, or restores the archived one to Done; the screen reader hears which. */
+  async function setArchived(archive: boolean): Promise<void> {
+    const done = await guarded(async () => {
+      await invoke(archive ? 'ticket.archive' : 'ticket.unarchive', [ticket.id])
+      // Read before announcing, so what is on screen already matches what is said.
+      await useMainbus.getState().refreshBoard()
+    }, archive ? 'Could not archive' : 'Could not restore')
+    if (!done) return
+    announce(archive ? `Archived #${ticket.number} ${ticket.title}` : `Restored #${ticket.number} ${ticket.title} to Done`)
+    // The button that was pressed is replaced by its opposite: focus stays where the person was.
+    setTimeout(() => document.querySelector<HTMLElement>('[data-archive-toggle]')?.focus(), 0)
   }
 
   /** Holds the ticket until a date (ISO) or with no date. Resolves true once it is held. */
@@ -431,6 +462,16 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
                     : null
                 }
               />
+              {ticket.state.column === 'done' && ticket.archivedAt === null && (
+                <Button size="compact-sm" variant="default" data-archive-toggle disabled={busy || moving} onClick={() => void setArchived(true)}>
+                  Archive
+                </Button>
+              )}
+              {ticket.archivedAt !== null && (
+                <Button size="compact-sm" data-archive-toggle disabled={busy || moving} onClick={() => void setArchived(false)}>
+                  Restore
+                </Button>
+              )}
               {!isDone && <HoldMenu disabled={busy} onHold={hold} />}
               {ticket.hold && (
                 <Button

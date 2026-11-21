@@ -43,9 +43,17 @@ export function Announcer(): ReactElement {
     if (messages.length > 0) setMessage(messages.join('. '))
   }, [tickets, boardLoaded, workspaceId])
 
+  const announcement = useMainbus((s) => s.announcement)
+
   return (
-    <VisuallyHidden role="status" aria-live="polite" aria-atomic data-testid="announcer">
-      {message}
-    </VisuallyHidden>
+    <>
+      <VisuallyHidden role="status" aria-live="polite" aria-atomic data-testid="announcer">
+        {message}
+      </VisuallyHidden>
+      {/* What the app did at the person's request (archived, restored); a second region so it never replaces a decision. */}
+      <VisuallyHidden role="status" aria-live="polite" aria-atomic data-testid="action-announcer">
+        {announcement?.text ?? ''}
+      </VisuallyHidden>
+    </>
   )
 }

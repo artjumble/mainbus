@@ -1,3 +1,4 @@
+import { BOARD_COLUMNS, inBoardOrder } from '../../shared/boardOrder'
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
 import { openBlockers } from '../../shared/dependencies'
@@ -415,13 +416,15 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const usage = await usageNow()
       // Archived tickets are listed alone with `archived: true`, and left out otherwise.
       const archivedCount = b.tickets.filter((t) => t.archivedAt !== null).length
-      const tickets = b.tickets.filter((t) => (t.archivedAt !== null) === (archived === true) && (column === undefined || t.state.column === column))
+      const tickets = inBoardOrder(
+        b.tickets.filter((t) => (t.archivedAt !== null) === (archived === true) && (column === undefined || t.state.column === column)),
+        (t) => t.state.column
+      )
       const kind = archived === true ? 'archived tickets' : 'tickets'
       const where = column === undefined ? '' : ` in ${COLUMNS[column as Column]}`
       const hidden = archived !== true && archivedCount > 0 ? `\n(+${archivedCount} archived; pass archived: true to list them)` : ''
       if (tickets.length === 0) return `No ${kind}${where} in ${oneLine(b.ws.name)}.${hidden}`
-      const lines = tickets.map(
-        (t) =>
+      const line = (t: (typeof tickets)[number]): string =>
           `- ${title(t)} · ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]} · active role: ${activeRole(t)} · labels: ${labels(t)}` +
           queuedText(t) +
           limitText(t, usage) +
@@ -429,8 +432,14 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           blockedText(t) +
           freshnessSuffix(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
-      )
-      return `${kind[0].toUpperCase()}${kind.slice(1)}${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${lines.join('\n')}${hidden}`
+      // One heading per column, in the board's order; Backlog and Ready are in the user's order, top first.
+      const sections = BOARD_COLUMNS.flatMap((c) => {
+        const inColumn = tickets.filter((t) => t.state.column === c)
+        if (inColumn.length === 0) return []
+        const note = c === 'backlog' ? ', in order (top first)' : c === 'ready' ? ', in order (top first; unattended mode starts from the top)' : ''
+        return [`${COLUMNS[c]}${note}:\n${inColumn.map(line).join('\n')}`]
+      })
+      return `${kind[0].toUpperCase()}${kind.slice(1)}${where} in ${oneLine(b.ws.name)} (${tickets.length}):\n${sections.join('\n')}${hidden}`
     },
 
     async getTicket({ workspace, number }) {

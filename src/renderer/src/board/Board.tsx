@@ -1,6 +1,5 @@
 import {
   DndContext,
-  KeyboardCode,
   KeyboardSensor,
   PointerSensor,
   useDndContext,
@@ -8,12 +7,14 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Active,
   type Announcements,
-  type DragEndEvent,
-  type KeyboardCoordinateGetter
+  type Over,
+  type DragEndEvent
 } from '@dnd-kit/core'
 import {
   ActionIcon,
+  Anchor,
   Box,
   Button,
   Center,
@@ -28,10 +29,11 @@ import {
   Title,
   VisuallyHidden
 } from '@mantine/core'
-import { useHotkeys, useReducedMotion } from '@mantine/hooks'
+import { useDebouncedValue, useHotkeys, useReducedMotion } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
   forwardRef,
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -46,13 +48,16 @@ import {
   type ReactNode
 } from 'react'
 import { baseBranchWarning } from '../../../shared/baseBranch'
-import type { Column } from '../../../shared/domain'
+import { compareRank, isRanked } from '../../../shared/boardOrder'
+import type { ArchivedTicket, Column } from '../../../shared/domain'
+import { invoke } from '../api'
 import { useWorkspaceBranches } from '../workspace/useWorkspaceBranches'
 import { useExpandOnHover } from '../expandOnHover'
 import { showError } from '../notify'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
 import { MergeModal } from '../ticket/MergeModal'
+import { cardRects, laneOf, makeCoordinates, slotIn } from './reorder'
 import { matchesSearch } from './search'
 import { TicketCard } from './TicketCard'
 import { UnattendedSwitch } from './UnattendedSwitch'
@@ -76,26 +81,6 @@ const isManual = (c: string): c is ManualColumn => MANUAL.some((m) => m.id === c
 
 /** What "Ask orchestrator to draft tickets" puts in the orchestrator's message box. */
 export const DRAFT_PREFILL = 'Draft tickets for '
-
-/**
- * Arrow Left and Right carry a card being moved by keyboard to the next column that takes drops, skipping the
- * ones that don't; Up and Down do nothing, since the order inside a column isn't a thing.
- */
-export const columnCoordinates: KeyboardCoordinateGetter = (event, { context, currentCoordinates }) => {
-  if (event.code !== KeyboardCode.Left && event.code !== KeyboardCode.Right) return undefined
-  const rects = context.droppableContainers
-    .getEnabled()
-    .map((c) => context.droppableRects.get(c.id))
-    .filter((r): r is NonNullable<typeof r> => r !== undefined)
-    .sort((a, b) => a.left - b.left)
-  const next =
-    event.code === KeyboardCode.Right
-      ? rects.find((r) => r.left > currentCoordinates.x)
-      : rects.findLast((r) => r.right <= currentCoordinates.x)
-  if (!next) return undefined
-  // Inside the column, near its top, so the card's rectangle overlaps that column and no other.
-  return { x: next.left + 8, y: next.top + 48 }
-}
 
 /** The width of a column shown as a narrow strip: Done always, Needs you while it has no tickets. */
 const STRIP = '44px'
@@ -258,11 +243,52 @@ function PlaceholderLanes(): ReactElement {
   )
 }
 
+/**
+ * What the Archive holds for the board's search: how many archived tickets match, and the one a `#N` search names.
+ * Read a moment after typing stops; null when nothing is searched or nothing is archived.
+ */
+function useArchiveHint(search: string, archivedCount: number): { total: number; exact: ArchivedTicket | null } | null {
+  const [debounced] = useDebouncedValue(search.trim(), 250)
+  const [hint, setHint] = useState<{ query: string; total: number; exact: ArchivedTicket | null } | null>(null)
+  useEffect(() => {
+    if (debounced === '' || archivedCount === 0) {
+      setHint(null)
+      return
+    }
+    let stale = false
+    invoke('archive.list', { query: debounced, limit: 1 })
+      .then((r) => {
+        if (stale) return
+        const exact = /^#\d+$/.test(debounced) && r.total === 1 ? (r.tickets[0] ?? null) : null
+        setHint({ query: debounced, total: r.total, exact })
+      })
+      .catch(() => {
+        if (!stale) setHint(null)
+      })
+    return () => {
+      stale = true
+    }
+  }, [debounced, archivedCount])
+  // A stale answer must not show for words no longer in the box.
+  return hint !== null && hint.query === search.trim() ? hint : null
+}
+
+/** Where a card held over Backlog or Ready would land. */
+interface DropAt {
+  column: Column
+  /** The card it goes above; null for the bottom. */
+  before: string | null
+  position: number
+  total: number
+}
+
+const NO_IDS: string[] = []
+
 const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.title ?? String(id)
 
 const SCREEN_READER_INSTRUCTIONS = {
   draggable:
-    'To move this ticket, press Space, then the Left or Right arrow key to choose a column, then Space again to drop it. Press Escape to cancel.'
+    'To move this ticket, press Space, then the Left or Right arrow key to choose a column, and in the first two columns the Up or Down arrow key to choose its place, then Space again to drop it. Press Escape to cancel.'
 }
 
 const ASKED_MESSAGE =
@@ -278,32 +304,43 @@ export function Board(): ReactElement {
   const tickets = useMainbus((s) => s.tickets)
   const openTicket = useMainbus((s) => s.openTicket)
   const pendingMoves = useMainbus((s) => s.pendingMoves)
+  const pendingRanks = useMainbus((s) => s.pendingRanks)
   const move = useMainbus((s) => s.moveTicket)
+  const reorder = useMainbus((s) => s.reorderTicket)
   const proposeStart = useMainbus((s) => s.proposeStart)
   const empty = useMainbus((s) => s.boardLoaded && s.tickets.length === 0)
   const search = useMainbus((s) => s.search)
   const setSearch = useMainbus((s) => s.setSearch)
   const recentlyChanged = useMainbus((s) => s.recentlyChanged)
   const askOrchestrator = useMainbus((s) => s.askOrchestrator)
+  const archivedCount = useMainbus((s) => s.archivedCount)
+  const openArchive = useMainbus((s) => s.openArchive)
+  const archiveHint = useArchiveHint(search, archivedCount)
   const [creating, setCreating] = useState(false)
   // The ticket in Review whose Merge… dialog is open.
   const [mergeTarget, setMergeTarget] = useState<BoardTicket | null>(null)
   const openSettings = useMainbus((s) => s.openSettings)
+  const filtering = search.trim() !== ''
+  const filteringRef = useRef(filtering)
+  filteringRef.current = filtering
+  const coordinateGetter = useMemo(() => makeCoordinates(() => filteringRef.current), [])
   // A small drag distance keeps a plain click on a card a click.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: columnCoordinates })
+    useSensor(KeyboardSensor, { coordinateGetter })
   )
+  // What a screen reader hears after a menu action; the drag has dnd-kit's own live region.
+  const [status, setStatus] = useState('')
 
   /**
    * Shows the card in the target column at once and asks the engine to move it; the engine refuses moves it
    * can't make (an open run, uncommitted work), and the card then goes back. One move per card at a time.
    */
   const moveTicket = useCallback(
-    async (ticket: BoardTicket, target: ManualColumn): Promise<void> => {
+    async (ticket: BoardTicket, target: ManualColumn, before: string | null = null): Promise<void> => {
       if (ticket.id in useMainbus.getState().pendingMoves || ticket.state.column === target) return
       try {
-        const result = await move(ticket.id, target)
+        const result = before === null ? await move(ticket.id, target) : await move(ticket.id, target, before)
         if (result === 'dirty') {
           notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
         } else if (result === 'asked') {
@@ -335,10 +372,52 @@ export function Board(): ReactElement {
 
   // Stable props and per-column arrays, so a refresh re-renders only the cards that changed.
   const onMove = useCallback((t: BoardTicket, to: ManualColumn) => void moveTicket(t, to), [moveTicket])
-  const byColumn = useMemo(() => {
-    const shown = tickets.filter((t) => matchesSearch(t, search))
-    return new Map(COLUMNS.map((c) => [c.id, shown.filter((t) => (pendingMoves[t.id] ?? t.state.column) === c.id)]))
-  }, [tickets, pendingMoves, search])
+  const onArchive =useCallback(async (t: BoardTicket): Promise<void> => {
+    const { announce, refreshBoard } = useMainbus.getState()
+    try {
+      await invoke('ticket.archive', [t.id])
+      await refreshBoard()
+      announce(`Archived #${t.number} ${t.title}`)
+    } catch (err) {
+      showError(err, "Can't archive this ticket")
+      return
+    }
+    // The card is gone, and focus with it: back to the Done lane, which opens, and from which Archive is a Tab away.
+    setTimeout(() => document.querySelector<HTMLElement>('[data-done-lane]')?.focus(), 0)
+  }, [])
+  // Backlog and Ready in the user's order (a pending rank shows a card in its new place at once); the rest as the engine sends them.
+  const inColumn = useMemo(() => {
+    const out = new Map<Column, BoardTicket[]>(COLUMNS.map((c) => [c.id, []]))
+    for (const t of tickets) out.get(pendingMoves[t.id] ?? t.state.column)?.push(t)
+    for (const [id, list] of out) {
+      if (isRanked(id)) list.sort((a, b) => compareRank({ rank: pendingRanks[a.id] ?? a.rank, number: a.number }, { rank: pendingRanks[b.id] ?? b.rank, number: b.number }))
+    }
+    return out
+  }, [tickets, pendingMoves, pendingRanks])
+  const byColumn = useMemo(
+    () => new Map(COLUMNS.map((c) => [c.id, (inColumn.get(c.id) ?? []).filter((t) => matchesSearch(t, search))])),
+    [inColumn, search]
+  )
+  // The whole order of each column, search or not, which the menu's positions and the announcements count in.
+  const orderIds = useMemo(() => new Map(COLUMNS.map((c) => [c.id, (inColumn.get(c.id) ?? []).map((t) => t.id)])), [inColumn])
+  const orderRef = useRef(orderIds)
+  orderRef.current = orderIds
+
+  /** Moves a card within its column from its menu, and says where it went. */
+  const onReorder = useCallback(
+    async (ticket: BoardTicket, before: string | null, position: number): Promise<void> => {
+      const column = ticket.state.column
+      try {
+        await reorder(ticket.id, before)
+        const total = orderRef.current.get(column)?.length ?? position
+        setStatus(`#${ticket.number} moved to position ${position} of ${total} in ${columnTitle(column)}.`)
+      } catch (err) {
+        showError(err, "Can't reorder this ticket")
+      }
+    },
+    [reorder]
+  )
+  const [drop, setDrop] = useState<DropAt | null>(null)
   // Needs you is a strip while no ticket is in it; a search doesn't count, so the columns don't jump while typing.
   const needsYouCollapsed = !tickets.some((t) => t.state.column === 'needs_you' && !(t.id in pendingMoves))
   const reducedMotion = useReducedMotion()
@@ -358,7 +437,6 @@ export function Board(): ReactElement {
     }
     setTimeout(() => settle(20), 50)
   }, [])
-  const filtering = search.trim() !== ''
   const searchRef = useRef<HTMLInputElement>(null)
   const newTicketRef = useRef<HTMLButtonElement>(null)
   const focusSearch = (): void => searchRef.current?.focus()
@@ -367,7 +445,27 @@ export function Board(): ReactElement {
     ['/', focusSearch]
   ])
 
+  /**
+   * Where a card held over `over` would land: in Backlog or Ready, above which card (null for the bottom) and at what
+   * position of how many (the card itself counted, as it will be after the drop). null over any other column.
+   * While a search is on the order can't be changed: a card from another column goes to the bottom.
+   */
+  const dropFor = useCallback((active: Active, over: Over | null): DropAt | null => {
+    if (!over) return null
+    const column = String(over.id) as Column
+    if (!isRanked(column)) return null
+    const ids = orderRef.current.get(column) ?? []
+    const own = ids.indexOf(String(active.id))
+    const total = own >= 0 ? ids.length : ids.length + 1
+    if (filteringRef.current) return { column, before: null, position: own >= 0 ? own + 1 : total, total }
+    const rects = cardRects(laneOf(column), String(active.id))
+    const moved = active.rect?.current?.translated
+    const slot = moved ? slotIn(moved.top + moved.height / 2, rects) : rects.length
+    return { column, before: rects[slot]?.id ?? null, position: slot + 1, total }
+  }, [])
+
   const moved = useRef(false)
+  const lastSpot = useRef('')
   const announcements = useMemo<Announcements>(() => {
     const name = (id: unknown): string => {
       const t = tickets.find((x) => x.id === id)
@@ -377,9 +475,18 @@ export function Board(): ReactElement {
       const title = columnTitle(id)
       return id === 'in_progress' ? `${title}, which proposes starting it` : title
     }
+    const spot = (active: Active, over: Over): string | undefined => {
+      const at = dropFor(active, over)
+      if (!at) return undefined
+      return filteringRef.current && orderRef.current.get(at.column)?.includes(String(active.id))
+        ? undefined
+        : `position ${at.position} of ${at.total}`
+    }
     return {
       onDragStart: ({ active }) => {
         moved.current = false
+        const column = tickets.find((t) => t.id === active.id)?.state.column
+        lastSpot.current = `${column}:${(orderRef.current.get(column as Column) ?? []).indexOf(String(active.id)) + 1}`
         return `Picked up ${name(active.id)}.`
       },
       onDragOver: ({ active, over }) => {
@@ -387,18 +494,45 @@ export function Board(): ReactElement {
         // dnd-kit reports the column the card started in right after the pick-up; that would drown "Picked up".
         if (tickets.find((t) => t.id === active.id)?.state.column === over.id && !moved.current) return undefined
         moved.current = true
-        return `${name(active.id)} is over ${where(over.id)}.`
+        const at = spot(active, over)
+        if (at) lastSpot.current = `${over.id}:${at}`
+        return `${name(active.id)} is over ${where(over.id)}${at ? `, ${at}` : ''}.`
+      },
+      // Inside a column, only a new place is worth saying.
+      onDragMove: ({ active, over }) => {
+        if (!over) return undefined
+        const at = spot(active, over)
+        if (!at || lastSpot.current === `${over.id}:${at}`) return undefined
+        lastSpot.current = `${over.id}:${at}`
+        moved.current = true
+        return `${name(active.id)} is over ${where(over.id)}, ${at}.`
       },
       onDragEnd: ({ active, over }) => {
         if (!over) return `${name(active.id)} was dropped outside a column and stays where it was.`
         if (over.id === 'in_progress') {
           return `${name(active.id)} was dropped on In progress: the orchestrator panel proposes starting it.`
         }
+        const t = tickets.find((x) => x.id === active.id)
+        const at = dropFor(active, over)
+        if (at && t) {
+          if (t.state.column === at.column && filteringRef.current) {
+            return `Reordering is off while a search is on; #${t.number} stays where it was.`
+          }
+          return `#${t.number} moved to position ${at.position} of ${at.total} in ${columnTitle(at.column)}.`
+        }
         return `${name(active.id)} was dropped on ${columnTitle(over.id)}.`
       },
       onDragCancel: ({ active }) => `Moving ${name(active.id)} was cancelled; it stays where it was.`
     }
-  }, [tickets])
+  }, [tickets, dropFor])
+
+  const onDragSpot = useCallback(
+    ({ active, over }: { active: Active; over: Over | null }): void => {
+      const at = over && !(filteringRef.current && orderRef.current.get(String(over.id) as Column)?.includes(String(active.id))) ? dropFor(active, over) : null
+      setDrop((prev) => (prev?.column === at?.column && prev?.before === at?.before ? prev : at && { column: at.column, before: at.before, position: at.position, total: at.total }))
+    },
+    [dropFor]
+  )
 
   // The columns' grid clips sideways (see gridStyle), so a card carried past the board's right edge, towards Done,
   // neither grows a scrollbar nor scrolls the board.
@@ -420,16 +554,25 @@ export function Board(): ReactElement {
   }, [])
 
   function onDragEnd({ active, over }: DragEndEvent): void {
+    setDrop(null)
     const target = over ? String(over.id) : null
     const ticket = tickets.find((t) => t.id === active.id)
-    if (!ticket || target === null) return
+    if (!ticket || target === null || !over) return
     if (ticket.state.column === 'in_progress' || ticket.state.column === 'needs_you') return
-    if (isManual(target)) void moveTicket(ticket, target)
-    else if (target === 'in_progress') void onPropose(ticket)
+    const at = dropFor(active, over)
+    if (isManual(target)) {
+      if (ticket.state.column !== target) void moveTicket(ticket, target, at?.before ?? null)
+      else if (at && !filteringRef.current && at.position - 1 !== (orderRef.current.get(at.column) ?? []).indexOf(ticket.id)) {
+        void onReorder(ticket, at.before, at.position)
+      }
+    } else if (target === 'in_progress') void onPropose(ticket)
   }
 
   return (
     <Stack ref={rootRef} gap="md" px="md" pb="md" style={{ flex: '1 0 auto' }}>
+      <VisuallyHidden role="status" aria-live="polite" data-testid="board-announcer">
+        {status}
+      </VisuallyHidden>
       {/* Stays at the top of the board area while the board scrolls: the workspace name, search, Unattended, settings and
           New ticket. It spans the board edge to edge, on the page's own ground, so the cards don't show through. */}
       <Group
@@ -463,6 +606,7 @@ export function Board(): ReactElement {
         </Stack>
         <Group gap="md">
           {!empty && (
+            <Stack gap={2}>
             <TextInput
               ref={searchRef}
               aria-label="Search tickets"
@@ -471,6 +615,11 @@ export function Board(): ReactElement {
               onChange={(e) => setSearch(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') setSearch('')
+                // An archived ticket named by number opens on Enter, not while typing: #12 comes on the way to #123.
+                if (e.key === 'Enter' && archiveHint?.exact) {
+                  e.preventDefault()
+                  openTicket(archiveHint.exact.id)
+                }
               }}
               rightSection={
                 search !== '' ? (
@@ -485,6 +634,21 @@ export function Board(): ReactElement {
                 ) : null
               }
             />
+            <Text size="xs" role="status" data-testid="archive-hint">
+              {archiveHint?.exact ? (
+                <>
+                  #{archiveHint.exact.number} {archiveHint.exact.title} is archived.{' '}
+                  <Anchor component="button" type="button" size="xs" onClick={() => openTicket(archiveHint.exact!.id)}>
+                    Open it
+                  </Anchor>
+                </>
+              ) : archiveHint && archiveHint.total > 0 ? (
+                <Anchor component="button" type="button" size="xs" onClick={() => openArchive(search.trim())}>
+                  {archiveHint.total} more in the Archive
+                </Anchor>
+              ) : null}
+            </Text>
+            </Stack>
           )}
           <UnattendedSwitch />
           <ActionIcon variant="default" size="lg" aria-label="Workspace settings" onClick={openSettings}>
@@ -525,6 +689,9 @@ export function Board(): ReactElement {
         <DndContext
           sensors={sensors}
           onDragEnd={onDragEnd}
+          onDragMove={onDragSpot}
+          onDragOver={onDragSpot}
+          onDragCancel={() => setDrop(null)}
           accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
           <Box
@@ -538,13 +705,17 @@ export function Board(): ReactElement {
                 id: c.id,
                 title: c.title,
                 tickets: byColumn.get(c.id) ?? [],
+                columnIds: orderIds.get(c.id) ?? NO_IDS,
+                dropBefore: drop?.column === c.id ? drop.before : undefined,
                 pendingMoves,
                 recentlyChanged,
                 filtering,
                 onOpen: openTicket,
                 onMove,
+                onReorder,
                 onPropose,
-                onMerge: setMergeTarget
+                onMerge: setMergeTarget,
+                onArchive
               }
               return c.id === 'done' ? (
                 <DoneColumn key={c.id} {...props} />
@@ -568,13 +739,20 @@ interface ColumnProps {
   tickets: BoardTicket[]
   pendingMoves: Record<string, ManualColumn>
   recentlyChanged: Record<string, number>
-  /** A search is on: an empty column says "No matches" instead of the quiet placeholder. */
+  /** A search is on: an empty column says "No matches" instead of the quiet placeholder, and reordering is off. */
   filtering: boolean
+  /** Every ticket of the column in its order, search or not: what a card's menu counts its place in. */
+  columnIds: string[]
+  /** While a card is held over this column: the card its drop line goes above (null: at the end). undefined: no line. */
+  dropBefore: string | null | undefined
+  onReorder: (ticket: BoardTicket, before: string | null, position: number) => void
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
   onPropose: (ticket: BoardTicket) => void
   /** Opens Merge… for a ticket in Review. */
   onMerge: (ticket: BoardTicket) => void
+  /** Archives a Done ticket: it leaves the board for the Archive. */
+  onArchive: (ticket: BoardTicket) => void
 }
 
 const BoardColumn = memo(function BoardColumn({
@@ -584,10 +762,14 @@ const BoardColumn = memo(function BoardColumn({
   pendingMoves,
   recentlyChanged,
   filtering,
+  columnIds,
+  dropBefore,
   onOpen,
   onMove,
+  onReorder,
   onPropose,
   onMerge,
+  onArchive,
   collapsed = false
 }: ColumnProps & {
   /** Needs you with no tickets: a narrow strip with its title and count, like Done's, that never opens. */
@@ -620,14 +802,23 @@ const BoardColumn = memo(function BoardColumn({
         pendingMoves={pendingMoves}
         recentlyChanged={recentlyChanged}
         filtering={filtering}
+        columnIds={columnIds}
+        dropBefore={dropBefore}
         onOpen={onOpen}
         onMove={onMove}
+        onReorder={onReorder}
         onPropose={onPropose}
         onMerge={onMerge}
+        onArchive={onArchive}
       />
     </Paper>
   )
 })
+
+/** The line a held card's drop lands at: between two cards, or after the last. */
+function DropIndicator(): ReactElement {
+  return <div aria-hidden data-testid="drop-indicator" style={{ height: 2, margin: '-1px 0', background: 'var(--mantine-color-working-6)' }} />
+}
 
 const ticketCount = (n: number): string => (n === 1 ? '1 ticket' : `${n} tickets`)
 
@@ -636,10 +827,14 @@ function ColumnCards({
   pendingMoves,
   recentlyChanged,
   filtering,
+  columnIds,
+  dropBefore,
   onOpen,
   onMove,
+  onReorder,
   onPropose,
   onMerge,
+  onArchive,
   hidden = false
 }: Omit<ColumnProps, 'id' | 'title'> & { hidden?: boolean }): ReactElement {
   return (
@@ -652,17 +847,24 @@ function ColumnCards({
         </Text>
       )}
       {tickets.map((t) => (
-        <DraggableTicket
-          key={t.id}
-          ticket={t}
-          movingTo={pendingMoves[t.id] ?? null}
-          changedAt={recentlyChanged[t.id]}
-          onOpen={onOpen}
-          onMove={onMove}
-          onPropose={onPropose}
-          onMerge={onMerge}
-        />
+        <Fragment key={t.id}>
+          {dropBefore === t.id && <DropIndicator />}
+          <DraggableTicket
+            ticket={t}
+            movingTo={pendingMoves[t.id] ?? null}
+            changedAt={recentlyChanged[t.id]}
+            columnIds={columnIds}
+            filtering={filtering}
+            onOpen={onOpen}
+            onMove={onMove}
+            onReorder={onReorder}
+            onPropose={onPropose}
+            onMerge={onMerge}
+            onArchive={onArchive}
+          />
+        </Fragment>
       ))}
+      {dropBefore === null && <DropIndicator />}
     </Stack>
   )
 }
@@ -713,6 +915,8 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
     if (focused) resync()
   }, [tickets, focused, resync])
   const cleaningUp = tickets.some((t) => pendingMoves[t.id] === 'done')
+  const archivedCount = useMainbus((s) => s.archivedCount)
+  const openArchive = useMainbus((s) => s.openArchive)
   const headingId = `column-${id}`
   const countId = `column-${id}-count`
 
@@ -749,6 +953,7 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
       tabIndex={0}
       className="mantine-focus-auto"
       data-expanded={open}
+      data-done-lane
       data-lane
       p="xs"
       radius={0}
@@ -785,6 +990,18 @@ const DoneColumn = memo(function DoneColumn({ id, title, tickets, pendingMoves, 
         </StripBody>
       )}
       <VisuallyHidden id={countId}>{ticketCount(tickets.length)}</VisuallyHidden>
+      {/* Outside the cards, which are inert while Done is closed; only an open Done shows it. */}
+      {open && archivedCount > 0 && (
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          data-archive-button
+          onClick={() => openArchive()}
+          styles={{ root: { marginBottom: 'var(--mantine-spacing-xs)' } }}
+        >
+          Archive ({archivedCount})
+        </Button>
+      )}
       <ColumnCards tickets={tickets} pendingMoves={pendingMoves} {...rest} hidden={!open} />
     </Paper>
   )
@@ -795,11 +1012,17 @@ interface DraggableProps {
   /** Where the card is being moved, while the engine has not answered; null otherwise. */
   movingTo: ManualColumn | null
   changedAt: number | undefined
+  /** Every ticket of the card's column in order, for the menu's positions. */
+  columnIds: string[]
+  /** A search is on: reordering is off. */
+  filtering: boolean
   onOpen: (id: string) => void
   onMove: (ticket: BoardTicket, to: ManualColumn) => void
+  onReorder: (ticket: BoardTicket, before: string | null, position: number) => void
   onPropose: (ticket: BoardTicket) => void
   /** Opens Merge… for a ticket in Review. */
   onMerge: (ticket: BoardTicket) => void
+  onArchive: (ticket: BoardTicket) => void
 }
 
 /**
@@ -811,12 +1034,22 @@ const DraggableTicket = memo(function DraggableTicket({
   ticket,
   movingTo,
   changedAt,
+  columnIds,
+  filtering,
   onOpen,
   onMove,
+  onReorder,
   onPropose,
-  onMerge
+  onMerge,
+  onArchive
 }: DraggableProps): ReactElement {
   const moving = movingTo !== null
+  const ranked = isRanked(ticket.state.column)
+  const index = columnIds.indexOf(ticket.id)
+  const last = columnIds.length - 1
+  const canReorder = ranked && !moving && !filtering && index >= 0
+  /** The four menu moves: where the card goes (its place above `before`) and its new position. */
+  const reorderTo = (position: number, before: string | null): void => onReorder(ticket, before, position)
   // A running ticket can't be dragged or moved from the board: leaving In progress or Needs you stops its agent, so
   // it takes the ticket view's confirmed move.
   const locked = ticket.state.column === 'in_progress' || ticket.state.column === 'needs_you'
@@ -884,6 +1117,7 @@ const DraggableTicket = memo(function DraggableTicket({
     >
       <div
         ref={setNodeRef}
+        data-ticket-id={ticket.id}
         {...pointerListeners}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => {
@@ -929,6 +1163,24 @@ const DraggableTicket = memo(function DraggableTicket({
         />
       </div>
       <Menu.Dropdown>
+        {ranked && (
+          <>
+            {filtering && <Menu.Label>Clear the search to reorder</Menu.Label>}
+            <Menu.Item disabled={!canReorder || index <= 0} onClick={() => reorderTo(1, columnIds[0]!)}>
+              Move to top
+            </Menu.Item>
+            <Menu.Item disabled={!canReorder || index <= 0} onClick={() => reorderTo(index, columnIds[index - 1]!)}>
+              Move up
+            </Menu.Item>
+            <Menu.Item disabled={!canReorder || index >= last} onClick={() => reorderTo(index + 2, columnIds[index + 2] ?? null)}>
+              Move down
+            </Menu.Item>
+            <Menu.Item disabled={!canReorder || index >= last} onClick={() => reorderTo(last + 1, null)}>
+              Move to bottom
+            </Menu.Item>
+            <Menu.Divider />
+          </>
+        )}
         {MANUAL.map((m) => (
           <Menu.Item key={m.id} disabled={moving || ticket.state.column === m.id} onClick={() => onMove(ticket, m.id)}>
             Move to {m.title}
@@ -942,6 +1194,11 @@ const DraggableTicket = memo(function DraggableTicket({
         {ticket.state.column === 'review' && ticket.branch !== null && (
           <Menu.Item disabled={moving} onClick={() => onMerge(ticket)}>
             Merge…
+          </Menu.Item>
+        )}
+        {ticket.state.column === 'done' && (
+          <Menu.Item disabled={moving} onClick={() => onArchive(ticket)}>
+            Archive
           </Menu.Item>
         )}
       </Menu.Dropdown>

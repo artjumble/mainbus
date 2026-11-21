@@ -303,7 +303,7 @@ describe('start_lineup: execute and outcome', () => {
 })
 
 describe('start_lineup: blockers', () => {
-  const blocker = { id: 't9', number: 9, title: 'Schema', done: false }
+  const blocker = { id: 't9', number: 9, title: 'Schema', done: false, archived: false }
   const blockedCtx = (open = [blocker]) => Object.assign(ctx(), { openBlockers: async () => open })
   const proposeAs = (origin: 'orchestrator' | 'drag' | 'button' | undefined, c: ExecContext) =>
     Promise.resolve(startLineup.propose({ ticket: 12 }, { ...turn, ...(origin ? { origin } : {}) }, c))

@@ -797,8 +797,8 @@ export class TicketRunner {
   }
 
   /** Moves a ticket to Backlog or Ready in its turn, so it can't slip in between `start` and the run it creates. */
-  moveToColumn(ticketId: string, column: 'backlog' | 'ready'): Promise<void> {
-    return this.serial(ticketId, () => this.moveToColumnNow(ticketId, column))
+  moveToColumn(ticketId: string, column: 'backlog' | 'ready', rank?: number): Promise<void> {
+    return this.serial(ticketId, () => this.moveToColumnNow(ticketId, column, rank))
   }
 
   /** The ticket's state, from its latest agent run: mid-lineup, the active role's. */
@@ -1516,7 +1516,7 @@ export class TicketRunner {
     await settleWithin(live.done, STOP_DRAIN_MS)
   }
 
-  private async moveToColumnNow(ticketId: string, column: 'backlog' | 'ready'): Promise<void> {
+  private async moveToColumnNow(ticketId: string, column: 'backlog' | 'ready', rank?: number): Promise<void> {
     const run = await this.repos.runs.latest(ticketId)
     if (run && run.endReason === null) throw new Error('Stop the agent on this ticket before moving it')
     // A handed-off or failed run keeps the ticket in Review or Needs you, so the move would not show.
@@ -1524,7 +1524,7 @@ export class TicketRunner {
     const current = await this.repos.tickets.get(ticketId)
     const ended = run && (run.endReason === 'handoff' || run.endReason === 'failed')
     if (ended && current.manualColumn !== 'done') throw new Error(ENDED_RUN_MOVE)
-    const ticket = await this.repos.tickets.setManualColumn(ticketId, column)
+    const ticket = await this.repos.tickets.setManualColumn(ticketId, column, rank)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
   }
 

@@ -1,7 +1,7 @@
 import { invoke } from './api'
 import { navigateTo } from './navigation'
 import { useMainbus } from './store'
-import { workspace } from './test-utils'
+import { makeTicket, workspace } from './test-utils'
 
 vi.mock('./api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), onNavigate: vi.fn(), openFolder: vi.fn() }))
 vi.mock('./notify', () => ({ showError: vi.fn() }))
@@ -15,7 +15,7 @@ beforeEach(() => {
 })
 
 test('a ticket in the focused workspace opens at once', async () => {
-  useMainbus.setState({ workspace: { ...workspace, id: 'w1' } })
+  useMainbus.setState({ workspace: { ...workspace, id: 'w1' }, tickets: [makeTicket({ id: 't1' })] })
   await navigateTo({ to: 'ticket', workspaceId: 'w1', ticketId: 't1' })
   expect(mockInvoke).not.toHaveBeenCalled()
   expect(useMainbus.getState().currentTicketId).toBe('t1')

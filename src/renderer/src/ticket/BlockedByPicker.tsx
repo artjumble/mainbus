@@ -1,5 +1,6 @@
 import { MultiSelect } from '@mantine/core'
 import type { ReactElement } from 'react'
+import type { Blocker } from '../../../shared/domain'
 import { useMainbus } from '../store'
 
 interface Props {
@@ -9,14 +10,21 @@ interface Props {
   /** The ticket being edited, which can't block itself; absent for a ticket not created yet. */
   ticketId?: string
   disabled?: boolean
+  /** The ticket's saved blockers: an archived one isn't on the board, so this is where its pill gets its name. */
+  blockers?: Blocker[]
 }
 
 /** A searchable picker of the workspace's other tickets, by number and title; Done ones say so. */
-export function BlockedByPicker({ value, onChange, ticketId, disabled }: Props): ReactElement {
+export function BlockedByPicker({ value, onChange, ticketId, disabled, blockers = [] }: Props): ReactElement {
   const tickets = useMainbus((s) => s.tickets)
-  const data = tickets
-    .filter((t) => t.id !== ticketId)
-    .map((t) => ({ value: t.id, label: `#${t.number} ${t.title}${t.manualColumn === 'done' ? ' (Done)' : ''}` }))
+  const data = [
+    ...tickets
+      .filter((t) => t.id !== ticketId)
+      .map((t) => ({ value: t.id, label: `#${t.number} ${t.title}${t.manualColumn === 'done' ? ' (Done)' : ''}` })),
+    ...blockers
+      .filter((b) => !tickets.some((t) => t.id === b.id))
+      .map((b) => ({ value: b.id, label: `#${b.number} ${b.title} (Done, archived)` }))
+  ]
   return (
     <MultiSelect
       label="Blocked by"

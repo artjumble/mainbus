@@ -121,6 +121,7 @@ describe('the Promote button and the links between the tickets', () => {
   test('is not offered once the report was promoted, and links to the new ticket', async () => {
     const original = show({ kind: 'investigate', report: '# R', manualColumn: 'done' }, { column: 'done', phase: 'done' })
     const created = makeTicket({ title: 'Speed up login', number: 2, promotedFrom: original.id, report: '# R' })
+    original.promotion = { from: null, to: { id: created.id, number: 2, title: 'Speed up login', archived: false } }
     useMainbus.setState({ tickets: [original, created] })
     renderWithMantine(<TicketView />)
     expect(await screen.findByText('Promoted to')).toBeInTheDocument()
@@ -140,6 +141,7 @@ describe('the Promote button and the links between the tickets', () => {
   test('the new Change ticket links back and shows the investigation report', async () => {
     const original = makeTicket({ title: 'Why is login slow', number: 1, kind: 'investigate', report: '# Findings\n\nIt is **X**.' })
     const created = makeTicket({ title: 'Speed up login', number: 2, promotedFrom: original.id, report: '# Findings\n\nIt is **X**.' })
+    created.promotion = { from: { id: original.id, number: 1, title: 'Why is login slow', archived: false }, to: null }
     useMainbus.setState({ workspace, tickets: [original, created], currentTicketId: created.id })
     renderWithMantine(<ContextPane ticket={created} events={[]} decisions={[]} />)
     await userEvent.click(screen.getByRole('button', { name: '#1 Why is login slow' }))

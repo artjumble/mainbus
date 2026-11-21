@@ -5,6 +5,8 @@ import type {
   AgentLauncher,
   AllowRule,
   Blocker,
+  ArchivedTicket,
+  TicketRef,
   DependencyNote,
   AppSettings,
   BaseTestsView,
@@ -176,6 +178,8 @@ export type BoardTicket = Ticket & {
   dependencyNotes: DependencyNote[]
   /** How far its branch is behind the newest base, and whether merging it would conflict; null when not checked (no branch, or Done). */
   freshness: BranchFreshness | null
+  /** The Investigate ticket this one was promoted from, and the Change ticket made from it; either may be archived. */
+  promotion: { from: TicketRef | null; to: TicketRef | null }
 }
 
 /** An image to attach to a ticket being created: its name as given and its bytes. */
@@ -306,7 +310,17 @@ export interface EngineCommands {
   /** Whether the GitHub CLI is installed and signed in; never any of its output. */
   'github.check'(workspaceId?: string): GhStatus
   /** The tickets of the workspace (the focused one unless given). */
-  'board.get'(workspaceId?: string): { tickets: BoardTicket[] }
+  'board.get'(workspaceId?: string): { tickets: BoardTicket[]; /** How many archived tickets the board leaves out. */ archived: number }
+  /** One ticket as the board shows it, archived or not: how the app opens a ticket that isn't on the board. */
+  'ticket.view'(id: string): BoardTicket
+  /**
+   * The workspace's archived tickets, newest archived first, `limit` at a time (default 50). `before` is the last row
+   * of the previous page. `total` counts every match of `query`, paging ignored. Renderer only.
+   */
+  'archive.list'(
+    opts: { query?: string; before?: { archivedAt: string; number: number }; limit?: number },
+    workspaceId?: string
+  ): { tickets: ArchivedTicket[]; total: number }
   /**
    * The user's own ticket: a source can only come in through agent intake. `attachments` are images to attach to it,
    * checked before the ticket is created: one that can't be attached creates nothing.
@@ -340,7 +354,12 @@ export interface EngineCommands {
    */
   'ticket.undoEdit'(editId: string): TicketEdit
   /** Moving to done can answer 'dirty': the worktree has uncommitted work and the ticket stays where it was. */
-  'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done'): 'moved' | 'dirty' | 'asked'
+  'ticket.move'(id: string, c: 'backlog' | 'ready' | 'done', before?: string | null): 'moved' | 'dirty' | 'asked'
+  /**
+   * Moves a ticket within its column, Backlog or Ready: just above the ticket `before`, or to the bottom when null.
+   * Refused when the ticket is in another column, or `before` isn't in the same column. Not a move: nothing else changes.
+   */
+  'ticket.reorder'(id: string, before: string | null): void
   /**
    * Holds the ticket, optionally until a date (ISO, in the future): unattended mode and start proposals leave it
    * alone. It doesn't touch a running agent. A held ticket keeps its hold and takes the new date and reason.

@@ -11,6 +11,8 @@ export async function navigateTo(nav: AppNavigation): Promise<void> {
     // Reloading clears the open ticket when the workspace changes, so the ticket opens only after it.
     await useMainbus.getState().reloadFocused()
   }
+  // What a notification opens is not "from the Archive": closing it goes to the board.
+  useMainbus.getState().closeArchive()
   if (nav.to === 'ticket') {
     useMainbus.getState().openTicket(nav.ticketId)
     return

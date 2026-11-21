@@ -3,7 +3,9 @@ import type { BoardTicket, OpenWorkspaceOptions, PrepareOptions, WorkspaceSummar
 import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { modelOptions, setModelOptions, type ModelOption } from '../../shared/models'
 import { invoke, onEngineEvent } from './api'
+import { compareRank } from '../../shared/boardOrder'
 import { asOwnChange, isOwnChange } from './board/ownChanges'
+import { displayRank } from './board/reorder'
 import { errorMessage } from './notify'
 
 export type { BoardTicket }
@@ -30,6 +32,21 @@ interface MainbusState {
   loadError: string | null
   /** Set by clicking a card; the ticket view (Task 14) reads it. */
   currentTicketId: string | null
+  /**
+   * The open ticket when it isn't on the board (archived): read with `ticket.view` and kept fresh by every board
+   * read. null while it loads, when the ticket is on the board, or when it can't be read.
+   */
+  offBoardTicket: BoardTicket | null
+  /** The first read of \`offBoardTicket\` is under way. */
+  offBoardLoading: boolean
+  /** How many archived tickets the board leaves out. */
+  archivedCount: number
+  /** The Archive view is showing (instead of the board). */
+  archiveOpen: boolean
+  /** What the Archive's search box starts with: the board's search when "N more in the Archive" opened it. */
+  archiveQuery: string
+  /** A sentence for screen readers (archived, restored); `n` counts them so the same one is read again. */
+  announcement: { text: string; n: number } | null
   /** Unattended mode, as the engine last reported it. */
   unattended: UnattendedState
   /** Where the app stands on the usage limit, as the engine last reported it. */
@@ -39,6 +56,8 @@ interface MainbusState {
    * their target column at once; `tickets` keeps the engine's view, so refreshes meanwhile don't undo the move.
    */
   pendingMoves: Record<string, ManualColumn>
+  /** The rank a card is shown at, by ticket id, while the engine has not answered a reorder or a move with a place. */
+  pendingRanks: Record<string, number>
   /**
    * A proposal the panel should show: it expands if collapsed and scrolls to the card. `n` counts reveals, so
    * revealing the same proposal again shows it again.
@@ -54,6 +73,9 @@ interface MainbusState {
   modelOptions: ModelOption[]
 
   setSearch(query: string): void
+  openArchive(query?: string): void
+  closeArchive(): void
+  announce(text: string): void
   /** Keeps the offered models, here (for the selects) and in shared/models (for every label and check). */
   setModelOptions(options: ModelOption[]): void
   askOrchestrator(text: string): void
@@ -86,7 +108,10 @@ interface MainbusState {
    * the board is read again before the overlay goes, so the card does not flicker back. Rejects with the
    * engine's reason when it refuses; on 'dirty' or a rejection the card returns to its real column.
    */
-  moveTicket(id: string, to: ManualColumn): Promise<'moved' | 'dirty' | 'asked'>
+  /** `before` is the ticket the card is dropped above in Backlog or Ready; left out, it goes to the bottom. */
+  moveTicket(id: string, to: ManualColumn, before?: string | null): Promise<'moved' | 'dirty' | 'asked'>
+  /** Moves a card within its column (Backlog or Ready), above the ticket `before`, or to the bottom when null. */
+  reorderTicket(id: string, before: string | null): Promise<void>
   /** Switches unattended mode; rejects with the engine's reason when it can't be switched on. */
   setUnattended(on: boolean): Promise<void>
   /** Asks the engine for a start proposal for a Backlog or Ready ticket (the card dragged into In progress), then shows it. */
@@ -119,6 +144,20 @@ function stabilize(previous: BoardTicket[], next: BoardTicket[]): BoardTicket[] 
     return old && isEqual(old, t) ? old : t
   })
   return merged.length === previous.length && merged.every((t, i) => t === previous[i]) ? previous : merged
+}
+
+/** The rank a card moved into `column` shows at until the engine answers. */
+function pendingRank(
+  s: { tickets: BoardTicket[]; pendingMoves: Record<string, string>; pendingRanks: Record<string, number> },
+  id: string,
+  column: string,
+  before: string | null
+): number {
+  const inColumn = s.tickets
+    .filter((t) => (s.pendingMoves[t.id] ?? t.state.column) === column)
+    .map((t) => ({ id: t.id, rank: s.pendingRanks[t.id] ?? t.rank, number: t.number }))
+    .sort(compareRank)
+  return displayRank(inColumn, id, before)
 }
 
 /** How long a card's outline is kept in the store; the longest it is ever shown. */
@@ -167,6 +206,29 @@ function oneAtATime(read: () => Promise<void>): () => Promise<void> {
   return next
 }
 
+/**
+ * Keeps `offBoardTicket` right for the open ticket: read by id while it isn't among `board` (the tickets just read),
+ * dropped once it is, so a ticket archived or restored from its own view follows the change.
+ */
+async function followOffBoardTicket(board: BoardTicket[]): Promise<void> {
+  const { currentTicketId, offBoardTicket } = useMainbus.getState()
+  // On the board, the board's copy is shown; refreshBoard drops the off-board one together with the new tickets.
+  if (currentTicketId === null || board.some((t) => t.id === currentTicketId)) return
+  // Only a first read shows a spinner; later reads of the same ticket keep what is on screen.
+  if (offBoardTicket === null) useMainbus.setState({ offBoardLoading: true })
+  try {
+    const view = await invoke('ticket.view', currentTicketId)
+    if (useMainbus.getState().currentTicketId !== currentTicketId) return
+    const found = view && view.id === currentTicketId ? view : null
+    const previous = useMainbus.getState().offBoardTicket
+    if (found === null ? previous !== null : !previous || !isEqual(previous, found)) useMainbus.setState({ offBoardTicket: found })
+  } catch {
+    if (useMainbus.getState().currentTicketId === currentTicketId && offBoardTicket !== null) useMainbus.setState({ offBoardTicket: null })
+  } finally {
+    if (useMainbus.getState().offBoardLoading) useMainbus.setState({ offBoardLoading: false })
+  }
+}
+
 export const useMainbus = create<MainbusState>()((set, get) => ({
   setup: null,
   workspace: null,
@@ -178,9 +240,16 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   boardLoaded: false,
   loadError: null,
   currentTicketId: null,
+  offBoardTicket: null,
+  offBoardLoading: false,
+  archivedCount: 0,
+  archiveOpen: false,
+  archiveQuery: '',
+  announcement: null,
   unattended: UNATTENDED_OFF,
   usage: { kind: 'ok' },
   pendingMoves: {},
+  pendingRanks: {},
   revealedProposal: null,
   search: '',
   recentlyChanged: {},
@@ -188,6 +257,9 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   modelOptions: modelOptions(),
 
   setSearch: (search) => set({ search }),
+  openArchive: (query = '') => set({ archiveOpen: true, archiveQuery: query }),
+  closeArchive: () => set({ archiveOpen: false, archiveQuery: '' }),
+  announce: (text) => set((s) => ({ announcement: { text, n: (s.announcement?.n ?? 0) + 1 } })),
   setModelOptions: (options) => {
     setModelOptions(options)
     set({ modelOptions: modelOptions() })
@@ -253,7 +325,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   async reloadFocused() {
     const workspace = await invoke('workspace.get')
     const changed = workspace?.id !== get().workspace?.id
-    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
+    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, offBoardTicket: null, archivedCount: 0, archiveOpen: false, archiveQuery: '', tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
     })
     if (!workspace) return
     await get().refreshBoard()
@@ -261,11 +333,15 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   },
 
   refreshBoard: oneAtATime(async () => {
-    const { tickets } = await invoke('board.get')
+    const { tickets, archived } = await invoke('board.get')
+    if (archived !== undefined && archived !== get().archivedCount) set({ archivedCount: archived })
+    await followOffBoardTicket(tickets)
     const previous = get().tickets
     const stable = stabilize(previous, tickets)
+    // The open ticket is on the board (again): its off-board copy goes in the same update that brings the board's.
+    const backOnBoard = get().offBoardTicket !== null && stable.some((t) => t.id === get().currentTicketId)
     if (stable === previous) {
-      if (!get().boardLoaded) set({ boardLoaded: true })
+      if (!get().boardLoaded || backOnBoard) set({ boardLoaded: true, ...(backOnBoard ? { offBoardTicket: null } : {}) })
       return
     }
     // Mainbus's changes (not the person's own) get an outline for a few seconds.
@@ -274,25 +350,52 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
     set((s) => {
       const recent = Object.fromEntries(Object.entries(s.recentlyChanged).filter(([, at]) => now - at < RECENT_MS))
       for (const id of changed) recent[id] = now
-      return { tickets: stable, recentlyChanged: recent, boardLoaded: true }
+      return { tickets: stable, recentlyChanged: recent, boardLoaded: true, ...(backOnBoard ? { offBoardTicket: null } : {}) }
     })
   }),
 
-  openTicket: (id) => set({ currentTicketId: id }),
-  closeTicket: () => set({ currentTicketId: null }),
+  openTicket(id) {
+    set((s) => ({ currentTicketId: id, offBoardTicket: s.offBoardTicket?.id === id ? s.offBoardTicket : null }))
+    // A ticket that isn't on the board (archived) is read by id.
+    if (!get().tickets.some((t) => t.id === id)) void followOffBoardTicket(get().tickets)
+  },
+  closeTicket: () => set({ currentTicketId: null, offBoardTicket: null }),
 
-  async moveTicket(id, to) {
-    set((s) => ({ pendingMoves: { ...s.pendingMoves, [id]: to } }))
+  async moveTicket(id, to, before) {
+    set((s) => ({
+      pendingMoves: { ...s.pendingMoves, [id]: to },
+      ...(to !== 'done' ? { pendingRanks: { ...s.pendingRanks, [id]: pendingRank(s, id, to, before ?? null) } } : {})
+    }))
     try {
       return await asOwnChange(id, async () => {
-        const result = await invoke('ticket.move', id, to)
+        // The place goes to the engine only when there is one: a move to the bottom is the two-argument call.
+        const result =
+          before === undefined || before === null ? await invoke('ticket.move', id, to) : await invoke('ticket.move', id, to, before)
         if (result === 'moved') await get().refreshBoard()
         return result
       })
     } finally {
       set((s) => {
         const { [id]: _settled, ...rest } = s.pendingMoves
-        return { pendingMoves: rest }
+        const { [id]: _rank, ...ranks } = s.pendingRanks
+        return { pendingMoves: rest, pendingRanks: ranks }
+      })
+    }
+  },
+
+  async reorderTicket(id, before) {
+    const column = get().tickets.find((t) => t.id === id)?.state.column
+    if (column !== 'backlog' && column !== 'ready') throw new Error('Only Backlog and Ready can be reordered')
+    set((s) => ({ pendingRanks: { ...s.pendingRanks, [id]: pendingRank(s, id, column, before) } }))
+    try {
+      await asOwnChange(id, async () => {
+        await invoke('ticket.reorder', id, before)
+        await get().refreshBoard()
+      })
+    } finally {
+      set((s) => {
+        const { [id]: _rank, ...ranks } = s.pendingRanks
+        return { pendingRanks: ranks }
       })
     }
   },

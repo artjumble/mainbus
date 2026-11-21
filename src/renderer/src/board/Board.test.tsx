@@ -985,3 +985,95 @@ describe('the header and the column titles stay in sight while the board scrolls
     expect(card.style.scrollMarginTop).toContain('--board-header-h')
   })
 })
+
+describe('the Archive on the board', () => {
+  const shipped = (title: string): ReturnType<typeof makeTicket> => makeTicket({ title, manualColumn: 'done' }, { column: 'done', phase: 'done' })
+  const done = (): HTMLElement => screen.getByRole('region', { name: 'Done' })
+  let archivedMatches: { tickets: { id: string; number: number; title: string }[]; total: number }
+
+  beforeEach(() => {
+    archivedMatches = { tickets: [], total: 0 }
+    mockInvoke.mockImplementation(async (command: string) => (command === 'archive.list' ? archivedMatches : { tickets: useMainbus.getState().tickets, archived: 0 }))
+  })
+
+  test('an open Done shows Archive (N), which opens the Archive; it is not there closed or with nothing archived', async () => {
+    showBoard(shipped('Old work'))
+    useMainbus.setState({ archivedCount: 3 })
+    renderWithMantine(<Board />)
+    expect(screen.queryByRole('button', { name: /^Archive \(/ })).not.toBeInTheDocument()
+    act(() => done().focus())
+    await userEvent.click(screen.getByRole('button', { name: 'Archive (3)' }))
+    expect(useMainbus.getState().archiveOpen).toBe(true)
+    expect(useMainbus.getState().archiveQuery).toBe('')
+  })
+
+  test('with nothing archived there is no Archive button', () => {
+    showBoard(shipped('Old work'))
+    renderWithMantine(<Board />)
+    act(() => done().focus())
+    expect(screen.queryByRole('button', { name: /^Archive \(/ })).not.toBeInTheDocument()
+  })
+
+  test("the card menu's Archive is only on Done cards, and archives that ticket, announcing it", async () => {
+    const old = shipped('Old work')
+    const fresh = makeTicket({ title: 'Fresh' }, { column: 'backlog' })
+    showBoard(old, fresh)
+    renderWithMantine(<Board />)
+    act(() => done().focus())
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Old work/ }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Archive' }))
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.archive', [old.id]))
+    await vi.waitFor(() => expect(useMainbus.getState().announcement?.text).toBe(`Archived #${old.number} Old work`))
+    await userEvent.keyboard('{Escape}')
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Fresh/ }))
+    await screen.findByRole('menuitem', { name: 'Move to Done' })
+    expect(screen.queryByRole('menuitem', { name: 'Archive' })).not.toBeInTheDocument()
+  })
+
+  test('a search says how many archived tickets match, and the link opens the Archive with that search', async () => {
+    showBoard(makeTicket({ title: 'Login page' }, { column: 'backlog' }))
+    useMainbus.setState({ archivedCount: 5 })
+    archivedMatches = { tickets: [{ id: 'x', number: 4, title: 'Old login' }], total: 2 }
+    renderWithMantine(<Board />)
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search tickets' }), 'login')
+    const link = await screen.findByRole('button', { name: '2 more in the Archive' })
+    expect(mockInvoke).toHaveBeenCalledWith('archive.list', { query: 'login', limit: 1 })
+    expect(screen.getByTestId('archive-hint')).toHaveAttribute('role', 'status')
+    await userEvent.click(link)
+    expect(useMainbus.getState()).toMatchObject({ archiveOpen: true, archiveQuery: 'login' })
+  })
+
+  test('no hint when nothing archived matches, or when nothing is archived at all', async () => {
+    showBoard(makeTicket({ title: 'Login page' }, { column: 'backlog' }))
+    renderWithMantine(<Board />)
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search tickets' }), 'login')
+    // Past the debounce: a read, if there were going to be one, has been sent.
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(mockInvoke).not.toHaveBeenCalledWith('archive.list', expect.anything())
+    expect(screen.getByTestId('archive-hint')).toBeEmptyDOMElement()
+  })
+
+  test('searching #N for an archived ticket offers to open it, and Enter opens it; typing alone never does', async () => {
+    showBoard(makeTicket({ title: 'Something else' }, { column: 'backlog' }))
+    useMainbus.setState({ archivedCount: 5 })
+    archivedMatches = { tickets: [{ id: 'arch-12', number: 12, title: 'Old login' }], total: 1 }
+    renderWithMantine(<Board />)
+    const box = screen.getByRole('textbox', { name: 'Search tickets' })
+    await userEvent.type(box, '#12')
+    expect(await screen.findByText(/#12 Old login is archived\./)).toBeInTheDocument()
+    expect(useMainbus.getState().currentTicketId).toBeNull()
+    await userEvent.type(box, '{Enter}')
+    expect(useMainbus.getState().currentTicketId).toBe('arch-12')
+  })
+
+  test('the Open it link opens the archived ticket too', async () => {
+    showBoard(makeTicket({ title: 'Something else' }, { column: 'backlog' }))
+    useMainbus.setState({ archivedCount: 5 })
+    archivedMatches = { tickets: [{ id: 'arch-12', number: 12, title: 'Old login' }], total: 1 }
+    renderWithMantine(<Board />)
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search tickets' }), '#12')
+    await userEvent.click(await screen.findByRole('button', { name: 'Open it' }))
+    expect(useMainbus.getState().currentTicketId).toBe('arch-12')
+  })
+})
