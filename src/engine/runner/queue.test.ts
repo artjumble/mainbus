@@ -205,8 +205,12 @@ describe('the queued marker', () => {
 
     await finish(runner, a)
     await waitForStatus(runner, b, 'working')
-    const events = (await repos.runs.events((await repos.runs.latest(b.id))!.id)).map((e) => e.event.kind)
-    expect(events.indexOf('queued')).toBeLessThan(events.indexOf('session'))
+    // The session event is recorded a moment after the status turns to working.
+    await eventually(async () => {
+      const events = (await repos.runs.events((await repos.runs.latest(b.id))!.id)).map((e) => e.event.kind)
+      expect(events).toContain('session')
+      expect(events.indexOf('queued')).toBeLessThan(events.indexOf('session'))
+    })
     // The marker must not make the first launch look like a resume.
     expect(runtime.specs[1]!.resumeSessionId).toBeUndefined()
   })

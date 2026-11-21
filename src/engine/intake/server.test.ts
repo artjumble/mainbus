@@ -207,6 +207,11 @@ describe('intake server', () => {
     expect(aces.filter((a) => isAccount(a.sid)), sddl).toHaveLength(1)
   }, 30_000)
 
+  it.runIf(process.platform !== 'win32')('gives other accounts no access to the socket', async () => {
+    const { target } = await board()
+    expect((await fs.stat(target.endpoint)).mode & 0o777).toBe(0o600)
+  })
+
   it('closes cleanly with a connection still open', async () => {
     const { server, target } = await board()
     const socket = net.connect(target.endpoint)

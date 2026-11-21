@@ -360,6 +360,24 @@ describe('WorktreeManager', () => {
     expect(await exists(wt)).toBe(false)
   })
 
+  it.runIf(process.platform !== 'win32')('removes the folder while a program runs in it', async () => {
+    const { path: wt, branch } = await manager.ensure(ws, ticket)
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: wt, stdio: 'ignore' })
+    try {
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve)
+        child.once('error', reject)
+      })
+      // POSIX lets a folder go while a program has it as its working directory.
+      expect(await manager.remove(ticket.id, repoPath, wt, branch, { discard: false })).toBe('removed')
+      expect(await exists(wt)).toBe(false)
+    } finally {
+      const exited = new Promise((resolve) => child.once('exit', resolve))
+      child.kill()
+      await exited
+    }
+  })
+
   describe('when git fails mid-removal', () => {
     const failRemove: GitRunner = async (args, cwd) =>
       isWorktreeCall(args, 'remove')
@@ -543,7 +561,7 @@ describe('WorktreeManager', () => {
     })
   })
 
-  it.runIf(process.platform === 'win32')('removes a worktree holding paths over 260 characters', async () => {
+  it('removes a worktree holding paths over 260 characters', async () => {
     await fs.writeFile(path.join(repoPath, '.gitignore'), 'node_modules/\n')
     await git(['add', '.'])
     await git(['commit', '-m', 'ignore'])

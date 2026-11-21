@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { invoke } from '../api'
 import { ticketTime, type TicketTime } from '../../../shared/timeBreakdown'
@@ -52,7 +52,8 @@ test('shows the total, a bar per role with its categories, and the longest comma
   const { container } = renderWithMantine(<TimeSection ticketId="t" events={events} runs={runs} />)
   await userEvent.click(screen.getByRole('button', { name: 'Show' }))
   const section = screen.getByRole('region', { name: 'Time' })
-  expect(await within(section).findByText(/45 min in 1 run and 2 roles · 45 min from the first start to Review/)).toBeVisible()
+  // The section may still be opening when the text appears.
+  await waitFor(() => expect(within(section).getByText(/45 min in 1 run and 2 roles · 45 min from the first start to Review/)).toBeVisible())
   const bars = within(section).getAllByRole('img')
   expect(bars.map((b) => b.getAttribute('aria-label'))).toEqual([
     'Planner: Between turns or roles 5 min',

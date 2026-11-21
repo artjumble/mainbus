@@ -105,7 +105,10 @@ function globMatchesSecret(glob: string): boolean {
 /** True when the path, as typed or with its `..` folded away, names a credential file or a folder of them. */
 export function isCredentialPath(p: string, files?: CredentialFiles): boolean {
   const typed = p.replace(FILESYSTEM_PROVIDER, '')
-  return namesCredential(typed, files) || namesCredential(path.win32.normalize(typed), files)
+  // Fold `..` with the active style's rules: win32 normalisation would turn `y/.npmrc` into `y\.npmrc` on POSIX,
+  // which then resolves to a file that doesn't exist.
+  const normalize = (files?.pathStyle ?? hostPathStyle()) === 'win32' ? path.win32.normalize : path.posix.normalize
+  return namesCredential(typed, files) || namesCredential(normalize(typed), files)
 }
 
 function namesCredential(p: string, files: CredentialFiles | undefined): boolean {

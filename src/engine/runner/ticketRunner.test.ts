@@ -60,7 +60,7 @@ describe('TicketRunner', () => {
     const scratch = scratchPathFor(paths, (await repos.tickets.get(ticket.id)).worktreePath as string)
 
     // Unguarded, so the broad rule covers it and no card is raised.
-    expect(await runtime.specs[0].onPermission(permission(`rm ${scratch}\\out.txt`))).toEqual({ allow: true })
+    expect(await runtime.specs[0].onPermission(permission(`rm ${path.join(scratch, 'out.txt')}`))).toEqual({ allow: true })
     // A cd into the scratch folder needs no rule, as a cd into the worktree doesn't.
     await repos.allowRules.add({ workspaceId: ticket.workspaceId, toolName: 'Bash', pattern: 'npm test *' })
     expect(await runtime.specs[0].onPermission(permission(`cd ${scratch} && npm test -- x`))).toEqual({ allow: true })

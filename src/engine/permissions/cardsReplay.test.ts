@@ -28,7 +28,7 @@ const win = path.win32
 function exists(p: string): boolean {
   const rel = win.relative(W, p)
   if (rel.startsWith('..') || win.isAbsolute(rel)) return !win.relative(S, p).startsWith('..')
-  return fs.existsSync(path.join(process.cwd(), rel))
+  return fs.existsSync(path.join(process.cwd(), ...rel.split(win.sep)))
 }
 
 const ctx: GuardContext = { worktree: W, additionalDirectories: [S], scratch: S, ownBranch: 'mainbus/14-x', exists, pathStyle: 'win32' }

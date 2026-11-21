@@ -1,5 +1,12 @@
+import fs from 'node:fs'
+import os from 'node:os'
 import react from '@vitejs/plugin-react'
 import { configDefaults, defineConfig } from 'vitest/config'
+
+// On macOS the default temp folder (/var/folders/...) is a symlink to /private/var/..., but the engine stores
+// workspaces by their real path, so tests that pass a mkdtemp path would never match. Point TMPDIR at the real
+// folder; the workers inherit it. Windows is handled by CI's TEMP step.
+if (process.platform !== 'win32') process.env.TMPDIR = fs.realpathSync(os.tmpdir())
 
 const NODE_INCLUDE = ['src/engine/**/*.test.ts', 'src/main/**/*.test.ts', 'src/shared/**/*.test.ts', 'src/cli/**/*.test.ts']
 // Few enough at once that their git processes don't starve each other (8 and 12 ran the full suite in about the same time).

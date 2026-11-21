@@ -19,6 +19,8 @@ import {
 import { eventually } from '../testWait'
 
 const CLAUDE_PATH = 'C:\\Users\\x\\.local\\bin\\claude.exe'
+// Fixture folders in the host's own path style: the guard reads them with the host's rules.
+const ROOT = process.platform === 'win32' ? 'C:\\' : '/'
 
 function fixture(name: string): unknown[] {
   const file = resolve(import.meta.dirname, '../../../test/fixtures/sdk', `${name}.jsonl`)
@@ -96,8 +98,8 @@ function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
     checkCriterion: vi.fn(async () => 'checked')
   }
   return {
-    cwd: 'C:\\work\\ws\\1-fix',
-    tempDir: 'C:\\scratch\\ws\\1-fix',
+    cwd: path.join(ROOT, 'work', 'ws', '1-fix'),
+    tempDir: path.join(ROOT, 'scratch', 'ws', '1-fix'),
     ownBranch: 'mainbus/1-fix',
     prompt: 'Do the thing',
     appendSystemPrompt: 'You are the Implementer.',
@@ -105,7 +107,7 @@ function makeSpec(over: Partial<RunSpec> = {}): RunSpec {
     effort: 'high',
     toolProfile: 'edit',
     disallowedTools: ['AskUserQuestion', 'Agent'],
-    additionalDirectories: ['C:\\shared'],
+    additionalDirectories: [path.join(ROOT, 'shared')],
     roleTools,
     onPermission: vi.fn(async () => ({ allow: true as const })),
     ...over
@@ -228,15 +230,15 @@ describe('SdkRuntime', () => {
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
     const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
     const signal = new AbortController().signal
-    const outside = await hook({ tool_name: 'Write', tool_input: { file_path: 'C:\\elsewhere\\x.txt' } }, 't', { signal })
+    const outside = await hook({ tool_name: 'Write', tool_input: { file_path: path.join(ROOT, 'elsewhere', 'x.txt') } }, 't', { signal })
     expect(outside.hookSpecificOutput?.permissionDecision).toBe('ask')
-    const inside = await hook({ tool_name: 'Write', tool_input: { file_path: `${spec.cwd}\\x.txt` } }, 't', { signal })
+    const inside = await hook({ tool_name: 'Write', tool_input: { file_path: path.join(spec.cwd, 'x.txt') } }, 't', { signal })
     expect(inside).toEqual({})
   })
 
   test("the guard reads $TEMP as the run's scratch folder", async () => {
     const f = fakeSdk()
-    const spec = makeSpec({ additionalDirectories: ['C:\\scratch\\ws\\1-fix'] })
+    const spec = makeSpec({ additionalDirectories: [path.join(ROOT, 'scratch', 'ws', '1-fix')] })
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
     const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
     const signal = new AbortController().signal
@@ -253,7 +255,7 @@ describe('SdkRuntime', () => {
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(spec)
     const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
     const signal = new AbortController().signal
-    const sub = `${spec.cwd}\\src\\engine`
+    const sub = path.join(spec.cwd, 'src', 'engine')
     const command = { command: 'cd ../..' }
     expect(await hook({ tool_name: 'Bash', tool_input: command, tool_use_id: 'tuc', cwd: sub }, 'tuc', { signal })).toEqual({})
     // From the worktree itself, or with a cwd that is not a path, it leaves.
@@ -644,7 +646,7 @@ describe('SdkRuntime', () => {
 })
 
 describe('SdkRuntime.summarize', () => {
-  const request = { cwd: 'C:\\work\\ws\\1-fix', tempDir: 'C:\\scratch\\ws\\1-fix', prompt: 'Summarise this log', timeoutMs: 5000 }
+  const request = { cwd: path.join(ROOT, 'work', 'ws', '1-fix'), tempDir: path.join(ROOT, 'scratch', 'ws', '1-fix'), prompt: 'Summarise this log', timeoutMs: 5000 }
   const result = (over: Record<string, unknown> = {}) => ({ type: 'result', subtype: 'success', is_error: false, result: ' The plan. ', ...over })
 
   test("runs one turn of the user's own claude, with its own login, no tools, no MCP servers and no saved session", async () => {
@@ -783,8 +785,8 @@ describe('SdkRuntime: the orchestrator model', () => {
 })
 
 describe('SdkRuntime: the orchestrator spec', () => {
-  const ORCH_CWD = 'C:\\home\\orchestrator'
-  const REPO = 'C:\\code\\repo'
+  const ORCH_CWD = path.join(ROOT, 'home', 'orchestrator')
+  const REPO = path.join(ROOT, 'code', 'repo')
 
   function makeOrchestratorSpec(over: Partial<OrchestratorRunSpec> = {}): OrchestratorRunSpec {
     const tools: OrchestratorToolHandlers = {
@@ -1031,9 +1033,9 @@ describe('SdkRuntime: the orchestrator spec', () => {
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeOrchestratorSpec())
     const hook = f.calls[0].options.hooks.PreToolUse[0].hooks[0]
     const signal = new AbortController().signal
-    const secret = await hook({ tool_name: 'Read', tool_input: { file_path: `${REPO}\\.env` } }, 't1', { signal })
+    const secret = await hook({ tool_name: 'Read', tool_input: { file_path: path.join(REPO, '.env') } }, 't1', { signal })
     expect(secret.hookSpecificOutput).toMatchObject({ hookEventName: 'PreToolUse', permissionDecision: 'deny' })
-    const code = await hook({ tool_name: 'Read', tool_input: { file_path: `${REPO}\\src\\index.ts` } }, 't2', { signal })
+    const code = await hook({ tool_name: 'Read', tool_input: { file_path: path.join(REPO, 'src', 'index.ts') } }, 't2', { signal })
     expect(code).toEqual({})
     const bash = await hook({ tool_name: 'Bash', tool_input: { command: 'ls' } }, 't3', { signal })
     expect(bash.hookSpecificOutput.permissionDecision).toBe('deny')
@@ -1073,10 +1075,10 @@ describe('SdkRuntime: the orchestrator spec', () => {
     const f = fakeSdk()
     await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeOrchestratorSpec())
     const opts = { signal: new AbortController().signal, toolUseID: 'tu1' }
-    const write = await f.calls[0].options.canUseTool('Write', { file_path: `${REPO}\\x` }, opts)
+    const write = await f.calls[0].options.canUseTool('Write', { file_path: path.join(REPO, 'x') }, opts)
     expect(write).toEqual({ behavior: 'deny', message: 'The orchestrator only reads and proposes; it cannot do this.' })
-    const read = await f.calls[0].options.canUseTool('Read', { file_path: `${REPO}\\x` }, opts)
-    expect(read).toEqual({ behavior: 'allow', updatedInput: { file_path: `${REPO}\\x` } })
+    const read = await f.calls[0].options.canUseTool('Read', { file_path: path.join(REPO, 'x') }, opts)
+    expect(read).toEqual({ behavior: 'allow', updatedInput: { file_path: path.join(REPO, 'x') } })
 
     const g = fakeSdk()
     const onPermission = vi.fn(async () => {
@@ -1119,5 +1121,27 @@ describe.skipIf(BASHES.length === 0)('TEMP, TMP and TMPDIR in Git Bash with the 
     expect(lines).toHaveLength(3)
     const real = realpathSync.native(scratch)
     for (const line of lines) expect(path.win32.relative(real, realpathSync.native(line)), line).toBe('')
+  })
+})
+
+// The same check off Windows, with the system bash: the guard reads $TEMP, $TMP and $TMPDIR as the scratch folder.
+describe.runIf(process.platform !== 'win32' && existsSync('/bin/bash'))('TEMP, TMP and TMPDIR in bash with the environment childEnv builds', () => {
+  let scratch = ''
+  beforeAll(() => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'scratch dir-'))
+  })
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+
+  test.each([['-c'], ['-l -c']])('/bin/bash %s', async (mode) => {
+    const f = fakeSdk()
+    await new SdkRuntime(CLAUDE_PATH, f.sdk).start(makeSpec({ tempDir: scratch }))
+    const env = f.calls[0].options.env as NodeJS.ProcessEnv
+    const script = `printf '%s\n' "$TEMP" "$TMP" "$TMPDIR"`
+    const r = spawnSync('/bin/bash', [...mode.split(' '), script], { env, encoding: 'utf8', timeout: 30_000 })
+    expect(r.status, r.stderr).toBe(0)
+    const lines = r.stdout.trim().split('\n')
+    expect(lines).toHaveLength(3)
+    const real = realpathSync(scratch)
+    for (const line of lines) expect(realpathSync(line), line).toBe(real)
   })
 })

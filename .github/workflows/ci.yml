@@ -1,7 +1,6 @@
 # Type check and unit tests on Windows, macOS and Linux for every pull request.
 #
-# Windows is the supported platform and must pass. macOS and Linux don't block yet (continue-on-error): their results
-# are uploaded as artifacts to size the platform-correct unit suite (cross-platform plan, P0-5).
+# All three platforms must pass. Test results are uploaded as artifacts for each.
 name: CI
 
 on:
@@ -19,16 +18,14 @@ jobs:
   test:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # Only the Windows job can fail the run.
-    continue-on-error: ${{ !matrix.blocking }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: Windows, os: windows-latest, blocking: true }
-          - { name: macOS, os: macos-latest, blocking: false }
-          - { name: Linux, os: ubuntu-latest, blocking: false }
+          - { name: Windows, os: windows-latest }
+          - { name: macOS, os: macos-latest }
+          - { name: Linux, os: ubuntu-latest }
     defaults:
       run:
         shell: bash
