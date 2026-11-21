@@ -19,7 +19,6 @@ import {
   type AgentLauncher,
   type Lineup,
   type LineupRole,
-  type NewTicketInput,
   type RunSettings,
   type RunSettingsInput,
   type StartOptions,

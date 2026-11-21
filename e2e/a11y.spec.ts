@@ -1,5 +1,4 @@
 /// <reference lib="dom" />
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -11,14 +10,6 @@ import { THEME_IDS, makeRepo, useTheme, type ThemeId } from './artboardHelpers'
 
 const root = path.resolve(import.meta.dirname, '..')
 const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
-
-function git(cwd: string, ...args: string[]): void {
-  execFileSync('git', ['-c', 'user.name=Mainbus E2E', '-c', 'user.email=e2e@mainbus.test', ...args], {
-    cwd,
-    windowsHide: true,
-    stdio: 'pipe'
-  })
-}
 
 /** `repo` may list several folders, joined with the path delimiter: the folder picker answers them in order. */
 async function launch(home: string, repo: string): Promise<{ app: ElectronApplication; page: Page }> {

@@ -14,6 +14,61 @@ import { createTicket, makeRepo } from './artboardHelpers'
 const root = path.resolve(import.meta.dirname, '..')
 const column = (page: Page, name: string) => page.getByRole('region', { name, exact: true })
 
+test('on the empty board every column title and count lines up with the collapsed Needs you count', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
+  let app: ElectronApplication | undefined
+  try {
+    const repo = makeRepo(tmp, 'repo')
+    const env: Record<string, string> = {}
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+    delete env['ELECTRON_RUN_AS_NODE']
+    app = await electron.launch({
+      args: ['.'],
+      cwd: root,
+      env: {
+        ...env,
+        MAINBUS_HOME: path.join(tmp, 'home'),
+        MAINBUS_RUNTIME: 'fake:e2e/fixtures/needs-you-column-by-role.json',
+        MAINBUS_TEST_REPO: repo
+      }
+    })
+    const page = await app.firstWindow()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 640))
+    await addWorkspace(page)
+    // The placeholder lanes are aria-hidden, so read them from the DOM: the vertical centre of each count, and of each title.
+    await expect(page.locator('[data-lane]')).toHaveCount(6)
+    const centres = await page.evaluate(() => {
+      const mid = (el: Element): number => {
+        const b = el.getBoundingClientRect()
+        return b.top + b.height / 2
+      }
+      return Array.from(document.querySelectorAll('[data-lane]')).flatMap((lane) => {
+        const count = lane.querySelector('[data-testid="column-count"]')
+        const horizontal = lane.querySelector('h3')?.style.writingMode !== 'vertical-rl'
+        const h3 = lane.querySelector('h3')
+        return [count ? mid(count) : null, horizontal && h3 ? mid(h3) : null].filter((y): y is number => y !== null)
+      })
+    })
+    expect(centres.length).toBeGreaterThanOrEqual(6)
+    for (const y of centres) expect(Math.abs(y - centres[0]!)).toBeLessThanOrEqual(1)
+    // Tighter than the line above: the counts' tops must agree to the sub-pixel, so a 1 px offset shows.
+    const tops = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-lane] [data-testid="column-count"]')).map(
+        (el) => el.getBoundingClientRect().top
+      )
+    )
+    expect(tops).toHaveLength(6)
+    for (const y of tops) expect(Math.abs(y - tops[0]!)).toBeLessThan(0.5)
+  } finally {
+    await app?.close().catch(() => {})
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    } catch {
+      // A temp folder left behind is harmless.
+    }
+  }
+})
+
 test('the header and the column titles stay at the top while the board scrolls, and a focused card is not under them', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-e2e-'))
   let app: ElectronApplication | undefined

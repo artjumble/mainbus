@@ -23,11 +23,6 @@ let worktrees: WorktreeManager
 let workspaceId: string
 let runner: TicketRunner | null
 
-async function git(args: string[]): Promise<void> {
-  const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], repoPath)
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-}
-
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mainbus-working-'))
   repoPath = path.join(tmp, 'repo')

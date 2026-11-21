@@ -1,4 +1,3 @@
-import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import type { Effort, LineupRole } from '../../shared/domain'
@@ -12,7 +11,7 @@ import { testRole } from '../store/testDb'
 import { TicketRunner } from './ticketRunner'
 import { eventually } from '../testWait'
 
-import { count, db, emitted, exists, git, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread } from './ticketRunnerHarness'
+import { count, db, emitted, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread } from './ticketRunnerHarness'
 
 installRunnerHooks()
 

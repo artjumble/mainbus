@@ -6,6 +6,7 @@
     "moduleResolution": "Bundler",
     "types": ["node", "vitest/globals"],
     "strict": true,
+    "noUnusedLocals": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,

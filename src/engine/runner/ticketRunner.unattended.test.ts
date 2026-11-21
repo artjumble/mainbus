@@ -5,7 +5,7 @@ import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import { type RunSpec } from '../runtime/types'
 import { TicketRunner } from './ticketRunner'
 
-import { count, git, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
+import { count, installRunnerHooks, keepAlive, makeRunner, permission, repos, thread, ticket, waitForPending, waitForThread, worktrees } from './ticketRunnerHarness'
 
 installRunnerHooks()
 

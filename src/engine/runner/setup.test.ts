@@ -71,11 +71,6 @@ class FakeSetup {
   }
 }
 
-async function git(args: string[]): Promise<void> {
-  const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], repoPath)
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-}
-
 let lastRuntime: FakeRuntime | null = null
 
 function makeRunner(runtime: FakeRuntime, withSetup = true): TicketRunner {

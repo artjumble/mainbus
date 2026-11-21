@@ -8,7 +8,6 @@ import { createEngine, type Engine } from '../index'
 import { makeRepo } from '../intake/testBoard'
 import { FakeRuntime, type FakeStep } from '../runtime/fakeRuntime'
 import type { ExecFn } from '../runtime/resolveClaude'
-import { eventually } from '../testWait'
 import { testHome } from '../testFixtures'
 
 // Each test starts an engine over a real repository: allow for a loaded machine.

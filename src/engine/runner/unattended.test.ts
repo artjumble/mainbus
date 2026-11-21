@@ -25,11 +25,6 @@ let repoPath: string
 let paths: HomePaths
 let engines: Engine[]
 
-async function git(args: string[], cwd: string): Promise<void> {
-  const r = await runGit(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], cwd)
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
-}
-
 // --- scripts, by what the ticket's agent does ---
 
 const handoff: FakeStep[] = [
