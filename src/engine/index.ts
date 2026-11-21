@@ -48,7 +48,8 @@ import { BaseTestMonitor, type BaseTestMonitorDeps } from './baseline/monitor'
 import { BaselineWorktrees } from './baseline/folder'
 import { FreshnessMonitor, type FreshnessMonitorDeps } from './freshness/monitor'
 import { LOCKFILES, updateInstructions, updateRoleOf } from './freshness/update'
-import { orchestratorFolder, scratchPathFor, ticketFoldersFor, type HomePaths } from './home'
+import { orchestratorFolder, scratchPathFor, ticketFoldersFor, ticketPathsFor, type HomePaths } from './home'
+import { checkTicketFoldersLocation } from './ticketFolders/location'
 import { Attachments, type AttachmentWithPath } from './attachments/attachments'
 import { createIntakeHandler, type IntakeHandler } from './intake/methods'
 import { compareRank, isRanked, placement } from '../shared/boardOrder'
@@ -259,7 +260,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     // New branches start from the newest base; the monitor (below) measures open branches against it.
     const freshnessChecker = new BranchFreshnessChecker(cfg.git, cfg.commands ?? runCommand)
-    const worktrees = new WorktreeManager(cfg.git, cfg.paths, repos.cleanups, undefined, cfg.removeDir, async (ws) => {
+    // The data home's paths, with the ticket folders (worktrees, scratch, baselines) under the "Ticket folders location" when it is set.
+    // Looked up when a folder is made, so changing the setting applies to the next new ticket; tickets keep their recorded folders.
+    const ticketPaths = async (): Promise<HomePaths> => ticketPathsFor(cfg.paths, (await repos.settings.get()).ticketFoldersLocation)
+    // The folders holding a workspace's ticket folders: the data home's, the current location's, and where its open tickets really are.
+    const ticketFoldersOf = async (ws: Workspace): Promise<string[]> => {
+      const found = [ticketFoldersFor(cfg.paths, ws.slug), ticketFoldersFor(await ticketPaths(), ws.slug)]
+      for (const t of await repos.tickets.list(ws.id)) if (t.worktreePath) found.push(path.dirname(t.worktreePath))
+      const seen = new Set<string>()
+      return found.filter((f) => {
+        const key = process.platform === 'win32' ? path.resolve(f).toLowerCase() : path.resolve(f)
+        return seen.has(key) ? false : (seen.add(key), true)
+      })
+    }
+    const worktrees = new WorktreeManager(cfg.git, ticketPaths, repos.cleanups, undefined, cfg.removeDir, async (ws) => {
       const base = await freshnessChecker.newestBase(ws, { fetch: true })
       // The fetch may have moved origin/<base>: the other open tickets are measured against it now (freshness exists by the time a ticket starts).
       void freshness.refresh(ws.id, { fetch: false }).catch(() => {})
@@ -352,7 +366,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       timer: cfg.freshness?.timer ?? realTimer,
       ...(cfg.freshness?.intervalMs !== undefined ? { intervalMs: cfg.freshness.intervalMs } : {})
     })
-    const baselineFolders = new BaselineWorktrees(cfg.git, cfg.paths)
+    const baselineFolders = new BaselineWorktrees(cfg.git, ticketPaths)
     const baseTests = new BaseTestMonitor({
       repos,
       checker: freshnessChecker,
@@ -1251,6 +1265,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       runtime: cfg.runtime ?? missingRuntime,
       homeRoot: cfg.paths.root,
       paths: cfg.paths,
+      ticketFolders: ticketFoldersOf,
       now,
       emit,
       webAccess: async () => (await repos.settings.get()).orchestratorWebAccess,
@@ -1780,6 +1795,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       'settings.setWhenClosed': (v) => repos.settings.setWhenClosed(v),
       'settings.setOrchestratorWebAccess': (on) => repos.settings.setOrchestratorWebAccess(on),
       'settings.setReviewDone': (v) => repos.settings.setReviewDone(v),
+      'settings.setTicketFoldersLocation': async (location) => {
+        const checked = await checkTicketFoldersLocation(location, { dataHome: cfg.paths.root, workspaces: await repos.workspaces.list(), git: cfg.git })
+        return { settings: await repos.settings.setTicketFoldersLocation(checked.location), warning: checked.warning }
+      },
       // Read at the start of each orchestrator turn: a turn under way keeps the model and effort it started with.
       'settings.setOrchestratorModel': async (family) => {
         // A family the binary doesn't offer is refused; the repo refuses anything that is no family at all.
@@ -1863,7 +1882,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     const intake = createIntakeHandler({
       workspaces: () => repos.workspaces.list(),
-      ticketFolders: (ws) => ticketFoldersFor(cfg.paths, ws.slug),
+      ticketFolders: ticketFoldersOf,
       createTicket: (ws, input) => createTicket(ws, { ...input, blockedBy: undefined }),
       tickets: boardTickets,
       ticket: boardTicket,

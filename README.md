@@ -189,7 +189,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` uses a development data home (`%LOCALAPPDATA%\Mainbus-dev`). Set `MAINBUS_HOME` to use another one. On the welcome screen, choose **+ Add workspace** and pick a repository folder, add a ticket, and drag it to Ready. Add more workspaces from the rail's **+ Add workspace** button. The gear in the board's header opens Workspace settings, where the concurrency cap and the tray's close behaviour live, beside the lineup, pull request and investigation report settings. The gear at the bottom of the rail (or **Ctrl+,**) opens the Mainbus settings, with the theme.
+`pnpm dev` uses a development data home (`%LOCALAPPDATA%\Mainbus-dev`). Set `MAINBUS_HOME` to use another one. On the welcome screen, choose **+ Add workspace** and pick a repository folder, add a ticket, and drag it to Ready. Add more workspaces from the rail's **+ Add workspace** button. The gear in the board's header opens Workspace settings, where the concurrency cap and the tray's close behaviour live, beside the lineup, pull request and investigation report settings. The gear at the bottom of the rail (or **Ctrl+,**) opens the Mainbus settings, with the theme. There, **Ticket folders location** moves new tickets' worktrees, scratch folders and base-test folders to another drive, such as a Windows Dev Drive; the database, attachments and settings stay in the data home.
 
 **The tray.** Closing the window while agents are open hides Mainbus to the tray, and the first time it says so in a notification. Closing it with no agents open quits. To always quit, set **When I close the window** to **Always quit** in Workspace settings. Quit from the tray icon's menu to stop everything.
 

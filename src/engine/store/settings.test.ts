@@ -15,7 +15,7 @@ afterEach(() => cleanup())
 /** The Theme setting of a new user: Light, and Match Windows between Light and Dark. */
 const LIGHT = { choice: 'light', light: 'light', dark: 'dark' } as const
 /** The orchestrator of a new user: Opus at medium effort, as before there was a setting. */
-const ORCHESTRATOR = { orchestratorModel: 'opus', orchestratorEffort: 'medium', reviewDoneTickets: true, reviewDoneWaitMinutes: 2 } as const
+const ORCHESTRATOR = { orchestratorModel: 'opus', orchestratorEffort: 'medium', reviewDoneTickets: true, reviewDoneWaitMinutes: 2, ticketFoldersLocation: null } as const
 
 describe('settings repo', () => {
   it('allows three agents at once until the user says otherwise', async () => {
@@ -201,5 +201,18 @@ describe('the review of finished tickets', () => {
       await expect(repo.setReviewDone({ waitMinutes: bad })).rejects.toThrow('multiple of half a minute from 1 to 30')
     }
     expect((await repo.get()).reviewDoneWaitMinutes).toBe(2)
+  })
+
+  it('keeps the ticket folders location: empty by default, stored, cleared with null, and shape-checked', async () => {
+    const repo = createSettingsRepo(db)
+    expect((await repo.get()).ticketFoldersLocation).toBeNull()
+    const root = process.platform === 'win32' ? 'D:\\mb' : '/mnt/mb'
+    expect((await repo.setTicketFoldersLocation(root)).ticketFoldersLocation).toBe(root)
+    expect((await createSettingsRepo(db).get()).ticketFoldersLocation).toBe(root)
+    for (const bad of ['', 'relative/dir', 5 as unknown as string, 'x'.repeat(1001)]) {
+      await expect(repo.setTicketFoldersLocation(bad)).rejects.toThrow('full path')
+    }
+    expect((await repo.get()).ticketFoldersLocation).toBe(root)
+    expect((await repo.setTicketFoldersLocation(null)).ticketFoldersLocation).toBeNull()
   })
 })

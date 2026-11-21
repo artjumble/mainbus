@@ -94,3 +94,21 @@ describe('BaselineWorktrees', () => {
     await folders.remove(ws)
   })
 })
+
+describe('BaselineWorktrees when the ticket folders location changes', () => {
+  it('makes the baseline in the new root and removes the old one, from the folder and from git', async () => {
+    const sha = await git(['rev-parse', 'HEAD'])
+    const old = await folders.ensure(ws, sha)
+    const root = path.join(tmp, 'fast', 'mb')
+    const moved = new BaselineWorktrees(runGit, async () => ({ ...paths, baselines: path.join(root, 'base') }))
+
+    const f = await moved.ensure(ws, sha)
+
+    expect(f.created).toBe(true)
+    expect(f.repo).toBe(path.join(root, 'base', 'my-repo', 'r'))
+    await expect(fs.access(old.root)).rejects.toThrow()
+    const listed = await git(['worktree', 'list', '--porcelain'])
+    expect(listed.match(/^worktree /gm)).toHaveLength(2)
+    expect(listed.replace(/\\/g, '/').toLowerCase()).not.toContain(old.repo.replace(/\\/g, '/').toLowerCase())
+  })
+})

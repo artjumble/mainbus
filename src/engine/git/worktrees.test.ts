@@ -578,3 +578,42 @@ describe('WorktreeManager', () => {
     expect(await exists(wt)).toBe(false)
   })
 })
+
+describe('WorktreeManager with a ticket folders location', () => {
+  let root: string
+  let moved: HomePaths
+  beforeEach(() => {
+    root = path.join(tmp, 'fast', 'mb')
+    moved = { ...paths, worktrees: path.join(root, 'work'), scratch: path.join(root, 'scratch'), baselines: path.join(root, 'base') }
+  })
+
+  it('makes a new ticket\'s worktree and scratch under the location, and removes both there', async () => {
+    const m = new WorktreeManager(runGit, async () => moved, cleanups)
+    const result = await m.ensure(ws, ticket)
+    expect(result.path).toBe(path.join(root, 'work', 'my-repo', '14-rate-limit-login'))
+    expect(result.scratch).toBe(path.join(root, 'scratch', 'my-repo', '14-rate-limit-login'))
+    expect(await exists(result.scratch)).toBe(true)
+
+    expect(await m.remove(ticket.id, repoPath, result.path, result.branch, { discard: false })).toBe('removed')
+    expect(await exists(result.path)).toBe(false)
+    expect(await exists(result.scratch)).toBe(false)
+  })
+
+  it('a ticket with a recorded data-home folder keeps it and its scratch when the location changes', async () => {
+    const first = await manager.ensure(ws, ticket)
+    const m = new WorktreeManager(runGit, async () => moved, cleanups)
+    const again = await m.ensure(ws, { ...ticket, worktreePath: first.path, branch: first.branch })
+    expect(again).toEqual({ ...first, created: false })
+    expect(again.scratch.startsWith(paths.scratch)).toBe(true)
+    expect(await m.remove(ticket.id, repoPath, first.path, first.branch, { discard: false })).toBe('removed')
+    expect(await exists(first.scratch)).toBe(false)
+  })
+
+  it('counts a leftover folder in the root a ticket was made in as the ticket\'s own after the location moved', async () => {
+    const old = path.join(paths.worktrees, 'my-repo', '9-old')
+    await fs.mkdir(old, { recursive: true })
+    await fs.writeFile(path.join(old, 'f.txt'), 'x')
+    const m = new WorktreeManager(runGit, async () => moved, cleanups)
+    expect(await m.remove('t9', repoPath, old, 'b9', { discard: false, leftover: { workspaceSlug: 'my-repo', delete: false } })).toBe('leftover')
+  })
+})

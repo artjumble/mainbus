@@ -67,7 +67,8 @@ function isLockError(err: unknown): boolean {
 export class WorktreeManager {
   constructor(
     private readonly git: GitRunner,
-    private readonly paths: HomePaths,
+    /** Where new ticket folders go: fixed, or looked up each time (the "Ticket folders location" setting can change). */
+    private readonly pathsSource: HomePaths | (() => Promise<HomePaths>),
     private readonly cleanups: PendingCleanupRepo,
     private readonly warn: (message: string) => void = (m) => console.warn(m),
     private readonly rmDir: RemoveDir = removeDir,
@@ -83,9 +84,19 @@ export class WorktreeManager {
    */
   async ensure(ws: Workspace, t: Ticket): Promise<{ branch: string; path: string; scratch: string; created: boolean; baseNotice: string | null }> {
     const branch = t.branch ?? branchName(t.number, t.title)
-    const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(this.paths, ws.slug), folderName(t.number, t.title))
-    const scratch = scratchPathFor(this.paths, wtPath)
-    await fs.mkdir(scratch, { recursive: true })
+    // Only a ticket with no folder yet takes the current location; one that has a folder keeps it.
+    const paths = await this.paths()
+    const wtPath = t.worktreePath ?? path.join(ticketFoldersFor(paths, ws.slug), folderName(t.number, t.title))
+    const scratch = scratchPathFor(paths, wtPath)
+    try {
+      await fs.mkdir(scratch, { recursive: true })
+    } catch (err) {
+      if (t.worktreePath !== null) throw err
+      throw new Error(
+        `Mainbus can't make the ticket's folders in ${path.dirname(path.dirname(scratch))}: ${err instanceof Error ? err.message : String(err)}. ` +
+          'Check the "Ticket folders location" in Mainbus settings.'
+      )
+    }
 
     if (await this.isRegistered(ws.repoPath, wtPath)) {
       if (await exists(wtPath)) return { branch, path: wtPath, scratch, created: false, baseNotice: null }
@@ -119,7 +130,11 @@ export class WorktreeManager {
     if (found.code !== 0) throw new Error(`The branch ${t.branch} no longer exists, so the folder can't be recreated`)
     await this.run(worktreeArgs('prune'), ws.repoPath)
     await this.run(worktreeArgs('add', t.worktreePath, t.branch), ws.repoPath)
-    await fs.mkdir(scratchPathFor(this.paths, t.worktreePath), { recursive: true })
+    await fs.mkdir(scratchPathFor(await this.paths(), t.worktreePath), { recursive: true })
+  }
+
+  private async paths(): Promise<HomePaths> {
+    return typeof this.pathsSource === 'function' ? this.pathsSource() : this.pathsSource
   }
 
   /** The files the branch changes against `baseRef`, committed or not; null when that can't be worked out. */
@@ -238,7 +253,11 @@ export class WorktreeManager {
     if (path.basename(wtPath) === '') return false
     const stat = await fs.lstat(wtPath).catch(() => null)
     if (!stat || !stat.isDirectory() || stat.isSymbolicLink()) return false
-    return (await canonical(path.dirname(wtPath))) === (await canonical(ticketFoldersFor(this.paths, workspaceSlug)))
+    const parent = await canonical(path.dirname(wtPath))
+    if (parent === (await canonical(ticketFoldersFor(await this.paths(), workspaceSlug)))) return true
+    // A folder left in the root a ticket was made in, after the setting moved on: `<root>\work\<slug>`.
+    const work = path.dirname(path.dirname(wtPath))
+    return path.basename(work).toLowerCase() === 'work' && path.basename(path.dirname(wtPath)) === workspaceSlug
   }
 
   /** Finishes removals that were recorded but interrupted. Returns the ticket ids it completed. */
@@ -269,7 +288,7 @@ export class WorktreeManager {
 
   /** Removes the scratch folder of the worktree at `wtPath`. Never throws: a failure is a warning. */
   private async removeScratch(wtPath: string): Promise<void> {
-    const scratch = scratchPathFor(this.paths, wtPath)
+    const scratch = scratchPathFor(await this.paths(), wtPath)
     try {
       await this.rmDir(scratch)
     } catch (err) {

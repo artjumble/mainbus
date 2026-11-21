@@ -489,6 +489,13 @@ export interface EngineCommands {
    */
   'settings.setReviewDone'(v: { on?: boolean; waitMinutes?: number }): AppSettings
   /**
+   * "Ticket folders location": where new tickets' worktrees, scratch folders and base-test folders are made; null (or an empty
+   * string) is the data home. Checks the folder (absolute local path, can be created and written, not inside a repository) and
+   * rejects with a message when it fails; `warning` is set when the paths would be long. Applies to new tickets only.
+   * Only the renderer can reach it.
+   */
+  'settings.setTicketFoldersLocation'(location: string | null): { settings: AppSettings; warning: string | null }
+  /**
    * The orchestrator's model: the latest Fable, Opus or Sonnet that the user's `claude` offers. Rejects a family it doesn't
    * offer. Applies from its next turn, in the same conversation. Only the renderer can reach it.
    */

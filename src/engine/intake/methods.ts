@@ -35,8 +35,8 @@ export type IntakeHandler = <M extends IntakeMethod>(method: M, params: unknown)
 export interface IntakeDeps {
   /** Every open workspace. */
   workspaces(): Promise<Workspace[]>
-  /** The folder holding the workspace's ticket folders; agents work in one of them. */
-  ticketFolders(ws: Workspace): string
+  /** The folders holding the workspace's ticket folders; agents work in one of them. */
+  ticketFolders(ws: Workspace): Promise<string[]>
   /** The same path as the ticket.create command: stores the ticket and emits board.changed. */
   createTicket(ws: Workspace, input: Omit<NewTicketInput, 'workspaceId'>): Promise<Ticket>
   /** The workspace's tickets; archived ones only with `includeArchived`. */
@@ -108,7 +108,7 @@ export function createIntakeHandler(deps: IntakeDeps): IntakeHandler {
     if (!path.isAbsolute(folder)) throw new IntakeFailure('invalid', `${field}: must be an absolute path`, field)
     let best: { ws: Workspace; depth: number } | null = null
     for (const ws of all) {
-      for (const root of [ws.repoPath, deps.ticketFolders(ws)]) {
+      for (const root of [ws.repoPath, ...(await deps.ticketFolders(ws))]) {
         if (!isInside(folder, root)) continue
         const depth = path.resolve(root).length
         if (best === null || depth > best.depth) best = { ws, depth }

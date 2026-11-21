@@ -41,7 +41,7 @@ function stubHandler() {
   const createTicket = vi.fn()
   const handle = createIntakeHandler({
     workspaces: async () => [ws],
-    ticketFolders: () => '/none',
+    ticketFolders: async () => ['/none'],
     createTicket,
     tickets: async () => [],
     ticket: async () => null
@@ -262,7 +262,7 @@ describe('intake list and get', () => {
     const tickets = vi.fn(async () => {
       throw new Error('get must not load the whole board')
     })
-    const handle = createIntakeHandler({ workspaces: async () => [ws], ticketFolders: () => '/none', createTicket: vi.fn(), tickets, ticket })
+    const handle = createIntakeHandler({ workspaces: async () => [ws], ticketFolders: async () => ['/none'], createTicket: vi.fn(), tickets, ticket })
     expect(await failure(handle('get', { cwd: '/r', number: 3 }))).toMatchObject({ code: 'not_found' })
     expect(ticket).toHaveBeenCalledWith(ws, 3)
     expect(tickets).not.toHaveBeenCalled()
@@ -286,7 +286,7 @@ describe('intake list and get', () => {
     } as unknown as Awaited<ReturnType<Parameters<typeof createIntakeHandler>[0]['ticket']>> & object
     const handle = createIntakeHandler({
       workspaces: async () => [ws],
-      ticketFolders: () => '/none',
+      ticketFolders: async () => ['/none'],
       createTicket: vi.fn(),
       tickets: async () => [ticket],
       ticket: async () => ticket
