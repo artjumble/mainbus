@@ -1233,6 +1233,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     const orchestrator = (orchestratorSession = new OrchestratorSession({
       repo: repos.orchestrator,
+      queue: repos.orchestratorQueue,
       runtime: cfg.runtime ?? missingRuntime,
       homeRoot: cfg.paths.root,
       paths: cfg.paths,
@@ -1373,6 +1374,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       onTurnEnded: (finished) => void wakeScheduler.turnEnded(finished)
     }))
+    // The queued messages are known before the first wake turn can be decided.
+    await orchestrator.loadQueue()
     await wakeScheduler.start()
 
     // Restart recovery runs in the background, so the window and the board (read from the DB) don't wait for the
@@ -1381,6 +1384,8 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       .recover({ resume: cfg.runtime !== null })
       // Timers and the reset that passed while closed: after recovery (which skips the paused agents), before the mode.
       .then(() => (cfg.runtime !== null ? gate.start() : undefined))
+      // Messages queued before the restart are sent now, in order (drain handles its own errors).
+      .then(() => (cfg.runtime !== null ? orchestrator.drain() : undefined))
       .then(() => Promise.all([...modes.values()].map((m) => m.restore())))
       .catch((err: unknown) => console.warn(`Mainbus could not finish restart recovery: ${err instanceof Error ? err.message : String(err)}`))
 
@@ -1773,6 +1778,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
       'orchestrator.image': (id) => orchestratorImages.dataUrl(id),
       'orchestrator.stop': () => orchestrator.stop(),
+      'orchestrator.editQueued': (id, text) => orchestrator.editQueued(id, text),
+      'orchestrator.removeQueued': (id) => orchestrator.removeQueued(id),
+      'orchestrator.sendQueuedNow': (id) => {
+        requireRuntime()
+        return orchestrator.sendQueuedNow(id)
+      },
       // They act on the ticket's own workspace, whichever one is focused.
       'ticket.proposeStart': async (ticketId) => {
         await roleModelsReady

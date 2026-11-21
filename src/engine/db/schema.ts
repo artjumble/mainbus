@@ -516,3 +516,19 @@ export const baseTestRuns = sqliteTable(
   },
   (t) => [index('base_test_runs_workspace_idx').on(t.workspaceId, t.startedAt)]
 )
+
+/**
+ * The messages the user sent the orchestrator while it was working, oldest first by `position`. Each is sent as a turn of
+ * its own once the turn under way ends, and the row is removed when its message is recorded in the thread. `images` is a
+ * JSON list of image refs (their files are kept like any sent image), `mentions` the workspace ids the user picked. A
+ * `held_reason` marks a queue that is waiting for the user, and says why.
+ */
+export const orchestratorQueue = sqliteTable('orchestrator_queue', {
+  id: text('id').primaryKey(),
+  position: integer('position').notNull(),
+  text: text('text').notNull(),
+  images: text('images').notNull().default('[]'),
+  mentions: text('mentions').notNull().default('[]'),
+  queuedAt: text('queued_at').notNull(),
+  heldReason: text('held_reason')
+})

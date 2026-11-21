@@ -1,0 +1,17 @@
+{
+  "*": [],
+  "Orchestrator": [
+    { "emit": { "kind": "session", "sessionId": "e2e-queue" } },
+    { "emit": { "kind": "message", "text": "Working on the first." } },
+    { "waitForFile": "release-first" },
+    { "emit": { "kind": "message", "text": "Done with the first." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Answered the second." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true },
+    { "emit": { "kind": "message", "text": "Answered the third." } },
+    { "emit": { "kind": "turn_end", "ok": true } },
+    { "waitForSend": true }
+  ]
+}
