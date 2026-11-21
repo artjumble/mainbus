@@ -120,3 +120,21 @@ test('"tickets at once" cannot go above the agents-at-once limit', async () => {
   await userEvent.type(input, '4')
   expect(mockInvoke).not.toHaveBeenCalledWith('workspace.setUnattendedAtOnce', 4)
 })
+
+test('"Archive Done tickets after" is Off by default; choosing 14 days saves it and updates the workspace', async () => {
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'workspace.setAutoArchiveDays') return { ...workspace, autoArchiveDays: args[0] as 14 | null }
+    if (command === 'settings.get') return { maxAgents: 3, whenClosed: 'tray', orchestratorWebAccess: true, theme: { choice: 'light', light: 'light', dark: 'dark' } }
+    return undefined
+  })
+  renderWithMantine(<GeneralSettings opened />)
+  const select = await screen.findByRole('combobox', { name: 'Archive Done tickets after' })
+  expect(select).toHaveValue('Off')
+
+  await userEvent.click(select)
+  expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Off', '7 days', '14 days', '30 days', '90 days'])
+  await userEvent.click(screen.getByRole('option', { name: '14 days' }))
+
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('workspace.setAutoArchiveDays', 14))
+  await vi.waitFor(() => expect(useMainbus.getState().workspace?.autoArchiveDays).toBe(14))
+})

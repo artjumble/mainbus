@@ -1,7 +1,7 @@
-import { NumberInput, Radio, Stack, Title } from '@mantine/core'
+import { NumberInput, Radio, Select, Stack, Title } from '@mantine/core'
 import { useMainbus } from '../store'
 import { useEffect, useState, type ReactElement } from 'react'
-import { AGENT_CAP_MAX, AGENT_CAP_MIN, UNATTENDED_AT_ONCE_MIN, type WhenClosed } from '../../../shared/domain'
+import { AGENT_CAP_MAX, AGENT_CAP_MIN, ARCHIVE_AGE_DAYS, isArchiveAgeDays, UNATTENDED_AT_ONCE_MIN, type WhenClosed } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
 import { BaseBranchSettings } from './BaseBranchSettings'
@@ -16,6 +16,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
   const [saving, setSaving] = useState(false)
   const workspace = useMainbus((s) => s.workspace)
   const [savingAtOnce, setSavingAtOnce] = useState(false)
+  const [savingArchive, setSavingArchive] = useState(false)
   const [whenClosed, setWhenClosed] = useState<WhenClosed | null>(null)
 
   useEffect(() => {
@@ -65,6 +66,20 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
     }
   }
 
+  async function saveAutoArchive(value: string | null): Promise<void> {
+    const days = value === null || value === 'off' ? null : Number(value)
+    if (days !== null && !isArchiveAgeDays(days)) return
+    setSavingArchive(true)
+    try {
+      const ws = await invoke('workspace.setAutoArchiveDays', days)
+      useMainbus.setState({ workspace: ws })
+    } catch (err) {
+      showError(err, 'Could not save the settings')
+    } finally {
+      setSavingArchive(false)
+    }
+  }
+
   async function saveWhenClosed(value: string): Promise<void> {
     if (value !== 'tray' && value !== 'quit') return
     const previous = whenClosed
@@ -109,6 +124,16 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         value={workspace?.unattendedAtOnce ?? ''}
         disabled={workspace === null || maxAgents === null || savingAtOnce}
         onChange={(v) => void saveAtOnce(v)}
+        w={160}
+      />
+      <Select
+        label="Archive Done tickets after"
+        description="Done tickets leave the board this long after they reached Done, and stay in the Archive. A ticket you restore starts its time again. Off keeps every Done ticket on the board."
+        data={[{ value: 'off', label: 'Off' }, ...ARCHIVE_AGE_DAYS.map((d) => ({ value: String(d), label: `${d} days` }))]}
+        value={workspace?.autoArchiveDays == null ? 'off' : String(workspace.autoArchiveDays)}
+        allowDeselect={false}
+        disabled={workspace === null || savingArchive}
+        onChange={(v) => void saveAutoArchive(v)}
         w={160}
       />
       <Radio.Group

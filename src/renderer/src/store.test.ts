@@ -396,6 +396,16 @@ describe('a ticket that is not on the board (archived)', () => {
     expect(useMainbus.getState().archivedCount).toBe(4)
   })
 
+  test('board.get keeps the archive notice, drops it when the engine stops sending it', async () => {
+    const batch = { id: 'b1', workspaceId: 'w1', kind: 'sweep' as const, olderThanDays: 14, count: 3, createdAt: '2026-11-10T00:00:00.000Z' }
+    mockInvoke.mockResolvedValue({ tickets: [], archived: 3, archiveNotice: batch })
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().archiveNotice).toEqual(batch)
+    mockInvoke.mockResolvedValue({ tickets: [], archived: 3, archiveNotice: null })
+    await useMainbus.getState().refreshBoard()
+    expect(useMainbus.getState().archiveNotice).toBeNull()
+  })
+
   test('openTicket for an id off the board reads it with ticket.view', async () => {
     const t = archived()
     mockInvoke.mockImplementation(async (command: string) => (command === 'ticket.view' ? t : undefined))

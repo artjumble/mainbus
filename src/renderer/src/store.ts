@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { BoardTicket, OpenWorkspaceOptions, PrepareOptions, WorkspaceSummary } from '../../shared/api'
-import type { ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
+import type { ArchiveBatch, ClaudeSetup, Ticket, UnattendedState, UsageState, Workspace } from '../../shared/domain'
 import { modelOptions, setModelOptions, type ModelOption } from '../../shared/models'
 import { invoke, onEngineEvent } from './api'
 import { compareRank } from '../../shared/boardOrder'
@@ -41,6 +41,8 @@ interface MainbusState {
   offBoardLoading: boolean
   /** How many archived tickets the board leaves out. */
   archivedCount: number
+  /** The newest sweep or bulk archive whose notice is still open ("Restore all archived by this"); null when none. */
+  archiveNotice: ArchiveBatch | null
   /** The Archive view is showing (instead of the board). */
   archiveOpen: boolean
   /** What the Archive's search box starts with: the board's search when "N more in the Archive" opened it. */
@@ -243,6 +245,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   offBoardTicket: null,
   offBoardLoading: false,
   archivedCount: 0,
+  archiveNotice: null,
   archiveOpen: false,
   archiveQuery: '',
   announcement: null,
@@ -325,7 +328,7 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   async reloadFocused() {
     const workspace = await invoke('workspace.get')
     const changed = workspace?.id !== get().workspace?.id
-    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, offBoardTicket: null, archivedCount: 0, archiveOpen: false, archiveQuery: '', tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
+    set({ workspace, workspaceLoaded: true, ...(changed ? { currentTicketId: null, offBoardTicket: null, archivedCount: 0, archiveNotice: null, archiveOpen: false, archiveQuery: '', tickets: [], boardLoaded: false, search: '', recentlyChanged: {} } : {})
     })
     if (!workspace) return
     await get().refreshBoard()
@@ -333,8 +336,9 @@ export const useMainbus = create<MainbusState>()((set, get) => ({
   },
 
   refreshBoard: oneAtATime(async () => {
-    const { tickets, archived } = await invoke('board.get')
+    const { tickets, archived, archiveNotice } = await invoke('board.get')
     if (archived !== undefined && archived !== get().archivedCount) set({ archivedCount: archived })
+    if ((archiveNotice ?? null)?.id !== get().archiveNotice?.id) set({ archiveNotice: archiveNotice ?? null })
     await followOffBoardTicket(tickets)
     const previous = get().tickets
     const stable = stabilize(previous, tickets)
