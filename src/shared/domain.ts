@@ -55,6 +55,11 @@ export const REVIEW_DONE_WAIT_MIN = 1
 export const REVIEW_DONE_WAIT_MAX = 30
 export const REVIEW_DONE_WAIT_DEFAULT = 2
 
+/** True for a number of minutes the review wait accepts: a multiple of 0.5 from the minimum to the maximum. */
+export function isReviewWait(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n * 2) && n >= REVIEW_DONE_WAIT_MIN && n <= REVIEW_DONE_WAIT_MAX
+}
+
 export const ORCHESTRATOR_WEB_ACCESS_DEFAULT = true
 
 /** The model families the orchestrator may run (see orchestratorModel.ts). */

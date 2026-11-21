@@ -234,7 +234,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       busy: () => orchestratorSession?.busy ?? true,
       usageLimitedUntil: () => usageGate?.limitedUntil() ?? null,
       canWake: async () => cfg.runtime !== null && (await repos.workspaces.list()).length > 0,
-      doneReviewWaitMs: async () => (await repos.settings.get()).reviewDoneWaitMinutes * 60_000
+      doneReviewWaitMs: async () => Math.round((await repos.settings.get()).reviewDoneWaitMinutes * 60_000)
     })
     wakeSchedulerRef = wakeScheduler
     const addWake = async (workspaceId: string, kind: WakeKind, ref: string): Promise<void> => {

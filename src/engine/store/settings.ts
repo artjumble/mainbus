@@ -3,6 +3,7 @@ import {
   AGENT_CAP_DEFAULT,
   AGENT_CAP_MAX,
   AGENT_CAP_MIN,
+  isReviewWait,
   isThemeId,
   ORCHESTRATOR_WEB_ACCESS_DEFAULT,
   REVIEW_DONE_DEFAULT,
@@ -70,9 +71,9 @@ export function validAgentCap(n: unknown): n is number {
   return typeof n === 'number' && Number.isInteger(n) && n >= AGENT_CAP_MIN && n <= AGENT_CAP_MAX
 }
 
-/** True for a whole number of minutes the review wait accepts. */
+/** True for a number of minutes the review wait accepts: a multiple of 0.5 from 1 to 30. */
 export function validReviewWait(n: unknown): n is number {
-  return typeof n === 'number' && Number.isInteger(n) && n >= REVIEW_DONE_WAIT_MIN && n <= REVIEW_DONE_WAIT_MAX
+  return isReviewWait(n)
 }
 
 export interface SettingsRepo {
@@ -87,7 +88,7 @@ export interface SettingsRepo {
   setOrchestratorModel(family: OrchestratorFamily): Promise<AppSettings>
   /** Stores the orchestrator's effort; rejects anything but low, medium, high, xhigh or max. */
   setOrchestratorEffort(effort: Effort): Promise<AppSettings>
-  /** Stores whether finished tickets are reviewed and the wait in whole minutes (1 to 30); rejects anything else. */
+  /** Stores whether finished tickets are reviewed and the wait in minutes (multiples of 0.5, 1 to 30); rejects anything else. */
   setReviewDone(v: { on?: boolean; waitMinutes?: number }): Promise<AppSettings>
   /** Stores the theme choice; rejects anything but a theme id or 'system'. */
   setTheme(v: ThemeChoice): Promise<AppSettings>
@@ -200,7 +201,7 @@ export function createSettingsRepo(db: Db): SettingsRepo {
     async setReviewDone({ on, waitMinutes }) {
       if (on !== undefined && typeof on !== 'boolean') throw new Error('Review finished tickets for follow-ups must be on or off')
       if (waitMinutes !== undefined && !validReviewWait(waitMinutes)) {
-        throw new Error(`The wait before reviewing must be a whole number of minutes from ${REVIEW_DONE_WAIT_MIN} to ${REVIEW_DONE_WAIT_MAX}`)
+        throw new Error(`The wait before reviewing must be a multiple of half a minute from ${REVIEW_DONE_WAIT_MIN} to ${REVIEW_DONE_WAIT_MAX}`)
       }
       if (on !== undefined) await put(REVIEW_DONE, on ? 'on' : 'off')
       if (waitMinutes !== undefined) await put(REVIEW_DONE_WAIT, String(waitMinutes))

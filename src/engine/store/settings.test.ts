@@ -187,11 +187,18 @@ describe('the review of finished tickets', () => {
     expect(await createSettingsRepo(db).setReviewDone({ on: true })).toMatchObject({ reviewDoneTickets: true, reviewDoneWaitMinutes: 10 })
   })
 
-  it('rejects anything but a boolean and a whole number of minutes from 1 to 30', async () => {
+  it('stores half minutes and reads them back as decimals', async () => {
+    const repo = createSettingsRepo(db)
+    expect(await repo.setReviewDone({ waitMinutes: 1.5 })).toMatchObject({ reviewDoneWaitMinutes: 1.5 })
+    expect((await createSettingsRepo(db).get()).reviewDoneWaitMinutes).toBe(1.5)
+    expect(await repo.setReviewDone({ waitMinutes: 30 })).toMatchObject({ reviewDoneWaitMinutes: 30 })
+  })
+
+  it('rejects anything but a boolean and a multiple of half a minute from 1 to 30', async () => {
     const repo = createSettingsRepo(db)
     await expect(repo.setReviewDone({ on: 'off' as unknown as boolean })).rejects.toThrow('on or off')
-    for (const bad of [0, 31, 1.5, Number.NaN, '5' as unknown as number]) {
-      await expect(repo.setReviewDone({ waitMinutes: bad })).rejects.toThrow('whole number of minutes from 1 to 30')
+    for (const bad of [0, 0.5, 1.3, 30.5, 31, Number.NaN, '5' as unknown as number]) {
+      await expect(repo.setReviewDone({ waitMinutes: bad })).rejects.toThrow('multiple of half a minute from 1 to 30')
     }
     expect((await repo.get()).reviewDoneWaitMinutes).toBe(2)
   })

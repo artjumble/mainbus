@@ -209,6 +209,27 @@ describe('the wake scheduler, with reviews of finished tickets', () => {
     expect(woken.map((rows) => rows.map((r) => r.id))).toEqual([['d1', 'd2']])
   })
 
+  it('fires a 1.5-minute wait at 90 seconds', async () => {
+    scheduler = new WakeScheduler({
+      repo: { pending: async () => pending },
+      clock,
+      wake: async (rows) => {
+        woken.push(rows)
+      },
+      busy: () => busy,
+      usageLimitedUntil: () => limitedUntil,
+      canWake: async () => canWake,
+      doneReviewWaitMs: async () => 1.5 * 60_000
+    })
+    await scheduler.start()
+    pending = [review(1, at())]
+    scheduler.added()
+    await clock.advance(89_999)
+    expect(woken).toEqual([])
+    await clock.advance(1)
+    expect(woken).toHaveLength(1)
+  })
+
   it('lets an urgent row cut the wait short, the reviews riding along', async () => {
     scheduler = waiting()
     await scheduler.start()

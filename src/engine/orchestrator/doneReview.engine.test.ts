@@ -117,7 +117,7 @@ describe('a ticket that reached Done', () => {
   test('is not reviewed when the setting is off, and the wait and the switch are validated', async () => {
     const { engine, runtime } = await makeEngine()
     expect(await engine.invoke('settings.setReviewDone', { on: false })).toMatchObject({ reviewDoneTickets: false, reviewDoneWaitMinutes: 2 })
-    await expect(engine.invoke('settings.setReviewDone', { waitMinutes: 0 })).rejects.toThrow('whole number of minutes')
+    await expect(engine.invoke('settings.setReviewDone', { waitMinutes: 0 })).rejects.toThrow('multiple of half a minute')
     const ticket = await ran(engine, 'Login')
     await moveToDone(engine, ticket.id)
     await clock.advance(HOUR)

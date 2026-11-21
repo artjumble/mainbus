@@ -162,3 +162,28 @@ test('reviewing finished tickets is on with a two-minute wait, and both save', a
   await vi.waitFor(() => expect(toggle).not.toBeChecked())
   expect(wait).toBeDisabled()
 })
+
+test('the wait takes half minutes: typing 1.5 saves it, and a step from 1 goes to 1.5', async () => {
+  mockInvoke.mockImplementation(async (command: string, ...args: unknown[]) => {
+    if (command === 'settings.get') return { orchestratorWebAccess: true, reviewDoneTickets: true, reviewDoneWaitMinutes: 2 }
+    if (command === 'orchestrator.model') return model
+    if (command === 'settings.setReviewDone') {
+      const v = args[0] as { waitMinutes?: number }
+      return { orchestratorWebAccess: true, reviewDoneTickets: true, reviewDoneWaitMinutes: v.waitMinutes ?? 2 }
+    }
+    return undefined
+  })
+  renderWithMantine(<OrchestratorSettings opened />)
+  const wait = screen.getByRole('textbox', { name: /^Wait before reviewing/ })
+  await vi.waitFor(() => expect(wait).toBeEnabled())
+
+  await userEvent.clear(wait)
+  await userEvent.type(wait, '1.5')
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setReviewDone', { waitMinutes: 1.5 }))
+
+  await userEvent.clear(wait)
+  await userEvent.type(wait, '1')
+  mockInvoke.mockClear()
+  await userEvent.type(wait, '{ArrowUp}')
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setReviewDone', { waitMinutes: 1.5 }))
+})
