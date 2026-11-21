@@ -197,18 +197,20 @@ export function WorkspaceRail(): ReactElement {
                 }}
               >
                 <Group gap={expanded ? 6 : 4} wrap="nowrap" justify={expanded ? undefined : 'center'}>
-                  {/* One indicator over the tile's top-right corner: the needs-you count, else a filled circle while
-                      working, else an empty one. They share one centre, so a change of state moves nothing. */}
-                  <Box pos="relative" style={{ flexShrink: 0, display: 'flex' }}>
-                    <RailTile label={badges.get(w.id)!.label} color={badges.get(w.id)!.color} bold={w.id === focusedId} />
-                    {w.needsYou > 0 ? needsBadge(w) : activityCircle(w)}
-                  </Box>
-                  {/* The button's label already says all of this, so the text stays out of the screen reader's name. */}
+                  {/* The name comes first in the DOM, so the button's visible text reads "repo 1" as its label does;
+                      the tile's wrapper is ordered before it on screen. */}
                   {expanded && (
                     <Text size="sm" fw={w.id === focusedId ? 700 : 500} truncate aria-hidden>
                       {w.name}
                     </Text>
                   )}
+                  {expanded && ' '}
+                  {/* One indicator over the tile's top-right corner: the needs-you count, else a filled circle while
+                      working, else an empty one. They share one centre, so a change of state moves nothing. */}
+                  <Box pos="relative" style={{ flexShrink: 0, display: 'flex', order: -1 }}>
+                    <RailTile label={badges.get(w.id)!.label} color={badges.get(w.id)!.color} bold={w.id === focusedId} />
+                    {w.needsYou > 0 ? needsBadge(w) : activityCircle(w)}
+                  </Box>
                 </Group>
               </UnstyledButton>
               {expanded && (

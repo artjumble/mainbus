@@ -542,4 +542,6 @@ test('in the expanded rail, the needs-you count sits on the tile, not beside the
   const badge = nav.querySelector<HTMLElement>('[data-needs-you]')!
   expect(badge).toHaveTextContent('1')
   expect(badge.parentElement).toBe(tileOf(/^alpha-repo/).parentElement)
+  // The visible text must stay inside the accessible name: the name first, then the count.
+  expect(screen.getByRole('button', { name: /^alpha-repo/ })).toHaveTextContent(/^alpha-repo\s*1$/)
 })
