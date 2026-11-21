@@ -150,7 +150,7 @@ export async function openTicket(page: Page, title: string): Promise<void> {
 
 /** Back to the board from a ticket. */
 export async function backToBoard(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /board/ }).click()
+  await page.getByRole('button', { name: /^← .* board$/ }).click()
 }
 
 export interface LaneLayout {

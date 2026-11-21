@@ -38,7 +38,7 @@ async function startFromReady(page: Page, title: string): Promise<void> {
   await page.getByRole('region', { name: 'Ready' }).getByText(title).click()
   await page.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(page.getByText('Ready for review')).toBeVisible()
-  await page.getByRole('button', { name: /board$/ }).click()
+  await page.getByRole('button', { name: /^← .* board$/ }).click()
 }
 
 // The app runs with a fake agent and a fake GitHub CLI, in throwaway repositories (a bare one stands in for origin)
@@ -112,7 +112,7 @@ test('a ticket that clashes with a merged migration shows Conflicts with main, a
     await expect(page.getByText('Conflicts with main')).toHaveCount(0)
     await expect(page.getByText('Behind main')).toHaveCount(0)
     await expect(page.getByText('Up to date with origin/main.')).toBeVisible()
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(review.getByText('Add migration B')).toBeVisible()
     await expect(review.getByText('Conflicts with main')).toHaveCount(0)
 

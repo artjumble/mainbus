@@ -65,7 +65,7 @@ test('a Ready ticket held until tomorrow is released when the fake clock passes 
     await expect(page.getByRole('button', { name: 'Unhold' })).toBeVisible()
 
     // On the board the card carries the chip too.
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(ready.getByText(chip)).toBeVisible()
 
     // Two days later, in the engine's time: the hold is released and the chip disappears.

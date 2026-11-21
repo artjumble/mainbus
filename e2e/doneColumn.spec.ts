@@ -83,7 +83,7 @@ async function ticketInReview(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: new RegExp(title) }).click()
   await page.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(page.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: /board/ }).click()
+  await page.getByRole('button', { name: /^← .* board$/ }).click()
   await expect(page.getByRole('region', { name: 'Review', exact: true }).getByText(title)).toBeVisible()
 }
 
@@ -190,7 +190,7 @@ test("hovering the strip shows Done's cards, and one can be opened", async () =>
   await done(page).getByRole('button', { name: /Ship three/ }).click()
   await expect(page.getByRole('heading', { name: 'Ship three' })).toBeVisible()
   // Back to the board, and wait for the cleanup, so the next test starts clean.
-  await page.getByRole('button', { name: /board/ }).click()
+  await page.getByRole('button', { name: /^← .* board$/ }).click()
   await expect(page.getByText('Cleaning up…')).toHaveCount(0, { timeout: 30_000 })
   await expect.poll(() => worktrees(home)).toEqual([])
 })

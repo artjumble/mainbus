@@ -46,7 +46,7 @@ test('a message that answers the agent\'s question settles the card everywhere a
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     const needsYou = page.getByRole('region', { name: 'Needs you' })
     const waiting = page.getByRole('region', { name: 'Waiting on you' })
@@ -63,7 +63,7 @@ test('a message that answers the agent\'s question settles the card everywhere a
     await expect(page.locator('[data-event="decision"]')).toContainText('✓ Answered in a message')
     await expect(page.getByText('Got your answer, planning it.')).toHaveCount(1)
     await expect(page.getByText('answered in a message (you)')).toHaveCount(1)
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(boardCard).toHaveCount(0)
     await expect(panelCard).toHaveCount(0)
   } finally {

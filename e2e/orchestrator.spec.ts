@@ -74,7 +74,7 @@ test('the orchestrator panel answers from the board and keeps its thread in the 
     await expect(panel.getByText('What is on the board?')).toBeVisible()
 
     // Back on the board, at a narrow window: the board scrolls in its own area, and the panel never covers it.
-    await page.getByRole('main').getByRole('button', { name: /board/ }).click()
+    await page.getByRole('main').getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByText('Backlog')).toBeVisible()
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(900, 700))
     const html = page.locator('html')

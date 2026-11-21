@@ -50,7 +50,7 @@ async function startTicket(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: new RegExp(title) }).click()
   await page.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(page.getByText('Planner: on it.')).toBeVisible()
-  await page.getByRole('button', { name: /board/ }).click()
+  await page.getByRole('button', { name: /^← .* board$/ }).click()
 }
 
 // There is no screen for opening a second repo or switching yet (the rail comes next), so the test sends the engine's
@@ -100,7 +100,7 @@ test('two repos are open at once: an agent runs in each, focus switches the boar
 
     await page.getByRole('button', { name: /Alpha ticket/ }).click()
     await expect(page.getByText('Planner: back after the restart.')).toBeVisible()
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     await invoke(page, 'workspace.focus', b.id)
     await page.getByRole('button', { name: /Bravo ticket/ }).click()

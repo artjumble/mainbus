@@ -174,7 +174,7 @@ async function withSession(body: (page: Page, repoName: string) => Promise<void>
     await page.getByRole('dialog', { name: 'Add workspace' }).getByRole('button', { name: 'Choose folder…' }).click()
     await expect(rail.getByRole('button', { name: new RegExp(`^${repoName}`) })).toHaveAttribute('aria-current', 'true')
     // The last test left a ticket open; it isn't in this workspace.
-    const back = page.getByRole('button', { name: /board$/ })
+    const back = page.getByRole('button', { name: /^← .* board$/ })
     if ((await back.count()) > 0) await back.click()
     await page.getByRole('button', { name: 'New ticket' }).waitFor()
   }

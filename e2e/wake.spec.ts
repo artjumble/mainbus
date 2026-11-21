@@ -72,7 +72,7 @@ test('a failed agent gives the orchestrator a turn without a message of the user
 
     // 1. A scripted agent fails; five seconds later the orchestrator has a turn, and the panel says why under an engine line.
     await addAndStart(page, 'Alpha')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Needs you' }).getByText('Alpha')).toBeVisible()
     await advance(app, 6)
     let panel = panelOf(page)
@@ -84,7 +84,7 @@ test('a failed agent gives the orchestrator a turn without a message of the user
 
     // 2. A second failure; the orchestrator's turn for it is still under way when the app is closed.
     await addAndStart(page, 'Beta')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Needs you' }).getByText('Beta')).toBeVisible()
     await advance(app, 6)
     await expect(panel.locator('[data-event="wake"]')).toHaveCount(2)

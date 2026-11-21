@@ -64,7 +64,7 @@ test("an Investigate ticket's report is promoted into a Change ticket in Ready w
     await expect(page.getByText('Investigator: reading the code.')).toBeVisible()
 
     // The ticket sits in Review on the board; reopen it to promote.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Why is login slow')).toBeVisible()
     await page.getByRole('region', { name: 'Review' }).getByRole('button', { name: /Why is login slow/ }).click()
 
@@ -81,7 +81,7 @@ test("an Investigate ticket's report is promoted into a Change ticket in Ready w
     await expect(page.getByText('Promoted to')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Promote', exact: true })).toHaveCount(0)
 
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     // Done is a narrow strip: its cards show while it is hovered.
     await page.getByRole('region', { name: 'Done' }).hover()
     await expect(page.getByRole('region', { name: 'Done' }).getByText('Why is login slow')).toBeVisible()
