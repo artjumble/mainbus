@@ -71,7 +71,19 @@ export async function insertDefaultPresets(db: Db, workspaceId: string, now: () 
 }
 
 function toPreset(row: typeof lineupPresets.$inferSelect): LineupPreset {
-  return { id: row.id, workspaceId: row.workspaceId, name: row.name, settings: JSON.parse(row.settings) as RunSettings }
+  const settings = JSON.parse(row.settings) as Record<string, unknown>
+  // Migration 0039 repairs a value stored as a JSON string holding the array/object; tolerate one that is still there.
+  for (const key of ['excludedRoleIds', 'roleNames']) {
+    const value = settings[key]
+    if (typeof value === 'string') {
+      try {
+        settings[key] = JSON.parse(value)
+      } catch {
+        throw new Error(`The preset "${row.name}" is damaged: its ${key} is not valid.`)
+      }
+    }
+  }
+  return { id: row.id, workspaceId: row.workspaceId, name: row.name, settings: settings as unknown as RunSettings }
 }
 
 export function createPresetRepo(db: Db, now: () => Date): PresetRepo {
