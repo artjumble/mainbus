@@ -1,5 +1,7 @@
+import { asc, eq, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../db/open'
+import { agentRuns } from '../db/schema'
 import { createRunRepo } from './runs'
 import { FIXED_NOW, openTestDb, testRole } from './testDb'
 import { createTicketRepo } from './tickets'
@@ -500,5 +502,21 @@ describe('replace', () => {
     expect(await repo.replace(runId, REQUEST)).toBeNull()
     expect(await repo.listForTicket(ticketId)).toHaveLength(1)
     expect(await repo.replace('no-such-run', REQUEST)).toBeNull()
+  })
+})
+
+describe('listForTicketRun query plan', () => {
+  it('looks runs up through agent_runs_ticket_run_idx instead of scanning the table', async () => {
+    const query = db
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(eq(agentRuns.ticketRunId, 'tr-1'))
+      .orderBy(asc(agentRuns.startedAt), asc(sql`rowid`))
+      .toSQL()
+    // The remote driver returns rows as arrays: [id, parent, notused, detail].
+    const plan = await db.all<unknown[]>(sql.raw(`EXPLAIN QUERY PLAN ${query.sql.replace('?', "'tr-1'")}`))
+    const details = plan.map((r) => String(r[3])).join('\n')
+    expect(details).toContain('agent_runs_ticket_run_idx')
+    expect(details).not.toMatch(/SCAN agent_runs\b/)
   })
 })
