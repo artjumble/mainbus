@@ -57,7 +57,7 @@ test('a question settled by a message shows how it was answered and no controls'
 
 test('a cancelled or expired question has no controls', () => {
   const { unmount } = renderWithMantine(<DecisionCard decision={makeDecision({ status: 'cancelled' })} />)
-  expect(screen.getByText('Cancelled')).toBeInTheDocument()
+  expect(screen.getByText('Canceled')).toBeInTheDocument()
   unmount()
   renderWithMantine(<DecisionCard decision={makeDecision({ status: 'expired' })} />)
   expect(screen.getByText(/^Expired/)).toBeInTheDocument()

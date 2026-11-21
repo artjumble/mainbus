@@ -34,7 +34,7 @@ const SPECS: Record<Control, ControlSpec> = {
     whyNot: (n, a) => (a ? null : `#${n} has no working role to skip`),
     act: (ctx, id, expect) => ctx.skipTicket(id, expect),
     outcome: (r) =>
-      `Skipped the ${r.role} on #${r.number} ${JSON.stringify(r.title)}; its work so far was summarised for ` +
+      `Skipped the ${r.role} on #${r.number} ${JSON.stringify(r.title)}; its work so far was summarized for ` +
       (r.next ? `the ${r.next}, who started.` : `the next step: #${r.number} is in Review.`)
   }
 }

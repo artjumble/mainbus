@@ -74,7 +74,7 @@ beforeEach(() => {
   useMainbus.setState({ workspace: summaries[0], workspaces: summaries })
 })
 
-test('a custom label and colour show in the rail, and clearing them goes back to the automatic ones', async () => {
+test('a custom label and color show in the rail, and clearing them goes back to the automatic ones', async () => {
   engine()
   show()
   const user = userEvent.setup()
@@ -84,13 +84,16 @@ test('a custom label and colour show in the rail, and clearing them goes back to
 
   await user.type(screen.getByRole('textbox', { name: 'Short label' }), '🚀')
   await user.click(screen.getByRole('button', { name: 'Save label' }))
-  await user.click(screen.getByRole('radio', { name: 'Pink' }))
+  await user.click(screen.getByRole('combobox', { name: 'Color' }))
+  await user.click(await screen.findByRole('option', { name: 'Pink' }))
   await vi.waitFor(() => expect(tile(/^mainbus/)).toHaveAttribute('data-initials', '🚀'))
   await vi.waitFor(() => expect(tile(/^mainbus/)).toHaveAttribute('data-rail-color', 'pink'))
 
   await user.clear(screen.getByRole('textbox', { name: 'Short label' }))
   await user.click(screen.getByRole('button', { name: 'Save label' }))
-  await user.click(screen.getByRole('radio', { name: /^Automatic/ }))
+  await vi.waitFor(() => expect(screen.getByRole('combobox', { name: 'Color' })).toBeEnabled())
+  await user.click(screen.getByRole('combobox', { name: 'Color' }))
+  await user.click(await screen.findByRole('option', { name: /^Automatic/ }))
   await vi.waitFor(() => expect(tile(/^mainbus/)).toHaveAttribute('data-initials', automaticLabel))
   await vi.waitFor(() => expect(tile(/^mainbus/)).toHaveAttribute('data-rail-color', automaticColor))
   expect(saved()).toEqual([
@@ -99,6 +102,20 @@ test('a custom label and colour show in the rail, and clearing them goes back to
     ['workspace.setRailBadge', { label: null }],
     ['workspace.setRailBadge', { color: null }]
   ])
+})
+
+test('the Color select lists Automatic with its resolved color first, then every color with an aria-hidden swatch', async () => {
+  engine()
+  show()
+  const user = userEvent.setup()
+  const field = screen.getByRole('combobox', { name: 'Color' })
+  expect((field as HTMLInputElement).value).toMatch(/^Automatic \(\w+\)$/)
+  await user.click(field)
+  const options = await screen.findAllByRole('option')
+  expect(options).toHaveLength(9)
+  expect(options[0]).toHaveAccessibleName(/^Automatic \(\w+\)$/)
+  expect(options[1]).toHaveAccessibleName('Blue')
+  for (const o of options) expect(o.querySelector('[aria-hidden="true"]')).not.toBeNull()
 })
 
 test("a label another workspace shows is refused on the spot, whatever its case, and never sent", async () => {
