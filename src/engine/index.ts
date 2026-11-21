@@ -25,6 +25,7 @@ import {
   type StuckEpisode,
   type Ticket,
   type TicketEdit,
+  type TicketRef,
   type Workspace
 } from '../shared/domain'
 import { applyRunSettings, checkRunSettings, findPreset, presetNames, presetRunSettings } from '../shared/runSettings'
@@ -1022,10 +1023,21 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         return lineup
       }
       const stuckOf = await repos.stuck.openByTicket()
-      const attached = await repos.attachments.listForWorkspace(ws.id)
-      const edited = await repos.ticketEdits.listForWorkspace(ws.id)
-      const blockedBy = await repos.dependencies.forWorkspace(ws.id)
-      const dependencyNotes = await repos.dependencies.notesForWorkspace(ws.id)
+      // Only the tickets being built: an archived ticket's rows are read when it is opened (ticket.view).
+      const ids = tickets.map((t) => t.id)
+      const [attached, edited, blockedBy, dependencyNotes] = await Promise.all([
+        repos.attachments.listForTickets(ids),
+        repos.ticketEdits.listForTickets(ids),
+        repos.dependencies.forTickets(ids),
+        repos.dependencies.notesForTickets(ids)
+      ])
+      // The first match wins, as `find` did.
+      const fromOf = new Map<string, TicketRef>()
+      const toOf = new Map<string, TicketRef>()
+      for (const p of promotions) {
+        if (!fromOf.has(p.to.id)) fromOf.set(p.to.id, p.from)
+        if (!toOf.has(p.from.id)) toOf.set(p.from.id, p.to)
+      }
       return Promise.all(
         tickets.map(async (t) => ({
           ...t,
@@ -1033,16 +1045,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           hold: holdOf.get(t.id) ?? null,
           stuck: stuckOf.get(t.id) ?? null,
           freshness: freshness.statusOf(t.id),
-          attachments: attached.filter((a) => a.ticketId === t.id),
+          attachments: attached.get(t.id) ?? [],
           blockedBy: blockedBy.get(t.id) ?? [],
           dependencyNotes: dependencyNotes.get(t.id) ?? [],
           promotion: {
-            from: promotions.find((p) => p.to.id === t.id)?.from ?? null,
-            to: promotions.find((p) => p.from.id === t.id)?.to ?? null
+            from: fromOf.get(t.id) ?? null,
+            to: toOf.get(t.id) ?? null
           },
-          edits: edited
-            .filter((e) => e.ticketId === t.id)
-            .map(({ id, at, fields, intentAdded, undoneAt }) => ({ id, at, fields, userWords: intentAdded.length, undoneAt })),
+          edits: (edited.get(t.id) ?? []).map(({ id, at, fields, intentAdded, undoneAt }) => ({ id, at, fields, userWords: intentAdded.length, undoneAt })),
           // Worked out on each read and never written back: they show until the user saves or resets.
           runSettingsNotices: t.runSettings === null ? [] : applyRunSettings(t.runSettings, await workspaceLineup(t.kind)).notices
         }))

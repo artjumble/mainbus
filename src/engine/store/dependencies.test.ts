@@ -81,7 +81,9 @@ describe('dependency repo', () => {
       ['started_blocked', 'ticket'],
       ['unblocked', null]
     ])
-    expect((await repos.dependencies.notesForWorkspace(ws.id)).get(ids[1]!)).toHaveLength(2)
+    expect((await repos.dependencies.notesForTickets([ids[1]!])).get(ids[1]!)?.map((n) => n.kind)).toEqual(['started_blocked', 'unblocked'])
+    expect((await repos.dependencies.notesForTickets([ids[0]!])).size).toBe(0)
+    expect((await repos.dependencies.notesForTickets([])).size).toBe(0)
     const unblocked = await repos.dependencies.unblockedSince(null)
     expect(unblocked).toHaveLength(1)
     expect(unblocked[0]).toMatchObject({ ticketId: ids[1], blockers: [{ number: 1, title: 'One' }] })

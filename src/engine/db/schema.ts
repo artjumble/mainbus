@@ -235,7 +235,7 @@ export const agentRuns = sqliteTable(
     /** Where the run stands among the agents the usage limit paused (smaller resumes first); null when it is not one of them. */
     limitPausedSeq: integer('limit_paused_seq')
   },
-  (t) => [index('agent_runs_ticket_idx').on(t.ticketId)]
+  (t) => [index('agent_runs_ticket_idx').on(t.ticketId), index('agent_runs_ticket_run_idx').on(t.ticketRunId)]
 )
 
 /**
