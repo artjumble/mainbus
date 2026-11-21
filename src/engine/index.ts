@@ -151,6 +151,8 @@ export interface Engine {
   on(listener: (e: EngineEvent) => void): () => void
   /** Answers requests from local agents (the intake pipe). Creates tickets in Backlog, lists and reads them; nothing else. */
   intake: IntakeHandler
+  /** Settles when restart recovery, the queue, every ticket's queued actions and every unattended mode have run their course (for tests). */
+  settled(): Promise<void>
   /** Stops live agents (their runs stay resumable) and closes the database. Safe to call twice. */
   dispose(): Promise<void>
 }
@@ -1799,6 +1801,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
 
     let disposal: Promise<void> | null = null
     return {
+      async settled() {
+        await recovery
+        // A start by a mode kicks the queue, and the other way round: go on until a pass finds nothing to wait for.
+        for (;;) {
+          const waited = [await runner.settled(), ...(await Promise.all([...modes.values()].map((m) => m.settled())))]
+          if (!waited.some(Boolean)) return
+        }
+      },
       async invoke(k, ...args) {
         if (disposal) throw new Error('Mainbus is shutting down')
         if (!Object.hasOwn(handlers, k)) throw new Error(`Unknown command: ${String(k)}`)

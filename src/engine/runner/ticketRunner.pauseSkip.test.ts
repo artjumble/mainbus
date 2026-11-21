@@ -249,7 +249,7 @@ describe('TicketRunner Skip to next role', () => {
 
     // The skipped agent's own handoff comes too late, and pushes nothing more.
     expect(await implementer.roleTools.handoff({ summary: 'Mine', notesForNext: '' })).toBe('This run has ended.')
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await runner.settled()
     expect(publishes).toHaveLength(1)
     expect(runtime.specs).toHaveLength(1)
   })

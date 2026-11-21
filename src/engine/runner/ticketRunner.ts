@@ -428,6 +428,19 @@ export class TicketRunner {
     while (this.draining) await this.draining
   }
 
+  /**
+   * Settles when the queue and every ticket's queued actions (handoffs, report saves, next-role launches) have run their
+   * course (for tests). Resolves true when it had to wait.
+   */
+  async settled(): Promise<boolean> {
+    let waited = false
+    while (this.draining || this.chains.size > 0) {
+      waited = true
+      await Promise.all([this.draining, ...this.chains.values()])
+    }
+    return waited
+  }
+
   /** The place in the queue (1 first) of the ticket's open run, or null when it isn't queued. */
   private async queuePositionOf(run: AgentRunRow | null): Promise<number | null> {
     if (!run || run.endReason !== null || run.queuedSeq === null) return null
