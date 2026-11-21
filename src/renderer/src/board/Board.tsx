@@ -256,7 +256,7 @@ const columnTitle = (id: unknown): string => COLUMNS.find((c) => c.id === id)?.t
 
 const SCREEN_READER_INSTRUCTIONS = {
   draggable:
-    'To move this ticket, press Space, then the Left or Right arrow key to choose a column, and in Backlog and Ready the Up or Down arrow key to choose its place, then Space again to drop it. Press Escape to cancel.'
+    'To move this ticket, press Space, then the Left or Right arrow key to choose a column, and in the first two columns the Up or Down arrow key to choose its place, then Space again to drop it. Press Escape to cancel.'
 }
 
 const ASKED_MESSAGE =
