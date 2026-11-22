@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { asc, eq, and, isNull } from 'drizzle-orm'
+import { asc, eq, and, inArray, isNull } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
 import type { EditedField, EditedValues, IntentEntry, RunSettings, TicketEdit, TicketPatch } from '../../shared/domain'
 import type { Db } from '../db/open'
@@ -46,8 +46,8 @@ export interface TicketEditRepo {
   get(id: string): Promise<TicketEdit>
   /** Every edit, oldest first. */
   listAll(): Promise<TicketEdit[]>
-  /** The edits of the workspace's tickets, oldest first. */
-  listForWorkspace(workspaceId: string): Promise<TicketEdit[]>
+  /** The edits of these tickets, oldest first, by ticket id (tickets with none are absent). */
+  listForTickets(ticketIds: string[]): Promise<Map<string, TicketEdit[]>>
 }
 
 function toEdit(row: typeof ticketEdits.$inferSelect, number: number): TicketEdit {
@@ -151,8 +151,15 @@ export function createTicketEditRepo(db: Db, now: () => Date, ticketRepo: Ticket
       return (await select().orderBy(asc(ticketEdits.at))).map((r) => toEdit(r.edit, r.number))
     },
 
-    async listForWorkspace(workspaceId) {
-      return (await select().where(eq(ticketEdits.workspaceId, workspaceId)).orderBy(asc(ticketEdits.at))).map((r) => toEdit(r.edit, r.number))
+    async listForTickets(ticketIds) {
+      const out = new Map<string, TicketEdit[]>()
+      if (ticketIds.length === 0) return out
+      for (const r of await select().where(inArray(ticketEdits.ticketId, ticketIds)).orderBy(asc(ticketEdits.at))) {
+        const list = out.get(r.edit.ticketId)
+        if (list) list.push(toEdit(r.edit, r.number))
+        else out.set(r.edit.ticketId, [toEdit(r.edit, r.number)])
+      }
+      return out
     }
   }
 }

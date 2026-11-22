@@ -1,0 +1,1 @@
+CREATE INDEX `tickets_promoted_from_idx` ON `tickets` (`promoted_from`) WHERE "tickets"."promoted_from" is not null;

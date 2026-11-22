@@ -411,11 +411,12 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       if (column !== undefined && !Object.hasOwn(COLUMNS, column)) {
         return `Unknown column "${oneLine(column)}". The columns are: ${Object.keys(COLUMNS).join(', ')}.`
       }
-      const b = await board(workspace, { includeArchived: true })
+      // Archived tickets are listed alone with `archived: true`, and left out otherwise: built only when asked for, and
+      // only counted (a count query) when they are just mentioned.
+      const b = await board(workspace, archived === true ? { includeArchived: true } : undefined)
       if (typeof b === 'string') return b
       const usage = await usageNow()
-      // Archived tickets are listed alone with `archived: true`, and left out otherwise.
-      const archivedCount = b.tickets.filter((t) => t.archivedAt !== null).length
+      const archivedCount = archived === true ? 0 : await deps.repos.tickets.countArchived(b.ws.id)
       const tickets = inBoardOrder(
         b.tickets.filter((t) => (t.archivedAt !== null) === (archived === true) && (column === undefined || t.state.column === column)),
         (t) => t.state.column

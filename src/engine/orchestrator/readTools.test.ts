@@ -21,6 +21,8 @@ let holds: Map<string, Hold>
 /** What the freshness monitor says of each ticket. */
 let freshness: Map<string, BranchFreshness>
 let tools: OrchestratorReadToolHandlers
+/** Each call of the fake board, and the ids of the tickets it built. */
+let boardCalls: { includeArchived: boolean; built: string[] }[]
 /** Where the app stands on the usage limit. */
 let usage: UsageState
 
@@ -48,6 +50,7 @@ beforeEach(async () => {
   repos = createRepos(testDb.db, () => FIXED_NOW)
   ws = await repos.workspaces.create('C:\\code\\shop', 'main', 'shop', 'shop')
   views = new Map()
+  boardCalls = []
   holds = new Map()
   freshness = new Map()
   usage = { kind: 'ok' }
@@ -57,13 +60,18 @@ beforeEach(async () => {
     focused: async () => open,
     list: async () => (open ? [open] : []),
     // The notices as the engine's board view works them out.
-    board: async (w) =>
-      Promise.all(
-        (await repos.tickets.list(w.id)).map(async (t) => ({
+    board: async (w, opts) => {
+      // Archived tickets are built only when asked for, as the engine's board view does.
+      const includeArchived = opts?.includeArchived ?? false
+      const listed = await repos.tickets.list(w.id, { includeArchived })
+      boardCalls.push({ includeArchived, built: listed.map((t) => t.id) })
+      return Promise.all(
+        listed.map(async (t) => ({
           ...boardTicket(t),
           runSettingsNotices: applyRunSettings(t.runSettings, await repos.lineups.get(w.id, t.kind)).notices
         }))
-      ),
+      )
+    },
     usage: async () => usage
   })
   noWorkspace = () => (open = null)
@@ -137,7 +145,7 @@ describe('base branch tests in the read tools', () => {
       repos,
       focused: async () => workspace,
       list: async () => [workspace],
-      board: async (w) => (await repos.tickets.list(w.id)).map((t) => boardTicket(t)),
+      board: async (w, opts) => (await repos.tickets.list(w.id, { includeArchived: opts?.includeArchived ?? false })).map((t) => boardTicket(t)),
       baseTests: async () => result
     })
   }
@@ -240,6 +248,20 @@ describe('list_tickets', () => {
     test('with only archived tickets, says none are listed and counts them', async () => {
       await archivedTickets(2)
       expect(await tools.listTickets({})).toBe('No tickets in shop.\n(+2 archived; pass archived: true to list them)')
+    })
+
+    test('the default list builds no archived ticket and counts them instead; archived: true builds them', async () => {
+      await ticket({ title: 'Open one' })
+      const made = await archivedTickets(3)
+      boardCalls = []
+      expect(await tools.listTickets({})).toContain('(+3 archived; pass archived: true to list them)')
+      expect(boardCalls).toHaveLength(1)
+      expect(boardCalls[0]!.includeArchived).toBe(false)
+      expect(boardCalls[0]!.built).toHaveLength(1)
+      for (const t of made) expect(boardCalls[0]!.built).not.toContain(t.id)
+      boardCalls = []
+      await tools.listTickets({ archived: true })
+      expect(boardCalls.map((c) => c.includeArchived)).toEqual([true])
     })
 
     test('150 archived tickets add only the count line, and get_ticket still reads one', async () => {

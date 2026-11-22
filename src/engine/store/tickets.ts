@@ -305,11 +305,11 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     },
 
     async list(workspaceId, opts) {
-      const where =
-        opts?.includeArchived === false
-          ? and(eq(tickets.workspaceId, workspaceId), isNull(tickets.archivedAt))
-          : eq(tickets.workspaceId, workspaceId)
-      return withCriteria(await db.select().from(tickets).where(where).orderBy(asc(tickets.number)))
+      const live = opts?.includeArchived === false
+      const where = live ? and(eq(tickets.workspaceId, workspaceId), isNull(tickets.archivedAt)) : eq(tickets.workspaceId, workspaceId)
+      // `number + 0` keeps SQLite from walking the whole workspace in number order (reading every archived row, spec and
+      // report included) just to skip the sort: with it, it finds the live tickets through the archived index.
+      return withCriteria(await db.select().from(tickets).where(where).orderBy(live ? sql`${tickets.number} + 0` : asc(tickets.number)))
     },
 
     async archive(ids) {
@@ -374,10 +374,12 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     },
 
     async promotions(workspaceId) {
-      const rows = await db
-        .select({ id: tickets.id, promotedFrom: tickets.promotedFrom })
+      let rows = await db
+        .select({ id: tickets.id, promotedFrom: tickets.promotedFrom, workspaceId: tickets.workspaceId })
         .from(tickets)
-        .where(and(eq(tickets.workspaceId, workspaceId), isNotNull(tickets.promotedFrom)))
+        // Through the promoted_from index, skipping the unpromoted tickets; the workspace is checked on the few rows left.
+        .where(isNotNull(tickets.promotedFrom))
+      rows = rows.filter((r) => r.workspaceId === workspaceId)
       if (rows.length === 0) return []
       const ids = [...new Set(rows.flatMap((r) => [r.id, r.promotedFrom!]))]
       const refs = new Map(

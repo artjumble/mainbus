@@ -12,8 +12,8 @@ export interface AttachmentRepo {
   get(id: string): Promise<Attachment | null>
   /** The ticket's attachments, oldest first. */
   list(ticketId: string): Promise<Attachment[]>
-  /** The attachments of every ticket of the workspace, oldest first. */
-  listForWorkspace(workspaceId: string): Promise<Attachment[]>
+  /** The attachments of these tickets, oldest first, by ticket id (tickets with none are absent). */
+  listForTickets(ticketIds: string[]): Promise<Map<string, Attachment[]>>
   /** Removes the row; true when there was one. */
   remove(id: string): Promise<boolean>
   /** Removes the rows of every ticket of the workspace. */
@@ -54,13 +54,20 @@ export function createAttachmentRepo(db: Db, now: () => Date): AttachmentRepo {
       return rows.map(toAttachment)
     },
 
-    async listForWorkspace(workspaceId) {
+    async listForTickets(ticketIds) {
+      const out = new Map<string, Attachment[]>()
+      if (ticketIds.length === 0) return out
       const rows = await db
         .select()
         .from(ticketAttachments)
-        .where(inArray(ticketAttachments.ticketId, ofWorkspace(workspaceId)))
+        .where(inArray(ticketAttachments.ticketId, ticketIds))
         .orderBy(asc(ticketAttachments.createdAt), asc(ticketAttachments.id))
-      return rows.map(toAttachment)
+      for (const row of rows) {
+        const list = out.get(row.ticketId)
+        if (list) list.push(toAttachment(row))
+        else out.set(row.ticketId, [toAttachment(row)])
+      }
+      return out
     },
 
     async remove(id) {

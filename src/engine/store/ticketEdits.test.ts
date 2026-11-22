@@ -68,8 +68,9 @@ describe('ticket edit repo', () => {
     expect(made).toMatchObject({ ticketId, number: 1, at, fields: ['title', 'criteria'], ticketUpdatedAt: at, undoneAt: null, intentAdded: t.intent.slice(1) })
     expect(await edits.get(made.id)).toEqual(made)
     expect(await edits.listAll()).toEqual([made])
-    expect(await edits.listForWorkspace(workspaceId)).toEqual([made])
-    expect(await edits.listForWorkspace('other')).toEqual([])
+    expect(await edits.listForTickets([ticketId])).toEqual(new Map([[ticketId, [made]]]))
+    expect(await edits.listForTickets(['other'])).toEqual(new Map())
+    expect(await edits.listForTickets([])).toEqual(new Map())
   })
 
   test('is all or nothing: a failed record leaves the ticket as it was', async () => {

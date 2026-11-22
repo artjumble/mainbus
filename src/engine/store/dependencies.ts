@@ -11,6 +11,8 @@ export interface DependencyRepo {
   blockersOf(ticketId: string): Promise<Blocker[]>
   /** The blockers of every ticket in the workspace that has any, by ticket id. */
   forWorkspace(workspaceId: string): Promise<Map<string, Blocker[]>>
+  /** The blockers of these tickets that have any, by ticket id. */
+  forTickets(ticketIds: string[]): Promise<Map<string, Blocker[]>>
   /** The tickets of the workspace that have at least one blocker not Done. */
   blockedIds(workspaceId: string): Promise<Set<string>>
   /** Every link in the workspace (ticket id to blocker ids), for the cycle check. */
@@ -20,7 +22,8 @@ export interface DependencyRepo {
   addNote(ticketId: string, note: Omit<DependencyNote, 'id' | 'at'>): Promise<void>
   /** The ticket's notes, oldest first. */
   notesFor(ticketId: string): Promise<DependencyNote[]>
-  notesForWorkspace(workspaceId: string): Promise<Map<string, DependencyNote[]>>
+  /** The notes of these tickets, oldest first, by ticket id (tickets with none are absent). */
+  notesForTickets(ticketIds: string[]): Promise<Map<string, DependencyNote[]>>
   /** The 'unblocked' notes at or after `since` (all when null), oldest first, with the ticket they are about. */
   unblockedSince(since: string | null): Promise<(DependencyNote & { ticketId: string })[]>
 }
@@ -69,12 +72,25 @@ export function createDependencyRepo(db: Db, now: () => Date): DependencyRepo {
     return out
   }
 
+  async function forTickets(ticketIds: string[]): Promise<Map<string, Blocker[]>> {
+    const out = new Map<string, Blocker[]>()
+    if (ticketIds.length === 0) return out
+    for (const r of await blockerRows(inArray(ticketDependencies.ticketId, ticketIds))) {
+      const list = out.get(r.ticketId)
+      if (list) list.push(toBlocker(r))
+      else out.set(r.ticketId, [toBlocker(r)])
+    }
+    return out
+  }
+
   return {
     async blockersOf(ticketId) {
       return (await blockerRows(eq(ticketDependencies.ticketId, ticketId))).map(toBlocker)
     },
 
     forWorkspace,
+
+    forTickets,
 
     async blockedIds(workspaceId) {
       const ids = new Set<string>()
@@ -116,15 +132,19 @@ export function createDependencyRepo(db: Db, now: () => Date): DependencyRepo {
       return rows.map(toNote)
     },
 
-    async notesForWorkspace(workspaceId) {
-      const rows = await db
-        .select({ note: ticketDependencyNotes })
-        .from(ticketDependencyNotes)
-        .innerJoin(tickets, eq(tickets.id, ticketDependencyNotes.ticketId))
-        .where(eq(tickets.workspaceId, workspaceId))
-        .orderBy(asc(ticketDependencyNotes.at))
+    async notesForTickets(ticketIds) {
       const out = new Map<string, DependencyNote[]>()
-      for (const r of rows) out.set(r.note.ticketId, [...(out.get(r.note.ticketId) ?? []), toNote(r.note)])
+      if (ticketIds.length === 0) return out
+      const rows = await db
+        .select()
+        .from(ticketDependencyNotes)
+        .where(inArray(ticketDependencyNotes.ticketId, ticketIds))
+        .orderBy(asc(ticketDependencyNotes.at), asc(sql`rowid`))
+      for (const r of rows) {
+        const list = out.get(r.ticketId)
+        if (list) list.push(toNote(r))
+        else out.set(r.ticketId, [toNote(r)])
+      }
       return out
     },
 
