@@ -5,13 +5,14 @@
 The app's own icon is drawn separately from the concepts below. Its sources are here:
 
 - `mainbus.svg`: the full-colour app icon.
-- `mainbus-tray-black.svg` and `mainbus-tray-white.svg`: the monochrome tray glyph, for light and dark taskbars.
+- `mainbus-tray-orange.svg`: the tray glyph, in the app icon's orange (`#DA3B0C`). It is used on light and dark taskbars alike: it reads on both Windows 11 taskbar colours (`#F3F3F3`, `#202020`), so there is one variant. The old black and white glyphs were removed.
+- The tray's needs-you dot (`src/main/tray/icons.ts`) is white with a ring in the app icon's navy (`#011627`), about 20% radius plus a ring of 1 px at 16 px, in the same position as before. Orange would vanish on the orange glyph; white with a navy ring stands out on both taskbars. [`taskbar.png`](taskbar.png)'s first row shows it.
 
 What's built from them:
 
 - `pnpm icons:build` (`scripts/icons-build.mjs`) renders the PNGs the running app loads into `resources/icons/`, and that output is committed:
   - a 256 px window, taskbar and notification icon;
-  - the tray glyph at 16, 20, 24, 32, 40 and 48 px.
+  - the orange tray glyph at 16, 20, 24, 32, 40 and 48 px.
 - electron-builder copies `resources/icons/` into the packaged app.
 - The packager's own files stay in `build/` and are not shipped: `icon.ico` for the exe, `icon.icns` and the 1024 px `icon.png`. Re-export them by hand when the icon changes.
 - The renderer's favicon is `src/renderer/public/favicon.ico`.
@@ -21,7 +22,7 @@ What's built from them:
 Seven concepts for the Mainbus application icon, from #110. They were not adopted: the custom icon above was used instead.
 
 - **Contact sheet:** [`preview.png`](preview.png). Every concept at 256, 64, 32 and 16 px, then the 16 px rendering blown up 4× so you can see the real pixels. Each is shown on Windows 11's light (`#F3F3F3`) and dark (`#202020`) taskbar colours, and as a Night Owl variant on Night Owl's ground.
-- **Taskbar and tray mock-ups:** [`taskbar.png`](taskbar.png). Each concept at 16 px in a taskbar button and in the tray, light and dark, without and with the orange "needs you" dot. The dot has the tray's current geometry (`src/main/tray/icons.ts`: centre at 72%, radius 26%).
+- **Taskbar and tray mock-ups:** [`taskbar.png`](taskbar.png). Each concept at 16 px in a taskbar button and in the tray, light and dark, without and with the "needs you" dot (white with a navy ring). The dot has the tray's geometry (`src/main/tray/icons.ts`: centre at 72%, radius 20% plus a 1 px ring). The first row is the real tray glyph.
 - **Regenerate both:** `pnpm icons:preview` (`scripts/icons-preview.mjs`). It uses the repo's Playwright to drive the repo's own Electron, so there is nothing new to download.
 
 ## Files

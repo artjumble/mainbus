@@ -1,6 +1,6 @@
 // Renders the app icon's sources in design/icons/ into the PNGs the running app loads, in resources/icons/:
 //   mainbus-256.png                 the window and taskbar icon, and the notifications' icon (mainbus.svg)
-//   mainbus-tray-<black|white>-N.png the tray glyph for light and dark taskbars, at every Windows display scale
+//   mainbus-tray-orange-N.png       the orange tray glyph, for light and dark taskbars, at every Windows display scale
 // The output is committed, so a build never needs this. Run it with `pnpm icons:build` after changing the SVGs.
 // Playwright drives the repo's own Electron (icons-preview-window.cjs), as icons-preview.mjs does.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -17,8 +17,7 @@ const TRAY_SIZES = [16, 20, 24, 32, 40, 48]
 
 const jobs = [
   { svg: 'mainbus.svg', name: 'mainbus', sizes: [256] },
-  { svg: 'mainbus-tray-black.svg', name: 'mainbus-tray-black', sizes: TRAY_SIZES },
-  { svg: 'mainbus-tray-white.svg', name: 'mainbus-tray-white', sizes: TRAY_SIZES }
+  { svg: 'mainbus-tray-orange.svg', name: 'mainbus-tray-orange', sizes: TRAY_SIZES }
 ]
 
 mkdirSync(out, { recursive: true })

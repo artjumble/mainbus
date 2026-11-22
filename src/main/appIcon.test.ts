@@ -39,7 +39,7 @@ describe('the icon files the app loads', () => {
     expect(pngSize(windowIconFile(dir))).toEqual({ width: 256, height: 256 })
   })
 
-  test.each(['black', 'white'] as const)('the %s tray glyph is there at every tray size', (shade) => {
+  test.each(['orange'] as const)('the %s tray glyph is there at every tray size', (shade) => {
     for (const size of TRAY_SIZES) expect(pngSize(trayIconFile(dir, shade, size))).toEqual({ width: size, height: size })
   })
 })

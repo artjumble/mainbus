@@ -12,7 +12,10 @@ export interface Bitmap {
 
 type Rgb = readonly [number, number, number]
 
-const DOT: Rgb = [0xf0, 0x5a, 0x1a]
+// The needs-you dot: white with a 1 px (at 16 px) ring in the app icon's navy, so it stands out from the orange glyph on
+// light and dark taskbars.
+const DOT: Rgb = [255, 255, 255]
+const DOT_RING: Rgb = [0x01, 0x16, 0x27]
 const BADGE: Rgb = [0xd9, 0x2d, 0x20]
 const WHITE: Rgb = [255, 255, 255]
 
@@ -43,10 +46,14 @@ export function pixelAt(bm: Bitmap, x: number, y: number): [number, number, numb
   return [bm.buffer[i + 2]!, bm.buffer[i + 1]!, bm.buffer[i]!, bm.buffer[i + 3]!]
 }
 
-/** The tray icon: the app's tray glyph; with `dot`, an orange dot over its bottom right. `glyph` is left as it is. */
+/** The tray icon: the app's tray glyph; with `dot`, a white, navy-ringed dot over its bottom right. `glyph` is left as it is. */
 export function trayIcon(glyph: Bitmap, dot: boolean): Bitmap {
   const bm: Bitmap = { width: glyph.width, height: glyph.height, buffer: Buffer.from(glyph.buffer) }
-  if (dot) disc(bm, bm.width * 0.72, bm.height * 0.72, bm.width * 0.26, DOT)
+  if (dot) {
+    const ring = bm.width / 16
+    disc(bm, bm.width * 0.72, bm.height * 0.72, bm.width * 0.2 + ring, DOT_RING)
+    disc(bm, bm.width * 0.72, bm.height * 0.72, bm.width * 0.2, DOT)
+  }
   return bm
 }
 
