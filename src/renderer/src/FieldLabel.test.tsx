@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { TextInput } from '@mantine/core'
+import { Switch, TextInput } from '@mantine/core'
 import { renderWithMantine } from './test-utils'
 import { fieldInfo } from './FieldLabel'
 
@@ -20,7 +20,7 @@ const button = (): HTMLElement => screen.getByRole('button', { name: 'About Agen
 test('the description is not shown by default, but stays the input description', () => {
   renderField()
   expect(screen.queryByRole('tooltip')).toBeNull()
-  expect(screen.getByRole('textbox', { name: /Agents running at once/ })).toHaveAccessibleDescription(INFO)
+  expect(screen.getByRole('textbox', { name: 'Agents running at once' })).toHaveAccessibleDescription(INFO)
 })
 
 test('hover shows the description and leaving hides it', async () => {
@@ -50,4 +50,10 @@ test('a click keeps it open after the pointer leaves; clicking away closes it', 
   expect(await screen.findByRole('tooltip')).toHaveTextContent(INFO)
   await user.click(screen.getByRole('button', { name: 'elsewhere' }))
   await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+})
+
+test('a switch is named by its label text alone too', () => {
+  renderWithMantine(<Switch {...fieldInfo('Voice input', INFO)} />)
+  const sw = screen.getByRole('switch', { name: 'Voice input' })
+  expect(sw).toHaveAccessibleDescription(INFO)
 })
