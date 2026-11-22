@@ -8,6 +8,8 @@ import { recordingNotifier, recordTrayView } from './recording'
 const ws = (id: string): Workspace => ({ id, name: `repo-${id}`, repoPath: `/r/${id}`, baseBranch: 'main', slug: id, openPrOnReview: false, mergeMethod: 'merge', saveReports: true, reportsFolder: 'docs/investigations', setupCommand: '', setupTimeoutMinutes: 15, testCommands: [], railLabel: null, railColor: null, unattendedAtOnce: 1, autoArchiveDays: null })
 
 class Fixture {
+  minimized = false
+  badgeCount = 0
   boards = new Map<string, BoardTicket[]>([['w1', []]])
   whenClosed: WhenClosed = 'tray'
   listener: ((e: EngineEvent) => void) | null = null
@@ -26,7 +28,7 @@ class Fixture {
   toasts = recordingNotifier()
   controller: TrayController
 
-  constructor() {
+  constructor(platform: NodeJS.Platform = 'win32') {
     const view = recordTrayView({
       setDot: (d) => (this.dot = d),
       setToolTip: (t) => (this.tooltip = t),
@@ -61,12 +63,19 @@ class Fixture {
           this.focused = false
           this.calls.push('hide')
         },
-        setBadge: (text, description) => (this.badge = [text, description]),
+        minimize: () => {
+          this.minimized = true
+          this.focused = false
+          this.calls.push('minimize')
+        },
+        isMinimized: () => this.minimized,
+        setBadge: (b) => ((this.badge = [b.text, b.description]), (this.badgeCount = b.count)),
         navigate: (n) => this.navigations.push(n)
       },
       notifier: this.toasts.notifier,
       prefs: { noticeShown: () => this.noticeShown, markNoticeShown: () => (this.noticeShown = true) },
       quit: () => this.quits++,
+      platform,
       timer: (fn) => {
         this.timers.push(fn)
         return () => {}
@@ -98,6 +107,7 @@ beforeEach(async () => {
   f = new Fixture()
 })
 
+
 async function started(tickets: BoardTicket[]): Promise<void> {
   f.boards.set('w1', tickets)
   await f.controller.start()
@@ -121,6 +131,34 @@ describe('the icon, tooltip and badge', () => {
     await started([])
     for (let i = 0; i < 5; i++) f.listener?.({ type: 'board.changed', workspaceId: 'w1' })
     expect(f.timers).toHaveLength(1)
+  })
+})
+
+describe('closing the window on Linux', () => {
+  beforeEach(() => {
+    f = new Fixture('linux')
+  })
+
+  test('minimizes instead of hiding while an agent is open, with the Linux notice', async () => {
+    await started([ticket('t1', 'in_progress', 'working')])
+    await f.controller.handleClose()
+    expect(f.calls).toContain('minimize')
+    expect(f.calls).not.toContain('hide')
+    expect(f.quits).toBe(0)
+    expect(f.toasts.hook.notifications()).toHaveLength(1)
+    expect(f.toasts.hook.notifications()[0]!.body).toContain('minimized')
+  })
+
+  test('a close while already minimized quits', async () => {
+    await started([ticket('t1', 'in_progress', 'working')])
+    f.minimized = true
+    await f.controller.handleClose()
+    expect(f.quits).toBe(1)
+  })
+
+  test('the badge carries the needs-you count', async () => {
+    await started([ticket('t1', 'needs_you', 'waiting_on_you')])
+    expect(f.badgeCount).toBe(1)
   })
 })
 

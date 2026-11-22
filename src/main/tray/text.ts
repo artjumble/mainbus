@@ -53,7 +53,13 @@ export function toastText(batch: Arrival[], workspaceNames: Map<string, string> 
   return { title: `${batch.length} tickets need you`, body: lines.join('\n') }
 }
 
-export const STILL_RUNNING: ToastText = {
-  title: 'Mainbus is still running',
-  body: 'Agents keep working. Quit from the tray icon.'
+/** The first-time notice when closing keeps the app running. On Linux the window is minimized, as there may be no tray. */
+export function stillRunningText(platform: NodeJS.Platform): ToastText {
+  if (platform === 'linux') {
+    return {
+      title: 'Mainbus is still running',
+      body: 'Agents keep working, so the window was minimized. To quit, close it from the taskbar or dock, or choose Quit in the tray menu.'
+    }
+  }
+  return { title: 'Mainbus is still running', body: 'Agents keep working. Quit from the tray icon.' }
 }

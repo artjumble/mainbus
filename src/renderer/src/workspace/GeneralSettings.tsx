@@ -5,6 +5,7 @@ import { fieldInfo } from '../FieldLabel'
 import { AGENT_CAP_MAX, AGENT_CAP_MIN, ARCHIVE_AGE_DAYS, isArchiveAgeDays, UNATTENDED_AT_ONCE_MIN, type WhenClosed } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { platform } from '../platform'
 import { BaseBranchSettings } from './BaseBranchSettings'
 import { RailBadgeSettings } from './RailBadgeSettings'
 
@@ -140,7 +141,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         onChange={(v) => void saveWhenClosed(v)}
       >
         <Stack gap="xs" mt="xs">
-          <Radio value="tray" label="Keep running in the tray while agents work" disabled={whenClosed === null} />
+          <Radio value="tray" label={platform() === 'linux' ? 'Keep running, minimized, while agents work' : 'Keep running in the tray while agents work'} disabled={whenClosed === null} />
           <Radio value="quit" label="Always quit" disabled={whenClosed === null} />
         </Stack>
       </Radio.Group>

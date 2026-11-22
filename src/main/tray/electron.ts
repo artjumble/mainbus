@@ -4,6 +4,7 @@ import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Notification, shell
 import { NAVIGATE_CHANNEL, type AppNavigation } from '../../shared/api'
 import { trayIconFile, type TrayShade } from '../appIcon'
 import type { MenuEntry, Notifier, Prefs, TrayView, WindowPort } from './controller'
+import { badgeKind } from './badge'
 import { badgeIcon, trayIconSet, type Bitmap } from './icons'
 import { shortcutNeedsWrite, type ShortcutDetails } from './shortcut'
 import type { Timer } from './toasts'
@@ -98,7 +99,15 @@ export function electronWindowPort(getWindow: () => BrowserWindow | null, create
       win.focus()
     },
     hide: () => live()?.hide(),
-    setBadge: (text, description) => {
+    minimize: () => live()?.minimize(),
+    isMinimized: () => live()?.isMinimized() ?? false,
+    setBadge: ({ count, text, description }) => {
+      const kind = badgeKind(process.platform)
+      if (kind === 'count') {
+        app.setBadgeCount(count)
+        return
+      }
+      if (kind === 'none') return
       const win = live()
       if (!win) return
       if (text === null) {
