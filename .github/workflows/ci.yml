@@ -121,3 +121,55 @@ jobs:
           name: e2e-test-results-macOS
           path: test-results/
           if-no-files-found: warn
+
+  # Builds the unpacked package on Windows and macOS (arm64), checks it, and runs a scripted agent through the packaged app.
+  package:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest, target: win, exe: dist/win-unpacked/Mainbus.exe }
+          - { name: macOS, os: macos-latest, target: mac, exe: dist/mac-arm64/Mainbus.app/Contents/MacOS/Mainbus }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Use the long temp folder
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Package
+        run: pnpm exec electron-builder --${{ matrix.target }} dir
+      - name: Check the macOS bundle
+        if: matrix.target == 'mac'
+        run: |
+          app=dist/mac-arm64/Mainbus.app
+          codesign --verify --deep --strict "$app"
+          codesign -dv "$app" 2>&1 | grep -q 'Signature=adhoc'
+          plutil -extract NSMicrophoneUsageDescription raw "$app/Contents/Info.plist"
+          icon=$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")
+          case "$icon" in *.icns) ;; *) icon="$icon.icns" ;; esac
+          test -s "$app/Contents/Resources/$icon"
+          file "$app/Contents/MacOS/Mainbus" | grep -q arm64
+      - name: Packaged app test
+        run: MAINBUS_E2E_PACKAGED="$PWD/${{ matrix.exe }}" pnpm exec playwright test e2e/packaged.spec.ts --retries=1
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-test-results-${{ matrix.name }}
+          path: test-results/
+          if-no-files-found: warn

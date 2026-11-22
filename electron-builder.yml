@@ -8,10 +8,25 @@ files:
   # The CLI runs outside the asar, from resources/cli (below).
   - "!out/cli/**"
   - package.json
+  # Mainbus runs the user's own `claude` (pathToClaudeCodeExecutable), so the Agent SDK's bundled per-platform binary
+  # packages (about 288 MB) are never used. The hyphen keeps @anthropic-ai/claude-agent-sdk itself.
+  - "!**/node_modules/@anthropic-ai/claude-agent-sdk-*{,/**}"
 win:
   target: dir
   # The exe's icon. build/ is the packager's alone: the running app loads its icons from resources/icons (below).
   icon: build/icon.ico
+mac:
+  target:
+    - target: dir
+      arch: [arm64]
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  # Ad-hoc signing: runs on the Mac that built it, needs no Apple account.
+  identity: "-"
+  # Ad-hoc signing with the hardened runtime needs extra entitlements; signing and notarization turn it on with them.
+  hardenedRuntime: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Mainbus uses the microphone for voice dictation, transcribed on this Mac.
 extraResources:
   - from: src/engine/db/migrations
     to: migrations
