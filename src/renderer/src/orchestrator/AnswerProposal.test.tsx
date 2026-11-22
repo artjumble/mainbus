@@ -111,8 +111,8 @@ describe('a plain recommendation', () => {
 describe('a judgement card', () => {
   test('leads with the reason and lays out the requirement, proposal, smallest option, consequences and recommendation', () => {
     renderWithMantine(<ProposalCard proposal={proposal(JUDGED)} />)
-    const card = screen.getByRole('group', { name: 'Proposal: Needs your judgement: this would widen your intent' })
-    expect(within(card).getByText('Needs your judgement: this would widen your intent')).toBeInTheDocument()
+    const card = screen.getByRole('group', { name: 'Proposal: Needs your judgment: this would widen your intent' })
+    expect(within(card).getByText('Needs your judgment: this would widen your intent')).toBeInTheDocument()
     expect(within(card).getByText('Your requirement: Add a login form')).toBeInTheDocument()
     expect(within(card).getByText('Proposed: Also add SSO and a user database')).toBeInTheDocument()
     expect(within(card).getByText('Smallest option within your intent: SQLite, nothing new to run')).toBeInTheDocument()
@@ -123,7 +123,7 @@ describe('a judgement card', () => {
 
   test('its buttons are the options and Reject; there is no Confirm, Override or pre-selected option', () => {
     renderWithMantine(<ProposalCard proposal={proposal(JUDGED)} />)
-    const card = screen.getByRole('group', { name: /Needs your judgement/ })
+    const card = screen.getByRole('group', { name: /Needs your judgment/ })
     expect(within(card).getAllByRole('button').map((b) => b.textContent)).toEqual(['SQLite', 'Postgres', 'MySQL', 'Reject'])
     expect(within(card).queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
     expect(within(card).queryByRole('button', { name: 'Override' })).not.toBeInTheDocument()

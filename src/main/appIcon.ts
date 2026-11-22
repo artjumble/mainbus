@@ -2,12 +2,12 @@ import path from 'node:path'
 
 /**
  * The tray icon's sizes in pixels: 16 at 100% display scale, then 125%, 150%, 200%, 250% and 300%. resources/icons
- * has a black and a white PNG at each, rendered from design/icons by `pnpm icons:build`.
+ * has the orange glyph's PNG at each, rendered from design/icons by `pnpm icons:build`.
  */
 export const TRAY_SIZES = [16, 20, 24, 32, 40, 48] as const
 
-/** The tray glyph's shade: black for a light taskbar, white for a dark one. */
-export type TrayShade = 'black' | 'white'
+/** The tray glyph's shade: the app icon's orange, on light and dark taskbars alike. */
+export type TrayShade = 'orange'
 
 /**
  * The folder of the icons the running app loads: resources/icons in the repo in development, copied to the packaged

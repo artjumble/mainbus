@@ -106,7 +106,7 @@ describe('dictating into a field', () => {
     expect(transcriber.calls).toEqual([])
     expect(onClose).not.toHaveBeenCalled()
     expect((await mic()).getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByRole('status')).toHaveTextContent('Dictation cancelled.')
+    expect(screen.getByRole('status')).toHaveTextContent('Dictation canceled.')
     // With nothing recording, Esc is the dialog's again.
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalled()

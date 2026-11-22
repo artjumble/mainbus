@@ -527,7 +527,7 @@ export function Board(): ReactElement {
         }
         return `${name(active.id)} was dropped on ${columnTitle(over.id)}.`
       },
-      onDragCancel: ({ active }) => `Moving ${name(active.id)} was cancelled; it stays where it was.`
+      onDragCancel: ({ active }) => `Moving ${name(active.id)} was canceled; it stays where it was.`
     }
   }, [tickets, dropFor])
 

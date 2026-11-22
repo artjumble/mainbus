@@ -314,7 +314,7 @@ describe('intake list and get', () => {
     const all = [make(1, null), ...Array.from({ length: 150 }, (_, i) => make(i + 2, '2026-11-01T00:00:00.000Z'))]
     const handle = createIntakeHandler({
       workspaces: async () => [ws],
-      ticketFolders: async () => ['/none'],
+      ticketFolders: async () => [],
       createTicket: vi.fn(),
       tickets: async (_ws, opts) => (opts?.includeArchived ? all : all.filter((t) => t.archivedAt === null)),
       ticket: async (_ws, n) => all.find((t) => t.number === n) ?? null

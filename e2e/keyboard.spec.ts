@@ -184,7 +184,7 @@ test('the core flow works by keyboard alone: create, start, answer, move', async
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
 
     // Back to the board by keyboard; the card is in Review.
-    await activate(page, page.getByRole('button', { name: /board/ }))
+    await activate(page, page.getByRole('button', { name: /^← .* board$/ }))
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
   })
 })

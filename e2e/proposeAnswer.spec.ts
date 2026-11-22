@@ -47,7 +47,7 @@ test('an agent asks, the orchestrator proposes an answer, the user confirms it, 
     await page.getByLabel('First message (starts the lineup)').fill('Please add hello.txt')
     await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
     await expect(page.locator('[data-event="decision"]')).toContainText('Where should hello.txt go?')
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     const needsYou = page.getByRole('region', { name: 'Needs you' })
     const waiting = page.getByRole('region', { name: 'Waiting on you' })

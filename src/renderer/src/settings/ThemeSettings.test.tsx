@@ -130,7 +130,7 @@ test('shows the stored theme', async () => {
 
 test('credits Night Owl and Light Owl', async () => {
   renderWithMantine(<ThemeSettings opened />)
-  expect(await screen.findByText(/Night Owl and Light Owl theme colours by Sarah Drasner \(MIT\)/)).toBeInTheDocument()
+  expect(await screen.findByText(/Night Owl and Light Owl theme colors by Sarah Drasner \(MIT\)/)).toBeInTheDocument()
 })
 
 test('a theme that cannot be saved goes back to the one before', async () => {

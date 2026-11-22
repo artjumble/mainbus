@@ -113,7 +113,7 @@ describe('moving a card by keyboard', () => {
     await userEvent.keyboard(' ')
     await vi.waitFor(() => expect(announced()).toBe(`Picked up ticket #${ticket.number} Drag me.`))
     await userEvent.keyboard('{Escape}')
-    await vi.waitFor(() => expect(announced()).toMatch(/cancelled; it stays where it was/))
+    await vi.waitFor(() => expect(announced()).toMatch(/canceled; it stays where it was/))
   })
 
   test.each([['in_progress'], ['needs_you']] as const)('a card in %s has no handle and Space picks nothing up', async (column) => {
@@ -259,7 +259,7 @@ describe('Done around the end of a drag', () => {
     await userEvent.keyboard(' ')
     await vi.waitFor(() => expect(document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent).toMatch(/Picked up/))
     await userEvent.keyboard('{Escape}')
-    await vi.waitFor(() => expect(document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent).toMatch(/cancelled/))
+    await vi.waitFor(() => expect(document.body.querySelector('[id^="DndLiveRegion-"]')?.textContent).toMatch(/canceled/))
     // Focus is back on the card, inside Done: it stays open. Once focus moves on, it collapses.
     await new Promise((r) => setTimeout(r, 400))
     expect(done()).toHaveAttribute('data-expanded', 'true')

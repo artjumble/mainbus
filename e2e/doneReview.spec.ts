@@ -38,7 +38,7 @@ async function ticketInReview(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: new RegExp(title) }).click()
   await page.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(page.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: /board/ }).click()
+  await page.getByRole('button', { name: /^← .* board$/ }).click()
   await expect(page.getByRole('region', { name: 'Review', exact: true }).getByText(title)).toBeVisible()
 }
 
@@ -112,7 +112,7 @@ test('two tickets reach Done: one review turn, one follow-up proposed for the ti
     // Each ticket's Activity says what the review found.
     await openFromDone(page, 'Alpha')
     await expect(page.getByRole('region', { name: 'Activity' }).getByText('Reviewed by the orchestrator: 1 follow-up proposed')).toBeVisible()
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await openFromDone(page, 'Beta')
     await expect(page.getByRole('region', { name: 'Activity' }).getByText('Reviewed by the orchestrator: no follow-ups proposed')).toBeVisible()
   } finally {

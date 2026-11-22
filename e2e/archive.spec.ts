@@ -44,7 +44,7 @@ test('archive a Done ticket, find it three ways, and restore it to Done', async 
     const column = (name: string) => page.getByRole('region', { name, exact: true })
     // Done is a strip until focus is in it; the cards and the Archive button are then reachable.
     const openDone = async () => column('Done').focus()
-    const backToBoard = () => page.getByRole('button', { name: /board$/ }).click()
+    const backToBoard = () => page.getByRole('button', { name: /^← .* board$/ }).click()
     const ticketHeading = (title: string) => page.getByRole('heading', { name: title, level: 2 })
 
     // #1 goes to Done; #2 is blocked by it.

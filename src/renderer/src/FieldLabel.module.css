@@ -1,0 +1,46 @@
+/* The label of a field: one line, never wrapped; a very narrow column truncates the text (the tooltip button stays). */
+.fieldLabel {
+  display: block;
+  max-width: 100%;
+  /* Room for the 44 px hit area of the info button, so it doesn't run onto the input below. */
+  margin-bottom: 12px;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mark {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Read by screen readers as the input's description, not shown (the info button shows it). */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Above the input under the label, so the 44 px hit area around the button is not covered by it. */
+.info.info {
+  z-index: 3;
+}

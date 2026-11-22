@@ -27,8 +27,8 @@ export function SkipModal({ opened, role, next, onClose, onSkip }: Props): React
 
   const text =
     next === null
-      ? `Skip the ${role}? Its work so far is summarised and the ticket goes to Review.`
-      : `Skip the ${role}? Its work so far is summarised for the ${next}.`
+      ? `Skip the ${role}? Its work so far is summarized and the ticket goes to Review.`
+      : `Skip the ${role}? Its work so far is summarized for the ${next}.`
   return (
     <Modal opened={opened} onClose={onClose} title="Skip to next role">
       <Stack gap="md">

@@ -70,7 +70,7 @@ test('the Implementer set to Fable in Run settings runs on the latest Fable when
     await expect(page.getByText('The Planner ran')).toHaveCount(0)
 
     // It goes through to Review.
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible({ timeout: 30_000 })
   } finally {
     await app?.close()

@@ -35,7 +35,7 @@ export function reportFileText(ticket: Pick<Ticket, 'number' | 'title' | 'intent
   const question = (words.length > 0 ? words.join('\n\n') : 'No words from the user.').split(/\r?\n/).join('\n> ')
   const header = [
     `> **Investigation #${ticket.number}:** ${ticket.title.replace(/\s+/g, ' ').trim()}`,
-    `> **Date:** ${date} · **Status:** report, recommends but doesn't authorise changes`,
+    `> **Date:** ${date} · **Status:** report, recommends but doesn't authorize changes`,
     `> **The question (the user's words):** ${question}`
   ].join('\n')
   return `${header}\n\n${report}${report.endsWith('\n') ? '' : '\n'}`

@@ -97,7 +97,7 @@ test('a ticket the orchestrator creates after a two-message request keeps both m
     await expect(page.getByRole('region', { name: 'Activity' }).getByText('Created by the orchestrator at your request')).toBeVisible()
 
     // It is in website's Backlog.
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(backlog.getByRole('button', { name: /Add a contact form/ })).toBeVisible()
   } finally {
     await app?.close()

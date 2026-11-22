@@ -174,7 +174,7 @@ async function withSession(body: (page: Page, repoName: string) => Promise<void>
     await page.getByRole('dialog', { name: 'Add workspace' }).getByRole('button', { name: 'Choose folder…' }).click()
     await expect(rail.getByRole('button', { name: new RegExp(`^${repoName}`) })).toHaveAttribute('aria-current', 'true')
     // The last test left a ticket open; it isn't in this workspace.
-    const back = page.getByRole('button', { name: /board$/ })
+    const back = page.getByRole('button', { name: /^← .* board$/ })
     if ((await back.count()) > 0) await back.click()
     await page.getByRole('button', { name: 'New ticket' }).waitFor()
   }
@@ -236,7 +236,7 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     // dnd-kit starts listening for the next key a moment after it announces the pick-up.
     await keyboardDragReady(page)
     await page.keyboard.press('Escape')
-    await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('cancelled')
+    await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('canceled')
     // A card being dragged is drawn faded; contrast is measured once it is dropped back.
     await expect(page.getByRole('button', { name: 'Move ticket #2' })).not.toHaveAttribute('aria-pressed', 'true')
     await animationsSettled(page)
@@ -311,7 +311,11 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     await page.getByRole('menuitem', { name: 'Settings' }).click()
     const segment = page.getByRole('dialog', { name: 'Workspace settings' }).locator('[data-category]').first()
     await segment.hover()
-    await expect(page.getByRole('tooltip')).toBeVisible()
+    const tooltip = page.getByRole('tooltip')
+    await expect(tooltip).toBeVisible()
+    // The fade-in starts a frame after the tooltip mounts, so "no animation running" can hold before it begins:
+    // wait for full opacity itself, then for anything else still moving.
+    await expect(tooltip).toHaveCSS('opacity', '1')
     await animationsSettled(page)
     await expectNoAxeViolations(page, 'an open tooltip', ['color-contrast'])
     await page.keyboard.press('Escape')

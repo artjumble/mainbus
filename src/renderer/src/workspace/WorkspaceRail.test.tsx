@@ -318,6 +318,23 @@ test('the Mainbus settings button opens the Mainbus settings, collapsed and expa
   expect(useMainbus.getState().appSettingsOpen).toBe(true)
 })
 
+test('Add workspace and Mainbus settings match, and the hint is gone', async () => {
+  engine()
+  renderWithMantine(<WorkspaceRail />)
+  const nav = screen.getByRole('navigation', { name: 'Workspaces' })
+  for (const expanded of [false, true]) {
+    if (expanded) await expand()
+    const add = within(nav).getByRole('button', { name: 'Add workspace' })
+    const settings = within(nav).getByRole('button', { name: 'Mainbus settings' })
+    for (const attr of ['data-variant', 'data-size', 'data-block', 'class']) {
+      expect(add.getAttribute(attr)).toBe(settings.getAttribute(attr))
+    }
+    expect(add.style.justifyContent).toBe(settings.style.justifyContent)
+    expect(add.style.borderStyle).toBe(settings.style.borderStyle)
+    expect(nav).not.toHaveTextContent('Pick a local repo folder to add it.')
+  }
+})
+
 test('with no workspace yet, the rail has the Mainbus settings button and leaves Add workspace to the welcome screen', async () => {
   mockInvoke.mockImplementation(async () => [])
   useMainbus.setState({ workspace: null, workspaces: [], currentTicketId: null })

@@ -103,7 +103,7 @@ test('a handoff opens a PR once origin is there: the failure shows with Retry, a
     expect(git(origin, 'rev-parse', 'refs/heads/mainbus/1-add-the-file').trim()).toMatch(/^[0-9a-f]{40}$/)
 
     // The board card links to it too.
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     const card = page.getByRole('region', { name: 'Review' })
     await expect(card.getByRole('link', { name: 'PR #1' })).toBeVisible()
   } finally {
@@ -132,7 +132,7 @@ test('unattended mode opens PRs for queue tickets, and a PR failure does not sto
     await expect(page.getByTestId('unattended-status')).toHaveText('Waiting for Ready tickets')
     await review.getByText('Second queued ticket').click()
     await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     // With origin there, the next queue ticket gets its PR. The mode is still on and starts it from Ready.
     git(made.repo, 'remote', 'add', 'origin', made.origin)

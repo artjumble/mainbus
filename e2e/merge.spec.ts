@@ -83,7 +83,7 @@ test('Merge… on a ticket in Review of a repo with no remote puts its files in 
     expect(git(repo, 'status', '--porcelain').trim()).toBe('')
 
     // The ticket is Done.
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(page.getByRole('region', { name: 'Done' })).toContainText('1')
     await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello')).toHaveCount(0)
   } finally {

@@ -52,7 +52,7 @@ test('unattended mode skips a ticket blocked by another, and starts it once the 
     await page.getByRole('button', { name: /First job/ }).click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(page.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 30_000 })
-    await page.getByRole('button', { name: /board/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await expect(column('Review').getByText('First job')).toBeVisible()
 
     // #2 is created in Ready, blocked by #1.

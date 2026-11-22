@@ -1,2 +1,1 @@
-CREATE INDEX `agent_runs_ticket_run_idx` ON `agent_runs` (`ticket_run_id`);--> statement-breakpoint
 CREATE INDEX `tickets_promoted_from_idx` ON `tickets` (`promoted_from`) WHERE "tickets"."promoted_from" is not null;

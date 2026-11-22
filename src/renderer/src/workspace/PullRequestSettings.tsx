@@ -1,5 +1,6 @@
 import { SegmentedControl, Stack, Switch, Text, Title } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import type { GhStatus, Workspace } from '../../../shared/domain'
 import { MERGE_METHOD_LABELS, MERGE_METHODS, type MergeMethod } from '../../../shared/merge'
 import { invoke } from '../api'
@@ -75,10 +76,9 @@ export function PullRequestSettings({ opened }: { opened: boolean }): ReactEleme
         Pull requests
       </Title>
       <Switch
-        label="Open a PR when a ticket reaches Review"
-        description={`Mainbus pushes the ticket's branch to origin and opens a pull request against ${
+        {...fieldInfo("Open a PR when a ticket reaches Review", `Mainbus pushes the ticket's branch to origin and opens a pull request against ${
           workspace?.baseBranch ?? 'the base branch'
-        } with the GitHub CLI. It never force-pushes, and agents still can't push.`}
+        } with the GitHub CLI. It never force-pushes, and agents still can't push.`)}
         checked={on}
         disabled={workspace === null || saving}
         onChange={(e) => void toggle(e.currentTarget.checked)}

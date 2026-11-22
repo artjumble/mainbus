@@ -1,5 +1,6 @@
 import { Button, Group, NativeSelect, Progress, Stack, Switch, Text } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import {
   isVoiceModelId,
   VOICE_DEFAULTS,
@@ -93,8 +94,7 @@ export function VoiceSettings({ opened }: { opened: boolean }): ReactElement {
   return (
     <Stack gap="sm">
       <Switch
-        label="Voice input"
-        description="A mic button in long-form text fields turns your speech into text on this computer. Nothing is uploaded and recordings are not kept."
+        {...fieldInfo("Voice input", "A mic button in long-form text fields turns your speech into text on this computer. Nothing is uploaded and recordings are not kept.")}
         checked={voice.enabled}
         onChange={(e) => void save({ enabled: e.currentTarget.checked })}
       />

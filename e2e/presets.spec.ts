@@ -70,7 +70,7 @@ test('a ticket created with the Docs preset starts with only the Implementer, on
 
     // Start it: only the Implementer runs, on Sonnet at medium effort, and it goes through to Review.
     await page.getByRole('button', { name: 'Start', exact: true }).click()
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     const review = page.getByRole('region', { name: 'Review' })
     await expect(review.getByText('Document hello')).toBeVisible({ timeout: 30_000 })
     await review.getByText('Document hello').click()

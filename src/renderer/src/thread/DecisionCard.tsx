@@ -141,7 +141,7 @@ function Outcome({ decision }: Props): ReactElement {
   if (decision.status === 'answered' && decision.answer?.kind === 'message') {
     return <Text size="sm" c="dimmed">✓ Answered in a message</Text>
   }
-  if (decision.status === 'cancelled') return <Text size="sm" c="dimmed">Cancelled</Text>
+  if (decision.status === 'cancelled') return <Text size="sm" c="dimmed">Canceled</Text>
   return (
     <Text size="sm" c="dimmed">
       Expired — the agent no longer needs this

@@ -51,7 +51,7 @@ test("a ticket's view shows its usage and where its time went, per role, after i
     await page.getByRole('button', { name: 'Create' }).click()
     await page.getByRole('region', { name: 'Backlog' }).getByText('Add hello').click()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
 
     const review = page.getByRole('region', { name: 'Review' })
     await expect(review.getByText('Add hello')).toBeVisible({ timeout: 30_000 })
@@ -78,7 +78,7 @@ test("a ticket's view shows its usage and where its time went, per role, after i
     for (const role of ['Planner', 'Implementer', 'Reviewer']) await expect(time.getByText(role, { exact: true })).toBeVisible()
 
     // The workspace report. Its Export CSV opens a native save dialog, so it is only checked for being there.
-    await page.getByRole('button', { name: /board$/ }).click()
+    await page.getByRole('button', { name: /^← .* board$/ }).click()
     await page.getByRole('button', { name: 'Workspace settings' }).click()
     const report = page.getByRole('region', { name: 'Where time goes' })
     await expect(report.getByText(/1 ticket · .* median /)).toBeVisible()

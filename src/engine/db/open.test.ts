@@ -517,6 +517,102 @@ describe('openDb', () => {
     }
   })
 
+  describe('pruning old backups', () => {
+    const stamp = (d: Date) => {
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `mainbus-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.db`
+    }
+    const NOW = new Date(2027, 0, 31, 12, 0, 0)
+    const daysAgo = (n: number) => new Date(2027, 0, 31 - n, 12, 0, 0)
+
+    async function existingDb() {
+      const first = await open()
+      first.close()
+      closers = []
+    }
+    function seed(...ages: number[]): string[] {
+      fs.mkdirSync(paths.backups, { recursive: true })
+      return ages.map((n) => {
+        const name = stamp(daysAgo(n))
+        fs.writeFileSync(path.join(paths.backups, name), 'x')
+        return name
+      })
+    }
+
+    it('removes backups beyond the newest 5 that are older than 14 days, and logs each', async () => {
+      await existingDb()
+      // With the new one: 5 newest are the new one + 15, 16, 17, 18 days. 20 and 40 days go.
+      const [a15, a16, a17, a18, a20, a40] = seed(15, 16, 17, 18, 20, 40)
+      const log: string[] = []
+      await openDb(paths, withExtraMigration(), () => NOW, (m) => log.push(m)).then((h) => closers.push(h.close))
+      expect(backupFiles().sort()).toEqual([stamp(NOW), a15, a16, a17, a18].sort())
+      expect(log).toHaveLength(2)
+      expect(log.join('\n')).toContain(a20)
+      expect(log.join('\n')).toContain(a40)
+      expect(a40).toBeDefined()
+    })
+
+    it('keeps every backup under 14 days old, even beyond the newest 5', async () => {
+      await existingDb()
+      const young = seed(1, 2, 3, 4, 5, 6, 7, 13)
+      const old = seed(30)
+      await open(withExtraMigration(), () => NOW)
+      const left = backupFiles()
+      for (const n of young) expect(left).toContain(n)
+      expect(left).not.toContain(old[0])
+    })
+
+    it('keeps the backup just taken even if the clock is far ahead of the others', async () => {
+      await existingDb()
+      seed(100, 101, 102, 103, 104, 105)
+      await open(withExtraMigration(), () => NOW)
+      expect(backupFiles()).toContain(stamp(NOW))
+      expect(backupFiles()).toHaveLength(5)
+    })
+
+    it('leaves other files in the backups folder alone', async () => {
+      await existingDb()
+      seed(100, 101, 102, 103, 104, 105)
+      fs.writeFileSync(path.join(paths.backups, 'notes.txt'), 'x')
+      await open(withExtraMigration(), () => NOW)
+      expect(fs.existsSync(path.join(paths.backups, 'notes.txt'))).toBe(true)
+    })
+
+    it('deletes nothing when the migration fails', async () => {
+      await existingDb()
+      const names = seed(100, 101, 102, 103, 104, 105)
+      await expect(open(withExtraMigration('THIS IS NOT SQL;'), () => NOW)).rejects.toThrow()
+      expect(backupFiles().sort()).toEqual([...names, stamp(NOW)].sort())
+    })
+
+    it('does not grow without limit over repeated upgrades', async () => {
+      await existingDb()
+      let clock = new Date(2027, 0, 1, 12, 0, 0)
+      for (let i = 0; i < 12; i++) {
+        // One upgrade a month: each needs a new pending migration.
+        clock = new Date(clock.getFullYear(), clock.getMonth() + 1, 1, 12, 0, 0)
+        const dir = withExtraMigrationAt(i)
+        const h = await openDb(paths, dir, () => clock, () => {})
+        h.close()
+      }
+      expect(backupFiles()).toHaveLength(5)
+    })
+
+    function withExtraMigrationAt(i: number): string {
+      const dir = path.join(tmp, `migrations-grow-${i}`)
+      fs.cpSync(realMigrations, dir, { recursive: true })
+      const journalPath = path.join(dir, 'meta', '_journal.json')
+      const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
+      const last = journal.entries[journal.entries.length - 1]
+      for (let k = 0; k <= i; k++) {
+        journal.entries.push({ idx: journal.entries.length, version: last.version, when: last.when + 1000 * (k + 1), tag: `9${k}_noop`, breakpoints: true })
+        fs.writeFileSync(path.join(dir, `9${k}_noop.sql`), 'SELECT 1;')
+      }
+      fs.writeFileSync(journalPath, JSON.stringify(journal, null, 2))
+      return dir
+    }
+  })
+
   it('does not back up on a first run', async () => {
     await open()
     expect(backupFiles()).toEqual([])
@@ -868,7 +964,7 @@ describe('openDb', () => {
     expect(idx).toHaveLength(1)
   })
 
-  it('migration 0044 indexes agent_runs.ticket_run_id and tickets.promoted_from, and the lookups use them', async () => {
+  it('migrations 0044 and 0045 index agent_runs.ticket_run_id and tickets.promoted_from, and the lookups use them', async () => {
     const { db } = await open()
     const idx = await db.all(sql`select name from sqlite_master where type = 'index' and name = 'agent_runs_ticket_run_idx'`)
     expect(idx).toHaveLength(1)

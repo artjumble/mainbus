@@ -1,0 +1,1 @@
+CREATE INDEX `agent_runs_ticket_run_idx` ON `agent_runs` (`ticket_run_id`);
