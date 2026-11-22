@@ -28,6 +28,8 @@ export interface ReadToolDeps {
   list(): Promise<Workspace[]>
   /** The workspace's tickets as the board shows them: state and lineup strip. Archived ones are left out unless asked for. */
   board(ws: Workspace, opts?: { includeArchived?: boolean }): Promise<BoardTicket[]>
+  /** One ticket of the workspace by number, archived or not, as the board shows it; null when there is none. Builds only that ticket. */
+  ticket(ws: Workspace, number: number): Promise<BoardTicket | null>
   /** Where the app stands on the usage limit; without it nothing is said about it. */
   usage?: () => Promise<UsageState>
   /** The images the user attached to the ticket, with where their files are; without it none are listed. */
@@ -325,10 +327,10 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
   }
 
   async function ticket(number: number, ref?: string): Promise<{ ws: Workspace; t: BoardTicket } | string> {
-    const b = await board(ref, { includeArchived: true })
-    if (typeof b === 'string') return b
-    const t = b.tickets.find((x) => x.number === number)
-    return t ? { ws: b.ws, t } : `No ticket #${number} in ${oneLine(b.ws.name)}.`
+    const found = resolveWorkspaceRef(await deps.list(), await deps.focused(), ref)
+    if (!found.ok) return found.text
+    const t = await deps.ticket(found.ws, number)
+    return t ? { ws: found.ws, t } : `No ticket #${number} in ${oneLine(found.ws.name)}.`
   }
 
   /** The latest ticket run's roles, from its snapshot, with their strip statuses; null before the first run. */
@@ -449,9 +451,11 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
       const { t } = found
       const byAgent = filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''
       const criteria = t.criteria.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.position}: ${c.text}`).join('\n')
-      const promoted = (await deps.board(found.ws, { includeArchived: true }))
-        .filter((x) => x.promotedFrom === t.id || x.id === t.promotedFrom)
-        .map((x) => (x.id === t.promotedFrom ? `Promoted from ${title(x)}` : `Promoted to ${title(x)}`))
+      const ref = (x: { number: number; title: string }): string => `#${x.number} ${data('title', oneLine(x.title), true)}`
+      const promoted = [
+        ...(t.promotion.from ? [`Promoted from ${ref(t.promotion.from)}`] : []),
+        ...(t.promotion.to ? [`Promoted to ${ref(t.promotion.to)}`] : [])
+      ]
       const run = await latestRun(t)
       const roles = run
         ? run.roles

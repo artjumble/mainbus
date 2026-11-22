@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ Menu: {} }))
 
-import { buildContextMenu, MAX_SUGGESTIONS, spellCheckLanguages, type MenuParams } from './contextMenu'
+import { buildContextMenu, ensureSpellCheckLanguages, MAX_SUGGESTIONS, spellCheckLanguages, type MenuParams } from './contextMenu'
 
 const flags = { canUndo: true, canRedo: false, canCut: true, canCopy: true, canPaste: true, canSelectAll: true }
 const params = (over: Partial<MenuParams> = {}): MenuParams => ({
@@ -61,4 +61,24 @@ describe('spellCheckLanguages', () => {
   it('keeps what Chromium chose', () => expect(spellCheckLanguages(['en-GB'], available, 'de-DE')).toBeNull())
   it('uses the system locale', () => expect(spellCheckLanguages([], available, 'de-DE')).toEqual(['de-DE']))
   it('falls back to en-US', () => expect(spellCheckLanguages([], available, 'xx-YY')).toEqual(['en-US']))
+})
+
+describe('ensureSpellCheckLanguages', () => {
+  const session = () => ({
+    getSpellCheckerLanguages: () => [] as string[],
+    availableSpellCheckerLanguages: ['en-US'],
+    setSpellCheckerLanguages: vi.fn()
+  })
+
+  it('sets the language from the locale on Windows', () => {
+    const s = session()
+    ensureSpellCheckLanguages(s as never, 'en-US', 'win32')
+    expect(s.setSpellCheckerLanguages).toHaveBeenCalledWith(['en-US'])
+  })
+
+  it('leaves the language alone on macOS, which uses the OS spellchecker', () => {
+    const s = session()
+    ensureSpellCheckLanguages(s as never, 'en-US', 'darwin')
+    expect(s.setSpellCheckerLanguages).not.toHaveBeenCalled()
+  })
 })

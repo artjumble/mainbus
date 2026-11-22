@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { Arrival } from './activity'
-import { badgeText, needsYouLabel, toastText, tooltipText } from './text'
+import { badgeText, needsYouLabel, stillRunningText, toastText, tooltipText } from './text'
 
 const arrival = (number: number, column: Arrival['column'] = 'needs_you', workspaceId = 'w1'): Arrival => ({
   workspaceId,
@@ -53,5 +53,14 @@ describe('toastText', () => {
     ])
     expect(toastText([arrival(1, 'needs_you', 'w2')], names).body).toBe('beta: Title 1')
     expect(toastText([arrival(1), arrival(2, 'needs_you', 'w2')], names).body).toBe('alpha: #1 Title 1\nbeta: #2 Title 2')
+  })
+})
+
+describe('stillRunningText', () => {
+  test('Windows and macOS point at the tray icon', () => {
+    for (const p of ['win32', 'darwin'] as const) expect(stillRunningText(p).body).toBe('Agents keep working. Quit from the tray icon.')
+  })
+  test('Linux says the window was minimized', () => {
+    expect(stillRunningText('linux').body).toContain('minimized')
   })
 })

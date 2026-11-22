@@ -7,7 +7,7 @@ import targets from './targets.module.css'
  * A field's label on one line, with a small (?) button beside it that shows the field's description: on hover and on
  * focus, and pinned open by a click, Enter or Space. Escape or a click elsewhere closes it.
  */
-export function FieldLabel({ label, info }: { label: ReactNode; info: string }): ReactElement {
+export function FieldLabel({ label, info, textId }: { label: ReactNode; info: string; textId?: string }): ReactElement {
   const [hover, setHover] = useState(false)
   const [focus, setFocus] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -31,7 +31,7 @@ export function FieldLabel({ label, info }: { label: ReactNode; info: string }):
 
   return (
     <span className={styles.label}>
-      <span className={styles.text}>{label}</span>
+      <span id={textId} className={styles.text}>{label}</span>
       <Tooltip label={info} multiline w={280} withArrow opened={opened} events={{ hover: false, focus: false, touch: false }}>
         <ActionIcon
           type="button"
@@ -75,9 +75,13 @@ export function fieldInfo(label: string, info: string): {
   label: ReactElement
   description: string
   classNames: { label: string; description: string }
+  'aria-labelledby': string
 } {
+  // The info button sits inside the label element, so point the input's name at the label text alone.
+  const textId = `field-label-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return {
-    label: <FieldLabel label={label} info={info} />,
+    label: <FieldLabel label={label} info={info} textId={textId} />,
+    'aria-labelledby': textId,
     description: info,
     classNames: { label: styles.fieldLabel, description: styles.hidden }
   }

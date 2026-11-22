@@ -1,3 +1,8 @@
+/** The OS the app runs on. Falls back to Windows when the bridge isn't there (tests, a plain browser). */
+export function platform(): string {
+  return window.mainbus?.platform ?? 'win32'
+}
+
 /** The platform's shortcut modifier: ⌘ (Meta) on macOS, Ctrl elsewhere. Read at call time so tests can change the platform. */
 export function isMac(): boolean {
   if (typeof navigator === 'undefined') return false

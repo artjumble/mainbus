@@ -10,6 +10,7 @@ import {
 } from '../shared/api'
 
 const api: MainbusApi = {
+  platform: process.platform,
   invoke: (command, ...args) => ipcRenderer.invoke(INVOKE_CHANNEL, command, args),
   on: (listener) => {
     // The IpcRendererEvent is not passed on: it would expose the sender to the page.

@@ -50,6 +50,16 @@ async function exitsByItself(s: Session): Promise<number | null> {
 const isVisible = (app: ElectronApplication): Promise<boolean> =>
   app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)
 
+const onLinux = process.platform === 'linux'
+/** "Out of sight": hidden to the tray, or on Linux minimized (the tray may not exist there). */
+const isAway = (app: ElectronApplication): Promise<boolean> =>
+  onLinux
+    ? app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized() ?? false)
+    : isVisible(app).then((v) => !v)
+const STILL_RUNNING_BODY = onLinux
+  ? 'Agents keep working, so the window was minimized. To quit, close it from the taskbar or dock, or choose Quit in the tray menu.'
+  : 'Agents keep working. Quit from the tray icon.'
+
 type Hook = {
   tooltip(): string
   trayClick(): void
@@ -105,11 +115,11 @@ test('closing the window with an agent working keeps it running in the tray; the
 
     // Closing hides the window; the process and the agent go on, and the first time says so.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
-    await expect.poll(() => isVisible(app)).toBe(false)
+    await expect.poll(() => isAway(app)).toBe(true)
     expect(session.app.process().exitCode).toBeNull()
     expect(await tray(app, (h) => h.tooltip())).toBe('Mainbus: 1 working')
     expect(await tray(app, (h) => h.notifications())).toEqual([
-      { title: 'Mainbus is still running', body: 'Agents keep working. Quit from the tray icon.' }
+      { title: 'Mainbus is still running', body: STILL_RUNNING_BODY }
     ])
 
     // A click on the tray icon brings the same board back, the card still In progress, and the same agent answers.
@@ -183,7 +193,7 @@ test('a ticket reaching Needs you while the window is hidden gets one toast, and
     await expect(needsYou.getByText('Add hello file')).toHaveCount(0)
     await expect.poll(() => tray(app, (h) => h.tooltip())).not.toContain('needs you')
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
-    await expect.poll(() => isVisible(app)).toBe(false)
+    await expect.poll(() => isAway(app)).toBe(true)
     expect(app.process().exitCode).toBeNull()
 
     // Two days on, the decision is back in Needs you: one toast, and clicking it shows the ticket.
