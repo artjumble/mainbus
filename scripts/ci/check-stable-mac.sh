@@ -33,10 +33,11 @@ status=0
 MAINBUS_HOME="$home" "$home/bin/mainbus" ticket list --json || status=$?
 if [ "$status" -ne 0 ]; then echo "mainbus ticket list exited $status (3 means Mainbus isn't running)" >&2; exit 1; fi
 
-out=$(printf '%s\n' \
+# stdin stays open briefly so the server can answer before it sees the end of input.
+out=$({ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' |
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 2; } |
   MAINBUS_HOME="$home" "$home/bin/mainbus" mcp)
 echo "$out" | grep -q 'ticket' || { echo "mainbus mcp listed no ticket tool: $out" >&2; exit 1; }
 echo "Stable install and launcher work."

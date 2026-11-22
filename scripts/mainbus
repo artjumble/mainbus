@@ -5,6 +5,8 @@
 # own Mainbus binary in Node mode, so no separate Node install is needed. It never starts the app.
 # Every expansion is quoted: the data home has a space in its name.
 app="$(dirname -- "$0")/../app"
+# A clean absolute path for messages; keep the raw one when app/ doesn't exist yet.
+app=$(cd -- "$app" 2>/dev/null && pwd) || app="$(dirname -- "$0")/../app"
 build=
 if [ -f "$app/current.txt" ]; then
   { IFS= read -r build || :; } < "$app/current.txt"
