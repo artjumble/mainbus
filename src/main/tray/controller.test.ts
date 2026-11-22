@@ -162,6 +162,27 @@ describe('closing the window on Linux', () => {
   })
 })
 
+describe('closing the window on macOS', () => {
+  beforeEach(() => {
+    f = new Fixture('darwin')
+  })
+
+  test('hides with no agents open, keeps running, and shows no notice', async () => {
+    await started([])
+    await f.controller.handleClose()
+    expect(f.calls).toContain('hide')
+    expect(f.quits).toBe(0)
+    expect(f.toasts.hook.notifications()).toHaveLength(0)
+  })
+
+  test('quits when the setting is Always quit', async () => {
+    f.whenClosed = 'quit'
+    await started([])
+    await f.controller.handleClose()
+    expect(f.quits).toBe(1)
+  })
+})
+
 describe('closing the window', () => {
   test('hides it while an agent is open, and says so the first time only', async () => {
     await started([ticket('t1', 'in_progress', 'working')])

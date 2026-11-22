@@ -35,6 +35,12 @@ test('a ticket in another workspace focuses it first, then opens after the reloa
   expect(useMainbus.getState().currentTicketId).toBe('t9')
 })
 
+test('the application menu opens the app settings', async () => {
+  await navigateTo({ to: 'appSettings' })
+  expect(mockInvoke).not.toHaveBeenCalled()
+  expect(useMainbus.getState().appSettingsOpen).toBe(true)
+})
+
 test('Needs you closes an open ticket to show the board', async () => {
   useMainbus.setState({ workspace: { ...workspace, id: 'w1' }, currentTicketId: 't1' })
   await navigateTo({ to: 'needsYou', workspaceId: 'w1' })

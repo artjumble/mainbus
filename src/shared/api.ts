@@ -622,13 +622,14 @@ export const INVOKE_CHANNEL = 'engine:invoke'
 export const EVENT_CHANNEL = 'engine:event'
 export const OPEN_FOLDER_CHANNEL = 'dialog:openFolder'
 
-/** The channel on which the main process tells the renderer to show something (a toast or the tray was clicked). */
+/** The channel on which the main process tells the renderer to show something (a toast or the tray was clicked, or the application menu's Settings). */
 export const NAVIGATE_CHANNEL = 'app:navigate'
 
 /** Where the main process asks the renderer to go. `needsYou` shows the board and its Needs you column. */
 export type AppNavigation =
   | { to: 'ticket'; workspaceId: string; ticketId: string }
   | { to: 'needsYou'; workspaceId: string | null }
+  | { to: 'appSettings' }
 
 /** The `name` of the error thrown by agent commands when Claude is not set up. Electron keeps it in the rejection's message. */
 export const SETUP_REQUIRED = 'SetupRequiredError'
