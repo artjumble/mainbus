@@ -1,0 +1,10 @@
+#!/bin/sh
+# The mainbus CLI and MCP server of the Mainbus deb, installed as /usr/bin/mainbus. It runs the bundle on the app's own
+# Electron in Node mode, so no separate Node install is needed. It never starts the app (that is mainbus-app).
+app=/opt/Mainbus
+cli="$app/resources/cli/mainbus.cjs"
+if [ ! -f "$cli" ]; then
+  echo "Mainbus is not installed properly: $cli is missing. Reinstall the mainbus package." >&2
+  exit 3
+fi
+ELECTRON_RUN_AS_NODE=1 exec "$app/mainbus-app" "$cli" "$@"

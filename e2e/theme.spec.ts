@@ -188,7 +188,7 @@ test('the Theme is in the Mainbus settings before any workspace, and is the same
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'night-owl')
 
     // Picked with bravo-repo focused, it holds for alpha-repo too.
-    await page.keyboard.press('Control+,')
+    await page.keyboard.press('ControlOrMeta+,')
     await pickTheme(drawer, 'Theme', 'Light Owl')
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
     await page.keyboard.press('Escape')
@@ -197,7 +197,7 @@ test('the Theme is in the Mainbus settings before any workspace, and is the same
     await expect(page.getByRole('heading', { level: 2, name: 'alpha-repo' })).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
     expect(await pageGround(page)).toBe(rgb(GROUND['light-owl']))
-    await page.keyboard.press('Control+,')
+    await page.keyboard.press('ControlOrMeta+,')
     await expect(drawer.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('Light Owl')
     await page.keyboard.press('Escape')
     await expect(drawer).toBeHidden()

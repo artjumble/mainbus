@@ -1,3 +1,4 @@
 *.cmd text eol=crlf
 *.sh text eol=lf
 scripts/mainbus text eol=lf
+build/linux/mainbus text eol=lf

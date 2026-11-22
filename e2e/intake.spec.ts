@@ -182,10 +182,15 @@ test("the settings say so when the app can't open its intake pipe, and the board
     fs.writeFileSync(path.join(repo, 'README.md'), '# test repo\n')
     git(repo, 'add', '.')
     git(repo, 'commit', '-m', 'initial')
-    if (process.platform !== 'win32') fs.mkdirSync(home, { recursive: true })
-    const server = net.createServer((socket) => socket.destroy())
-    squatter = server
-    await new Promise<void>((resolve, reject) => server.once('error', reject).listen(intakeEndpoint(home), resolve))
+    if (process.platform === 'win32') {
+      const server = net.createServer((socket) => socket.destroy())
+      squatter = server
+      await new Promise<void>((resolve, reject) => server.once('error', reject).listen(intakeEndpoint(home), resolve))
+    } else {
+      // The app deletes a stale socket file before it listens, so a listening squatter would just be replaced.
+      // A directory at the socket path can't be deleted that way, so the app can't listen there.
+      fs.mkdirSync(intakeEndpoint(home), { recursive: true })
+    }
 
     session = await launch(home, repo)
     const { page } = session
