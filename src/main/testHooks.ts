@@ -39,8 +39,19 @@ export function trayTestHookFromEnv(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
+ * The content size of the main window in a scripted test run (MAINBUS_HOME set and a fake runtime): 1280×800 on every
+ * OS, or `MAINBUS_TEST_WINDOW_SIZE=WxH` when that is valid, so results don't depend on the runner's screen. Null outside
+ * a test run.
+ */
+export function testWindowSizeFromEnv(env: NodeJS.ProcessEnv): { width: number; height: number } | null {
+  if (!trayTestHookFromEnv(env)) return null
+  const match = /^(\d{3,5})x(\d{3,5})$/.exec(env['MAINBUS_TEST_WINDOW_SIZE'] ?? '')
+  return match ? { width: Number(match[1]), height: Number(match[2]) } : { width: 1280, height: 800 }
+}
+
+/**
  * Whether the main window opens maximized. It always does, except in a scripted test run (MAINBUS_HOME set and a
- * fake runtime), which keeps the fixed 1280×800 window its layouts are written for unless `MAINBUS_TEST_MAXIMIZED=1`
+ * fake runtime), which keeps the fixed 1280×800 content size its layouts are written for unless `MAINBUS_TEST_MAXIMIZED=1`
  * asks for the normal launch.
  */
 export function launchMaximizedFromEnv(env: NodeJS.ProcessEnv): boolean {

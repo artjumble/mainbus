@@ -18,3 +18,11 @@ test('the page stays sandboxed behind the preload', () => {
     sandbox: true
   })
 })
+
+test('a test size is the content size, and may be larger than the screen', () => {
+  const o = mainWindowOptions({ preload: 'p.cjs', icon: 'i.png', background: null, testSize: { width: 1024, height: 649 } })
+  expect(o).toMatchObject({ width: 1024, height: 649, useContentSize: true, enableLargerThanScreen: true })
+  const normal = mainWindowOptions({ preload: 'p.cjs', icon: 'i.png', background: null })
+  expect(normal).toMatchObject({ width: 1280, height: 800 })
+  expect(normal).not.toHaveProperty('useContentSize')
+})

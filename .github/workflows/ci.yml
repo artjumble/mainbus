@@ -81,9 +81,10 @@ jobs:
       - name: Install a window manager
         run: sudo apt-get update && sudo apt-get install -y openbox
       - run: pnpm build
-      # main has an intermittent e2e failure, so one retry in CI.
+      # main has an intermittent e2e failure, so one retry in CI. The screen is set explicitly (xvfb's default depends on
+      # the package), large enough for the 1440x960 windows some specs ask for.
       - name: End-to-end tests
-        run: xvfb-run -a sh -c 'openbox & exec pnpm exec playwright test --retries=1'
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" sh -c 'openbox & exec pnpm exec playwright test --retries=1'
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -108,7 +109,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      # The runner's screen size limits how large the app window can be, so the log shows it.
+      # The runner's display is fixed at 1024x768 (a 1024x677 work area). Test windows have a known content size
+      # (1280x800 by default) and may be larger than the screen (enableLargerThanScreen, test mode only), so results don't
+      # depend on it. The log shows the display size.
       - name: Show the display size
         continue-on-error: true
         run: pnpm exec electron e2e/displaySize.cjs || true
@@ -158,7 +161,7 @@ jobs:
       - name: Installed deb test
         run: >
           MAINBUS_E2E_PACKAGED=/opt/Mainbus/mainbus-app MAINBUS_E2E_CLI=mainbus
-          xvfb-run -a sh -c 'openbox & exec pnpm exec playwright test e2e/packaged.spec.ts --retries=1'
+          xvfb-run -a -s "-screen 0 1920x1080x24" sh -c 'openbox & exec pnpm exec playwright test e2e/packaged.spec.ts --retries=1'
       # An AppImage can carry neither the SUID sandbox (it mounts nosuid) nor an AppArmor profile, so it needs unprivileged
       # user namespaces. This comes after the deb test, which needs the restriction on.
       - name: AppImage test
@@ -166,7 +169,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           chmod +x dist/*.AppImage
           appimage=$(ls "$PWD"/dist/*.AppImage)
-          MAINBUS_E2E_PACKAGED="$appimage" xvfb-run -a sh -c 'openbox & exec pnpm exec playwright test e2e/packaged.spec.ts --retries=1'
+          MAINBUS_E2E_PACKAGED="$appimage" xvfb-run -a -s "-screen 0 1920x1080x24" sh -c 'openbox & exec pnpm exec playwright test e2e/packaged.spec.ts --retries=1'
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

@@ -30,6 +30,29 @@ import { StartBlockedModal } from './StartBlockedModal'
 import { openBlockers } from '../../../shared/dependencies'
 
 const CONTEXT_WIDTH = 380
+/** Below this width the ticket view has no room for the side pane beside a usable conversation (the pane plus about 420 px). */
+const NARROW_BELOW = 800
+
+/** True when the ticket view is too narrow for the side pane beside the conversation. 0 means not laid out yet: not narrow. */
+export function isNarrowTicketView(width: number): boolean {
+  return width > 0 && width < NARROW_BELOW
+}
+
+/** The element's width, kept up to date; 0 until it is measured. */
+function useElementWidth(): [(el: HTMLElement | null) => void, number] {
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    if (!el) return
+    const measure = (): void => setWidth(el.getBoundingClientRect().width)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [el])
+  return [setEl, width]
+}
 
 /** The split view for one ticket: its context on the left, the live agent thread on the right. */
 export function TicketView(): ReactElement {
@@ -40,6 +63,10 @@ export function TicketView(): ReactElement {
   const workspace = useMainbus((s) => s.workspace)
   const closeTicket = useMainbus((s) => s.closeTicket)
   const fromArchive = useMainbus((s) => s.archiveOpen)
+  const [widthRef, width] = useElementWidth()
+  const narrow = isNarrowTicketView(width)
+  // Narrow only: the side pane, opened over the conversation.
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   const back = (
     <Anchor component="button" type="button" size="sm" onClick={closeTicket} style={{ alignSelf: 'flex-start' }}>
@@ -61,7 +88,7 @@ export function TicketView(): ReactElement {
   }
 
   return (
-    <Flex direction="column" h="100vh">
+    <Flex direction="column" h="100vh" ref={widthRef}>
       <Stack gap={4} px="md" py="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
         <Group gap="sm" align="baseline">
           {back}
@@ -84,9 +111,23 @@ export function TicketView(): ReactElement {
               Archived
             </Badge>
           )}
-          <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none" ml="auto">
-            Source: Local
-          </Badge>
+          <Group gap="sm" ml="auto" align="baseline">
+            {narrow && (
+              <Button
+                size="compact-sm"
+                variant="default"
+                data-details-toggle
+                aria-expanded={detailsOpen}
+                aria-controls={DETAILS_ID}
+                onClick={() => setDetailsOpen((o) => !o)}
+              >
+                Details
+              </Button>
+            )}
+            <Badge variant="outline" color="gray" size="sm" radius="sm" tt="none">
+              Source: Local
+            </Badge>
+          </Group>
         </Group>
         {ticket.state.pausedByLimit && ticket.state.summary && (
           <Text size="sm" c="dimmed">
@@ -107,7 +148,7 @@ export function TicketView(): ReactElement {
           </Text>
         )}
       </Stack>
-      <TicketBody key={ticket.id} ticket={ticket} />
+      <TicketBody key={ticket.id} ticket={ticket} narrow={narrow} detailsOpen={detailsOpen} onCloseDetails={() => setDetailsOpen(false)} />
     </Flex>
   )
 }
@@ -168,7 +209,19 @@ function ReportFileFailure({ ticket }: { ticket: BoardTicket }): ReactElement {
   )
 }
 
-function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
+const DETAILS_ID = 'ticket-details'
+
+function TicketBody({
+  ticket,
+  narrow,
+  detailsOpen,
+  onCloseDetails
+}: {
+  ticket: BoardTicket
+  narrow: boolean
+  detailsOpen: boolean
+  onCloseDetails: () => void
+}): ReactElement {
   const thread = useThread(ticket.id)
   // A move the engine has not finished (a move to Done may remove the worktree): nothing may start meanwhile.
   const moving = useMainbus((s) => ticket.id in s.pendingMoves)
@@ -229,6 +282,12 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   useEffect(() => {
     started.current = false
   }, [agentStatus, canContinue])
+
+  // Opened over the conversation: focus moves into the pane.
+  const detailsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (narrow && detailsOpen) detailsRef.current?.focus({ preventScroll: true })
+  }, [narrow, detailsOpen])
 
   function runSetup(): void {
     setStartingSetup(true)
@@ -357,10 +416,33 @@ function TicketBody({ ticket }: { ticket: BoardTicket }): ReactElement {
   const composerPlaceholder = canStart && !ended ? 'Optional instructions for the lineup' : 'Steer it, answer a question, add context'
 
   return (
-    <Flex flex={1} mih={0}>
-      <Box w={CONTEXT_WIDTH} style={{ flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--mantine-color-default-border)' }}>
-        <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} runs={thread?.runs} onViewRun={viewRun} />
-      </Box>
+    <Flex flex={1} mih={0} pos="relative">
+      {(!narrow || detailsOpen) && (
+        <Box
+          id={DETAILS_ID}
+          w={narrow ? `min(${CONTEXT_WIDTH}px, 100%)` : CONTEXT_WIDTH}
+          tabIndex={narrow ? -1 : undefined}
+          ref={detailsRef}
+          onKeyDown={(e) => {
+            if (narrow && e.key === 'Escape') {
+              e.stopPropagation()
+              onCloseDetails()
+              document.querySelector<HTMLElement>('[data-details-toggle]')?.focus()
+            }
+          }}
+          style={{
+            flexShrink: 0,
+            overflowY: 'auto',
+            borderRight: '1px solid var(--mantine-color-default-border)',
+            outline: 'none',
+            ...(narrow
+              ? { position: 'absolute', top: 0, bottom: 0, left: 0, zIndex: 20, background: 'var(--mantine-color-body)', boxShadow: 'var(--mantine-shadow-md)' }
+              : {})
+          }}
+        >
+          <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} runs={thread?.runs} onViewRun={viewRun} />
+        </Box>
+      )}
       {viewing !== null && thread ? (
         <PreviousRunView runId={viewing} thread={thread} onBack={() => setViewing(null)} />
       ) : (
