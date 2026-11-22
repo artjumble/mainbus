@@ -23,6 +23,7 @@ let freshness: Map<string, BranchFreshness>
 let tools: OrchestratorReadToolHandlers
 /** Each call of the fake board, and the ids of the tickets it built. */
 let boardCalls: { includeArchived: boolean; built: string[] }[]
+let ticketCalls: number[]
 /** Where the app stands on the usage limit. */
 let usage: UsageState
 
@@ -39,6 +40,18 @@ const STATE: TicketState = {
   deferredUntil: null
 }
 
+/** One ticket by number, archived or not, with its promotion links, as the engine's single-ticket view builds it. */
+async function singleView(w: Workspace, number: number): Promise<BoardTicket | null> {
+  const t = await repos.tickets.byNumber(w.id, number)
+  if (!t) return null
+  const promotions = await repos.tickets.promotions(w.id)
+  return {
+    ...boardTicket(t),
+    runSettingsNotices: applyRunSettings(t.runSettings, await repos.lineups.get(w.id, t.kind)).notices,
+    promotion: { from: promotions.find((p) => p.to.id === t.id)?.from ?? null, to: promotions.find((p) => p.from.id === t.id)?.to ?? null }
+  }
+}
+
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
   return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [], runSettingsNotices: [], edits: [], blockedBy: [], dependencyNotes: [], freshness: freshness.get(t.id) ?? null, promotion: { from: null, to: null } }
@@ -51,6 +64,7 @@ beforeEach(async () => {
   ws = await repos.workspaces.create('C:\\code\\shop', 'main', 'shop', 'shop')
   views = new Map()
   boardCalls = []
+  ticketCalls = []
   holds = new Map()
   freshness = new Map()
   usage = { kind: 'ok' }
@@ -71,6 +85,10 @@ beforeEach(async () => {
           runSettingsNotices: applyRunSettings(t.runSettings, await repos.lineups.get(w.id, t.kind)).notices
         }))
       )
+    },
+    ticket: async (w, number) => {
+      ticketCalls.push(number)
+      return singleView(w, number)
     },
     usage: async () => usage
   })
@@ -146,6 +164,7 @@ describe('base branch tests in the read tools', () => {
       focused: async () => workspace,
       list: async () => [workspace],
       board: async (w, opts) => (await repos.tickets.list(w.id, { includeArchived: opts?.includeArchived ?? false })).map((t) => boardTicket(t)),
+      ticket: singleView,
       baseTests: async () => result
     })
   }
@@ -400,6 +419,23 @@ describe('get_ticket', () => {
     expect(to).toContain(`Promoted from #${investigation.number} <ticket-data field="title">Why slow</ticket-data>`)
     expect(to).toContain('## Investigation report\n<ticket-data field="report">\n# Findings\n</ticket-data>')
     expect(from).not.toContain('Promoted from')
+  })
+
+  test('looks one ticket up without building the board, archived and promoted ones included', async () => {
+    const investigation = await ticket({ kind: 'investigate', title: 'Why slow' })
+    const change = await repos.tickets.createPromoted(await repos.tickets.get(investigation.id), { title: 'Fix it', spec: 'Do X' })
+    await repos.tickets.setManualColumn(investigation.id, 'done')
+    await repos.tickets.archive([investigation.id])
+    boardCalls = []
+    const archived = await tools.getTicket({ number: investigation.number })
+    expect(archived).toContain('## Ticket #1 <ticket-data field="title">Why slow</ticket-data>')
+    expect(archived).toContain(`Promoted to #${change.number} <ticket-data field="title">Fix it</ticket-data>`)
+    expect(await tools.getTicket({ number: change.number })).toContain(`Promoted from #${investigation.number} <ticket-data field="title">Why slow</ticket-data>`)
+    await tools.getRunStatus({ number: investigation.number })
+    await tools.getRecentEvents({ number: investigation.number })
+    await tools.getTimeReport({ ticket: investigation.number })
+    expect(boardCalls).toEqual([])
+    expect(ticketCalls).toEqual([1, 2, 1, 1, 1])
   })
 
   test('says when a ticket has not started, and when there is no such ticket', async () => {
