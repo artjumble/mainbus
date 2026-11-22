@@ -110,7 +110,8 @@ jobs:
       - run: pnpm build
       # The runner's screen size limits how large the app window can be, so the log shows it.
       - name: Show the display size
-        run: system_profiler SPDisplaysDataType | grep -i -E 'resolution|display type'
+        continue-on-error: true
+        run: pnpm exec electron e2e/displaySize.cjs || true
       - name: End-to-end tests
         run: pnpm exec playwright test --retries=1
       - name: Upload test results
