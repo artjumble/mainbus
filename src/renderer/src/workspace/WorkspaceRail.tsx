@@ -188,7 +188,8 @@ export function WorkspaceRail(): ReactElement {
                 onClick={() => void focus(w)}
                 aria-current={w.id === focusedId ? 'true' : undefined}
                 aria-label={describe(w)}
-                p={expanded ? 6 : 4}
+                px={6}
+                py={expanded ? 6 : 4}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -196,7 +197,7 @@ export function WorkspaceRail(): ReactElement {
                   background: w.id === focusedId ? 'var(--mantine-color-default-hover)' : undefined
                 }}
               >
-                <Group gap={expanded ? 6 : 4} wrap="nowrap" justify={expanded ? undefined : 'center'}>
+                <Group gap={expanded ? 6 : 4} wrap="nowrap" >
                   {/* The name comes first in the DOM, so the button's visible text reads "repo 1" as its label does;
                       the tile's wrapper is ordered before it on screen. */}
                   {expanded && (
