@@ -1311,6 +1311,10 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         focused: () => repos.workspaces.focused(),
         list: () => repos.workspaces.list(),
         board: boardView,
+        ticket: async (ws, number) => {
+          const found = await repos.tickets.byNumber(ws.id, number)
+          return found ? (await boardTicketsOf(ws, [found]))[0]! : null
+        },
         usage: () => gate.state(),
         attachments: (ticketId) => attachments.list(ticketId),
         baseTests: (ws) => baseTests.summaryOf(ws.id)
