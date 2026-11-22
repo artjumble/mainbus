@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { activeMention, findMentions, mentionText } from '../../../shared/mentions'
 import { dragHasFiles, filesOf } from '../attachments/files'
+import { hasMod } from '../platform'
 import { useDictation } from '../voice/useDictation'
 import { caretPosition } from './caretPosition'
 
@@ -221,7 +222,7 @@ export function Composer({
       }
     }
     if (e.key !== 'Enter') return
-    if (e.ctrlKey || e.metaKey || (enterSends && !e.shiftKey && !e.nativeEvent.isComposing)) {
+    if (hasMod(e) || (enterSends && !e.shiftKey && !e.nativeEvent.isComposing)) {
       e.preventDefault()
       void send()
     }

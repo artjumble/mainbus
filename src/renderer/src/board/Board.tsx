@@ -54,6 +54,7 @@ import { invoke } from '../api'
 import { useWorkspaceBranches } from '../workspace/useWorkspaceBranches'
 import { useExpandOnHover } from '../expandOnHover'
 import { showError } from '../notify'
+import { shortcut } from '../platform'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 import { NewTicketModal } from './NewTicketModal'
 import { MergeModal } from '../ticket/MergeModal'
@@ -615,7 +616,7 @@ export function Board(): ReactElement {
             <TextInput
               ref={searchRef}
               aria-label="Search tickets"
-              placeholder="Search (Ctrl+K)"
+              placeholder={`Search (${shortcut('K')})`}
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
               onKeyDown={(e) => {

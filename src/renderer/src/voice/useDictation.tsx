@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type RefObject } from 'react'
+import { hasMod } from '../platform'
 import { dictationReducer, IDLE, insertTranscript, isSilent, MAX_RECORDING_MS, type DictationEvent, type DictationState } from './dictation'
 import { DictationStatus, MicButton } from './MicButton'
 import type { Recording } from './types'
@@ -198,7 +199,7 @@ export function useDictation({
       e.stopPropagation()
       return true
     }
-    if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === 'Space' || e.key === ' ')) {
+    if (hasMod(e) && e.shiftKey && !e.altKey && (e.code === 'Space' || e.key === ' ')) {
       toggle()
       return take()
     }

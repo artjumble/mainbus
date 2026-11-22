@@ -5,6 +5,7 @@ import { ArchiveView } from './archive/ArchiveView'
 import { Board } from './board/Board'
 import { startNavigation } from './navigation'
 import { showError } from './notify'
+import { hasMod } from './platform'
 import { OrchestratorPanel, STRIP_WIDTH } from './orchestrator/OrchestratorPanel'
 import { PanelResizeHandle } from './orchestrator/PanelResizeHandle'
 import {
@@ -62,7 +63,7 @@ export function App(): ReactElement {
   // Ctrl+, opens the Mainbus settings from anywhere, a text field too, unless whatever has focus took the keys itself.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
-      if (e.defaultPrevented || e.key !== ',' || !e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return
+      if (e.defaultPrevented || e.key !== ',' || !hasMod(e) || e.altKey || e.shiftKey) return
       e.preventDefault()
       openAppSettings()
     }
