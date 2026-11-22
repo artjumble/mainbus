@@ -142,6 +142,31 @@ test('Options → Settings works from the expanded rail, which stays open while 
   await expect(rail.getByRole('button', { name: /^bravo-repo/ })).toHaveAttribute('aria-current', 'true')
 })
 
+test('the collapsed rail left-aligns its tiles where the expanded rail has them, and the highlight spans the row', async () => {
+  const rail = page.getByRole('navigation', { name: 'Workspaces' })
+  const lefts = async (): Promise<number[]> => {
+    const xs: number[] = []
+    for (const name of [/^alpha-repo/, /^bravo-repo/]) xs.push((await rail.getByRole('button', { name }).locator('[data-initials]').boundingBox())!.x)
+    return xs
+  }
+  let collapsed: number[] = []
+  await expect(async () => {
+    collapsed = await lefts()
+    expect(Math.abs(collapsed[0]! - collapsed[1]!)).toBeLessThanOrEqual(1)
+  }).toPass()
+  const button = rail.getByRole('button', { name: /^alpha-repo/ })
+  const row = await button.boundingBox()
+  const narrow = (await rail.boundingBox())!
+  expect(row!.x + row!.width).toBeGreaterThan(narrow.x + narrow.width - 12)
+  await button.hover()
+  await expect(rail).toHaveAttribute('data-expanded', 'true')
+  await expect(async () => {
+    const expanded = await lefts()
+    expect(Math.abs(expanded[0]! - collapsed[0]!)).toBeLessThanOrEqual(1)
+    expect(Math.abs(expanded[1]! - collapsed[0]!)).toBeLessThanOrEqual(1)
+  }).toPass()
+})
+
 // Last: it changes the workspaces' labels for good.
 test('the widest custom labels stay inside the collapsed rail, with room for the needs-you badge', async () => {
   const rail = page.getByRole('navigation', { name: 'Workspaces' })
