@@ -606,6 +606,8 @@ export type CommandResult<K extends CommandName> = ReturnType<EngineCommands[K]>
 
 /** What the preload exposes as `window.mainbus`. */
 export interface MainbusApi {
+  /** The OS the app runs on (`process.platform`), for wording that differs by platform. */
+  platform: string
   invoke<K extends CommandName>(command: K, ...args: CommandArgs<K>): Promise<CommandResult<K>>
   /** Subscribes to engine events; returns the unsubscribe function. */
   on(listener: (e: EngineEvent) => void): () => void

@@ -59,3 +59,34 @@ jobs:
           name: unit-test-results-${{ matrix.name }}
           path: test-results/
           if-no-files-found: warn
+
+  # The end-to-end tests on Linux, under a virtual display. Bare Xvfb has no window manager, so minimize and maximize
+  # would do nothing: openbox supplies one.
+  e2e-linux:
+    name: E2E (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Ubuntu 24.04's AppArmor blocks the unprivileged user namespaces Electron's sandbox needs when it runs from node_modules.
+      - name: Allow Electron's sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install a window manager
+        run: sudo apt-get update && sudo apt-get install -y openbox
+      - run: pnpm build
+      # main has an intermittent e2e failure, so one retry in CI.
+      - name: End-to-end tests
+        run: xvfb-run -a sh -c 'openbox & exec pnpm exec playwright test --retries=1'
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results-Linux
+          path: test-results/
+          if-no-files-found: warn

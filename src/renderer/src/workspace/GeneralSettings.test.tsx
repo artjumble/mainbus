@@ -79,6 +79,17 @@ test('closing the window keeps running in the tray by default, and Always quit s
   expect(screen.getByRole('radio', { name: 'Always quit' })).toBeChecked()
 })
 
+test('on Linux the keep-running choice says the window is minimized', async () => {
+  const win = window as unknown as { mainbus?: { platform: string } }
+  win.mainbus = { platform: 'linux' }
+  try {
+    renderWithMantine(<GeneralSettings opened />)
+    expect(await screen.findByRole('radio', { name: 'Keep running, minimized, while agents work' })).toBeInTheDocument()
+  } finally {
+    delete win.mainbus
+  }
+})
+
 test('the theme is not here: it is in the Mainbus settings', async () => {
   renderWithMantine(<GeneralSettings opened />)
   await vi.waitFor(async () => expect(await field()).toHaveValue('3'))

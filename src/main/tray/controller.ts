@@ -2,7 +2,7 @@ import type { AppNavigation, BoardTicket, CommandArgs, CommandName, CommandResul
 import type { Workspace } from '../../shared/domain'
 import { arrivals, countActivity, snapshotOf, type Activity, type Arrival, type ColumnSnapshot } from './activity'
 import { closeAction } from './closePolicy'
-import { badgeDescription, badgeText, needsYouLabel, STILL_RUNNING, toastText, tooltipText, type ToastText } from './text'
+import { badgeDescription, badgeText, needsYouLabel, stillRunningText, toastText, tooltipText, type ToastText } from './text'
 import { ToastBatcher, type Timer } from './toasts'
 
 export interface MenuItem {
@@ -28,8 +28,10 @@ export interface WindowPort {
   /** Restores, shows and focuses the window; opens a new one if it was destroyed. */
   show(): void
   hide(): void
-  /** The overlay on the taskbar button; null clears it. */
-  setBadge(text: string | null, description: string): void
+  minimize(): void
+  isMinimized(): boolean
+  /** The taskbar badge: `text` is the drawn overlay (Windows), `count` the launcher count (Linux). Null text and 0 clear it. */
+  setBadge(badge: { count: number; text: string | null; description: string }): void
   navigate(nav: AppNavigation): void
 }
 
@@ -54,6 +56,8 @@ export interface TrayDeps {
   notifier: Notifier
   prefs: Prefs
   quit: () => void
+  /** `process.platform`, injected so tests can cover every platform. */
+  platform: NodeJS.Platform
   timer: Timer
   /** How often the counts are read at most. */
   refreshMs?: number
@@ -158,7 +162,7 @@ export class TrayController {
     const { working, needsYou } = this.activity
     this.d.view.setDot(needsYou > 0)
     this.d.view.setToolTip(tooltipText(working, needsYou))
-    this.d.window.setBadge(badgeText(needsYou), badgeDescription(needsYou))
+    this.d.window.setBadge({ count: needsYou, text: badgeText(needsYou), description: badgeDescription(needsYou) })
     this.d.view.setMenu([
       { label: 'Open Mainbus', enabled: true, action: () => this.d.window.show() },
       { label: needsYouLabel(needsYou), enabled: needsYou > 0, action: () => this.openNeedsYou(null) },
@@ -192,13 +196,18 @@ export class TrayController {
     })
   }
 
-  /** The window was asked to close: hide it while agents are open (and the setting allows), otherwise quit. */
+  /** The window was asked to close: keep running (hidden, or minimized on Linux) while agents are open and the setting allows, otherwise quit. */
   async handleClose(): Promise<void> {
-    let action: 'hide' | 'quit' = 'quit'
+    let action: 'hide' | 'minimize' | 'quit' = 'quit'
     try {
       const workspaces = await this.d.source.invoke('workspace.list')
       const [{ whenClosed }, boards] = await Promise.all([this.d.source.invoke('settings.get'), this.boardsOf(workspaces)])
-      action = closeAction({ whenClosed, openAgents: countActivity(boards).openAgents })
+      action = closeAction({
+        whenClosed,
+        openAgents: countActivity(boards).openAgents,
+        platform: this.d.platform,
+        minimized: this.d.window.isMinimized()
+      })
     } catch (err) {
       this.d.onError?.(err)
     }
@@ -206,10 +215,11 @@ export class TrayController {
       this.d.quit()
       return
     }
-    this.d.window.hide()
+    if (action === 'minimize') this.d.window.minimize()
+    else this.d.window.hide()
     if (!this.d.prefs.noticeShown()) {
       this.d.prefs.markNoticeShown()
-      this.d.notifier.show({ ...STILL_RUNNING, onClick: () => this.d.window.show() })
+      this.d.notifier.show({ ...stillRunningText(this.d.platform), onClick: () => this.d.window.show() })
     }
   }
 }

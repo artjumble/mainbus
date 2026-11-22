@@ -76,6 +76,7 @@ function startTray(running: Engine): void {
       notifier,
       prefs: filePrefs(path.join(home.root, 'electron', 'tray.json')),
       quit: () => app.quit(),
+      platform: process.platform,
       timer: realTimer,
       onError: (err) => console.error('Mainbus tray:', err)
     })
