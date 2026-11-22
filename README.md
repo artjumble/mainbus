@@ -195,6 +195,8 @@ pnpm dev
 
 **Linux (from source).** On Ubuntu 24.04, AppArmor blocks Electron's sandbox when it runs from `node_modules`. Run `sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0`, or `sudo chown root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox`. Here closing the window minimizes it while agents are open, so it stays in the taskbar or dock; close it from there again to quit. The launcher badge shows only with a matching `app.mainbus.desktop` file in `~/.local/share/applications`.
 
+**Linux packages.** On Linux, build with `pnpm build && pnpm exec electron-builder --linux`. That gives `dist/mainbus_<version>_amd64.deb` and an AppImage. Install the deb with `sudo apt install ./dist/mainbus_*.deb`, then start Mainbus from the app menu or with `mainbus-app`. `mainbus` is the CLI, in any terminal. The deb sets up the Chromium sandbox, including on Ubuntu 24.04. The AppImage needs libfuse2 (`libfuse2t64` on Ubuntu 24.04) and unprivileged user namespaces, which Ubuntu 24.04's AppArmor blocks, so prefer the deb there. Never run Mainbus with `--no-sandbox`.
+
 **Notifications and the Start Menu shortcut.** The packaged build (the stable build) keeps a Start Menu shortcut so Windows will show Mainbus's notifications. Development runs, tests and any run with `MAINBUS_HOME` set don't create one.
 
 ### The stable build

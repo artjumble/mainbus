@@ -27,6 +27,22 @@ mac:
   hardenedRuntime: false
   extendInfo:
     NSMicrophoneUsageDescription: Mainbus uses the microphone for voice dictation, transcribed on this Mac.
+linux:
+  target: [deb, AppImage]
+  # The app's own command. /usr/bin/mainbus is the CLI (build/linux/mainbus), so the app can't take that name.
+  executableName: mainbus-app
+  # 1024x1024; electron-builder makes the hicolor sizes from it.
+  icon: build/icon.png
+  category: Development
+  synopsis: Run Claude Code agents against a ticket board
+  maintainer: Mainbus
+  # The desktop file is app.mainbus.desktop (desktopName in package.json): Electron's app_id, which the launcher badge
+  # and the window grouping match against.
+  syncDesktopName: true
+deb:
+  fpm:
+    # Adds the CLI to the package as /usr/bin/mainbus. The deb's own link is /usr/bin/mainbus-app.
+    - build/linux/mainbus=/usr/bin/mainbus
 extraResources:
   - from: src/engine/db/migrations
     to: migrations
