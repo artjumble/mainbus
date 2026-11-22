@@ -91,6 +91,59 @@ jobs:
           path: test-results/
           if-no-files-found: warn
 
+  # Builds the deb and the AppImage, installs the deb, checks it, and runs the packaged tests on both. Its own job, not a
+  # matrix entry of `package`: the steps differ too much.
+  package-linux:
+    name: Package (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Package
+        run: pnpm exec electron-builder --linux deb AppImage
+      # libfuse2t64 is for running the AppImage; openbox gives the virtual display a window manager.
+      - name: Install the deb
+        run: sudo apt-get update && sudo apt-get install -y ./dist/mainbus_*_amd64.deb desktop-file-utils libfuse2t64 openbox
+      - name: Check the deb
+        run: |
+          # The runner restricts unprivileged user namespaces, as Ubuntu 24.04 does. The deb's AppArmor profile must lift it
+          # for the app, so the tests below prove the sandbox works with the restriction on.
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
+          desktop=/usr/share/applications/app.mainbus.desktop
+          desktop-file-validate "$desktop"
+          grep -qx 'Icon=mainbus-app' "$desktop"
+          grep -qx 'StartupWMClass=app.mainbus' "$desktop"
+          ls /usr/share/icons/hicolor/*/apps/mainbus-app.png
+          test -x /usr/bin/mainbus
+          command -v mainbus-app
+          test -f /etc/apparmor.d/mainbus-app
+      - name: Installed deb test
+        run: >
+          MAINBUS_E2E_PACKAGED=/opt/Mainbus/mainbus-app MAINBUS_E2E_CLI=mainbus
+          xvfb-run -a sh -c 'openbox & exec pnpm exec playwright test e2e/packaged.spec.ts --retries=1'
+      # An AppImage can carry neither the SUID sandbox (it mounts nosuid) nor an AppArmor profile, so it needs unprivileged
+      # user namespaces. This comes after the deb test, which needs the restriction on.
+      - name: AppImage test
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          chmod +x dist/*.AppImage
+          appimage=$(ls "$PWD"/dist/*.AppImage)
+          MAINBUS_E2E_PACKAGED="$appimage" xvfb-run -a sh -c 'openbox & exec pnpm exec playwright test e2e/packaged.spec.ts --retries=1'
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-test-results-Linux
+          path: test-results/
+          if-no-files-found: warn
+
   # Builds the unpacked package on Windows and macOS (arm64), checks it, and runs a scripted agent through the packaged app.
   package:
     name: Package (${{ matrix.name }})

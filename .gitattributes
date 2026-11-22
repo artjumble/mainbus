@@ -1,1 +1,2 @@
 *.cmd text eol=crlf
+build/linux/mainbus text eol=lf
