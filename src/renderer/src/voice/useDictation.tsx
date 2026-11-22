@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type RefObject } from 'react'
+import { hasMod } from '../platform'
 import { dictationReducer, IDLE, insertTranscript, isSilent, MAX_RECORDING_MS, type DictationEvent, type DictationState } from './dictation'
 import { DictationStatus, MicButton } from './MicButton'
 import type { Recording } from './types'
@@ -15,7 +16,7 @@ export interface Dictation {
 }
 
 /**
- * Dictation into one text field: a mic button, Ctrl+Shift+Space, Enter to stop, Esc to cancel. The transcript goes in at the
+ * Dictation into one text field: a mic button, Ctrl+Shift+Space (⌘+Shift+Space on macOS), Enter to stop, Esc to cancel. The transcript goes in at the
  * caret (or over the selection) when it arrives, through `setValue`; the field is never sent from here. Null when voice
  * input is off, there is no VoiceProvider around, or the field is disabled or read-only.
  */
@@ -198,7 +199,7 @@ export function useDictation({
       e.stopPropagation()
       return true
     }
-    if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === 'Space' || e.key === ' ')) {
+    if (hasMod(e) && e.shiftKey && !e.altKey && (e.code === 'Space' || e.key === ' ')) {
       toggle()
       return take()
     }

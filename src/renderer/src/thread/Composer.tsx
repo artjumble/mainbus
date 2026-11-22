@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { activeMention, findMentions, mentionText } from '../../../shared/mentions'
 import { dragHasFiles, filesOf } from '../attachments/files'
+import { hasMod } from '../platform'
 import { useDictation } from '../voice/useDictation'
 import { caretPosition } from './caretPosition'
 
@@ -46,7 +47,7 @@ interface Props {
   label?: string
   /** What the button reads; its accessible name begins with "Send" either way. */
   sendLabel?: string
-  /** Enter sends and Shift+Enter starts a new line, instead of Ctrl+Enter sending. */
+  /** Enter sends and Shift+Enter starts a new line, instead of Ctrl+Enter (⌘+Enter on macOS) sending. */
   enterSends?: boolean
   /** A turn is running: the button inside the box is Stop (calls `onStop`), and typing goes on. */
   working?: boolean
@@ -73,7 +74,7 @@ interface Props {
 
 const MENTION_LIST_WIDTH = 260
 
-/** A message box with Send inside it (not beside it). Ctrl+Enter sends, or Enter with `enterSends`. */
+/** A message box with Send inside it (not beside it). Ctrl+Enter (⌘+Enter on macOS) sends, or Enter with `enterSends`. */
 export function Composer({
   onSend,
   placeholder = 'Message',
@@ -221,7 +222,7 @@ export function Composer({
       }
     }
     if (e.key !== 'Enter') return
-    if (e.ctrlKey || e.metaKey || (enterSends && !e.shiftKey && !e.nativeEvent.isComposing)) {
+    if (hasMod(e) || (enterSends && !e.shiftKey && !e.nativeEvent.isComposing)) {
       e.preventDefault()
       void send()
     }

@@ -1,12 +1,12 @@
 import { ActionIcon, Group, Loader, Text, Tooltip, VisuallyHidden } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import { DICTATION_SHORTCUT } from '../../../shared/voice'
+import { ariaShortcut, shortcut } from '../platform'
 import { formatElapsed, type DictationState } from './dictation'
 
 const onWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 
-const TIP = `Dictate (${DICTATION_SHORTCUT}). Speech is turned into text on this computer; nothing is uploaded.${onWindows ? ' Windows voice typing (Win+H) also works in any field.' : ''}`
+const tip = (): string => `Dictate (${shortcut('Shift', 'Space')}). Speech is turned into text on this computer; nothing is uploaded.${onWindows ? ' Windows voice typing (Win+H) also works in any field.' : ''}`
 
 function MicIcon({ recording }: { recording: boolean }): ReactElement {
   return recording ? (
@@ -36,7 +36,7 @@ export function MicButton({
   const recording = state.kind === 'recording'
   const busy = state.kind === 'starting' || recording || state.kind === 'transcribing'
   return (
-    <Tooltip label={TIP} multiline w={260} openDelay={400} withArrow>
+    <Tooltip label={tip()} multiline w={260} openDelay={400} withArrow>
       <ActionIcon
         variant={recording ? 'filled' : 'subtle'}
         color={recording ? 'red' : 'gray'}
@@ -45,7 +45,7 @@ export function MicButton({
         // Which field it types into, as a description: a name that held the field's label would answer a search for that label.
         aria-description={`Into: ${fieldLabel}`}
         aria-pressed={recording}
-        aria-keyshortcuts="Control+Shift+Space"
+        aria-keyshortcuts={ariaShortcut('Shift', 'Space')}
         // A dialog or drawer around the field closes on Esc unless the key's target says it uses it; here Esc cancels the dictation.
         data-mantine-stop-propagation={busy ? 'true' : undefined}
         onClick={onToggle}

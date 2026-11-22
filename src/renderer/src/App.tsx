@@ -5,6 +5,7 @@ import { ArchiveView } from './archive/ArchiveView'
 import { Board } from './board/Board'
 import { startNavigation } from './navigation'
 import { showError } from './notify'
+import { hasMod } from './platform'
 import { OrchestratorPanel, STRIP_WIDTH } from './orchestrator/OrchestratorPanel'
 import { PanelResizeHandle } from './orchestrator/PanelResizeHandle'
 import {
@@ -59,10 +60,10 @@ export function App(): ReactElement {
   useEffect(() => startSync((err) => showError(err, 'Could not load Mainbus')), [])
   useEffect(() => startNavigation(), [])
 
-  // Ctrl+, opens the Mainbus settings from anywhere, a text field too, unless whatever has focus took the keys itself.
+  // Ctrl+, (⌘+, on macOS) opens the Mainbus settings from anywhere, a text field too, unless whatever has focus took the keys itself.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
-      if (e.defaultPrevented || e.key !== ',' || !e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return
+      if (e.defaultPrevented || e.key !== ',' || !hasMod(e) || e.altKey || e.shiftKey) return
       e.preventDefault()
       openAppSettings()
     }
@@ -135,7 +136,7 @@ export function App(): ReactElement {
         {screen()}
         {/* Outside screen(), so Settings from the rail works from the ticket view too. */}
         {withPanel && <WorkspaceSettings opened={settingsOpen} onClose={closeSettings} />}
-        {/* Always there, so Ctrl+, works on every screen. */}
+        {/* Always there, so Ctrl+, (⌘+, on macOS) works on every screen. */}
         <AppSettings opened={appSettingsOpen} onClose={closeAppSettings} />
       </AppShell.Main>
       {withPanel && (

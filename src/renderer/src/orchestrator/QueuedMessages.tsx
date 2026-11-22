@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import { queuedLabel } from '../../../shared/queue'
 import type { OrchestratorQueue, QueuedMessage } from '../../../shared/events'
 import { SentImages } from '../attachments/Attachments'
+import { hasMod } from '../platform'
 import { MentionText } from '../thread/MentionText'
 
 interface Props {
@@ -89,7 +90,7 @@ function Queued({
               if (e.key === 'Escape') {
                 e.stopPropagation()
                 setDraft(null)
-              } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              } else if (e.key === 'Enter' && hasMod(e)) {
                 e.preventDefault()
                 void save()
               }

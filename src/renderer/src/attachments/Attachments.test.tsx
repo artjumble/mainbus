@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { Attachment } from '../../../shared/attachments'
 import { invoke } from '../api'
 import { expectNoAxeViolations, makeTicket, PNG_BYTES as PNG, pngFile, renderWithMantine, svgFile, transfer } from '../test-utils'
-import { AttachmentsSection } from './Attachments'
+import { AttachmentsSection, DropZone } from './Attachments'
 import { useImagePaste } from './files'
 
 vi.mock('../api', () => ({ invoke: vi.fn(), onEngineEvent: vi.fn(), isSetupRequired: () => false }))
@@ -93,4 +93,17 @@ describe('useImagePaste', () => {
       field.remove()
     }
   })
+})
+
+test.each([
+  ['MacIntel', 'paste with ⌘V.'],
+  ['Win32', 'paste with Ctrl+V.']
+])('the drop zone hint on %s says %s', (platform, text) => {
+  vi.stubGlobal('navigator', { platform, userAgent: platform })
+  try {
+    renderWithMantine(<DropZone onFiles={() => {}} />)
+    expect(screen.getByText((content) => content.includes(text))).toBeInTheDocument()
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

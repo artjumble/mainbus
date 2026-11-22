@@ -20,7 +20,7 @@ export function takesText(target: EventTarget | null): boolean {
 }
 
 /**
- * Ctrl+V with an image on the clipboard calls `onFiles`, while the component is mounted, wherever the focus is but in a
+ * Ctrl+V (⌘+V on macOS) with an image on the clipboard calls `onFiles`, while the component is mounted, wherever the focus is but in a
  * text field that takes the paste (the thread input handles its own).
  */
 export function useImagePaste(onFiles: (files: File[]) => void): void {

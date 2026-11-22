@@ -4,6 +4,7 @@ import type { NewAttachment } from '../../../shared/api'
 import { ATTACHMENTS_PER_TICKET, sniffImage, type Attachment, type ImageRef } from '../../../shared/attachments'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { shortcut } from '../platform'
 import type { BoardTicket } from '../store'
 import { attachToTicket, dragHasFiles, filesOf, useAttachmentImage, useLocalPreview } from './files'
 
@@ -42,7 +43,7 @@ export function DropZone({ onFiles, disabled = false }: { onFiles: (files: File[
     >
       <Group gap="xs" justify="space-between" wrap="nowrap">
         <Text size="xs" c="dimmed">
-          Drop images here or paste with Ctrl+V. PNG, JPEG, GIF or WebP, up to 10 MB.
+          Drop images here or paste with {shortcut('V')}. PNG, JPEG, GIF or WebP, up to 10 MB.
         </Text>
         <FileButton onChange={(files) => onFiles(files)} accept={IMAGE_ACCEPT} multiple disabled={disabled}>
           {(props) => (

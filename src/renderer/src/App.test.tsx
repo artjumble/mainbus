@@ -169,6 +169,23 @@ describe('Mainbus settings', () => {
     expect(await screen.findByRole('dialog', { name: 'Mainbus settings' })).toBeInTheDocument()
   })
 
+  test('on a Mac, ⌘+, opens it and Ctrl+, does not', async () => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: 'Macintosh' })
+    try {
+      answer({ ok: true, path: 'claude', version: '2' }, workspace)
+      renderWithMantine(<App />)
+      await screen.findByRole('textbox', { name: 'Message the orchestrator' })
+      ctrlComma(document.body)
+      expect(useMainbus.getState().appSettingsOpen).toBe(false)
+      act(() => {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true, cancelable: true }))
+      })
+      expect(await screen.findByRole('dialog', { name: 'Mainbus settings' })).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('Ctrl+, opens it on the setup screens too', async () => {
     answer({ ok: false, reason: 'not_found', detail: '' }, null)
     renderWithMantine(<App />)
