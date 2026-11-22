@@ -89,6 +89,24 @@ describe('dictating into a field', () => {
     await vi.waitFor(() => expect(box().value).toBe('This was dictated.'))
   })
 
+  test('on a Mac, ⌘+Shift+Space toggles it and the tooltip and key hint say so', async () => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: 'Macintosh' })
+    try {
+      const user = userEvent.setup()
+      const { audio } = renderWithVoice(<Field />)
+      expect(await mic()).toHaveAttribute('aria-keyshortcuts', 'Meta+Shift+Space')
+      box().focus()
+      await user.keyboard('{Control>}{Shift>} {/Shift}{/Control}')
+      expect(audio.started).toHaveLength(0)
+      await user.keyboard('{Meta>}{Shift>} {/Shift}{/Meta}')
+      await vi.waitFor(() => expect(audio.started).toHaveLength(1))
+      await user.hover(await mic())
+      expect(await screen.findByText(/Dictate \(⇧⌘Space\)/)).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('Esc cancels: nothing is inserted, the audio is thrown away, and a dialog around the field stays open', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

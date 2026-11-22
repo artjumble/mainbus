@@ -16,7 +16,7 @@ export interface Dictation {
 }
 
 /**
- * Dictation into one text field: a mic button, Ctrl+Shift+Space, Enter to stop, Esc to cancel. The transcript goes in at the
+ * Dictation into one text field: a mic button, Ctrl+Shift+Space (⌘+Shift+Space on macOS), Enter to stop, Esc to cancel. The transcript goes in at the
  * caret (or over the selection) when it arrives, through `setValue`; the field is never sent from here. Null when voice
  * input is off, there is no VoiceProvider around, or the field is disabled or read-only.
  */

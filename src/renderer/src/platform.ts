@@ -15,7 +15,21 @@ export function modLabel(): string {
   return isMac() ? '⌘' : 'Ctrl'
 }
 
-/** A shortcut for a hint, such as `shortcut('K')` → "⌘K" on macOS and "Ctrl+K" elsewhere. */
+const MAC_SYMBOLS: Record<string, string> = { Ctrl: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧' }
+const MAC_ORDER = ['Ctrl', 'Alt', 'Option', 'Shift']
+
+/**
+ * A shortcut for a hint: `shortcut('K')` is "⌘K" on macOS and "Ctrl+K" elsewhere. Extra modifiers go before the key
+ * (`shortcut('Shift', 'Space')`): "⇧⌘Space" on macOS, in Apple's order, and "Ctrl+Shift+Space" elsewhere.
+ */
 export function shortcut(...keys: string[]): string {
-  return isMac() ? `⌘${keys.join('')}` : [modLabel(), ...keys].join('+')
+  if (!isMac()) return [modLabel(), ...keys].join('+')
+  const key = keys[keys.length - 1]
+  const mods = keys.slice(0, -1).sort((a, b) => MAC_ORDER.indexOf(a) - MAC_ORDER.indexOf(b))
+  return [...mods.map((m) => MAC_SYMBOLS[m] ?? m), '⌘', key].join('')
+}
+
+/** The same shortcut for `aria-keyshortcuts`: "Meta+Shift+Space" on macOS, "Control+Shift+Space" elsewhere. */
+export function ariaShortcut(...keys: string[]): string {
+  return [isMac() ? 'Meta' : 'Control', ...keys].join('+')
 }

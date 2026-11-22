@@ -393,6 +393,20 @@ function searchBox(): HTMLElement {
 }
 
 describe('search', () => {
+  test.each([
+    ['MacIntel', 'Search (⌘K)'],
+    ['Win32', 'Search (Ctrl+K)']
+  ])('the hint on %s is %s', (platform, hint) => {
+    vi.stubGlobal('navigator', { platform, userAgent: platform })
+    try {
+      showBoard(makeTicket({ number: 1, title: 'A' }, { column: 'backlog' }))
+      renderWithMantine(<Board />)
+      expect(searchBox()).toHaveAttribute('placeholder', hint)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   function showSearchable(): void {
     const login = makeTicket(
       { number: 12, title: 'Fix login', labels: ['auth'], intent: [{ text: 'Users cannot sign in', at: '2026-10-30T00:00:00.000Z' }] },

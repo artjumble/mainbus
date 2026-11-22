@@ -34,6 +34,21 @@ test('Ctrl+Enter sends; plain Enter does not', async () => {
   expect(onSend).toHaveBeenCalledWith('one\ntwo')
 })
 
+describe('on a Mac', () => {
+  beforeEach(() => vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: 'Macintosh' }))
+  afterEach(() => vi.unstubAllGlobals())
+
+  test('⌘+Enter sends; Ctrl+Enter does not', async () => {
+    const onSend = vi.fn(async () => {})
+    renderWithMantine(<Composer onSend={onSend} />)
+    await userEvent.type(screen.getByRole('textbox'), 'one')
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    expect(onSend).not.toHaveBeenCalled()
+    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    expect(onSend).toHaveBeenCalledWith('one')
+  })
+})
+
 test('a failed send keeps the text', async () => {
   const onSend = vi.fn(async () => {
     throw new Error('nope')

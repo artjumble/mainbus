@@ -96,8 +96,6 @@ export interface VoiceModelStatus {
   error: string | null
 }
 
-/** Ctrl+Shift+Space while a long-form field has focus. Neither Windows nor Mainbus uses it for anything else. */
-export const DICTATION_SHORTCUT = 'Ctrl+Shift+Space'
 
 /** Whisper's languages by code. */
 export const WHISPER_LANGUAGES: Record<string, string> = {

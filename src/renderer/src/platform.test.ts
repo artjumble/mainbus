@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hasMod, modLabel, shortcut } from './platform'
+import { ariaShortcut, hasMod, modLabel, shortcut } from './platform'
 
 function on(platform: string): void {
   vi.stubGlobal('navigator', { platform, userAgent: platform })
@@ -11,7 +11,8 @@ describe('platform modifier', () => {
     on('MacIntel')
     expect(modLabel()).toBe('⌘')
     expect(shortcut('K')).toBe('⌘K')
-    expect(shortcut('Shift', 'Space')).toBe('⌘ShiftSpace')
+    expect(shortcut('Shift', 'Space')).toBe('⇧⌘Space')
+    expect(ariaShortcut('Shift', 'Space')).toBe('Meta+Shift+Space')
     expect(hasMod({ metaKey: true, ctrlKey: false })).toBe(true)
     expect(hasMod({ metaKey: false, ctrlKey: true })).toBe(false)
   })
@@ -21,6 +22,7 @@ describe('platform modifier', () => {
       expect(modLabel()).toBe('Ctrl')
       expect(shortcut('K')).toBe('Ctrl+K')
       expect(shortcut('Shift', 'Space')).toBe('Ctrl+Shift+Space')
+      expect(ariaShortcut('Shift', 'Space')).toBe('Control+Shift+Space')
       expect(hasMod({ metaKey: false, ctrlKey: true })).toBe(true)
       expect(hasMod({ metaKey: true, ctrlKey: false })).toBe(false)
     }

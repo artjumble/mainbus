@@ -1,7 +1,7 @@
 import { ActionIcon, Group, Loader, Text, Tooltip, VisuallyHidden } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import { shortcut } from '../platform'
+import { ariaShortcut, shortcut } from '../platform'
 import { formatElapsed, type DictationState } from './dictation'
 
 const onWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
@@ -45,7 +45,7 @@ export function MicButton({
         // Which field it types into, as a description: a name that held the field's label would answer a search for that label.
         aria-description={`Into: ${fieldLabel}`}
         aria-pressed={recording}
-        aria-keyshortcuts="Control+Shift+Space"
+        aria-keyshortcuts={ariaShortcut('Shift', 'Space')}
         // A dialog or drawer around the field closes on Esc unless the key's target says it uses it; here Esc cancels the dictation.
         data-mantine-stop-propagation={busy ? 'true' : undefined}
         onClick={onToggle}
