@@ -51,7 +51,7 @@ for (const size of WINDOW_SIZES) {
           MAINBUS_TEST_REPO: repo,
           // The engine's time (and the stuck detector's checks) stand still until the test moves them.
           MAINBUS_FAKE_CLOCK: 'now',
-        ...sizeEnv(size)
+          ...sizeEnv(size)
         }
       })
       const page: Page = await app.firstWindow()

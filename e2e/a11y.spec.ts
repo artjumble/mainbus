@@ -361,6 +361,10 @@ test(`the ticket view passes axe at a small window (${SMALL_WINDOW}), with the D
     const details = page.getByRole('button', { name: 'Details', exact: true })
     await expect(details).toHaveAttribute('aria-expanded', 'false')
     await expect(page.getByRole('region', { name: 'Activity' })).toHaveCount(0)
+    // The resize and the new cards are still settling: the orchestrator panel reflows to the new width and its cards fade in.
+    await animationsSettled(page)
+    await boxStable(page.getByRole('complementary', { name: 'Orchestrator' }))
+    await boxStable(page.locator('[data-event="permission"]'))
     // The pointer is left where the last click was; a tooltip open under it is a floating surface, measured on its own elsewhere.
     await page.mouse.move(600, 2)
     await expect(page.getByRole('tooltip')).toHaveCount(0)
