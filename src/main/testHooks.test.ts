@@ -4,6 +4,7 @@ import {
   launchMaximizedFromEnv,
   testClockStartFromEnv,
   testReposFromEnv as testRepoFromEnv,
+  testWindowSizeFromEnv,
   trayTestHookFromEnv,
   voiceFakeFromEnv
 } from './testHooks'
@@ -94,5 +95,21 @@ describe('voiceFakeFromEnv', () => {
     expect(voiceFakeFromEnv({ ...env, MAINBUS_TEST_VOICE: 'real' })).toBe(false)
     expect(voiceFakeFromEnv({ ...env, MAINBUS_HOME: undefined })).toBe(false)
     expect(voiceFakeFromEnv({ ...env, MAINBUS_RUNTIME: undefined })).toBe(false)
+  })
+})
+
+describe('testWindowSizeFromEnv', () => {
+  test('is 1280x800 by default in a test run', () => {
+    expect(testWindowSizeFromEnv(test_env)).toEqual({ width: 1280, height: 800 })
+  })
+  test('honors a valid MAINBUS_TEST_WINDOW_SIZE', () => {
+    expect(testWindowSizeFromEnv({ ...test_env, MAINBUS_TEST_WINDOW_SIZE: '1024x649' })).toEqual({ width: 1024, height: 649 })
+  })
+  test('falls back on an invalid one', () => {
+    expect(testWindowSizeFromEnv({ ...test_env, MAINBUS_TEST_WINDOW_SIZE: 'big' })).toEqual({ width: 1280, height: 800 })
+  })
+  test('is null outside a test run', () => {
+    expect(testWindowSizeFromEnv({ MAINBUS_TEST_WINDOW_SIZE: '1024x649' })).toBeNull()
+    expect(testWindowSizeFromEnv({ ...test_env, MAINBUS_HOME: undefined })).toBeNull()
   })
 })

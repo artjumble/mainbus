@@ -6,7 +6,7 @@ import { makeRepo } from './artboardHelpers'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-// Other specs keep the fixed 1280×800 window; MAINBUS_TEST_MAXIMIZED=1 asks for the normal, maximized launch.
+// Other specs keep a window with a 1280×800 content size on every OS; MAINBUS_TEST_MAXIMIZED=1 asks for the normal, maximized launch.
 test('the main window opens maximized, and the window and the tray use the app icon', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-icon-'))
   let app: ElectronApplication | undefined
@@ -50,3 +50,43 @@ test('the main window opens maximized, and the window and the tray use the app i
     }
   }
 })
+
+// The test window has a known content size whatever the screen is (on macOS CI the display is only 1024×768).
+for (const [size, want] of [
+  [null, { width: 1280, height: 800 }],
+  ['1024x649', { width: 1024, height: 649 }]
+] as const) {
+  test(`a test launch has a ${want.width}×${want.height} content size${size ? ' when asked' : ' by default'}`, async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mainbus-size-'))
+    let app: ElectronApplication | undefined
+    try {
+      const env: Record<string, string> = {}
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+      delete env['ELECTRON_RUN_AS_NODE']
+      app = await electron.launch({
+        args: ['.'],
+        cwd: root,
+        env: {
+          ...env,
+          MAINBUS_HOME: path.join(tmp, 'home'),
+          MAINBUS_RUNTIME: 'fake:e2e/fixtures/artboard-detail-by-role.json',
+          MAINBUS_TEST_REPO: makeRepo(tmp, 'web-app'),
+          ...(size ? { MAINBUS_TEST_WINDOW_SIZE: size } : {})
+        }
+      })
+      const page = await app.firstWindow()
+      await expect(page.getByRole('button', { name: 'Add workspace' })).toBeVisible()
+      // At a display scale like 150% the window's size is rounded to whole device pixels, so a CSS pixel or two may differ.
+      await expect
+        .poll(() => page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight })))
+        .toEqual({ width: expect.closeTo(want.width, -1), height: expect.closeTo(want.height, -1) })
+    } finally {
+      await app?.close().catch(() => {})
+      try {
+        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      } catch {
+        // Windows can hold a file briefly after the app quits.
+      }
+    }
+  })
+}

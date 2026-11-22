@@ -5,10 +5,17 @@ import type { BrowserWindowConstructorOptions } from 'electron'
  * `pnpm dev` shows Electron's own icon. `background`, when known, is the ground of the chosen scheme, so a dark window
  * shows no white before the page has painted.
  */
-export function mainWindowOptions(o: { preload: string; icon: string; background: string | null }): BrowserWindowConstructorOptions {
+export function mainWindowOptions(o: {
+  preload: string
+  icon: string
+  background: string | null
+  /** End-to-end tests only: the content size, which may be larger than the screen (macOS), so a runner's screen doesn't matter. */
+  testSize?: { width: number; height: number } | null
+}): BrowserWindowConstructorOptions {
   return {
-    width: 1280,
-    height: 800,
+    width: o.testSize?.width ?? 1280,
+    height: o.testSize?.height ?? 800,
+    ...(o.testSize ? { useContentSize: true, enableLargerThanScreen: true } : {}),
     title: 'Mainbus',
     icon: o.icon,
     autoHideMenuBar: true,

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { addWorkspace } from './addWorkspace'
+import { WINDOW_SIZES, sizeEnv, sizeSuffix } from './windowSize'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -32,7 +33,8 @@ async function launch(
   home: string,
   repo: string,
   open = true,
-  script = 'e2e/fixtures/handoff.json'
+  script = 'e2e/fixtures/handoff.json',
+  size: string | null = null
 ): Promise<{ app: ElectronApplication; page: Page }> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
@@ -40,7 +42,7 @@ async function launch(
   const app = await electron.launch({
     args: ['.'],
     cwd: root,
-    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: `fake:${script}`, MAINBUS_TEST_REPO: repo }
+    env: { ...env, MAINBUS_HOME: home, MAINBUS_RUNTIME: `fake:${script}`, MAINBUS_TEST_REPO: repo, ...sizeEnv(size) }
   })
   const page = await app.firstWindow()
   if (open) await addWorkspace(page)
@@ -328,68 +330,70 @@ test('the Reviewer ticks a criterion and hands a problem back once, and the tick
   }
 })
 
-test('Pause and Resume the active role, then Skip to the next role and past the last one to Review', async () => {
-  const { tmp, home, repo } = makeRepo()
-  let app: ElectronApplication | undefined
-  try {
-    let page: Page
-    // The Planner waits; resumed, it says so. The Implementer hands off when it gets a message; the Reviewer waits.
-    ;({ app, page } = await launch(home, repo, true, 'e2e/fixtures/pause-skip-by-role.json'))
-    await page.getByRole('button', { name: 'New ticket' }).click()
-    await page.getByLabel('Title').fill('Add hello file')
-    await page.getByLabel('In your words').fill('Add hello.txt')
-    await page.getByRole('button', { name: 'Create' }).click()
-    await page.getByRole('button', { name: /Add hello file/ }).click()
-    await page.getByRole('button', { name: 'Start', exact: true }).click()
-    await expect(page.getByText('Planner: reading the ticket.')).toBeVisible()
+for (const size of WINDOW_SIZES) {
+  test(`Pause and Resume the active role, then Skip to the next role and past the last one to Review${sizeSuffix(size)}`, async () => {
+    const { tmp, home, repo } = makeRepo()
+    let app: ElectronApplication | undefined
+    try {
+      let page: Page
+      // The Planner waits; resumed, it says so. The Implementer hands off when it gets a message; the Reviewer waits.
+      ;({ app, page } = await launch(home, repo, true, 'e2e/fixtures/pause-skip-by-role.json', size))
+      await page.getByRole('button', { name: 'New ticket' }).click()
+      await page.getByLabel('Title').fill('Add hello file')
+      await page.getByLabel('In your words').fill('Add hello.txt')
+      await page.getByRole('button', { name: 'Create' }).click()
+      await page.getByRole('button', { name: /Add hello file/ }).click()
+      await page.getByRole('button', { name: 'Start', exact: true }).click()
+      await expect(page.getByText('Planner: reading the ticket.')).toBeVisible()
 
-    // Pause: the role is Paused, with a chip beside the phase, and Resume instead of Pause.
-    const chip = page.locator('[data-badge-label]', { hasText: /^Paused$/ })
-    await expect(chip).toHaveCount(0)
-    await page.getByRole('button', { name: 'Pause', exact: true }).click()
-    await expect(chip).toBeVisible()
-    await expect(page.getByText('Planning', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner – Paused', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
-    await expect(page.getByRole('button', { name: 'Pause', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
-    // The board card shows it too, still In progress.
-    await page.getByRole('button', { name: /^← .* board$/ }).click()
-    await expect(page.getByRole('region', { name: 'In progress' }).getByText('Paused', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: /Add hello file/ }).click()
+      // Pause: the role is Paused, with a chip beside the phase, and Resume instead of Pause.
+      const chip = page.locator('[data-badge-label]', { hasText: /^Paused$/ })
+      await expect(chip).toHaveCount(0)
+      await page.getByRole('button', { name: 'Pause', exact: true }).click()
+      await expect(chip).toBeVisible()
+      await expect(page.getByText('Planning', { exact: true })).toBeVisible()
+      await expectStrip(page, ['Planner – Paused', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
+      await expect(page.getByRole('button', { name: 'Pause', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
+      // The board card shows it too, still In progress.
+      await page.getByRole('button', { name: /^← .* board$/ }).click()
+      await expect(page.getByRole('region', { name: 'In progress' }).getByText('Paused', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: /Add hello file/ }).click()
 
-    // Resume: the same session goes on.
-    await page.getByRole('button', { name: 'Resume', exact: true }).click()
-    await expect(page.getByText('Planner: picking up where I was.')).toBeVisible()
-    await expect(chip).toHaveCount(0)
-    await expectStrip(page, ['Planner • Working', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
+      // Resume: the same session goes on.
+      await page.getByRole('button', { name: 'Resume', exact: true }).click()
+      await expect(page.getByText('Planner: picking up where I was.')).toBeVisible()
+      await expect(chip).toHaveCount(0)
+      await expectStrip(page, ['Planner • Working', 'Implementer ○ Not started', 'Reviewer ○ Not started'])
 
-    // Skip, confirmed: the Planner is handed off with a summary Mainbus generated, and the Implementer starts.
-    await page.getByRole('button', { name: /^Skip to / }).click()
-    const dialog = page.getByRole('dialog', { name: 'Skip to next role' })
-    await expect(dialog.getByText('Skip the Planner? Its work so far is summarized for the Implementer.')).toBeVisible()
-    await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
-    await expect(dialog).toHaveCount(0)
-    await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
-    await expectStrip(page, ['Planner ✓ Handed off', 'Implementer • Working', 'Reviewer ○ Not started'])
-    const skipped = page.getByRole('group', { name: 'Planner skipped → Implementer · summary generated by Mainbus' })
-    await expect(skipped.getByText('Planner skipped → Implementer · summary generated by Mainbus', { exact: true })).toBeVisible()
-    await skipped.getByRole('button', { name: 'Show summary' }).click()
-    await expect(skipped.getByText('A summary the fake runtime wrote.', { exact: true })).toBeVisible()
+      // Skip, confirmed: the Planner is handed off with a summary Mainbus generated, and the Implementer starts.
+      await page.getByRole('button', { name: /^Skip to / }).click()
+      const dialog = page.getByRole('dialog', { name: 'Skip to next role' })
+      await expect(dialog.getByText('Skip the Planner? Its work so far is summarized for the Implementer.')).toBeVisible()
+      await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
+      await expect(dialog).toHaveCount(0)
+      await expect(page.getByText('Implementer: adding the file.')).toBeVisible()
+      await expectStrip(page, ['Planner ✓ Handed off', 'Implementer • Working', 'Reviewer ○ Not started'])
+      const skipped = page.getByRole('group', { name: 'Planner skipped → Implementer · summary generated by Mainbus' })
+      await expect(skipped.getByText('Planner skipped → Implementer · summary generated by Mainbus', { exact: true })).toBeVisible()
+      await skipped.getByRole('button', { name: 'Show summary' }).click()
+      await expect(skipped.getByText('A summary the fake runtime wrote.', { exact: true })).toBeVisible()
 
-    // The Implementer hands off as usual; skipping the Reviewer, the last role, sends the ticket to Review.
-    await page.getByLabel('Message the Implementer').fill('Go on')
-    await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
-    await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
-    await page.getByRole('button', { name: /^Skip to / }).click()
-    await expect(dialog.getByText('Skip the Reviewer? Its work so far is summarized and the ticket goes to Review.')).toBeVisible()
-    await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
-    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
-    await expectStrip(page, ['Planner ✓ Handed off', 'Implementer ✓ Handed off', 'Reviewer ✓ Handed off'])
-    await expect(page.getByText('Reviewer skipped · summary generated by Mainbus', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: /^← .* board$/ }).click()
-    await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
-  } finally {
-    await app?.close()
-    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
-  }
-})
+      // The Implementer hands off as usual; skipping the Reviewer, the last role, sends the ticket to Review.
+      await page.getByLabel('Message the Implementer').fill('Go on')
+      await page.getByRole('main').getByRole('button', { name: 'Send' }).click()
+      await expect(page.getByText('Reviewer: checking the change.')).toBeVisible()
+      await page.getByRole('button', { name: /^Skip to / }).click()
+      await expect(dialog.getByText('Skip the Reviewer? Its work so far is summarized and the ticket goes to Review.')).toBeVisible()
+      await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
+      await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+      await expectStrip(page, ['Planner ✓ Handed off', 'Implementer ✓ Handed off', 'Reviewer ✓ Handed off'])
+      await expect(page.getByText('Reviewer skipped · summary generated by Mainbus', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: /^← .* board$/ }).click()
+      await expect(page.getByRole('region', { name: 'Review' }).getByText('Add hello file')).toBeVisible()
+    } finally {
+      await app?.close()
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 })
+    }
+  })
+}

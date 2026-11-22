@@ -29,7 +29,7 @@ import { electronNotifier, electronTrayView, electronWindowPort, ensureStartMenu
 import { recordingNotifier, recordTrayView, type TrayTestHook } from './tray/recording'
 import { MODEL_SCHEME, modelFilePath } from './modelProtocol'
 import { allowPermission } from './permissions'
-import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, trayTestHookFromEnv, voiceFakeFromEnv } from './testHooks'
+import { launchMaximizedFromEnv, testClockStartFromEnv, testReposFromEnv, testWindowSizeFromEnv, trayTestHookFromEnv, voiceFakeFromEnv } from './testHooks'
 import { mainWindowOptions } from './windowOptions'
 import { WindowTheme } from './windowTheme'
 
@@ -133,7 +133,8 @@ function createWindow(): BrowserWindow {
     mainWindowOptions({
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       icon: windowIcon,
-      background: windowTheme?.background() ?? null
+      background: windowTheme?.background() ?? null,
+      testSize: testWindowSizeFromEnv(process.env)
     })
   )
   if (trayTestHookFromEnv(process.env)) {

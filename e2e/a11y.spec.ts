@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { SMALL_WINDOW } from './windowSize'
 import { addWorkspace } from './addWorkspace'
 import { themeOf } from '../src/shared/domain'
 import { animationsSettled, boxStable, keyboardDragReady } from './waits'
@@ -139,7 +140,7 @@ async function smallTargets(page: Page, within = 'body'): Promise<string[]> {
 // last, and unattended mode is per workspace, so none leaks into another.
 test.describe.configure({ mode: 'serial' })
 
-const REPOS = [...THEME_IDS.map((theme) => `${theme}-repo`), 'motion-repo']
+const REPOS = [...THEME_IDS.map((theme) => `${theme}-repo`), 'motion-repo', 'small-repo']
 let tmp: string
 let app: ElectronApplication | undefined
 let sharedPage: Page
@@ -348,5 +349,43 @@ test('reduced motion stops the outline fade and the spinners', async () => {
       document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations === Infinity).length
     )
     expect(endless).toBe(0)
+  })
+})
+
+test(`the ticket view passes axe at a small window (${SMALL_WINDOW}), with the Details button and the open side pane`, async () => {
+  const [width, height] = SMALL_WINDOW.split('x').map(Number) as [number, number]
+  await app!.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setContentSize(w!, h!), [width, height])
+  await withSession(async (page) => {
+    await createTicket(page, 'Add hello file')
+    await askAndRequest(page)
+    const details = page.getByRole('button', { name: 'Details', exact: true })
+    await expect(details).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('region', { name: 'Activity' })).toHaveCount(0)
+    // The resize and the new cards are still settling: the orchestrator panel reflows to the new width and its cards fade in.
+    await animationsSettled(page)
+    await boxStable(page.getByRole('complementary', { name: 'Orchestrator' }))
+    await boxStable(page.locator('[data-event="permission"]'))
+    // The pointer is left where the last click was; a tooltip open under it is a floating surface, measured on its own elsewhere.
+    await page.mouse.move(600, 2)
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+    await expectNoAxeViolations(page, 'the small ticket view')
+    expect(await smallTargets(page), 'small targets in the small ticket view').toEqual([])
+
+    await details.click()
+    await expect(details).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('region', { name: 'Activity' })).toBeVisible()
+    await animationsSettled(page)
+    await expectNoAxeViolations(page, 'the small ticket view with the side pane open')
+    expect(await smallTargets(page), 'small targets with the side pane open').toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(details).toHaveAttribute('aria-expanded', 'false')
+    await expect(details).toBeFocused()
+
+    // The question is answerable at this size: its radio can be reached and checked.
+    const question = page.locator('[data-event="decision"]')
+    await question.getByRole('radio').first().check()
+    await question.getByRole('button', { name: 'Answer' }).click()
+    await page.locator('[data-event="permission"]').getByRole('button', { name: 'Allow once' }).click()
+    await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
   })
 })
