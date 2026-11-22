@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ThemeChoice, ThemeId, ThemeScheme, ThemeSetting } from '../../../shared/domain'
+import { THEMES, type ThemeChoice, type ThemeId, type ThemeScheme, type ThemeSetting } from '../../../shared/domain'
 import { invoke } from '../api'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
 import { themes } from '../theme'
@@ -33,90 +33,127 @@ beforeEach(() => {
 
 const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
 
+const names = (scheme: ThemeScheme): string[] => THEMES.filter((t) => t.scheme === scheme).map((t) => t.name)
+
+async function openList(name: string): Promise<HTMLElement> {
+  const box = await screen.findByRole('combobox', { name })
+  await vi.waitFor(() => expect(box).toBeEnabled())
+  await userEvent.click(box)
+  return await screen.findByRole('listbox')
+}
+
 test('does not load anything while the settings are closed', () => {
   renderWithMantine(<ThemeSettings opened={false} />)
   expect(mockInvoke).not.toHaveBeenCalled()
 })
 
-test('the theme is Light by default, and offers every theme and Match Windows', async () => {
+test('the theme is Light by default, with a Single theme / Match Windows switch', async () => {
   renderWithMantine(<ThemeSettings opened />)
-  const group = await screen.findByRole('radiogroup', { name: 'Theme' })
-  const light = within(group).getByRole('radio', { name: 'Light' })
-  await vi.waitFor(() => expect(light).toBeChecked())
-  expect(within(group).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['light', 'dark', 'night-owl', 'light-owl', 'system'])
-  // Each radio is named by its theme alone: the preview adds nothing to the name.
-  for (const name of ['Light', 'Dark', 'Night Owl', 'Light Owl', 'Match Windows']) expect(within(group).getByRole('radio', { name })).toBeInTheDocument()
+  const mode = await screen.findByRole('radiogroup', { name: 'Theme' })
+  await vi.waitFor(() => expect(within(mode).getByRole('radio', { name: 'Single theme' })).toBeChecked())
+  expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveValue('Light')
+  expect(screen.queryByRole('combobox', { name: 'When Windows is light' })).not.toBeInTheDocument()
 
-  await userEvent.click(within(group).getByRole('radio', { name: 'Dark' }))
-  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'dark'))
-  expect(storedTheme.choice).toBe('dark')
-  expect(within(group).getByRole('radio', { name: 'Dark' })).toBeChecked()
+  await userEvent.click(within(mode).getByRole('radio', { name: 'Match Windows' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'system'))
+  expect(await screen.findByRole('combobox', { name: 'When Windows is light' })).toHaveValue('Light')
+  expect(screen.getByRole('combobox', { name: 'When Windows is dark' })).toHaveValue('Dark')
+  expect(screen.queryByRole('combobox', { name: 'Theme' })).not.toBeInTheDocument()
 
-  await userEvent.click(within(group).getByRole('radio', { name: 'Night Owl' }))
-  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'night-owl'))
-  expect(within(group).getByRole('radio', { name: 'Night Owl' })).toBeChecked()
-
-  await userEvent.click(within(group).getByRole('radio', { name: 'Match Windows' }))
-  await vi.waitFor(() => expect(storedTheme.choice).toBe('system'))
-  expect(within(group).getByRole('radio', { name: 'Match Windows' })).toBeChecked()
+  // Windows is light in the test, so Single theme keeps the light theme in use.
+  storedTheme.light = 'light-owl'
+  await userEvent.click(within(mode).getByRole('radio', { name: 'Single theme' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'light-owl'))
+  expect(await screen.findByRole('combobox', { name: 'Theme' })).toHaveValue('Light Owl')
 })
 
-test('each theme shows a preview in its own colours, hidden from assistive technology', async () => {
+test('the picker lists every theme, grouped Light and Dark, each with a hidden swatch', async () => {
   renderWithMantine(<ThemeSettings opened />)
-  const group = await screen.findByRole('radiogroup', { name: 'Theme' })
-  const swatches = [...group.querySelectorAll<HTMLElement>('[data-theme-swatch]')]
-  expect(swatches.map((s) => s.dataset['themeSwatch'])).toEqual(['light', 'dark', 'night-owl', 'light-owl'])
+  const list = await openList('Theme')
+  const light = within(list).getByRole('group', { name: 'Light' })
+  const dark = within(list).getByRole('group', { name: 'Dark' })
+  expect(within(light).getAllByRole('option').map((o) => o.textContent?.replace(/, light$/, ''))).toEqual(names('light'))
+  expect(within(dark).getAllByRole('option').map((o) => o.textContent?.replace(/, dark$/, ''))).toEqual(names('dark'))
+  expect(within(list).getByRole('option', { name: 'Night Owl, dark' })).toBeInTheDocument()
+  const swatches = [...list.querySelectorAll<HTMLElement>('[data-theme-swatch]')]
+  expect(swatches.map((s) => s.dataset['themeSwatch']).sort()).toEqual(THEMES.map((t) => t.id).sort())
   for (const s of swatches) {
     expect(s).toHaveAttribute('aria-hidden', 'true')
     expect(s.children).toHaveLength(5)
   }
-  // Night Owl's: ground, surface, text, Working and Needs you.
-  const nightOwl = swatches[2]!
+  const nightOwl = list.querySelector<HTMLElement>('[data-theme-swatch="night-owl"]')!
   const fills = [...nightOwl.children].map((c) => getComputedStyle(c).backgroundColor)
-  expect(fills).toEqual([themes['night-owl'].palette.ground, themes['night-owl'].palette.surface, themes['night-owl'].palette.text, themes['night-owl'].colors.working[6], themes['night-owl'].colors.needs[6]].map(rgb))
+  const t = themes['night-owl']
+  expect(fills).toEqual([t.palette.ground, t.palette.surface, t.palette.text, t.colors.working[6], t.colors.needs[6]].map(rgb))
+  await expectNoAxeViolations()
 })
 
-test('Match Windows offers a light and a dark theme, each from the themes of that scheme, Light and Dark by default', async () => {
+test('typing filters the themes by name', async () => {
   renderWithMantine(<ThemeSettings opened />)
-  await screen.findByRole('radiogroup', { name: 'Theme' })
-  await vi.waitFor(() => expect(screen.getByRole('radio', { name: 'Light' })).toBeChecked())
-  expect(screen.queryByRole('radiogroup', { name: 'Light theme' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('radiogroup', { name: 'Dark theme' })).not.toBeInTheDocument()
+  await openList('Theme')
+  const box = screen.getByRole('combobox', { name: 'Theme' })
+  await userEvent.clear(box)
+  await userEvent.keyboard('owl')
+  expect(screen.getAllByRole('option')).toHaveLength(2)
+  await userEvent.clear(box)
+  await userEvent.keyboard('zzz')
+  expect(await screen.findByText('No theme matches')).toBeInTheDocument()
+})
 
-  await userEvent.click(screen.getByRole('radio', { name: 'Match Windows' }))
-  const lightGroup = await screen.findByRole('radiogroup', { name: 'Light theme' })
-  const darkGroup = screen.getByRole('radiogroup', { name: 'Dark theme' })
-  expect(within(lightGroup).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['light', 'light-owl'])
-  expect(within(darkGroup).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['dark', 'night-owl'])
-  expect(within(lightGroup).getByRole('radio', { name: 'Light' })).toBeChecked()
-  expect(within(darkGroup).getByRole('radio', { name: 'Dark' })).toBeChecked()
-  expect(lightGroup.querySelectorAll('[data-theme-swatch]')).toHaveLength(2)
+test('choosing a theme saves it, and shows its credit', async () => {
+  renderWithMantine(<ThemeSettings opened />)
+  await openList('Theme')
+  expect(screen.queryByText(/Sarah Drasner/)).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('option', { name: 'Night Owl, dark' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'night-owl'))
+  expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveValue('Night Owl')
+  expect(await screen.findByText(/Sarah Drasner \(MIT\)/)).toBeInTheDocument()
+})
 
-  await userEvent.click(within(darkGroup).getByRole('radio', { name: 'Night Owl' }))
+test('the keyboard picks a theme: type, arrow, Enter', async () => {
+  renderWithMantine(<ThemeSettings opened />)
+  await openList('Theme')
+  await userEvent.clear(screen.getByRole('combobox', { name: 'Theme' }))
+  await userEvent.keyboard('night{ArrowDown}{Enter}')
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'night-owl'))
+})
+
+test('Escape closes the list without saving', async () => {
+  renderWithMantine(<ThemeSettings opened />)
+  await openList('Theme')
+  await userEvent.keyboard('{Escape}')
+  await vi.waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+  expect(mockInvoke).not.toHaveBeenCalledWith('settings.setTheme', expect.anything())
+})
+
+test('the Match Windows pickers each offer their own scheme and save per scheme', async () => {
+  storedTheme = { choice: 'system', light: 'light', dark: 'dark' }
+  renderWithMantine(<ThemeSettings opened />)
+  const lightList = await openList('When Windows is light')
+  expect(within(lightList).getAllByRole('option')).toHaveLength(names('light').length)
+  expect(within(lightList).queryByRole('group', { name: 'Dark' })).not.toBeInTheDocument()
+  await userEvent.click(within(lightList).getByRole('option', { name: 'Light Owl, light' }))
+  await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setMatchWindowsTheme', 'light', 'light-owl'))
+
+  const darkList = await openList('When Windows is dark')
+  expect(within(darkList).getAllByRole('option')).toHaveLength(names('dark').length)
+  await userEvent.click(within(darkList).getByRole('option', { name: 'Night Owl, dark' }))
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setMatchWindowsTheme', 'dark', 'night-owl'))
-  expect(storedTheme).toEqual({ choice: 'system', light: 'light', dark: 'night-owl' })
-  expect(within(darkGroup).getByRole('radio', { name: 'Night Owl' })).toBeChecked()
-
-  await userEvent.click(within(lightGroup).getByRole('radio', { name: 'Light Owl' }))
-  await vi.waitFor(() => expect(storedTheme.light).toBe('light-owl'))
-  await expectNoAxeViolations()
-
-  // Picking a theme outright puts the follow-up choices away.
-  await userEvent.click(within(screen.getByRole('radiogroup', { name: 'Theme' })).getByRole('radio', { name: 'Dark' }))
-  await vi.waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Dark theme' })).not.toBeInTheDocument())
+  expect(storedTheme).toEqual({ choice: 'system', light: 'light-owl', dark: 'night-owl' })
+  expect(await screen.findAllByText(/Sarah Drasner \(MIT\)/)).toHaveLength(2)
 })
 
 test('a Match Windows theme that cannot be saved goes back to the one before', async () => {
   storedTheme = { choice: 'system', light: 'light', dark: 'dark' }
   renderWithMantine(<ThemeSettings opened />)
-  const darkGroup = await screen.findByRole('radiogroup', { name: 'Dark theme' })
-  const dark = within(darkGroup).getByRole('radio', { name: 'Dark' })
-  await vi.waitFor(() => expect(dark).toBeChecked())
+  const box = await screen.findByRole('combobox', { name: 'When Windows is dark' })
+  await vi.waitFor(() => expect(box).toHaveValue('Dark'))
+  const list = await openList('When Windows is dark')
   mockInvoke.mockImplementationOnce(async () => {
     throw new Error('disk full')
   })
-  await userEvent.click(within(darkGroup).getByRole('radio', { name: 'Night Owl' }))
-  await vi.waitFor(() => expect(dark).toBeChecked())
+  await userEvent.click(within(list).getByRole('option', { name: 'Night Owl, dark' }))
+  await vi.waitFor(() => expect(box).toHaveValue('Dark'))
   expect(storedTheme.dark).toBe('dark')
 })
 
@@ -124,23 +161,19 @@ test('shows the stored theme', async () => {
   storedTheme = { choice: 'system', light: 'light-owl', dark: 'night-owl' }
   renderWithMantine(<ThemeSettings opened />)
   await vi.waitFor(() => expect(screen.getByRole('radio', { name: 'Match Windows' })).toBeChecked())
-  expect(within(screen.getByRole('radiogroup', { name: 'Light theme' })).getByRole('radio', { name: 'Light Owl' })).toBeChecked()
-  expect(within(screen.getByRole('radiogroup', { name: 'Dark theme' })).getByRole('radio', { name: 'Night Owl' })).toBeChecked()
-})
-
-test('credits Night Owl and Light Owl', async () => {
-  renderWithMantine(<ThemeSettings opened />)
-  expect(await screen.findByText(/Night Owl and Light Owl theme colors by Sarah Drasner \(MIT\)/)).toBeInTheDocument()
+  expect(screen.getByRole('combobox', { name: 'When Windows is light' })).toHaveValue('Light Owl')
+  expect(screen.getByRole('combobox', { name: 'When Windows is dark' })).toHaveValue('Night Owl')
 })
 
 test('a theme that cannot be saved goes back to the one before', async () => {
   renderWithMantine(<ThemeSettings opened />)
-  const light = await screen.findByRole('radio', { name: 'Light' })
-  await vi.waitFor(() => expect(light).toBeChecked())
+  const box = await screen.findByRole('combobox', { name: 'Theme' })
+  await vi.waitFor(() => expect(box).toHaveValue('Light'))
+  const list = await openList('Theme')
   mockInvoke.mockImplementationOnce(async () => {
     throw new Error('disk full')
   })
-  await userEvent.click(screen.getByRole('radio', { name: 'Dark' }))
-  await vi.waitFor(() => expect(light).toBeChecked())
+  await userEvent.click(within(list).getByRole('option', { name: 'Dark, dark' }))
+  await vi.waitFor(() => expect(box).toHaveValue('Light'))
   expect(storedTheme.choice).toBe('light')
 })

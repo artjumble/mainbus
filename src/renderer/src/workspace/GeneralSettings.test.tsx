@@ -82,6 +82,7 @@ test('closing the window keeps running in the tray by default, and Always quit s
 test('the theme is not here: it is in the Mainbus settings', async () => {
   renderWithMantine(<GeneralSettings opened />)
   await vi.waitFor(async () => expect(await field()).toHaveValue('3'))
+  expect(screen.queryByRole('combobox', { name: 'Theme' })).not.toBeInTheDocument()
   expect(screen.queryByRole('radiogroup', { name: 'Theme' })).not.toBeInTheDocument()
   expect(screen.queryByText(/Sarah Drasner/)).not.toBeInTheDocument()
 })
