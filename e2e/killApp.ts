@@ -9,7 +9,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *
  * On Windows `taskkill /T /F` can fail while the tree is already going away: exit code 128 ("not found") when the
  * process has just exited, and "access denied" (exit 1) while a child is exiting. The first counts as success, the
- * second is retried briefly; afterwards we wait for the app's process to be gone before returning.
+ * second is retried briefly. On POSIX the process group is sent SIGKILL. Afterwards we wait for the app's process to be gone before returning.
  */
 export async function killApp(app: ElectronApplication): Promise<void> {
   const child = app.process()
@@ -33,10 +33,15 @@ export async function killApp(app: ElectronApplication): Promise<void> {
       }
     }
   } else {
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    // Playwright starts the app detached on POSIX, so its PID leads a process group: kill the whole group (the
+    // Chromium helpers too). Fall back to the single process if there is no such group.
+    for (const target of [-pid, pid]) {
+      try {
+        process.kill(target, 'SIGKILL')
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      }
     }
   }
   await Promise.race([exited, sleep(15_000).then(() => { throw new Error(`App process ${pid} did not exit after being killed`) })])
