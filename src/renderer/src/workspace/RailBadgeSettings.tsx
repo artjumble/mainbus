@@ -14,6 +14,7 @@ import { invoke } from '../api'
 import { errorMessage, showError } from '../notify'
 import { useMainbus } from '../store'
 import { RailTile } from './RailTile'
+import { SettingRow } from './SettingRow'
 import { RAIL_TILES } from '../theme'
 
 const AUTOMATIC = 'automatic'
@@ -70,8 +71,19 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
 
   return (
     <Stack gap="xs" aria-label="Rail badge">
-      <Group align="flex-start" gap="sm" wrap="nowrap">
-        <RailTile label={shown.label} color={shown.color} />
+      <SettingRow
+        save={
+          <Button
+            fullWidth
+            h={44}
+            onClick={() => void save({ label: trimmed === '' ? null : trimmed })}
+            loading={saving}
+            disabled={problem !== null || trimmed === custom}
+          >
+            Save label
+          </Button>
+        }
+      >
         <TextInput
           {...fieldInfo("Short label", `1 to 3 characters; emoji work too. Leave it empty to use the automatic label, ${automatic.label}.`)}
           placeholder={automatic.label}
@@ -80,18 +92,18 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
             setText(e.currentTarget.value)
             setRejected(null)
           }}
-          error={error}
-          style={{ flex: 1 }}
+          error={error !== null}
+          leftSection={<RailTile label={shown.label} color={shown.color} />}
+          leftSectionWidth={48}
+          leftSectionPointerEvents="none"
         />
-        <Button
-          mt={25}
-          onClick={() => void save({ label: trimmed === '' ? null : trimmed })}
-          loading={saving}
-          disabled={problem !== null || trimmed === custom}
-        >
-          Save label
-        </Button>
-      </Group>
+      </SettingRow>
+      {error !== null && (
+        <Text size="sm" c="red" role="alert">
+          {error}
+        </Text>
+      )}
+      <SettingRow>
       <Select
         label="Color"
         value={workspace.railColor ?? AUTOMATIC}
@@ -116,6 +128,7 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
         }}
         onChange={(value) => void save({ color: value !== null && isRailColor(value) ? value : null })}
       />
+      </SettingRow>
     </Stack>
   )
 }

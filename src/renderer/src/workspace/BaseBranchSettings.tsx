@@ -1,4 +1,4 @@
-import { Button, Group, Select, Stack, Text } from '@mantine/core'
+import { Button, Select, Stack, Text } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
 import { fieldInfo } from '../FieldLabel'
 import { baseBranchWarning } from '../../../shared/baseBranch'
@@ -6,6 +6,7 @@ import { invoke } from '../api'
 import { showError } from '../notify'
 import { useMainbus } from '../store'
 import { branchSelectData } from './BaseBranchStep'
+import { SettingRow } from './SettingRow'
 import { useWorkspaceBranches } from './useWorkspaceBranches'
 
 /** Settings section: the branch new tickets start from and pull requests open against. */
@@ -41,7 +42,13 @@ export function BaseBranchSettings({ opened }: { opened: boolean }): ReactElemen
 
   return (
     <Stack gap="xs" aria-label="Base branch">
-      <Group align="flex-end" gap="sm">
+      <SettingRow
+        save={
+          <Button fullWidth h={44} onClick={() => void save()} loading={saving} disabled={!value || value === base || info === null}>
+            Save base branch
+          </Button>
+        }
+      >
         <Select
           {...fieldInfo("Base branch", "New tickets branch from it, and freshness checks, base-branch tests, merges and new pull requests use it. Existing tickets keep their branches, and their open pull requests aren't retargeted.")}
           data={info ? branchSelectData(info, missing ? (base ?? undefined) : undefined) : base ? [{ value: base, label: base }] : []}
@@ -50,12 +57,8 @@ export function BaseBranchSettings({ opened }: { opened: boolean }): ReactElemen
           allowDeselect={false}
           disabled={info === null || saving}
           comboboxProps={{ withinPortal: false }}
-          style={{ flex: 1 }}
         />
-        <Button onClick={() => void save()} loading={saving} disabled={!value || value === base || info === null}>
-          Save base branch
-        </Button>
-      </Group>
+      </SettingRow>
       {warning && (
         <Text size="sm" c="needs.7" role="status">
           {warning}
