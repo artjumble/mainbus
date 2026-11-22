@@ -78,7 +78,7 @@ test('Board: workspaces with counts, a card in every column, the Fleet line, a s
     await expect(rail.locator('[data-rail-status]').first()).toContainText('working')
     await expect(rail.locator('[data-needs-you]').first()).toBeVisible()
     await expect(rail.locator('[data-rail-status]').nth(1)).toContainText('Idle')
-    await expect(rail.getByText('Pick a local repo folder to add it.')).toBeVisible()
+    await expect(rail.getByText('Pick a local repo folder to add it.')).toHaveCount(0)
     await shot(page, 'board-rail-expanded')
     await page.mouse.move(700, 500)
     await expect(rail).toHaveAttribute('data-expanded', 'false')
