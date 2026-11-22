@@ -9,6 +9,11 @@ import { platform } from '../platform'
 import { BaseBranchSettings } from './BaseBranchSettings'
 import { RailBadgeSettings } from './RailBadgeSettings'
 
+function trayLabel(os: string): string {
+  if (os === 'darwin') return 'Keep running in the Dock'
+  return os === 'linux' ? 'Keep running, minimized, while agents work' : 'Keep running in the tray while agents work'
+}
+
 /**
  * Settings section for the base branch of the workspace, and for what applies to the whole app: how many role agents may
  * run at once, and what closing the window does. (The theme is in the Mainbus settings.)
@@ -141,7 +146,7 @@ export function GeneralSettings({ opened }: { opened: boolean }): ReactElement {
         onChange={(v) => void saveWhenClosed(v)}
       >
         <Stack gap="xs" mt="xs">
-          <Radio value="tray" label={platform() === 'linux' ? 'Keep running, minimized, while agents work' : 'Keep running in the tray while agents work'} disabled={whenClosed === null} />
+          <Radio value="tray" label={trayLabel(platform())} disabled={whenClosed === null} />
           <Radio value="quit" label="Always quit" disabled={whenClosed === null} />
         </Stack>
       </Radio.Group>

@@ -90,6 +90,17 @@ test('on Linux the keep-running choice says the window is minimized', async () =
   }
 })
 
+test('on macOS the keep-running choice says the Dock', async () => {
+  const win = window as unknown as { mainbus?: { platform: string } }
+  win.mainbus = { platform: 'darwin' }
+  try {
+    renderWithMantine(<GeneralSettings opened />)
+    expect(await screen.findByRole('radio', { name: 'Keep running in the Dock' })).toBeInTheDocument()
+  } finally {
+    delete win.mainbus
+  }
+})
+
 test('the theme is not here: it is in the Mainbus settings', async () => {
   renderWithMantine(<GeneralSettings opened />)
   await vi.waitFor(async () => expect(await field()).toHaveValue('3'))

@@ -98,7 +98,17 @@ export function electronWindowPort(getWindow: () => BrowserWindow | null, create
       win.show()
       win.focus()
     },
-    hide: () => live()?.hide(),
+    hide: () => {
+      const win = live()
+      if (!win) return
+      // Hiding a full-screen window on macOS leaves a black Space: leave full screen first.
+      if (process.platform === 'darwin' && win.isFullScreen()) {
+        win.once('leave-full-screen', () => win.hide())
+        win.setFullScreen(false)
+        return
+      }
+      win.hide()
+    },
     minimize: () => live()?.minimize(),
     isMinimized: () => live()?.isMinimized() ?? false,
     setBadge: ({ count, text, description }) => {

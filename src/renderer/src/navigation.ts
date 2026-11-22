@@ -5,6 +5,10 @@ import { useMainbus } from './store'
 
 /** Shows what the main process asked for: a ticket, or the board's Needs you column, in the right workspace. */
 export async function navigateTo(nav: AppNavigation): Promise<void> {
+  if (nav.to === 'appSettings') {
+    useMainbus.getState().openAppSettings()
+    return
+  }
   const store = useMainbus.getState()
   if (nav.workspaceId && nav.workspaceId !== store.workspace?.id) {
     await invoke('workspace.focus', nav.workspaceId)

@@ -217,7 +217,8 @@ export class TrayController {
     }
     if (action === 'minimize') this.d.window.minimize()
     else this.d.window.hide()
-    if (!this.d.prefs.noticeShown()) {
+    // On macOS hiding on close is the convention, and the notice would raise the notification permission prompt.
+    if (this.d.platform !== 'darwin' && !this.d.prefs.noticeShown()) {
       this.d.prefs.markNoticeShown()
       this.d.notifier.show({ ...stillRunningText(this.d.platform), onClick: () => this.d.window.show() })
     }

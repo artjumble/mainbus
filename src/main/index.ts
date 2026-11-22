@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as sdk from '@anthropic-ai/claude-agent-sdk'
-import { app, BrowserWindow, dialog, nativeTheme, net, powerSaveBlocker, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, net, powerSaveBlocker, protocol, session, shell } from 'electron'
 import { createEngine, type Engine } from '../engine'
 import { runCommand, type CommandRunner } from '../engine/git/command'
 import { FakeGh } from '../engine/git/fakeGh'
@@ -19,6 +19,8 @@ import { SdkRuntime } from '../engine/runtime/sdkRuntime'
 import { applyLoginShellPath } from '../engine/runtime/shellPath'
 import type { AgentRuntime } from '../engine/runtime/types'
 import { iconDir, windowIconFile } from './appIcon'
+import { appMenuTemplate } from './appMenu'
+import { NAVIGATE_CHANNEL, type AppNavigation } from '../shared/api'
 import { isAppUrl, isExternalWebUrl } from './appUrl'
 import { attachContextMenu, ensureSpellCheckLanguages } from './contextMenu'
 import { fakeClaudeExec } from './fakeExec'
@@ -126,6 +128,23 @@ function openMainWindow(): BrowserWindow {
     if (mainWindow === win) mainWindow = null
   })
   return win
+}
+
+/** Restores, shows and focuses the main window; opens a new one if it was destroyed. */
+function showMainWindow(): BrowserWindow {
+  if (!mainWindow || mainWindow.isDestroyed()) return openMainWindow()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+  return mainWindow
+}
+
+/** The application menu's Settings…: shows the window, then asks the page to open the app settings. */
+function openSettings(): void {
+  const win = showMainWindow()
+  const nav: AppNavigation = { to: 'appSettings' }
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', () => win.webContents.send(NAVIGATE_CHANNEL, nav))
+  else win.webContents.send(NAVIGATE_CHANNEL, nav)
 }
 
 function createWindow(): BrowserWindow {
@@ -240,11 +259,14 @@ const windowIcon = windowIconFile(icons)
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  /** False until the engine and the first window exist: a Dock click at launch must not open a second window. */
+  let ready = false
   app.on('second-instance', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    if (ready) showMainWindow()
+  })
+  // macOS: a click on the Dock icon brings the window back, or opens a new one if it was really closed.
+  app.on('activate', () => {
+    if (ready) showMainWindow()
   })
 
   void app
@@ -309,7 +331,20 @@ if (!app.requestSingleInstanceLock()) {
           if (e.type === 'theme.changed') themed.apply(e.theme)
         })
         windowTheme = themed
+        const template = appMenuTemplate({ platform: process.platform, dev: !app.isPackaged, openSettings })
+        if (template) Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+        if (process.platform === 'darwin') {
+          app.setAboutPanelOptions({ applicationName: 'Mainbus', applicationVersion: app.getVersion() })
+          if (!app.isPackaged) {
+            try {
+              app.dock?.setIcon(path.join(app.getAppPath(), 'build', 'icon.png'))
+            } catch (err) {
+              console.error('Mainbus could not set the Dock icon:', err)
+            }
+          }
+        }
         openMainWindow()
+        ready = true
       } catch (err) {
         // The window never opened: close the database cleanly before giving up.
         await engine.dispose().catch(() => {})
@@ -353,7 +388,8 @@ if (!app.requestSingleInstanceLock()) {
       })
   })
 
+  // On macOS the app stays in the Dock with no window.
   app.on('window-all-closed', () => {
-    app.quit()
+    if (process.platform !== 'darwin') app.quit()
   })
 }
