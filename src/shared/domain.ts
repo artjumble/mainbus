@@ -667,7 +667,7 @@ export interface TicketEditNote {
 
 /** How other agents on this machine run this app's `mainbus` CLI and MCP server. */
 export interface AgentLauncher {
-  /** stable: the mainbus.cmd that build-stable.ps1 writes. dev: Node on the bundle in out/cli. */
+  /** stable: the mainbus.cmd (Windows) or mainbus (macOS) launcher that the stable build script writes. dev: Node on the bundle in out/cli. */
   kind: 'stable' | 'dev'
   /** The program and its leading arguments; `mcp` or `ticket ...` follows. */
   program: string[]

@@ -15,7 +15,7 @@ User-visible text uses US English spelling.
 - E2E workers: `playwright.config.ts` has a `parallel` and a `serial` project. `MAINBUS_E2E_WORKERS` (a number or a percentage; default 25%) sets the worker count. A new spec that depends on hover, focus, the tray, OS notifications or animation timing goes in `SERIAL_SPECS` there.
 - Themed artboard screenshots: `pnpm artboards:screenshots` rebuilds the app and runs `e2e/artboards.spec.ts` in all four themes (about 3.5 min), saving to `test-results/artboards/`. `pnpm e2e` runs the artboards once, in the default theme.
 - Marketing site (`site/`): `pnpm site:screenshots` rebuilds the app and regenerates `site/img/` from a fictional demo board (FakeRuntime, a temporary data home); `pnpm site:check` checks links, accessibility and layout. See `site/README.md`.
-- Stable build: `pnpm build:stable`, then `pnpm run run:stable`. It installs into the user's `%LOCALAPPDATA%\Mainbus`, so agents don't run it.
+- Stable build: `pnpm build:stable`, then `pnpm run run:stable`. It installs into the user's `%LOCALAPPDATA%\Mainbus` (on macOS, `~/Library/Application Support/Mainbus`), so agents don't run it.
 
 ## Testing
 

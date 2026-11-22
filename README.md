@@ -225,6 +225,17 @@ $mainbus = "$env:LOCALAPPDATA\Mainbus\bin\mainbus.cmd"
 & $mainbus ticket show 12
 ```
 
+On macOS (zsh or bash):
+
+```bash
+claude mcp add --scope user mainbus -- "$HOME/Library/Application Support/Mainbus/bin/mainbus" mcp
+
+mainbus="$HOME/Library/Application Support/Mainbus/bin/mainbus"
+"$mainbus" ticket create --json ticket.json
+"$mainbus" ticket list --column review
+"$mainbus" ticket show 12
+```
+
 ## Testing
 
 ```bash

@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import type { AgentLauncher } from '../../../shared/domain'
 import { invoke } from '../api'
 import { showError } from '../notify'
+import { platform } from '../platform'
 import { setupLines } from './connectLines'
 
 /** Settings section: the lines to copy so Claude Code, Codex and Copilot can file tickets on this board. */
@@ -52,7 +53,9 @@ export function ConnectAgents({ opened }: { opened: boolean }): ReactElement {
           {!launcher.exists && (
             <Alert color="yellow" variant="light" title="The launcher isn't there yet">
               {launcher.kind === 'stable'
-                ? 'Run scripts\\build-stable.ps1 from your own terminal to write '
+                ? platform() === 'win32'
+                  ? 'Run scripts\\build-stable.ps1 from your own terminal to write '
+                  : 'Run pnpm build:stable from your own terminal to write '
                 : 'Run pnpm build to write '}
               <Code>{launcher.program[launcher.program.length - 1]}</Code>.
             </Alert>

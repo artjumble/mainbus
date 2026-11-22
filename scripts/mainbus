@@ -1,0 +1,25 @@
+#!/bin/sh
+# The mainbus CLI and MCP server (mainbus ticket ..., mainbus mcp) of the current stable build on macOS.
+# scripts/build-stable.sh installs this as ~/Library/Application Support/Mainbus/bin/mainbus. It reads
+# app/current.txt on every run, so it follows rebuilds and rollbacks, and runs the bundle on that build's
+# own Mainbus binary in Node mode, so no separate Node install is needed. It never starts the app.
+# Every expansion is quoted: the data home has a space in its name.
+app="$(dirname -- "$0")/../app"
+build=
+if [ -f "$app/current.txt" ]; then
+  { IFS= read -r build || :; } < "$app/current.txt"
+fi
+cr=$(printf '\r')
+build=${build%"$cr"}
+if [ -z "$build" ]; then
+  echo "Mainbus isn't installed: $app/current.txt is missing or empty. Run pnpm build:stable first." >&2
+  exit 3
+fi
+dir="$app/$build/Mainbus.app/Contents"
+if [ ! -f "$dir/Resources/cli/mainbus.cjs" ]; then
+  echo "Mainbus build $build has no CLI: $dir/Resources/cli/mainbus.cjs is missing." >&2
+  exit 3
+fi
+ELECTRON_RUN_AS_NODE=1
+export ELECTRON_RUN_AS_NODE
+exec "$dir/MacOS/Mainbus" "$dir/Resources/cli/mainbus.cjs" "$@"

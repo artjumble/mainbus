@@ -133,6 +133,9 @@ jobs:
           case "$icon" in *.icns) ;; *) icon="$icon.icns" ;; esac
           test -s "$app/Contents/Resources/$icon"
           file "$app/Contents/MacOS/Mainbus" | grep -q arm64
+      - name: Check the stable install and the mainbus launcher
+        if: matrix.target == 'mac'
+        run: sh scripts/ci/check-stable-mac.sh
       - name: Packaged app test
         run: MAINBUS_E2E_PACKAGED="$PWD/${{ matrix.exe }}" pnpm exec playwright test e2e/packaged.spec.ts --retries=1
       - name: Upload test results
