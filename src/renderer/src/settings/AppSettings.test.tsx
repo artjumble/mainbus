@@ -34,13 +34,15 @@ test('the Mainbus settings hold the Theme under Appearance, and nothing of a wor
   const drawer = await screen.findByRole('dialog', { name: 'Mainbus settings' })
   const appearance = within(drawer).getByRole('region', { name: 'Appearance' })
   expect(within(appearance).getByRole('heading', { name: 'Appearance', level: 3 })).toBeInTheDocument()
-  const theme = within(appearance).getByRole('radiogroup', { name: 'Theme' })
-  await vi.waitFor(() => expect(within(theme).getByRole('radio', { name: 'Light' })).toBeChecked())
-  expect(within(theme).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['light', 'dark', 'night-owl', 'light-owl', 'system'])
+  const mode = within(appearance).getByRole('radiogroup', { name: 'Theme' })
+  await vi.waitFor(() => expect(within(mode).getByRole('radio', { name: 'Single theme' })).toBeChecked())
+  const theme = within(appearance).getByRole('combobox', { name: 'Theme' })
+  await vi.waitFor(() => expect(theme).toHaveValue('Light'))
 
-  await userEvent.click(within(theme).getByRole('radio', { name: 'Night Owl' }))
+  await userEvent.click(theme)
+  await userEvent.click(await screen.findByRole('option', { name: 'Night Owl, dark' }))
   await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('settings.setTheme', 'night-owl'))
-  expect(within(theme).getByRole('radio', { name: 'Night Owl' })).toBeChecked()
+  expect(theme).toHaveValue('Night Owl')
 
   expect(within(drawer).queryByRole('textbox', { name: 'Agents running at once' })).not.toBeInTheDocument()
   expect(within(drawer).queryByRole('heading', { name: 'Lineup' })).not.toBeInTheDocument()
@@ -63,8 +65,20 @@ test('Esc closes it', async () => {
 test('the Mainbus settings, with Match Windows open, have no axe violations', async () => {
   storedTheme = { choice: 'system', light: 'light', dark: 'dark' }
   renderWithMantine(<AppSettings opened onClose={() => {}} />)
-  await screen.findByRole('radiogroup', { name: 'Dark theme' })
+  await screen.findByRole('combobox', { name: 'When Windows is dark' })
   await expectNoAxeViolations()
+})
+
+test('Esc with a theme list open closes only the list, not the settings', async () => {
+  const onClose = vi.fn()
+  renderWithMantine(<AppSettings opened onClose={onClose} />)
+  const box = await screen.findByRole('combobox', { name: 'Theme' })
+  await vi.waitFor(() => expect(box).toBeEnabled())
+  await userEvent.click(box)
+  await screen.findByRole('listbox')
+  await userEvent.keyboard('{Escape}')
+  await vi.waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+  expect(onClose).not.toHaveBeenCalled()
 })
 
 test('the Usage section shows what the orchestrator used, with the cost labelled, or Not recorded', async () => {

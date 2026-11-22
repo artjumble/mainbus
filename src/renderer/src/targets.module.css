@@ -78,3 +78,8 @@
     animation: none !important;
   }
 }
+
+/* An option of a dropdown list or a segmented control is 44 px tall. */
+.option {
+  min-height: 44px;
+}

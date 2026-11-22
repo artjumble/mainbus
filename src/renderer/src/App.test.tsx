@@ -134,7 +134,7 @@ describe('Mainbus settings', () => {
     await userEvent.click(within(rail).getByRole('button', { name: 'Mainbus settings' }))
     const drawer = await screen.findByRole('dialog', { name: 'Mainbus settings' })
     const appearance = within(drawer).getByRole('region', { name: 'Appearance' })
-    await vi.waitFor(() => expect(within(appearance).getByRole('radio', { name: 'Light' })).toBeChecked())
+    await vi.waitFor(() => expect(within(appearance).getByRole('combobox', { name: 'Theme' })).toHaveValue('Light'))
   })
 
   test('Esc closes it and focus goes back to the rail button', async () => {

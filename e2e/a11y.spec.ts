@@ -278,19 +278,29 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     const mainbusSettings = page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' })
     await mainbusSettings.click()
     const drawer = page.getByRole('dialog', { name: 'Mainbus settings' })
-    await expect(drawer.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
+    await expect(drawer.getByRole('combobox', { name: 'Theme', exact: true })).toBeVisible()
     // Axe measures colours as they are on screen, so wait for the drawer to finish fading in.
     await animationsSettled(page)
     await expectNoAxeViolations(page, 'the Mainbus settings')
     expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the Mainbus settings').toEqual([])
 
+    // The theme dropdown, open.
+    await drawer.getByRole('combobox', { name: 'Theme', exact: true }).click()
+    await expect(page.getByRole('listbox')).toBeVisible()
+    await animationsSettled(page)
+    await expectNoAxeViolations(page, 'the Mainbus settings with the theme list open', ['color-contrast'])
+    expect(await smallTargets(page, '[role="listbox"]'), 'small targets in the theme list').toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('listbox')).toBeHidden()
+    await expect(drawer).toBeVisible()
+
     // Match Windows and its Light theme and Dark theme choices, still in this theme: Windows, as the page sees it,
     // is in this theme's scheme, and this theme is the pick for it.
     const scheme = themeOf(theme).scheme
     await page.emulateMedia({ colorScheme: scheme })
-    await drawer.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
-    const picks = drawer.getByRole('radiogroup', { name: scheme === 'light' ? 'Light theme' : 'Dark theme' })
-    await picks.getByRole('radio', { name: themeOf(theme).name, exact: true }).check()
+    await drawer.getByRole('radiogroup', { name: 'Theme', exact: true }).getByText('Match Windows', { exact: true }).click()
+    await drawer.getByRole('combobox', { name: scheme === 'light' ? 'When Windows is light' : 'When Windows is dark', exact: true }).click()
+    await page.getByRole('option', { name: new RegExp(`^${themeOf(theme).name} ?,`) }).click()
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', theme)
     await expectNoAxeViolations(page, 'the Mainbus settings with Match Windows')
     expect(await smallTargets(page, '[role="dialog"]'), 'small targets in the Mainbus settings with Match Windows').toEqual([])

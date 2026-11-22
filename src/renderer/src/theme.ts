@@ -86,7 +86,16 @@ export interface CodeTokens {
   deletion: string
 }
 
+/** Who made a theme's colors, under what license, and where to find them. */
+export interface ThemeCredit {
+  author: string
+  license: string
+  url: string
+}
+
 export interface ThemeDef {
+  /** Shown under the theme picker while the theme is selected. Optional. */
+  credit?: ThemeCredit
   palette: Palette
   code: CodeTokens
   colors: Record<NamedColor, MantineColorsTuple>
@@ -306,6 +315,7 @@ const dark: ThemeDef = {
  *   gray fill     #5f7e97 → #5B7890 (white on it is 4.3:1)
  */
 const nightOwl: ThemeDef = {
+  credit: { author: 'Sarah Drasner', license: 'MIT', url: 'https://github.com/sdras/night-owl-vscode-theme' },
   palette: {
     ground: GROUND['night-owl'], // editor.background
     surface: '#0B2942', // tab.activeBackground
@@ -351,6 +361,7 @@ const nightOwl: ThemeDef = {
  *   gray fill     #90A7B2 → #495F6A (2.5:1 under white text)
  */
 const lightOwl: ThemeDef = {
+  credit: { author: 'Sarah Drasner', license: 'MIT', url: 'https://github.com/sdras/night-owl-vscode-theme' },
   palette: {
     ground: GROUND['light-owl'], // sideBar.background
     surface: '#FBFBFB', // editor.background

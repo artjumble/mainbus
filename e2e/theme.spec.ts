@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { addWorkspace } from './addWorkspace'
 import { GROUND } from '../src/shared/domain'
 import { makeRepo } from './artboardHelpers'
@@ -38,7 +38,13 @@ const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((i) => parseInt(hex.sl
 async function openSettings(page: Page): Promise<void> {
   await page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' }).click()
   const appearance = page.getByRole('dialog', { name: 'Mainbus settings' }).getByRole('region', { name: 'Appearance' })
-  await expect(appearance.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
+  await expect(appearance.getByRole('combobox', { name: 'Theme', exact: true })).toBeVisible()
+}
+
+/** Opens a theme dropdown and picks a theme by name. */
+async function pickTheme(scope: Page | Locator, label: string, name: string): Promise<void> {
+  await scope.getByRole('combobox', { name: label, exact: true }).click()
+  await ('goto' in scope ? scope : scope.page()).getByRole('option', { name: new RegExp(`^${name} ?,`) }).click()
 }
 
 test('the Theme setting switches between Light, Dark, Night Owl and Light Owl without a restart, Match Windows can use Night Owl for dark, and a dark app opens in its theme', async () => {
@@ -57,36 +63,39 @@ test('the Theme setting switches between Light, Dark, Night Owl and Light Owl wi
     expect(await windowTheme(app)).toEqual({ source: 'light', background: GROUND.light.toUpperCase() })
 
     await openSettings(page)
-    const theme = page.getByRole('radiogroup', { name: 'Theme', exact: true })
-    await expect(theme.getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
-    // Every theme, by name, and Match Windows.
-    for (const name of ['Light', 'Dark', 'Night Owl', 'Light Owl', 'Match Windows']) {
-      await expect(theme.getByRole('radio', { name, exact: true })).toBeVisible()
+    const mode = page.getByRole('radiogroup', { name: 'Theme', exact: true })
+    const theme = page.getByRole('combobox', { name: 'Theme', exact: true })
+    await expect(theme).toHaveValue('Light')
+    // Every theme, by name.
+    await theme.click()
+    for (const name of ['Light', 'Dark', 'Night Owl', 'Light Owl']) {
+      await expect(page.getByRole('option', { name: new RegExp(`^${name} ?,`) })).toBeVisible()
     }
+    await page.keyboard.press('Escape')
 
     // Dark, at once: the page, the frame and the window's background.
-    await theme.getByRole('radio', { name: 'Dark', exact: true }).check()
+    await pickTheme(page, 'Theme', 'Dark')
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark')
     await expect.poll(() => pageGround(page)).toBe(rgb(GROUND.dark))
     await expect.poll(() => windowTheme(app!)).toEqual({ source: 'dark', background: GROUND.dark.toUpperCase() })
     // The settings window is still open, and still says Dark.
-    await expect(theme.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked()
+    await expect(theme).toHaveValue('Dark')
 
     // Night Owl, at once: the page in its ground and dark, the frame dark, the window painted in its ground.
-    await theme.getByRole('radio', { name: 'Night Owl', exact: true }).check()
+    await pickTheme(page, 'Theme', 'Night Owl')
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'night-owl')
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark')
     await expect.poll(() => pageGround(page)).toBe(rgb(GROUND['night-owl']))
     await expect.poll(() => windowTheme(app!)).toEqual({ source: 'dark', background: GROUND['night-owl'].toUpperCase() })
 
     // Light Owl, the same way.
-    await theme.getByRole('radio', { name: 'Light Owl', exact: true }).check()
+    await pickTheme(page, 'Theme', 'Light Owl')
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
     await expect.poll(() => pageGround(page)).toBe(rgb(GROUND['light-owl']))
     await expect.poll(() => windowTheme(app!)).toEqual({ source: 'light', background: GROUND['light-owl'].toUpperCase() })
 
     // And back to Light.
-    await theme.getByRole('radio', { name: 'Light', exact: true }).check()
+    await pickTheme(page, 'Theme', 'Light')
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light')
     await expect.poll(() => pageGround(page)).toBe(rgb(GROUND.light))
     await expect.poll(() => windowTheme(app!)).toEqual({ source: 'light', background: GROUND.light.toUpperCase() })
@@ -94,7 +103,7 @@ test('the Theme setting switches between Light, Dark, Night Owl and Light Owl wi
     // Match Windows hands the frame to Windows; the page takes whatever Windows says. (Playwright pretends the page
     // prefers light unless told otherwise; with that off, the page sees what Electron reports from Windows.)
     await page.emulateMedia({ colorScheme: null })
-    await theme.getByRole('radio', { name: 'Match Windows' }).check()
+    await mode.getByText('Match Windows', { exact: true }).click()
     await expect.poll(async () => (await windowTheme(app!)).source).toBe('system')
     const windowsDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors)
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', windowsDark ? 'dark' : 'light')
@@ -107,8 +116,8 @@ test('the Theme setting switches between Light, Dark, Night Owl and Light Owl wi
     await page.emulateMedia({ colorScheme: null })
 
     // Match Windows with Night Owl for dark: the page follows Windows between Light and Night Owl.
-    await page.getByRole('radiogroup', { name: 'Dark theme' }).getByRole('radio', { name: 'Night Owl', exact: true }).check()
-    await expect(page.getByRole('radiogroup', { name: 'Light theme' }).getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
+    await pickTheme(page, 'When Windows is dark', 'Night Owl')
+    await expect(page.getByRole('combobox', { name: 'When Windows is light', exact: true })).toHaveValue('Light')
     await page.emulateMedia({ colorScheme: 'dark' })
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'night-owl')
     await expect.poll(() => pageGround(page)).toBe(rgb(GROUND['night-owl']))
@@ -119,7 +128,8 @@ test('the Theme setting switches between Light, Dark, Night Owl and Light Owl wi
     await expect.poll(async () => (await windowTheme(app!)).source).toBe('system')
 
     // Night Owl is remembered: the next launch paints the window in its ground before the page loads, and the page starts dark.
-    await theme.getByRole('radio', { name: 'Night Owl', exact: true }).check()
+    await mode.getByText('Single theme', { exact: true }).click()
+    await pickTheme(page, 'Theme', 'Night Owl')
     await expect.poll(async () => (await windowTheme(app!)).source).toBe('dark')
     await app.close()
     app = undefined
@@ -131,9 +141,9 @@ test('the Theme setting switches between Light, Dark, Night Owl and Light Owl wi
     expect(await pageGround(page)).toBe(rgb(GROUND['night-owl']))
     // And so are the Match Windows picks.
     await openSettings(page)
-    await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
-    await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Match Windows' }).check()
-    await expect(page.getByRole('radiogroup', { name: 'Dark theme' }).getByRole('radio', { name: 'Night Owl', exact: true })).toBeChecked()
+    await expect(page.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('Night Owl')
+    await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByText('Match Windows', { exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'When Windows is dark', exact: true })).toHaveValue('Night Owl')
   } finally {
     await app?.close().catch(() => {})
     try {
@@ -160,7 +170,7 @@ test('the Theme is in the Mainbus settings before any workspace, and is the same
     const button = page.getByRole('navigation', { name: 'Workspaces' }).getByRole('button', { name: 'Mainbus settings' })
     await button.click()
     const drawer = page.getByRole('dialog', { name: 'Mainbus settings' })
-    await drawer.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: 'Night Owl', exact: true }).check()
+    await pickTheme(drawer, 'Theme', 'Night Owl')
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'night-owl')
     await expect.poll(() => pageGround(page)).toBe(rgb(GROUND['night-owl']))
     // Esc closes it and gives focus back to the button.
@@ -179,7 +189,7 @@ test('the Theme is in the Mainbus settings before any workspace, and is the same
 
     // Picked with bravo-repo focused, it holds for alpha-repo too.
     await page.keyboard.press('Control+,')
-    await drawer.getByRole('radio', { name: 'Light Owl', exact: true }).check()
+    await pickTheme(drawer, 'Theme', 'Light Owl')
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
     await page.keyboard.press('Escape')
     await expect(drawer).toBeHidden()
@@ -188,7 +198,7 @@ test('the Theme is in the Mainbus settings before any workspace, and is the same
     await expect(page.locator('html')).toHaveAttribute('data-mainbus-theme', 'light-owl')
     expect(await pageGround(page)).toBe(rgb(GROUND['light-owl']))
     await page.keyboard.press('Control+,')
-    await expect(drawer.getByRole('radio', { name: 'Light Owl', exact: true })).toBeChecked()
+    await expect(drawer.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('Light Owl')
     await page.keyboard.press('Escape')
     await expect(drawer).toBeHidden()
 
@@ -198,7 +208,7 @@ test('the Theme is in the Mainbus settings before any workspace, and is the same
     const general = workspaceSettings.getByRole('region', { name: 'General' })
     await expect(general.getByRole('textbox', { name: 'Agents running at once' })).toBeVisible()
     await expect(general.getByRole('radiogroup', { name: 'When I close the window' })).toBeVisible()
-    await expect(workspaceSettings.getByRole('radiogroup', { name: 'Theme', exact: true })).toHaveCount(0)
+    await expect(workspaceSettings.getByRole('combobox', { name: 'Theme', exact: true })).toHaveCount(0)
   } finally {
     await app?.close().catch(() => {})
     try {

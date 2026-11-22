@@ -47,6 +47,7 @@ test('General keeps Agents running at once and When I close the window, and has 
   await vi.waitFor(() => expect(within(general).getByRole('textbox', { name: 'Agents running at once' })).toHaveValue('3'))
   expect(within(general).getByRole('radiogroup', { name: 'When I close the window' })).toBeInTheDocument()
   expect(within(general).getByRole('radio', { name: 'Keep running in the tray while agents work' })).toBeChecked()
+  expect(screen.queryByRole('combobox', { name: 'Theme' })).not.toBeInTheDocument()
   expect(screen.queryByRole('radiogroup', { name: 'Theme' })).not.toBeInTheDocument()
   expect(screen.queryByRole('radio', { name: 'Match Windows' })).not.toBeInTheDocument()
 })
