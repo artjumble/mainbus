@@ -22,8 +22,8 @@
         "site:check": "node scripts/site/checkLinks.mjs && playwright test -c scripts/site/playwright.config.ts site.spec",
         "icons:preview": "node scripts/icons-preview.mjs",
         "icons:build": "node scripts/icons-build.mjs",
-        "build:stable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-stable.ps1",
-        "run:stable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-stable.ps1"
+        "build:stable": "node scripts/stable.mjs build",
+        "run:stable": "node scripts/stable.mjs run"
     },
     "devDependencies": {
         "@huggingface/transformers": "4.3.2",
