@@ -1,4 +1,4 @@
-import { Button, ColorSwatch, Group, Radio, Stack, Text, TextInput } from '@mantine/core'
+import { Button, ColorSwatch, Group, Select, Stack, Text, TextInput } from '@mantine/core'
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { fieldInfo } from '../FieldLabel'
 import {
@@ -45,6 +45,7 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
 
   if (!workspace || !automatic) return null
   const shown = badges.get(workspace.id) ?? automatic
+  const swatchColor = workspace.railColor ?? automatic.color
   const trimmed = text.trim()
   const problem = trimmed === '' ? null : (() => {
     const checked = checkRailLabel(trimmed)
@@ -61,7 +62,7 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
       await useMainbus.getState().refreshWorkspaces()
     } catch (err) {
       if (badge.label !== undefined) setRejected(errorMessage(err))
-      else showError(err, 'Could not save the colour')
+      else showError(err, 'Could not save the color')
     } finally {
       setSaving(false)
     }
@@ -91,30 +92,30 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
           Save label
         </Button>
       </Group>
-      <Radio.Group
-        label="Colour"
+      <Select
+        label="Color"
         value={workspace.railColor ?? AUTOMATIC}
-        onChange={(value) => void save({ color: isRailColor(value) ? value : null })}
-      >
-        <Group gap="md" mt={4}>
-          <Radio value={AUTOMATIC} label={`Automatic (${RAIL_COLOR_NAMES[automatic.color]})`} disabled={saving} />
-          {RAIL_COLORS.map((c) => (
-            <Radio
-              key={c}
-              value={c}
-              disabled={saving}
-              label={
-                <Group gap={6} wrap="nowrap">
-                  <ColorSwatch color={RAIL_TILES[c].deep} size={14} aria-hidden />
-                  <Text span size="sm">
-                    {RAIL_COLOR_NAMES[c]}
-                  </Text>
-                </Group>
-              }
-            />
-          ))}
-        </Group>
-      </Radio.Group>
+        data={[
+          { value: AUTOMATIC, label: `Automatic (${RAIL_COLOR_NAMES[automatic.color]})` },
+          ...RAIL_COLORS.map((c) => ({ value: c, label: RAIL_COLOR_NAMES[c] }))
+        ]}
+        allowDeselect={false}
+        disabled={saving}
+        comboboxProps={{ withinPortal: true }}
+        leftSection={<ColorSwatch color={RAIL_TILES[swatchColor].deep} size={14} aria-hidden />}
+        renderOption={({ option }) => {
+          const c = option.value === AUTOMATIC ? automatic.color : (option.value as RailColor)
+          return (
+            <Group gap={8} wrap="nowrap">
+              <ColorSwatch color={RAIL_TILES[c].deep} size={14} aria-hidden />
+              <Text span size="sm">
+                {option.label}
+              </Text>
+            </Group>
+          )
+        }}
+        onChange={(value) => void save({ color: value !== null && isRailColor(value) ? value : null })}
+      />
     </Stack>
   )
 }

@@ -75,6 +75,6 @@ function outcome(decision: Decision): string {
   if (decision.status === 'answered' && decision.answer?.kind === 'permission') {
     return `✓ Answered: ${PERMISSION_ANSWERS[decision.answer.choice]}`
   }
-  if (decision.status === 'cancelled') return 'Cancelled'
+  if (decision.status === 'cancelled') return 'Canceled'
   return 'Expired — the agent can no longer receive this answer.'
 }

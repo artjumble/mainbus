@@ -147,7 +147,7 @@ describe('Pause, Resume and Skip to next role', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     const dialog = await screen.findByRole('dialog', { name: 'Skip to next role' })
-    expect(within(dialog).getByText('Skip the Planner? Its work so far is summarised for the Implementer.')).toBeInTheDocument()
+    expect(within(dialog).getByText('Skip the Planner? Its work so far is summarized for the Implementer.')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(mockInvoke).not.toHaveBeenCalledWith('agent.skip', ticket.id)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -163,7 +163,7 @@ describe('Pause, Resume and Skip to next role', () => {
     renderWithMantine(<TicketView />)
     await userEvent.click(screen.getByRole('button', { name: /^Skip to / }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Skip the Reviewer? Its work so far is summarised and the ticket goes to Review.')).toBeInTheDocument()
+    expect(within(dialog).getByText('Skip the Reviewer? Its work so far is summarized and the ticket goes to Review.')).toBeInTheDocument()
   })
 
   test('a refused skip is reported and the dialog stays open', async () => {

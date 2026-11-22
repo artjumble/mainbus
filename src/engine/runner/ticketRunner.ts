@@ -2505,7 +2505,7 @@ export class TicketRunner {
     const a = await answer
     if (a === null || a.kind !== 'permission') {
       await this.expireIfPending(decision.id, target.workspaceId)
-      return { allow: false, message: 'The permission request was cancelled' }
+      return { allow: false, message: 'The permission request was canceled' }
     }
     if (a.choice === 'deny') return { allow: false, message: 'Denied by the user' + (a.note ? `: ${a.note}` : '') }
     if (a.choice === 'always_allow' && decision.allowAlways) {

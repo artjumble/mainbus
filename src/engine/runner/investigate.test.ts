@@ -175,7 +175,7 @@ describe('Investigate tickets', () => {
       expect(written).toBe(
         [
           '> **Investigation #2:** Why is login slow',
-          `> **Date:** ${date} · **Status:** report, recommends but doesn't authorise changes`,
+          `> **Date:** ${date} · **Status:** report, recommends but doesn't authorize changes`,
           "> **The question (the user's words):** Look into it",
           '> ',
           '> And check the cache too',

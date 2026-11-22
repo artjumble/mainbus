@@ -66,7 +66,7 @@ describe('the report file', () => {
     expect(reportFileText(ticket, report, '2026-11-06')).toBe(
       [
         '> **Investigation #73:** Why is login slow?',
-        "> **Date:** 2026-11-06 · **Status:** report, recommends but doesn't authorise changes",
+        "> **Date:** 2026-11-06 · **Status:** report, recommends but doesn't authorize changes",
         "> **The question (the user's words):** Find out why login is slow.",
         '> It takes ages.',
         '> ',

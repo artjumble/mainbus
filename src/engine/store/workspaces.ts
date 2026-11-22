@@ -223,7 +223,7 @@ export function createWorkspaceRepo(db: Db, now: () => Date): WorkspaceRepo {
         set.railLabel = checked.label
       }
       if (badge.color !== undefined) {
-        if (badge.color !== null && !isRailColor(badge.color)) throw new Error(`Unknown colour: ${String(badge.color)}`)
+        if (badge.color !== null && !isRailColor(badge.color)) throw new Error(`Unknown color: ${String(badge.color)}`)
         set.railColor = badge.color
       }
       if (Object.keys(set).length > 0) await db.update(workspaces).set(set).where(eq(workspaces.id, id))

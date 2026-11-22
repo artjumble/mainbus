@@ -39,7 +39,7 @@ function proposal(kind: ProposalKindName, over: Partial<Proposal> = {}): Proposa
 test.each([
   ['pause', 'Pause the Reviewer on #3 Add login', 'The Reviewer pauses; Resume continues it.'],
   ['stop', 'Stop #3 Add login', 'The run stops and the ticket goes back to Ready.'],
-  ['skip', 'Skip the Reviewer on #3 Add login', "The Reviewer's work so far is summarised for the next role (the Implementer)."]
+  ['skip', 'Skip the Reviewer on #3 Add login', "The Reviewer's work so far is summarized for the next role (the Implementer)."]
 ] as const)('%s shows the ticket, role, reason and consequence, and offers no Override', (kind, summary, consequence) => {
   renderWithMantine(<ProposalCard proposal={proposal(kind)} />)
   const card = screen.getByRole('group', { name: `Proposal: ${summary}` })
@@ -55,7 +55,7 @@ test.each([
 
 test('skipping the last role says the ticket goes to Review', () => {
   renderWithMantine(<ProposalCard proposal={proposal('skip', { payload: { ...PAYLOAD, next: null } })} />)
-  expect(screen.getByText("The Reviewer's work so far is summarised and the ticket goes to Review.")).toBeInTheDocument()
+  expect(screen.getByText("The Reviewer's work so far is summarized and the ticket goes to Review.")).toBeInTheDocument()
 })
 
 test('Confirm confirms with no override', async () => {

@@ -4,6 +4,8 @@ This file is for agents working in this repository: Mainbus's own roles and anyo
 
 **Package manager:** this repo uses **pnpm**. Use `pnpm` and `pnpm exec`, never `npm` or `npx`: they would create a `package-lock.json` and install outside pnpm's lockfile. Install with `pnpm install --frozen-lockfile`.
 
+User-visible text uses US English spelling.
+
 ## Commands
 
 - Install: `pnpm install --frozen-lockfile`

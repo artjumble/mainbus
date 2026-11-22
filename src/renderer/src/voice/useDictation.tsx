@@ -76,7 +76,7 @@ export function useDictation({
     recording.current?.cancel()
     finish()
     send({ type: 'cancel' })
-    setAnnouncement('Dictation cancelled.')
+    setAnnouncement('Dictation canceled.')
   }
 
   async function start(): Promise<void> {

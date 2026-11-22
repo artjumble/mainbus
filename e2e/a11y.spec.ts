@@ -236,7 +236,7 @@ test(`every screen passes axe, with colour contrast, and every control has a 44 
     // dnd-kit starts listening for the next key a moment after it announces the pick-up.
     await keyboardDragReady(page)
     await page.keyboard.press('Escape')
-    await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('cancelled')
+    await expect(page.locator('[id^="DndLiveRegion"]')).toContainText('canceled')
     // A card being dragged is drawn faded; contrast is measured once it is dropped back.
     await expect(page.getByRole('button', { name: 'Move ticket #2' })).not.toHaveAttribute('aria-pressed', 'true')
     await animationsSettled(page)

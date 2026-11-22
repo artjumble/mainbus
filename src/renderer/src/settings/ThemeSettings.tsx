@@ -116,7 +116,7 @@ export function ThemeSettings({ opened }: { opened: boolean }): ReactElement {
         </Stack>
       )}
       <Text size="xs" c="dimmed">
-        Night Owl and Light Owl theme colours by Sarah Drasner (MIT).
+        Night Owl and Light Owl theme colors by Sarah Drasner (MIT).
       </Text>
     </>
   )

@@ -15,8 +15,8 @@ function consequence(control: Control, p: RoleControlPayload): string {
       return 'The run stops and the ticket goes back to Ready.'
     case 'skip':
       return p.next
-        ? `The ${p.role}'s work so far is summarised for the next role (the ${p.next}).`
-        : `The ${p.role}'s work so far is summarised and the ticket goes to Review.`
+        ? `The ${p.role}'s work so far is summarized for the next role (the ${p.next}).`
+        : `The ${p.role}'s work so far is summarized and the ticket goes to Review.`
   }
 }
 
