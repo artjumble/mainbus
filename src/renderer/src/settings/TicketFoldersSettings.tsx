@@ -1,5 +1,6 @@
 import { Button, Group, Stack, Text, TextInput } from '@mantine/core'
 import { useEffect, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import { invoke, openFolder } from '../api'
 import { errorMessage } from '../notify'
 
@@ -61,8 +62,7 @@ export function TicketFoldersSettings({ opened }: { opened: boolean }): ReactEle
   return (
     <Stack gap="xs">
       <TextInput
-        label="Ticket folders location"
-        description={HELP}
+        {...fieldInfo('Ticket folders location', HELP)}
         placeholder="The data home (default)"
         value={text}
         disabled={!loaded}

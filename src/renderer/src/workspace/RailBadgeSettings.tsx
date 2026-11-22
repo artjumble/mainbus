@@ -1,5 +1,6 @@
 import { Button, ColorSwatch, Group, Radio, Stack, Text, TextInput } from '@mantine/core'
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { fieldInfo } from '../FieldLabel'
 import {
   checkRailLabel,
   isRailColor,
@@ -71,8 +72,7 @@ export function RailBadgeSettings({ opened }: { opened: boolean }): ReactElement
       <Group align="flex-start" gap="sm" wrap="nowrap">
         <RailTile label={shown.label} color={shown.color} />
         <TextInput
-          label="Short label"
-          description={`1 to 3 characters; emoji work too. Leave it empty to use the automatic label, ${automatic.label}.`}
+          {...fieldInfo("Short label", `1 to 3 characters; emoji work too. Leave it empty to use the automatic label, ${automatic.label}.`)}
           placeholder={automatic.label}
           value={text}
           onChange={(e) => {

@@ -16,6 +16,7 @@ const SERIAL_SPECS = [
   '**/workspaceRailExpand.spec.ts', // rail hover and focus expansion
   '**/keyboard.spec.ts', // focus rings and Tab order
   '**/needsYouColumn.spec.ts', // Done hover, and widths sampled frame by frame
+  '**/fieldLabels.spec.ts', // hover and focus tooltips
   '**/a11y.spec.ts', // rail hover, focus and animation timing
   '**/artboards.spec.ts', // hover, and animation timing before screenshots
   '**/updateFromMain.spec.ts' // hovers Done, and waits on a git freshness probe that is slow under load
