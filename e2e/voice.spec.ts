@@ -67,7 +67,7 @@ test('dictating into the orchestrator box puts the text in the box and sends not
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
 
     await box.fill('Hello')
-    await box.press('Control+Shift+Space')
+    await box.press('ControlOrMeta+Shift+Space')
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
     await expect(panel.getByText(/^\d+:\d\d$/)).toBeVisible()
     // The fake microphone's tone is heard: the recording is not silence.
@@ -80,7 +80,7 @@ test('dictating into the orchestrator box puts the text in the box and sends not
     await expect(panel.getByText("Ask me to draft tickets, or about what's happening on the board.")).toBeVisible()
 
     // Esc cancels and leaves the text as it was.
-    await box.press('Control+Shift+Space')
+    await box.press('ControlOrMeta+Shift+Space')
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
     await box.press('Escape')
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
@@ -105,13 +105,13 @@ test('New ticket has the mic in "In your words" and "Spec", Esc while recording 
     await expect(dialog.getByRole('button', { name: 'Dictate' })).toHaveCount(2)
 
     const words = dialog.getByRole('textbox', { name: 'In your words' })
-    await words.press('Control+Shift+Space')
+    await words.press('ControlOrMeta+Shift+Space')
     await expect(dialog.getByRole('button', { name: 'Dictate' }).first()).toHaveAttribute('aria-pressed', 'true')
     await words.press('Escape')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('button', { name: 'Dictate' }).first()).toHaveAttribute('aria-pressed', 'false')
 
-    await words.press('Control+Shift+Space')
+    await words.press('ControlOrMeta+Shift+Space')
     await hearsTone(page)
     await words.press('Enter')
     await expect(words).toHaveValue('This was dictated.')
