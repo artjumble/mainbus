@@ -1,6 +1,7 @@
 # Type check and unit tests on Windows, macOS and Linux for every pull request.
 #
-# All three platforms must pass. Test results are uploaded as artifacts for each.
+# All three platforms must pass the unit tests and the Linux end-to-end tests; the macOS end-to-end job is
+# non-blocking. Test results are uploaded as artifacts for each.
 name: CI
 
 on:
@@ -88,6 +89,36 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-test-results-Linux
+          path: test-results/
+          if-no-files-found: warn
+
+  # The end-to-end tests on macOS. Non-blocking while the macOS port is young: a failure here doesn't fail the
+  # workflow. macOS runners have a window server, so there is no virtual display or window manager to set up.
+  e2e-macos:
+    name: E2E (macOS)
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # The runner's screen size limits how large the app window can be, so the log shows it.
+      - name: Show the display size
+        continue-on-error: true
+        run: pnpm exec electron e2e/displaySize.cjs || true
+      - name: End-to-end tests
+        run: pnpm exec playwright test --retries=1
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results-macOS
           path: test-results/
           if-no-files-found: warn
 
