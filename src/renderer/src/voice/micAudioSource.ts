@@ -3,12 +3,14 @@ import { VoiceError, type AudioSource, type Recording } from './types'
 const SAMPLE_RATE = 16000
 
 /** The message for each way the microphone can fail; what the field shows. */
-export function microphoneError(err: unknown): VoiceError {
+export function microphoneError(err: unknown, isMac: boolean = /Mac/i.test(navigator.userAgent)): VoiceError {
   const name = err instanceof Error || err instanceof DOMException ? err.name : ''
   if (name === 'NotAllowedError' || name === 'SecurityError') {
     return new VoiceError(
       'denied',
-      "Mainbus can't use the microphone. In Windows Settings → Privacy & security → Microphone, let desktop apps use it."
+      isMac
+        ? "Mainbus can't use the microphone. In System Settings › Privacy & Security › Microphone, turn on Mainbus."
+        : "Mainbus can't use the microphone. In Windows Settings → Privacy & security → Microphone, let desktop apps use it."
     )
   }
   if (name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'DevicesNotFoundError') {

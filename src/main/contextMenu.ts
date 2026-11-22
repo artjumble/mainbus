@@ -71,8 +71,12 @@ export function attachContextMenu(contents: WebContents, session: Session, onTem
   })
 }
 
-/** Sets the spellchecker's language from the system locale when Chromium has picked none. */
-export function ensureSpellCheckLanguages(session: Session, locale: string): void {
+/**
+ * Sets the spellchecker's language from the system locale when Chromium has picked none. On macOS the OS spellchecker
+ * is used and the language list is not applicable, so nothing is set.
+ */
+export function ensureSpellCheckLanguages(session: Session, locale: string, platform: NodeJS.Platform = process.platform): void {
+  if (platform === 'darwin') return
   const languages = spellCheckLanguages(session.getSpellCheckerLanguages(), session.availableSpellCheckerLanguages, locale)
   if (languages) session.setSpellCheckerLanguages(languages)
 }
