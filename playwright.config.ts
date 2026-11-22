@@ -3,8 +3,9 @@ import { installLaunchRetry } from './e2e/launchRetry'
 
 // macOS's temp folder (/var/folders/xx/<30 characters>/T/) is about 50 bytes, and a Unix socket path is limited to 104
 // bytes there. The specs put the agent endpoint's socket inside a temp folder, so use a short one. This file loads in
-// the runner and in every worker, and the app inherits the environment.
-if (process.platform === 'darwin') process.env.TMPDIR = '/tmp'
+// the runner and in every worker, and the app inherits the environment. It is /private/tmp, not its symlink /tmp: the
+// app and the CLI resolve real paths, and the specs compare them with the folders they created.
+if (process.platform === 'darwin') process.env.TMPDIR = '/private/tmp'
 
 // One retry of a failed Electron launch ("Process failed to launch!") for every spec; see e2e/launchRetry.ts.
 installLaunchRetry()
