@@ -121,13 +121,28 @@ export function WorkspaceRail(): ReactElement {
     const focusIn = (e: FocusEvent): void =>
       setKeyboardFocused(e.target instanceof Element && isKeyboardFocus(e.target))
     const focusOut = (e: FocusEvent): void => {
-      if (!(e.relatedTarget instanceof Node && nav.contains(e.relatedTarget))) setKeyboardFocused(false)
+      if (e.relatedTarget instanceof Node && nav.contains(e.relatedTarget)) return
+      if (e.relatedTarget === null) {
+        // Focus went nowhere (the body, after a re-render or a switch): settle first, since it may be about to land
+        // on another control in the rail.
+        setTimeout(() => {
+          if (!nav.contains(document.activeElement)) setKeyboardFocused(false)
+        }, 0)
+        return
+      }
+      setKeyboardFocused(false)
     }
+    // Focus landing anywhere outside the rail also ends it, whatever focusout reported.
+    const docFocusIn = (e: FocusEvent): void => {
+      if (!(e.target instanceof Node && nav.contains(e.target))) setKeyboardFocused(false)
+    }
+    document.addEventListener('focusin', docFocusIn)
     nav.addEventListener('pointerenter', enter)
     nav.addEventListener('pointerleave', leave)
     nav.addEventListener('focusin', focusIn)
     nav.addEventListener('focusout', focusOut)
     return () => {
+      document.removeEventListener('focusin', docFocusIn)
       nav.removeEventListener('pointerenter', enter)
       nav.removeEventListener('pointerleave', leave)
       nav.removeEventListener('focusin', focusIn)
