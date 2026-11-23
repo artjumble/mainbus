@@ -44,8 +44,8 @@ test('dragging the ticket view handle widens the left column; the width survives
       (globalThis as unknown as { mainbus: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).mainbus.invoke('ticket.create', {
         title: 'Resizable ticket',
         intent: 'Make the column wider',
-        spec: 'A spec to edit.',
-        criteria: ['It widens'],
+        spec: Array.from({ length: 120 }, (_, i) => `Spec line ${i}`).join('\n'),
+        criteria: Array.from({ length: 30 }, (_, i) => `Criterion ${i}`),
         labels: [],
         column: 'backlog'
       })
@@ -55,6 +55,24 @@ test('dragging the ticket view handle widens the left column; the width survives
     await expect(separator).toHaveAttribute('aria-valuenow', '380')
     const details = page.locator('#ticket-details')
     expect((await details.boundingBox())!.width).toBeCloseTo(380, 0)
+
+    // The left column's scrollbar stays clickable: points on it hit the column, not the handle.
+    const hits = await page.evaluate(() => {
+      const pane = document.querySelector('#ticket-details') as HTMLElement
+      const r = pane.getBoundingClientRect()
+      const scrollbar = pane.offsetWidth - pane.clientWidth
+      const y = r.top + r.height / 2
+      return {
+        scrollbar,
+        scrollable: pane.scrollHeight > pane.clientHeight,
+        onScrollbar: [2, scrollbar / 2, scrollbar - 2].map((dx) => {
+          const el = document.elementFromPoint(r.right - 1 - dx, y)
+          return el?.getAttribute('role') === 'separator' ? 'separator' : pane.contains(el) ? 'pane' : 'other'
+        })
+      }
+    })
+    expect(hits.scrollable).toBe(true)
+    expect(hits.onScrollbar.every((h) => h === 'pane')).toBe(true)
 
     const box = (await separator.boundingBox())!
     expect(box.width).toBeGreaterThanOrEqual(44)

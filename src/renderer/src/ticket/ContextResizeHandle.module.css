@@ -1,10 +1,9 @@
-/* A 44px pointer target centered on the column's right edge. */
+/* A 44px pointer target that starts at the column's right edge and extends into the conversation, so the column's scrollbar stays clickable. */
 .handle {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 44px;
-  margin-left: -22px;
   z-index: 10;
   cursor: col-resize;
   touch-action: none;
@@ -15,7 +14,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 21px;
+  left: 0;
   width: 1px;
   background: transparent;
 }
@@ -23,7 +22,7 @@
 .handle:hover::before,
 .handle:focus-visible::before,
 .handle[data-dragging]::before {
-  left: 20px;
+  left: 0;
   width: 3px;
   background: var(--mantine-primary-color-filled);
 }
