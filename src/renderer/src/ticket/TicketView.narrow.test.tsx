@@ -44,6 +44,38 @@ test('wide: the side pane is inline and there is no Details button', async () =>
   }
 })
 
+test('wide: the handle resizes the side pane and the width is remembered', async () => {
+  localStorage.clear()
+  const restore = layoutWidth(1000)
+  try {
+    const user = userEvent.setup()
+    renderWithMantine(<TicketView />)
+    const handle = await screen.findByRole('separator', { name: 'Resize ticket details' })
+    expect(handle).toHaveAttribute('aria-valuenow', '380')
+    expect(handle).toHaveAttribute('aria-valuemax', '640')
+    handle.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(handle).toHaveAttribute('aria-valuenow', '396')
+    expect(localStorage.getItem('mainbus.ticketContextWidth')).toBe('396')
+    await user.keyboard('{End}')
+    expect(handle).toHaveAttribute('aria-valuenow', '640')
+  } finally {
+    restore()
+    localStorage.clear()
+  }
+})
+
+test('narrow: there is no handle', async () => {
+  const restore = layoutWidth(700)
+  try {
+    renderWithMantine(<TicketView />)
+    await screen.findByRole('button', { name: 'Details' })
+    expect(screen.queryByRole('separator', { name: 'Resize ticket details' })).not.toBeInTheDocument()
+  } finally {
+    restore()
+  }
+})
+
 test('narrow: the side pane is behind Details, and Escape closes it', async () => {
   const restore = layoutWidth(700)
   try {
