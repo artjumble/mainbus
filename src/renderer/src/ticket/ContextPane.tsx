@@ -472,6 +472,9 @@ function activityEntries(events: StoredEvent[], decisions: Decision[], go: Go, {
         : { at: note.at, title: `Started while blocked by ${numbers} (${note.via === 'proposal' ? 'you confirmed the start anyway' : 'you chose to start anyway'})` }
     )
   }
+  for (const change of ticket.ownerChanges) {
+    entries.push({ at: change.at, title: change.owner === 'human' ? 'Marked as yours' : 'Handed to agents' })
+  }
   for (const d of decisions) {
     if (d.status !== 'answered' || !d.answeredAt || !d.answer) continue
     if (d.answer.kind === 'message') {

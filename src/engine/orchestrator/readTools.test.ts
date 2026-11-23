@@ -54,7 +54,7 @@ async function singleView(w: Workspace, number: number): Promise<BoardTicket | n
 
 function boardTicket(t: Ticket): BoardTicket {
   const view = views.get(t.id)
-  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [], runSettingsNotices: [], edits: [], blockedBy: [], dependencyNotes: [], freshness: freshness.get(t.id) ?? null, promotion: { from: null, to: null } }
+  return { ...t, state: { ...STATE, ...view?.state }, lineup: view?.lineup ?? [], skipTo: null, pendingDecisions: [], deferredDecisions: [], hold: holds.get(t.id) ?? null, stuck: null, attachments: [], runSettingsNotices: [], edits: [], blockedBy: [], dependencyNotes: [], ownerChanges: [], freshness: freshness.get(t.id) ?? null, promotion: { from: null, to: null } }
 }
 
 beforeEach(async () => {

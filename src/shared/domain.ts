@@ -425,6 +425,14 @@ export interface Criterion {
   checked: boolean
 }
 
+export type TicketOwner = 'agent' | 'human'
+
+/** A change of a ticket's owner, for its Activity. */
+export interface OwnerChange {
+  at: string
+  owner: TicketOwner
+}
+
 export interface Ticket {
   id: string
   workspaceId: string
@@ -459,6 +467,8 @@ export interface Ticket {
   promotedFrom: string | null
   /** The run settings the user saved for the ticket's starts; null means the lineup's defaults. */
   runSettings: RunSettings | null
+  /** Who works on it: 'agent' (the default), or 'human' when it is the user's own: no agent starts on it. See agentsMayAct. */
+  owner: TicketOwner
   /** The workspace's setup command in this ticket's folder; null when none applies. */
   setup: TicketSetup | null
   /** When it last entered Done; null outside Done. Backfilled ones are approximate. */

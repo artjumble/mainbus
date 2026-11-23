@@ -29,6 +29,7 @@ function ticket(overrides: Partial<Ticket> = {}): Ticket {
     reportFileError: null,
     promotedFrom: null,
     runSettings: null,
+    owner: 'agent',
     setup: null,
     doneAt: null,
     archivedAt: null,

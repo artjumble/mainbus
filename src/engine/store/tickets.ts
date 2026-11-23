@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import type { Criterion, IntentEntry, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketRef, TicketPatch, TicketSetup } from '../../shared/domain'
+import type { Criterion, IntentEntry, OwnerChange, TicketOwner, NewTicketInput, PullRequest, RunSettings, Ticket, TicketKind, TicketRef, TicketPatch, TicketSetup } from '../../shared/domain'
 import type { Db } from '../db/open'
-import { criteria, tickets } from '../db/schema'
+import { criteria, ticketOwnerChanges, tickets } from '../db/schema'
 
 export interface TicketRepo {
   create(input: NewTicketInput): Promise<Ticket>
@@ -59,6 +59,10 @@ export interface TicketRepo {
   setPrError(id: string, error: string | null): Promise<Ticket>
   /** Saves the ticket's run settings, already checked; null clears them, back to the lineup's defaults. */
   setRunSettings(id: string, settings: RunSettings | null): Promise<Ticket>
+  /** Sets who owns the ticket and records the change for its Activity, in one batch. Run settings are untouched. Callers check the rules. */
+  setOwner(id: string, owner: TicketOwner): Promise<Ticket>
+  /** The owner changes of these tickets, oldest first, by ticket id (tickets with none are absent). */
+  ownerChangesFor(ids: string[]): Promise<Map<string, OwnerChange[]>>
   /**
    * Promotes an Investigate ticket: inserts a Change ticket in Ready carrying the original's intent exactly (every
    * entry, with its timestamp and source), its labels and its report, with `promotedFrom` set. Moving the original
@@ -110,6 +114,7 @@ function toTicket(row: TicketRow, ticketCriteria: Criterion[]): Ticket {
     reportFileError: row.reportFileError,
     promotedFrom: row.promotedFrom,
     runSettings: row.runSettings === null ? null : (JSON.parse(row.runSettings) as RunSettings),
+    owner: row.owner === 'human' ? 'human' : 'agent',
     setup: row.setup === null ? null : (JSON.parse(row.setup) as TicketSetup),
     doneAt: row.doneAt,
     archivedAt: row.archivedAt,
@@ -470,6 +475,29 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
     async setRunSettings(id, settings) {
       await patchRow(id, { runSettings: settings === null ? null : JSON.stringify(settings) })
       return get(id)
+    },
+
+    async setOwner(id, owner) {
+      const [row] = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id))
+      if (!row) throw new Error(`Ticket not found: ${id}`)
+      const at = now().toISOString()
+      await db.batch([
+        db.update(tickets).set({ owner, updatedAt: at }).where(eq(tickets.id, id)),
+        db.insert(ticketOwnerChanges).values({ id: randomUUID(), ticketId: id, owner, at })
+      ])
+      return get(id)
+    },
+
+    async ownerChangesFor(ids) {
+      const out = new Map<string, OwnerChange[]>()
+      if (ids.length === 0) return out
+      const rows = await db
+        .select()
+        .from(ticketOwnerChanges)
+        .where(inArray(ticketOwnerChanges.ticketId, ids))
+        .orderBy(asc(ticketOwnerChanges.at), asc(ticketOwnerChanges.id))
+      for (const r of rows) out.set(r.ticketId, [...(out.get(r.ticketId) ?? []), { at: r.at, owner: r.owner }])
+      return out
     },
 
     async setSetup(id, setup) {
