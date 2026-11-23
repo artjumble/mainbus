@@ -427,6 +427,28 @@ describe('collapsed and expanded', () => {
     expect(screen.getByRole('button', { name: 'Options for alpha-repo' })).toHaveFocus()
   })
 
+  test('closes when focus leaves to the page, to nowhere, or when a focused control is removed', async () => {
+    engine()
+    renderWithMantine(
+      <>
+        <WorkspaceRail />
+        <button>outside</button>
+      </>
+    )
+    // To a control outside the nav.
+    await userEvent.tab()
+    expect(navOf()).toHaveAttribute('data-expanded', 'true')
+    act(() => screen.getByRole('button', { name: 'outside' }).focus())
+    await vi.waitFor(() => expect(navOf()).toHaveAttribute('data-expanded', 'false'))
+
+    // To nowhere (relatedTarget null).
+    await userEvent.tab()
+    await userEvent.tab()
+    expect(navOf()).toHaveAttribute('data-expanded', 'true')
+    act(() => (document.activeElement as HTMLElement).blur())
+    await vi.waitFor(() => expect(navOf()).toHaveAttribute('data-expanded', 'false'))
+  })
+
   test('a mouse click leaves it to collapse once the pointer is gone', async () => {
     engine()
     renderWithMantine(<WorkspaceRail />)
