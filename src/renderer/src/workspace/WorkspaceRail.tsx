@@ -132,8 +132,7 @@ export function WorkspaceRail(): ReactElement {
       }
       setKeyboardFocused(false)
     }
-    // Focus landing anywhere outside the rail also ends it, whatever focusout reported (a focused control that was
-    // removed fires none).
+    // Focus landing anywhere outside the rail also ends it, whatever focusout reported.
     const docFocusIn = (e: FocusEvent): void => {
       if (!(e.target instanceof Node && nav.contains(e.target))) setKeyboardFocused(false)
     }
