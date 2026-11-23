@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
-import classes from './PanelResizeHandle.module.css'
+import classes from '../ResizeHandle.module.css'
 import { DEFAULT_PANEL_WIDTH, MIN_PANEL_WIDTH } from './panelState'
 
 interface Props {

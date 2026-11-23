@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectNoAxeViolations, renderWithMantine } from '../test-utils'
@@ -66,4 +68,9 @@ test('arrows step 16, Shift 64, Home and End go to the limits', async () => {
 test('has no axe violations', async () => {
   const { handle } = setup()
   await expectNoAxeViolations(handle.parentElement as HTMLElement)
+})
+
+test('is a 44px gutter, not a thin strip', () => {
+  const css = readFileSync(resolve(__dirname, '../ResizeHandle.module.css'), 'utf8')
+  expect(css).toMatch(/\.handle\s*\{[^}]*width:\s*44px/)
 })

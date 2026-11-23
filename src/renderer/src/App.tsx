@@ -140,7 +140,8 @@ export function App(): ReactElement {
         <AppSettings opened={appSettingsOpen} onClose={closeAppSettings} />
       </AppShell.Main>
       {withPanel && (
-        <AppShell.Aside aria-label="Orchestrator">
+        <AppShell.Aside aria-label="Orchestrator" style={{ display: 'flex', flexDirection: 'row' }}>
+          {/* A 44px gutter inside the aside, like the ticket view's: it covers neither the board's scrollbar nor the panel's controls. */}
           {panelOpen && (
             <PanelResizeHandle
               width={shownWidth}
@@ -149,7 +150,9 @@ export function App(): ReactElement {
               onDraggingChange={setResizing}
             />
           )}
-          <OrchestratorPanel open={panelOpen} onOpenChange={onPanelOpenChange} />
+          <div style={{ flex: 1, minWidth: 0, height: '100%' }}>
+            <OrchestratorPanel open={panelOpen} onOpenChange={onPanelOpenChange} />
+          </div>
         </AppShell.Aside>
       )}
     </AppShell>

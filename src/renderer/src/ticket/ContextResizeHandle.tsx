@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
-import classes from './ContextResizeHandle.module.css'
+import classes from '../ResizeHandle.module.css'
 import { DEFAULT_CONTEXT_WIDTH, MIN_CONTEXT_WIDTH } from './contextWidth'
 
 interface Props {
