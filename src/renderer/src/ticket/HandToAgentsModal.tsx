@@ -9,16 +9,19 @@ export function HandToAgentsModal({
   number,
   opened,
   onClose,
-  onConfirm
+  onConfirm,
+  returnFocus = true
 }: {
   number: number
   opened: boolean
   onClose: () => void
   onConfirm: () => Promise<boolean>
+  /** False when the control that opened it is gone by the time it closes. */
+  returnFocus?: boolean
 }): ReactElement {
   const [handing, setHanding] = useState(false)
   return (
-    <Modal opened={opened} onClose={onClose} title={`Hand #${number} to agents?`} returnFocus={false}>
+    <Modal opened={opened} onClose={onClose} title={`Hand #${number} to agents?`} returnFocus={returnFocus}>
       <Stack gap="md">
         <Text size="sm">{HAND_TO_AGENTS_EFFECT}</Text>
         <Group justify="flex-end" gap="sm">

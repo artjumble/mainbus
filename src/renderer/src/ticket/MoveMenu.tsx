@@ -117,7 +117,7 @@ export function MoveMenu({ ticket, openRun, disabled }: Props): ReactElement {
           )}
         </Menu.Dropdown>
       </Menu>
-      <HandToAgentsModal number={ticket.number} opened={handing} onClose={() => setHanding(false)} onConfirm={() => setOwner('agent')} />
+      <HandToAgentsModal number={ticket.number} opened={handing} onClose={() => setHanding(false)} onConfirm={() => setOwner('agent')} returnFocus={false} />
       <Modal opened={asking !== null && openRun !== null} onClose={close} title={`Move to ${target}`} returnFocus={false}>
         <Stack gap="md">
           <Text size="sm">

@@ -63,15 +63,18 @@ test("the New ticket dialog's radios and Ready checkbox sit level with their lab
         return { input: input.getBoundingClientRect(), label: input.labels![0].getBoundingClientRect() }
       })
     const centre = (r: DOMRect): number => r.y + r.height / 2
-    for (const name of ['Change', 'Investigate', "Ask the orchestrator to start an agent once it's in Ready"]) {
+    for (const name of ['Agents', 'Me', 'Change', 'Investigate', "Ask the orchestrator to start an agent once it's in Ready"]) {
       const { input, label } = await rects(name)
       expect(Math.abs(centre(input) - centre(label)), name).toBeLessThan(2)
     }
-    const tops = await dialog.evaluate((el) =>
-      Array.from(el.querySelectorAll<HTMLInputElement>('input[type=radio]')).map((r) => r.getBoundingClientRect().y)
-    )
-    expect(tops).toHaveLength(2)
-    expect(Math.abs(tops[0] - tops[1])).toBeLessThan(1)
+    // Each radio group (Owner, Kind) has two radios, level with each other.
+    for (const group of ['Owner', 'Kind']) {
+      const tops = await dialog
+        .getByRole('radiogroup', { name: group })
+        .evaluate((el) => Array.from(el.querySelectorAll<HTMLInputElement>('input[type=radio]')).map((r) => r.getBoundingClientRect().y))
+      expect(tops, group).toHaveLength(2)
+      expect(Math.abs(tops[0] - tops[1]), group).toBeLessThan(1)
+    }
   } finally {
     await app?.close().catch(() => {})
     try {
