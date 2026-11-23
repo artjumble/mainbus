@@ -78,3 +78,43 @@ describe('the ticket view move', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
+
+describe('the Owner items of the move menu', () => {
+  const setOwners = (): unknown[][] => mockInvoke.mock.calls.filter(([c]) => c === 'ticket.setOwner')
+
+  test('Mine marks an agents ticket as yours; Hand to agents is not offered', async () => {
+    const ticket = show({ column: 'backlog', phase: 'not_started', agentStatus: null })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Move to…' }))
+    expect(screen.queryByRole('menuitem', { name: 'Hand to agents' })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Mine' }))
+    await waitFor(() => expect(setOwners()).toEqual([['ticket.setOwner', ticket.id, 'human']]))
+  })
+
+  test('Hand to agents asks first, then hands the ticket over', async () => {
+    const ticket = makeTicket({ title: 'Check on a Mac', number: 7, owner: 'human' }, { column: 'backlog', phase: 'not_started', agentStatus: null })
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Move to…' }))
+    expect(screen.queryByRole('menuitem', { name: 'Mine' })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Hand to agents' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Hand #7 to agents?' })
+    expect(setOwners()).toEqual([])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hand to agents' }))
+    await waitFor(() => expect(setOwners()).toEqual([['ticket.setOwner', ticket.id, 'agent']]))
+  })
+
+  test("a refusal shows the engine's message", async () => {
+    show({ column: 'backlog', phase: 'not_started', agentStatus: null })
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'ticket.setOwner') throw new Error('#1 has a run open; stop it before changing who owns it')
+      if (command === 'thread.get') return { events: [], decisions: [], runs: [] }
+      if (command === 'board.get') return { tickets: useMainbus.getState().tickets }
+      return undefined
+    })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Move to…' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Mine' }))
+    expect(await screen.findByText(/has a run open; stop it before changing who owns it/)).toBeInTheDocument()
+  })
+})

@@ -177,7 +177,7 @@ export type ThreadEvent =
   /** The orchestrator proposed something here; the panel shows the proposal's card in its place. */
   | { kind: 'proposal'; proposalId: string; from?: 'drag' | 'button' }
   /** The orchestrator created these tickets directly in the workspace's Backlog, at the user's request; the panel shows a receipt. `context`: it added its summary of the conversation to each ticket. `images`: how many of the user's images it attached, in all. */
-  | { kind: 'tickets_created'; workspaceId: string; workspace: string; tickets: { id: string; number: number; title: string }[]; context?: true; images?: number }
+  | { kind: 'tickets_created'; workspaceId: string; workspace: string; tickets: { id: string; number: number; title: string; owner?: 'human' }[]; context?: true; images?: number }
   /** The orchestrator edited this ticket directly, at the user's request; the panel shows a receipt (the edit, by id) with Undo. */
   | { kind: 'ticket_edited'; editId: string; workspaceId: string; workspace: string; ticket: { id: string; number: number; title: string } }
 

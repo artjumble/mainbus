@@ -22,6 +22,7 @@ function ctx(over: { open?: Workspace | null; ticket?: Ticket | null; why?: stri
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => new Date(),
+    setOwner: async () => ({}) as never,
     holdTicket: async () => {
       throw new Error('not expected')
     },

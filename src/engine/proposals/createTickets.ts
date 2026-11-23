@@ -24,7 +24,12 @@ const draftSchema = z.strictObject({
   images: z.array(z.string()).max(ATTACHMENTS_PER_TICKET, `must have at most ${ATTACHMENTS_PER_TICKET} images`).optional(),
   blocked_by: z.array(z.union([z.number().int().positive(), z.strictObject({ draft: z.number().int().min(0) })])).max(MAX_DRAFTS).optional(),
   // By name; resolved to the preset's run settings, which the ticket then keeps as its own.
-  preset: z.string().trim().min(1).max(PRESET_NAME_MAX).optional()
+  preset: z.string().trim().min(1).max(PRESET_NAME_MAX).optional(),
+  // 'human': the user's own task. 'agent' is the default, so it is dropped: a draft keeps only 'human'.
+  owner: z
+    .enum(['agent', 'human'])
+    .optional()
+    .transform((o) => (o === 'human' ? ('human' as const) : undefined))
 })
 
 type ParsedDraft = z.infer<typeof draftSchema>
@@ -71,7 +76,7 @@ function presetSourceOf(ctx: ExecContext): PresetSource | undefined {
  * presets up. Looks nothing up when no draft names a preset.
  */
 async function resolvePresets(
-  drafts: { kind?: string; preset?: string }[],
+  drafts: { kind?: string; preset?: string; owner?: string }[],
   workspace: { id: string; name: string },
   source: PresetSource | undefined
 ): Promise<{ settings: (RunSettings | null)[]; notices: string[] }> {
@@ -83,6 +88,9 @@ async function resolvePresets(
   for (const [i, d] of drafts.entries()) {
     if (d.preset === undefined) continue
     if (d.kind === 'investigate') throw new ProposalInvalid(`tickets.${i}.preset: presets are for Change tickets`)
+    if (d.owner === 'human') {
+      throw new ProposalInvalid(`tickets.${i}.preset: presets are for agents' tickets; a ticket the user owns (owner human) has no run settings`)
+    }
     const preset = findPreset(presets, d.preset)
     if (!preset) {
       throw new ProposalInvalid(`tickets.${i}.preset: there is no preset ${JSON.stringify(d.preset)} in ${workspace.name}; its presets are ${presetNames(presets)}`)
@@ -192,6 +200,7 @@ function ticketInputs(
     labels: d.labels,
     column,
     kind: d.kind ?? 'change',
+    ...(d.owner === 'human' ? { owner: 'human' as const } : {}),
     ...(context ? { agentContext: { text: context.text, source: { kind: 'agent' as const, agent: 'orchestrator', cwd: context.cwd } } } : {}),
     ...(via ? { via } : {}),
     ...(blockers[i]?.length ? { blockedBy: blockers[i] } : {}),
@@ -283,7 +292,7 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
       { proposalId: target.proposalId, column: p.column }
     )
     return {
-      tickets: created.map((t, i) => ({ id: t.id, number: t.number, title: t.title, ...(p.tickets[i]?.preset !== undefined ? { preset: p.tickets[i]!.preset } : {}) })),
+      tickets: created.map((t, i) => ({ id: t.id, number: t.number, title: t.title, ...(p.tickets[i]?.preset !== undefined ? { preset: p.tickets[i]!.preset } : {}), ...(p.tickets[i]?.owner === 'human' ? { owner: 'human' as const } : {}) })),
       column: p.column,
       ...(presets.notices.length > 0 ? { notices: presets.notices } : {}),
       ...imageCount(p.tickets)
@@ -291,7 +300,7 @@ export const createTickets: ProposalKind<CreateTicketsPayload, CreateTicketsResu
   },
 
   outcome(r) {
-    const list = listJoin(r.tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}${t.preset ? ` (${t.preset} preset)` : ''}`))
+    const list = listJoin(r.tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}${t.preset ? ` (${t.preset} preset)` : ''}${t.owner === 'human' ? " (the user's own)" : ''}`))
     return `Created ${list} in ${COLUMN_NAMES[r.column]}${imagesAttached(r.images)}.${(r.notices ?? []).map((n) => ` ${n}`).join('')}`
   }
 }

@@ -48,6 +48,7 @@ function ctx(decision: Decision | null = QUESTION, over: { ticket?: Ticket } = {
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => NOW,
+    setOwner: async () => ({}) as never,
     holdTicket: async () => ({}) as never,
     decision: vi.fn(async (id: string) => (decision && decision.id === id ? { decision, ticket: over.ticket ?? TICKET } : null)),
     openStuckEpisode: async () => null,

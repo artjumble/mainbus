@@ -1,6 +1,7 @@
 import { Anchor, Paper, Text } from '@mantine/core'
 import { Fragment, type ReactElement } from 'react'
 import type { ThreadEvent } from '../../../shared/events'
+import { YouBadge } from '../board/YouBadge'
 import { navigateTo } from '../navigation'
 import { showError } from '../notify'
 
@@ -25,6 +26,12 @@ export function CreatedTicketsReceipt({ event }: { event: Created }): ReactEleme
             <Anchor component="button" type="button" size="sm" title={t.title} onClick={() => open(t.id)}>
               #{t.number}
             </Anchor>
+            {t.owner === 'human' && (
+              <>
+                {' '}
+                <YouBadge />
+              </>
+            )}
           </Fragment>
         ))}
         {` in ${event.workspace}'s Backlog`}

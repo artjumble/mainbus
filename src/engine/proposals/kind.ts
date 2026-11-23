@@ -2,7 +2,7 @@ import type { z } from 'zod'
 import type { ImageRef } from '../../shared/attachments'
 import type { MergeOptions, MergeOutcome, MergePlan, MergePreview } from '../../shared/merge'
 import type { DraftColumn, FollowUpOf, ProposalOrigin } from '../../shared/proposals'
-import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupPreset, LineupRole, NewTicketInput, StartOptions, Ticket, TicketState, Workspace } from '../../shared/domain'
+import type { Blocker, BranchFreshness, StuckEpisode, Decision, DecisionAnswer, Effort, Hold, HoldOptions, IntentAddition, Lineup, LineupPreset, LineupRole, NewTicketInput, StartOptions, Ticket, TicketOwner, TicketState, Workspace } from '../../shared/domain'
 
 /** A payload or override that doesn't validate; the message names the field. Nothing is stored or changed. */
 export class ProposalInvalid extends Error {
@@ -47,6 +47,8 @@ export interface ExecContext {
   now(): Date
   /** The same path as the ticket view's Hold…: a held ticket takes the new date and reason. */
   holdTicket(ticketId: string, opts: HoldOptions): Promise<Hold>
+  /** The same path as the ticket view's Mine / Hand to agents; refused in Done and while a run is open. */
+  setOwner(ticketId: string, owner: TicketOwner): Promise<Ticket>
   /** The ticket's open run's active role, or null with no run or an ended one. */
   activeRole(ticket: Ticket): Promise<ActiveRole | null>
   /** The same paths as the ticket view's Pause, Stop and Skip; they fail, changing nothing, if the run has moved on. */

@@ -1,6 +1,6 @@
 // Shared by the engine and the renderer: types only, no Node imports.
 import type { ImageRef } from './attachments'
-import type { Effort, IntentAddition, TicketKind } from './domain'
+import type { Effort, IntentAddition, TicketKind, TicketOwner } from './domain'
 import type { MergeOutcome, MergePlan } from './merge'
 import type { ModelSource } from './models'
 
@@ -10,7 +10,7 @@ import type { ModelSource } from './models'
  */
 export type ProposalStatus = 'pending' | 'confirmed' | 'overridden' | 'rejected' | 'failed'
 
-export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'answer' | 'redirect' | 'replace' | 'promote' | 'update_from_main' | 'merge'
+export type ProposalKindName = 'create_tickets' | 'start_lineup' | 'pause' | 'stop' | 'skip' | 'hold' | 'set_owner' | 'answer' | 'redirect' | 'replace' | 'promote' | 'update_from_main' | 'merge'
 
 /**
  * Who made the proposal: the orchestrator in a turn, or the engine when the user dragged a card into In progress
@@ -50,6 +50,8 @@ export interface TicketDraft {
   blocked_by?: (number | { draft: number })[]
   /** The name of one of the workspace's presets: the ticket starts with its run settings. Change tickets only. */
   preset?: string
+  /** 'human': a task the user does themselves (a hand check, setup); no agent works on it. Absent means agents'. Never with a preset. */
+  owner?: 'human'
 }
 
 /** A draft as the user's Override sends it: the images it keeps, by id. */
@@ -86,7 +88,7 @@ export interface CreateTicketsOverride {
 }
 
 export interface CreateTicketsResult {
-  tickets: { id: string; number: number; title: string; preset?: string }[]
+  tickets: { id: string; number: number; title: string; preset?: string; owner?: 'human' }[]
   column: DraftColumn
   /** What a preset dropped because the workspace's lineup lacks the role, one sentence each; absent when nothing was. */
   notices?: string[]
@@ -170,6 +172,22 @@ export interface HoldResult {
   number: number
   title: string
   until: string | null
+}
+
+/** The payload of a set_owner proposal: the ticket and who it would belong to. */
+export interface SetOwnerPayload {
+  ticketId: string
+  number: number
+  title: string
+  owner: TicketOwner
+  reason: string
+}
+
+export interface SetOwnerResult {
+  ticketId: string
+  number: number
+  title: string
+  owner: TicketOwner
 }
 
 /** The payload of a promote proposal: the Investigate ticket and the Change ticket it would become. */

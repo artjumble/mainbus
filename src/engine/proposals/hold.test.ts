@@ -24,6 +24,7 @@ function ctx(over: { open?: Workspace | null; ticket?: Ticket | null } = {}) {
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => NOW,
+    setOwner: async () => ({}) as never,
     holdTicket: vi.fn(async (_id: string, opts: { until?: string; reason?: string }) => ({ until: opts.until ?? null }) as Hold),
     decision: async () => null,
     openStuckEpisode: async () => null,

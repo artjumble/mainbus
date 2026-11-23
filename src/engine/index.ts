@@ -984,6 +984,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         skipTicket,
         now,
         holdTicket: (ticketId, opts) => holds.hold(ticketId, opts),
+        setOwner: (ticketId, owner) => setOwner(ticketId, owner),
         whyNotPromotable: whyNotPromotableNow,
         whyNotUpdatable: whyNotUpdatableNow,
         freshnessOf: (ticket) => freshness.statusOf(ticket.id),
@@ -1664,8 +1665,14 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       },
 
       // The user's own words: never marked as agent-written, whatever the renderer sends.
-      'ticket.create': async ({ attachments: files, preset: presetName, ...input }, workspaceId) => {
+      'ticket.create': async ({ attachments: files, preset: presetName, owner: givenOwner, ...input }, workspaceId) => {
         const ws = await requireWorkspace(workspaceId)
+        // The renderer is untrusted.
+        const owner = z.enum(['agent', 'human']).optional().parse(givenOwner) ?? 'agent'
+        if (owner === 'human') {
+          if (presetName !== undefined && presetName !== '') throw new Error("Presets are for agents' tickets; a ticket of yours has no run settings")
+          if (input.startWhenReady) throw new Error("A ticket of yours can't ask the orchestrator to start an agent")
+        }
         const images = checkNewAttachments(files)
         // The ticket gets a copy of the preset's settings, never a link to it.
         let runSettings: RunSettings | null = null
@@ -1687,6 +1694,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           blockedBy: undefined,
           ...(blockerIds.length > 0 ? { blockedBy: blockerIds.map((id) => ({ id })) } : {}),
           kind: input.kind === 'investigate' ? 'investigate' : 'change',
+          ...(owner === 'human' ? { owner } : {}),
           source: undefined,
           via: undefined,
           intentAdded: undefined,

@@ -36,6 +36,7 @@ function ctx(over: { active?: ActiveRole | null; episode?: StuckEpisode | null; 
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => new Date('2026-11-02T09:00:00.000Z'),
+    setOwner: async () => ({}) as never,
     holdTicket: async () => {
       throw new Error('unused')
     },

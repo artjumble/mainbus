@@ -238,6 +238,7 @@ export function createTicketRepo(db: Db, now: () => Date): TicketRepo {
       // One statement, so the number is allocated atomically with the insert.
       number: sql`(select coalesce(max(${tickets.number}), 0) + 1 from ${tickets} where ${tickets.workspaceId} = ${input.workspaceId})`,
       kind: input.kind ?? 'change',
+      owner: input.owner ?? 'agent',
       title: input.title,
       intent: JSON.stringify(intent),
       spec: input.spec,

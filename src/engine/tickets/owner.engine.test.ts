@@ -261,3 +261,69 @@ describe('ticket.setOwner', () => {
     await eventually(() => expect(runtime.specs).toHaveLength(1))
   })
 })
+
+describe('creating a ticket of your own, and converting both ways', () => {
+  test('ticket.create with owner human makes a human ticket in Backlog or Ready; agents is the default', async () => {
+    const { engine } = await makeEngine()
+    const mine = await newTicket(engine, 'Mac run', 'backlog', { owner: 'human' })
+    const inReady = await newTicket(engine, 'Account setup', 'ready', { owner: 'human', kind: 'change' })
+    const ordinary = await newTicket(engine, 'Ordinary', 'ready')
+    expect([mine.owner, inReady.owner, ordinary.owner]).toEqual(['human', 'human', 'agent'])
+    expect((await ticketOf(engine, mine.id)).state.column).toBe('backlog')
+    expect((await ticketOf(engine, inReady.id)).state.column).toBe('ready')
+    expect((await ticketOf(engine, mine.id)).ownerChanges).toEqual([])
+  })
+
+  test('refuses a preset, start-when-ready and an invalid owner with a human owner', async () => {
+    const { engine } = await makeEngine()
+    await expect(newTicket(engine, 'A', 'ready', { owner: 'human', preset: 'Docs' })).rejects.toThrow("Presets are for agents' tickets")
+    await expect(newTicket(engine, 'B', 'ready', { owner: 'human', startWhenReady: true })).rejects.toThrow("can't ask the orchestrator to start an agent")
+    await expect(newTicket(engine, 'C', 'ready', { owner: 'robot' })).rejects.toThrow()
+    expect((await engine.invoke('board.get')).tickets).toEqual([])
+  })
+
+  test('converting both ways keeps title, spec, criteria, run settings and rank', async () => {
+    const { engine } = await makeEngine()
+    const first = await newTicket(engine, 'First', 'ready', { spec: 'The spec', criteria: ['one', 'two'] })
+    const second = await newTicket(engine, 'Second', 'ready')
+    await engine.invoke('ticket.reorder', second.id, first.id)
+    await engine.invoke('ticket.setRunSettings', first.id, { excludedRoleIds: [(await ticketOf(engine, first.id)).lineup.at(-1)!.id], roles: {}, extraInstructions: 'Careful' })
+    await engine.invoke('ticket.update', first.id, { criteria: [{ position: 0, text: 'one', checked: true }, { position: 1, text: 'two', checked: false }] })
+    const keep = async () => {
+      const t = await ticketOf(engine, first.id)
+      return { title: t.title, spec: t.spec, criteria: t.criteria, runSettings: t.runSettings, rank: t.rank, column: t.state.column }
+    }
+    const before = await keep()
+    expect(before.runSettings).not.toBeNull()
+
+    await engine.invoke('ticket.setOwner', first.id, 'human')
+    expect(await keep()).toEqual(before)
+    expect((await ticketOf(engine, first.id)).owner).toBe('human')
+    await engine.invoke('ticket.setOwner', first.id, 'agent')
+    expect(await keep()).toEqual(before)
+    expect((await ticketOf(engine, first.id)).owner).toBe('agent')
+  })
+})
+
+describe('propose_set_owner', () => {
+  test('confirmed, converts the ticket; refused for a run open, Done and the same owner', async () => {
+    const { engine, runtime } = await makeEngine()
+    const t = await newTicket(engine)
+    const tools = await liveTools(engine, runtime)
+    expect(await tools.proposeSetOwner({ ticket: t.number, owner: 'human', reason: 'A hand check' })).toMatch(/^Proposed /)
+    const [p] = (await engine.invoke('orchestrator.get')).proposals
+    expect(p).toMatchObject({ kind: 'set_owner', payload: { number: t.number, owner: 'human', reason: 'A hand check' } })
+    expect((await ticketOf(engine, t.id)).owner).toBe('agent')
+    expect(await engine.invoke('proposal.confirm', p!.id)).toMatchObject({ status: 'confirmed', result: { owner: 'human' } })
+    expect((await ticketOf(engine, t.id)).owner).toBe('human')
+
+    expect(await tools.proposeSetOwner({ ticket: t.number, owner: 'human', reason: 'x' })).toMatch(/already belongs to the user/)
+    expect(await tools.proposeSetOwner({ ticket: t.number, owner: 'agent', reason: 'Ready for it' })).toMatch(/^Proposed /)
+    const back = (await engine.invoke('orchestrator.get')).proposals[1]!
+    await engine.invoke('proposal.confirm', back.id)
+    expect((await ticketOf(engine, t.id)).owner).toBe('agent')
+
+    await engine.invoke('ticket.move', t.id, 'done')
+    expect(await tools.proposeSetOwner({ ticket: t.number, owner: 'human', reason: 'x' })).toMatch(/is Done/)
+  })
+})

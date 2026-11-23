@@ -8,6 +8,7 @@ import { useMainbus } from '../store'
 import { answerView } from './AnswerProposal'
 import { createTicketsView } from './CreateTicketsProposal'
 import { holdView } from './HoldProposal'
+import { setOwnerView } from './SetOwnerProposal'
 import type { ProposalView } from './proposalView'
 import { pauseView, skipView, stopView } from './RoleControlProposal'
 import { promoteView } from './PromoteProposal'
@@ -25,6 +26,7 @@ const VIEWS: Record<ProposalKindName, ProposalView<any, any, any>> = {
   stop: stopView,
   skip: skipView,
   hold: holdView,
+  set_owner: setOwnerView,
   answer: answerView,
   redirect: redirectView,
   replace: replaceView,

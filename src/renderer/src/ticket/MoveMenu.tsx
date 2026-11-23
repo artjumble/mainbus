@@ -1,7 +1,11 @@
 import { Button, Group, Menu, Modal, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useRef, useState, type ReactElement } from 'react'
+import { agentsMayAct } from '../../../shared/owner'
+import { invoke } from '../api'
+import { asOwnChange } from '../board/ownChanges'
 import { showError } from '../notify'
+import { HandToAgentsModal } from './HandToAgentsModal'
 import { useMainbus, type BoardTicket, type ManualColumn } from '../store'
 
 const TARGETS: { id: ManualColumn; title: string }[] = [
@@ -44,8 +48,10 @@ interface Props {
  */
 export function MoveMenu({ ticket, openRun, disabled }: Props): ReactElement {
   const move = useMainbus((s) => s.moveTicket)
+  const announce = useMainbus((s) => s.announce)
   const [asking, setAsking] = useState<ManualColumn | null>(null)
   const [moving, setMoving] = useState(false)
+  const [handing, setHanding] = useState(false)
   const opener = useRef<HTMLButtonElement>(null)
 
   function close(): void {
@@ -75,6 +81,18 @@ export function MoveMenu({ ticket, openRun, disabled }: Props): ReactElement {
     close()
   }
 
+  /** Mine / Hand to agents: the engine refuses a Done ticket and an open run, and says why. */
+  async function setOwner(owner: 'human' | 'agent'): Promise<boolean> {
+    try {
+      await asOwnChange(ticket.id, () => invoke('ticket.setOwner', ticket.id, owner).then(() => undefined))
+      announce(owner === 'human' ? `Marked #${ticket.number} as yours` : `Handed #${ticket.number} to agents`)
+      return true
+    } catch (err) {
+      showError(err, owner === 'human' ? "Can't mark it as yours" : "Can't hand it to agents")
+      return false
+    }
+  }
+
   const target = TARGETS.find((t) => t.id === asking)?.title ?? ''
   return (
     <>
@@ -90,8 +108,16 @@ export function MoveMenu({ ticket, openRun, disabled }: Props): ReactElement {
               {t.title}
             </Menu.Item>
           ))}
+          <Menu.Divider />
+          <Menu.Label>Owner</Menu.Label>
+          {agentsMayAct(ticket) ? (
+            <Menu.Item onClick={() => void setOwner('human')}>Mine</Menu.Item>
+          ) : (
+            <Menu.Item onClick={() => setHanding(true)}>Hand to agents</Menu.Item>
+          )}
         </Menu.Dropdown>
       </Menu>
+      <HandToAgentsModal number={ticket.number} opened={handing} onClose={() => setHanding(false)} onConfirm={() => setOwner('agent')} returnFocus={false} />
       <Modal opened={asking !== null && openRun !== null} onClose={close} title={`Move to ${target}`} returnFocus={false}>
         <Stack gap="md">
           <Text size="sm">
