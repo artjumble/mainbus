@@ -9,6 +9,7 @@ import type {
 import type { ImageRef } from '../../../shared/attachments'
 import type { TicketKind } from '../../../shared/domain'
 import { SentImage } from '../attachments/Attachments'
+import { YouBadge } from '../board/YouBadge'
 import { splitCriteria, splitLabels } from '../board/NewTicketModal'
 import { useMainbus } from '../store'
 import type { ProposalView } from './proposalView'
@@ -27,6 +28,8 @@ interface DraftEdit {
   kind?: TicketKind
   /** The run settings preset proposed, by name: not editable here. */
   preset?: string
+  /** 'human': the user's own ticket, as proposed; not editable here. */
+  owner?: 'human'
   /** The images proposed for it, each ticked to attach it. */
   images: (ImageRef & { include: boolean })[]
   /** What blocks it, as proposed: not editable here. A `draft` is the index of an earlier draft as proposed. */
@@ -163,6 +166,11 @@ function Editor({
                         Investigate
                       </Badge>
                     )}
+                    {draft.owner === 'human' && (
+                      <span style={{ marginLeft: 6, verticalAlign: 'middle' }}>
+                        <YouBadge />
+                      </span>
+                    )}
                     {draft.preset && (
                       <Badge size="xs" variant="outline" color="gray" ml={6}>
                         Preset: {draft.preset}
@@ -266,6 +274,12 @@ function Receipt({ result }: { result: CreateTicketsResult }): ReactElement {
           <Anchor component="button" type="button" size="sm" title={t.title} onClick={() => openTicket(t.id)}>
             #{t.number}
           </Anchor>
+          {t.owner === 'human' && (
+            <>
+              {' '}
+              <YouBadge />
+            </>
+          )}
         </Fragment>
       ))}
       {` in ${COLUMN_NAMES[result.column]}`}
@@ -303,6 +317,7 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
       labels: d.labels.join(', '),
       ...(d.kind ? { kind: d.kind } : {}),
       ...(d.preset ? { preset: d.preset } : {}),
+      ...(d.owner === 'human' ? { owner: 'human' as const } : {}),
       images: (d.images ?? []).map((image) => ({ ...image, include: true })),
       blockedBy: d.blocked_by ?? []
     })),
@@ -326,6 +341,7 @@ export const createTicketsView: ProposalView<CreateTicketsPayload, CreateTickets
         ...(blockers(d.blockedBy, position).length > 0 ? { blocked_by: blockers(d.blockedBy, position) } : {}),
         ...(d.kind ? { kind: d.kind } : {}),
         ...(d.preset ? { preset: d.preset } : {}),
+        ...(d.owner === 'human' ? { owner: 'human' as const } : {}),
         ...(d.images.some((image) => image.include) ? { images: d.images.filter((image) => image.include).map((image) => image.id) } : {})
       }))
     return tickets.length === 0 ? null : { tickets, column: edit.column, ...(edit.context.trim() ? { context: edit.context } : {}) }

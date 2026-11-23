@@ -47,6 +47,8 @@ describe('buildOrchestratorPrompt', () => {
 
   test('names the proposal tools with their arguments', () => {
     expect(prompt).toContain('mcp__mainbus__propose_hold(ticket, until?, reason)')
+    expect(prompt).toContain('mcp__mainbus__propose_set_owner(ticket, owner, reason)')
+    expect(prompt).toContain('owner human')
     expect(prompt).toContain('mcp__mainbus__propose_redirect(ticket, message, evidence)')
     expect(prompt).toContain('mcp__mainbus__propose_replace(ticket, reason, evidence)')
     expect(prompt).toContain('mcp__mainbus__propose_promote(ticket, title?, spec?)')

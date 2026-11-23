@@ -22,6 +22,7 @@ function ctx(over: { open?: Workspace | null; why?: string | null; fresh?: Branc
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => new Date(),
+    setOwner: async () => ({}) as never,
     holdTicket: async () => {
       throw new Error('not expected')
     },

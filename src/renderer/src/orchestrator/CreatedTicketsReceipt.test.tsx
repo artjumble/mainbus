@@ -75,3 +75,8 @@ test('says that a summary of the conversation was added, only when it was', () =
   renderWithMantine(<CreatedTicketsReceipt event={EVENT} />)
   expect(document.querySelector('[data-event="tickets_created"]')!.textContent).not.toContain('summary')
 })
+
+test("a ticket of the user's own has the You badge", () => {
+  renderWithMantine(<CreatedTicketsReceipt event={{ ...EVENT, tickets: [{ ...EVENT.tickets[0]!, owner: 'human' }, EVENT.tickets[1]!] }} />)
+  expect(document.querySelectorAll('[data-you-badge]')).toHaveLength(1)
+})

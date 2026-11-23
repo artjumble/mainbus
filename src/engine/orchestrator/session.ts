@@ -80,11 +80,11 @@ export const MAX_MESSAGES_BACK = 5
 /** What create_tickets answers once the tickets exist. */
 export function createdText(
   workspace: string,
-  tickets: { number: number; title: string; preset?: string }[],
+  tickets: { number: number; title: string; preset?: string; owner?: 'human' }[],
   images?: number,
   notices: string[] = []
 ): string {
-  const list = listJoin(tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}${t.preset ? ` (${t.preset} preset)` : ''}`))
+  const list = listJoin(tickets.map((t) => `#${t.number} ${JSON.stringify(t.title)}${t.preset ? ` (${t.preset} preset)` : ''}${t.owner === 'human' ? " (the user's own)" : ''}`))
   const dropped = notices.map((n) => ` ${n}`).join('')
   return `Created ${list} in ${workspace}'s Backlog${imagesAttached(images)}.${dropped} Tell the user which workspace they went into${tickets.some((t) => t.preset) ? ' and which preset each ticket got' : ''}.`
 }
@@ -808,7 +808,7 @@ export class OrchestratorSession {
       // An image that can't be attached any more (its file gone or changed): still nothing was created.
       return `Couldn't create the tickets: ${errorText(err)}. Nothing was created.`
     }
-    const tickets = made.created.map((t) => ({ id: t.id, number: t.number, title: t.title }))
+    const tickets = made.created.map((t) => ({ id: t.id, number: t.number, title: t.title, ...(t.owner === 'human' ? { owner: 'human' as const } : {}) }))
     await this.record(live.runId, {
       kind: 'tickets_created',
       workspaceId: target.ws.id,
@@ -966,6 +966,7 @@ export class OrchestratorSession {
         proposeStop: (a) => this.propose('stop', a),
         proposeSkip: (a) => this.propose('skip', a),
         proposeHold: (a) => this.propose('hold', a),
+        proposeSetOwner: (a) => this.propose('set_owner', a),
         proposeAnswer: (a) => this.propose('answer', a),
         proposeRedirect: (a) => this.propose('redirect', a),
         proposeReplace: (a) => this.propose('replace', a),

@@ -164,3 +164,40 @@ test('images picked, dropped or pasted are shown and saved with the ticket on Cr
   )
   expect(onClose).toHaveBeenCalled()
 })
+
+const ASK = "Ask the orchestrator to start an agent once it's in Ready"
+
+test('the Owner choice defaults to Agents and sends no owner', async () => {
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  expect(screen.getByRole('radio', { name: /^Agents/ })).toBeChecked()
+  await fill(screen.getByLabelText(/Title/), 'Check on a Mac')
+  await fill(screen.getByLabelText(/In your words/), 'Try it')
+  await userEvent.click(create())
+  expect(mockInvoke.mock.calls.find(([c]) => c === 'ticket.create')![1]).not.toHaveProperty('owner')
+})
+
+test('Me sends owner human, hides the start-when-ready option and keeps the kind', async () => {
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  expect(screen.getByLabelText(ASK)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('radio', { name: /^Me/ }))
+  expect(screen.queryByLabelText(ASK)).not.toBeInTheDocument()
+  await fill(screen.getByLabelText(/Title/), 'Check on a Mac')
+  await fill(screen.getByLabelText(/In your words/), 'Try it')
+  await userEvent.click(create())
+  const sent = mockInvoke.mock.calls.find(([c]) => c === 'ticket.create')![1]
+  expect(sent).toMatchObject({ owner: 'human', kind: 'change' })
+  expect(sent).not.toHaveProperty('startWhenReady')
+  expect(sent).not.toHaveProperty('preset')
+})
+
+test('Me hides the Preset choice', async () => {
+  mockInvoke.mockImplementation(async (command: string) => {
+    if (command === 'preset.list') return [{ id: 'a', workspaceId: 'w', name: 'Docs', settings: { excludedRoleIds: [], roles: {}, extraInstructions: null, roleNames: {} } }]
+    if (command === 'lineup.get') return []
+    return {}
+  })
+  renderWithMantine(<NewTicketModal opened onClose={() => {}} />)
+  expect(await screen.findByLabelText('Preset')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('radio', { name: /^Me/ }))
+  expect(screen.queryByLabelText('Preset')).not.toBeInTheDocument()
+})

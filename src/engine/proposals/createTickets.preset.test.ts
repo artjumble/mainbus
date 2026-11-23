@@ -116,3 +116,44 @@ describe('create_tickets: preset', () => {
     expect(create).not.toHaveBeenCalled()
   })
 })
+
+describe('create_tickets: owner', () => {
+  test("a human draft is kept as 'human'; 'agent' is dropped", async () => {
+    const p = await proposeWith({ tickets: [{ title: 'Mac run', owner: 'human' }, { title: 'B', owner: 'agent' }, { title: 'C' }] })
+    expect(p.tickets.map((t) => t.owner)).toEqual(['human', undefined, undefined])
+  })
+
+  test('a preset with owner human is refused, proposed or direct, creating nothing', async () => {
+    create.mockClear()
+    await expect(proposeWith({ tickets: [{ title: 'A' }, { title: 'B', owner: 'human', preset: 'Docs' }] })).rejects.toThrow(
+      "tickets.1.preset: presets are for agents' tickets"
+    )
+    await expect(
+      createInBacklog({ tickets: [{ title: 'A', owner: 'human', preset: 'Docs' }] }, { userMessage: MESSAGE }, ws, create, '/o', undefined, source)
+    ).rejects.toThrow(ProposalInvalid)
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  test('an override that adds a preset to a human draft is refused at once', async () => {
+    const stored = await proposeWith({ tickets: [{ title: 'A', owner: 'human' }] })
+    const overridden = createTickets.override!(stored, { tickets: [{ title: 'A', owner: 'human', preset: 'Docs' }], column: 'backlog' })
+    await expect(createTickets.execute(overridden, { workspaceId: 'ws1', proposalId: 'p1' }, ctx({ createTickets: create }))).rejects.toThrow(ProposalInvalid)
+  })
+
+  test('creating passes owner human on, through a proposal and through the override, and says so', async () => {
+    create.mockClear()
+    const p = await proposeWith({ tickets: [{ title: 'Mac run', owner: 'human' }, { title: 'B' }] })
+    const kept = createTickets.override!(p, { tickets: [{ title: 'Mac run', owner: 'human' }, { title: 'B' }], column: 'ready' })
+    expect(kept.tickets[0]!.owner).toBe('human')
+    const result = await createTickets.execute(kept, { workspaceId: 'ws1', proposalId: 'p1' }, ctx({ createTickets: create }))
+    expect(create.mock.calls.at(-1)![1].map((i) => (i as { owner?: string }).owner)).toEqual(['human', undefined])
+    expect(result.tickets.map((t) => t.owner)).toEqual(['human', undefined])
+    expect(createTickets.outcome(result)).toBe("Created #1 \"Mac run\" (the user's own) and #2 \"B\" in Ready.")
+  })
+
+  test('create_tickets in the Backlog creates a human ticket', async () => {
+    create.mockClear()
+    await createInBacklog({ tickets: [{ title: 'Mac run', owner: 'human' }] }, { userMessage: MESSAGE }, ws, create, '/o')
+    expect(created()[0]).toMatchObject({ owner: 'human', column: 'backlog' })
+  })
+})

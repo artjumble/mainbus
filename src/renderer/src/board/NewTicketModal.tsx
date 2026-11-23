@@ -43,6 +43,8 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
   const [column, setColumn] = useState<'backlog' | 'ready'>('backlog')
   const [startWhenReady, setStartWhenReady] = useState(false)
   const [kind, setKind] = useState<TicketKind>('change')
+  /** Whose ticket it is: Me hides the run settings, since no agent works on it. */
+  const [owner, setOwner] = useState<'agent' | 'human'>('agent')
   const [images, setImages] = useState<NewAttachment[]>([])
   const [blockedBy, setBlockedBy] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -68,7 +70,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
     }
   }, [opened])
 
-  const chosenPreset = kind === 'change' && preset !== '' ? findPreset(presets, preset) : undefined
+  const chosenPreset = owner === 'agent' && kind === 'change' && preset !== '' ? findPreset(presets, preset) : undefined
   const presetNotices = chosenPreset ? presetRunSettings(chosenPreset, changeLineup).notices : []
 
   const canCreate = title.trim() !== '' && intent.trim() !== ''
@@ -100,7 +102,8 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
         labels: splitLabels(labels),
         column,
         kind,
-        ...(startWhenReady ? { startWhenReady } : {}),
+        ...(owner === 'human' ? { owner } : {}),
+        ...(startWhenReady && owner === 'agent' ? { startWhenReady } : {}),
         ...(chosenPreset ? { preset: chosenPreset.name } : {}),
         ...(blockedBy.length > 0 ? { blockedBy } : {}),
         ...(images.length > 0 ? { attachments: images } : {})
@@ -113,6 +116,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
       setColumn('backlog')
       setStartWhenReady(false)
       setKind('change')
+      setOwner('agent')
       setPreset('')
       setImages([])
       setBlockedBy([])
@@ -135,6 +139,12 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
               {workspaceName}
             </Badge>
           )}
+          <Radio.Group label="Owner" value={owner} onChange={(v) => setOwner(v as 'agent' | 'human')}>
+            <Group mt={4} align="flex-start">
+              <Radio value="agent" label="Agents" />
+              <Radio value="human" label="Me" description="A task you do yourself; no agent starts on it" />
+            </Group>
+          </Radio.Group>
           <Radio.Group label="Kind" value={kind} onChange={(v) => setKind(v as TicketKind)}>
             <Group mt={4} align="flex-start">
               <Radio value="change" label="Change" />
@@ -175,7 +185,7 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             value={labels}
             onChange={(e) => setLabels(e.currentTarget.value)}
           />
-          {kind === 'change' && presets.length > 0 && (
+          {owner === 'agent' && kind === 'change' && presets.length > 0 && (
             <NativeSelect
               label="Preset"
               description="Which roles run, and with which models."
@@ -210,11 +220,13 @@ export function NewTicketModal({ opened, onClose }: Props): ReactElement {
             value={column}
             onChange={(e) => setColumn(e.currentTarget.value as 'backlog' | 'ready')}
           />
-          <Checkbox
-            label="Ask the orchestrator to start an agent once it's in Ready"
-            checked={startWhenReady}
-            onChange={(e) => setStartWhenReady(e.currentTarget.checked)}
-          />
+          {owner === 'agent' && (
+            <Checkbox
+              label="Ask the orchestrator to start an agent once it's in Ready"
+              checked={startWhenReady}
+              onChange={(e) => setStartWhenReady(e.currentTarget.checked)}
+            />
+          )}
           <Group justify="flex-end" mt="xs">
             <Button variant="default" onClick={onClose}>
               Cancel

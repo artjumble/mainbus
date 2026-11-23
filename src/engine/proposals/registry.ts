@@ -2,6 +2,7 @@ import type { ProposalKindName } from '../../shared/proposals'
 import { answer } from './answer'
 import { createTickets } from './createTickets'
 import { hold } from './hold'
+import { setOwner } from './setOwner'
 import type { ProposalKind } from './kind'
 import { merge } from './merge'
 import { redirect } from './redirect'
@@ -19,6 +20,7 @@ export const KINDS: Record<ProposalKindName, ProposalKind<any, any>> = {
   stop,
   skip,
   hold,
+  set_owner: setOwner,
   answer,
   redirect,
   replace,

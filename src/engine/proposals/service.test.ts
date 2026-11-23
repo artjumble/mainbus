@@ -51,6 +51,7 @@ beforeEach(async () => {
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => clock,
+    setOwner: async () => ({}) as never,
     holdTicket: async () => ({}) as Hold,
     decision: async () => null,
     openStuckEpisode: async () => null,

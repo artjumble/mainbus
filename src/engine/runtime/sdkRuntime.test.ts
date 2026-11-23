@@ -805,6 +805,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       proposeStop: vi.fn(async () => 'Proposed p4.'),
       proposeSkip: vi.fn(async () => 'Proposed p5.'),
       proposeHold: vi.fn(async () => 'Proposed p6.'),
+      proposeSetOwner: vi.fn(async () => 'Proposed p6b.'),
       proposeAnswer: vi.fn(async () => 'Proposed p7.'),
       proposeRedirect: vi.fn(async () => 'Proposed p8.'),
       proposeReplace: vi.fn(async () => 'Proposed p9.'),
@@ -880,6 +881,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'mcp__mainbus__propose_stop',
       'mcp__mainbus__propose_skip',
       'mcp__mainbus__propose_hold',
+      'mcp__mainbus__propose_set_owner',
       'mcp__mainbus__propose_answer',
       'mcp__mainbus__propose_redirect',
       'mcp__mainbus__propose_replace',
@@ -923,6 +925,7 @@ describe('SdkRuntime: the orchestrator spec', () => {
       'propose_stop',
       'propose_skip',
       'propose_hold',
+      'propose_set_owner',
       'propose_answer',
       'propose_redirect',
       'propose_replace',
@@ -985,6 +988,11 @@ describe('SdkRuntime: the orchestrator spec', () => {
     expect(Object.keys(hold.shape)).toEqual(['ticket', 'workspace', 'until', 'reason'])
     expect(await hold.handler(holdArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p6.' }] })
     expect(spec.tools.proposeHold).toHaveBeenCalledWith(holdArgs)
+    const setOwner = byName.get('propose_set_owner')!
+    const ownerArgs = { ticket: 4, owner: 'human', reason: 'A hand check' }
+    expect(Object.keys(setOwner.shape)).toEqual(['ticket', 'workspace', 'owner', 'reason'])
+    expect(await setOwner.handler(ownerArgs, {})).toEqual({ content: [{ type: 'text', text: 'Proposed p6b.' }] })
+    expect(spec.tools.proposeSetOwner).toHaveBeenCalledWith(ownerArgs)
     const answer = byName.get('propose_answer')!
     const answerArgs = { decision: 'd1', choice: 2, reasoning: 'You said so' }
     expect(Object.keys(answer.shape)).toEqual(['decision', 'choice', 'note', 'reasoning', 'judgement'])

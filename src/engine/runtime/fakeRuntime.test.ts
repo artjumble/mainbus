@@ -215,6 +215,7 @@ describe('FakeRuntime: the orchestrator', () => {
         proposeStop: vi.fn(async () => 'proposed'),
         proposeSkip: vi.fn(async () => 'proposed'),
         proposeHold: vi.fn(async () => 'proposed'),
+        proposeSetOwner: vi.fn(async () => 'proposed'),
         proposeAnswer: vi.fn(async () => 'proposed'),
         proposeRedirect: vi.fn(async () => 'proposed'),
         proposeReplace: vi.fn(async () => 'proposed'),

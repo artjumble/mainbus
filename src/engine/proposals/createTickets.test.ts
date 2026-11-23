@@ -107,6 +107,7 @@ describe('create_tickets: execute and outcome', () => {
       stopTicket: async () => {},
       skipTicket: async () => {},
       now: () => new Date(),
+      setOwner: async () => ({}) as never,
       holdTicket: async () => ({}) as Hold,
       decision: async () => null,
       openStuckEpisode: async () => null,

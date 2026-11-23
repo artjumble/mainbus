@@ -32,6 +32,7 @@ function ctx(over: { why?: string | null; open?: Workspace | null; lineup?: Line
     stopTicket: async () => {},
     skipTicket: async () => {},
     now: () => new Date('2026-10-30T12:00:00.000Z'),
+    setOwner: async () => ({}) as never,
     holdTicket: async () => ({}) as Hold,
     decision: async () => null,
     openStuckEpisode: async () => null,

@@ -153,3 +153,25 @@ describe('images', () => {
     await expectNoAxeViolations()
   })
 })
+
+describe("a draft that is the user's own", () => {
+  const mine: CreateTicketsPayload = {
+    ...payload,
+    tickets: [{ title: 'Run it on a Mac', spec: '', criteria: [], labels: [], owner: 'human' }, { title: 'Fix the typo', spec: '', criteria: [], labels: [] }]
+  }
+
+  test('shows the You badge on that draft only, and the override keeps the owner', () => {
+    const Editor = createTicketsView.Editor!
+    renderWithMantine(<Editor value={createTicketsView.initialEdit!(mine)} onChange={() => {}} payload={mine} />)
+    expect(document.querySelectorAll('[data-you-badge]')).toHaveLength(1)
+    const override = createTicketsView.toOverride!(createTicketsView.initialEdit!(mine))! as CreateTicketsOverride
+    expect(override.tickets.map((t) => t.owner)).toEqual(['human', undefined])
+    expect(override.tickets[1]).not.toHaveProperty('owner')
+  })
+
+  test('the receipt shows the You badge after that ticket', () => {
+    const Receipt = createTicketsView.Receipt!
+    renderWithMantine(<Receipt result={{ tickets: [{ id: 't1', number: 4, title: 'Run it', owner: 'human' }, { id: 't2', number: 5, title: 'Fix' }], column: 'backlog' }} />)
+    expect(document.querySelectorAll('[data-you-badge]')).toHaveLength(1)
+  })
+})

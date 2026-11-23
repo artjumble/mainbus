@@ -77,6 +77,7 @@ export const ORCHESTRATOR_MAINBUS_TOOLS = [
   'mcp__mainbus__propose_stop',
   'mcp__mainbus__propose_skip',
   'mcp__mainbus__propose_hold',
+  'mcp__mainbus__propose_set_owner',
   'mcp__mainbus__propose_answer',
   'mcp__mainbus__propose_redirect',
   'mcp__mainbus__propose_replace',
@@ -637,7 +638,13 @@ export class SdkRuntime implements AgentRuntime {
             .array(z.string())
             .optional()
             .describe("Images to attach to the ticket, by name: only ones the user sent with the request's messages, as Mainbus listed them"),
-          preset: z.string().optional().describe(PRESET_DESCRIPTION)
+          preset: z.string().optional().describe(PRESET_DESCRIPTION),
+          owner: z
+            .enum(['agent', 'human'])
+            .optional()
+            .describe(
+              'human for a task the user must do themselves (a hand check, such as a run on a Mac, or setup outside the code, such as an account): no agent works on it. Never with a preset'
+            )
         })
       )
       .describe('The tickets, in the order to create them')
@@ -840,6 +847,17 @@ export class SdkRuntime implements AgentRuntime {
             reason: z.string().describe('Why to hold it, shown to the user')
           },
           async (a) => toolText(await t.proposeHold(a))
+        ),
+        sdk.tool(
+          'propose_set_owner',
+          "Propose making a ticket the user's own (owner human: no agent works on it) or handing it to agents (owner agent). Refused while a run is open or in Done. The user confirms or rejects it; Mainbus changes the owner only then. Then end your turn.",
+          {
+            ticket: z.number().int().describe('The ticket number'),
+            workspace: z.string().optional().describe("The ticket's workspace, by name or id; the focused one when left out"),
+            owner: z.enum(['agent', 'human']).describe("human: the user's own task; agent: agents may work on it"),
+            reason: z.string().describe('Why to change it, shown to the user')
+          },
+          async (a) => toolText(await t.proposeSetOwner(a))
         ),
         sdk.tool(
           'propose_answer',

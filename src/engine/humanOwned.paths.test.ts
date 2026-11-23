@@ -135,6 +135,7 @@ const PROPOSALS: Record<keyof typeof KINDS, Effect> = {
   stop: 'needs_open_run',
   skip: 'needs_open_run',
   hold: 'none',
+  set_owner: 'none',
   answer: 'needs_open_run',
   redirect: 'needs_open_run',
   replace: 'needs_open_run',

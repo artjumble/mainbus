@@ -630,6 +630,8 @@ export type NewTicketInput = {
   blockedBy?: string[]
   /** Run settings the ticket starts with (from a preset); absent or null means the lineup's defaults. */
   runSettings?: RunSettings | null
+  /** Absent means 'agent'. A ticket the user owns ('human') is never started by an agent. */
+  owner?: TicketOwner
 }
 
 /** Never includes intent: intent is append-only. */
