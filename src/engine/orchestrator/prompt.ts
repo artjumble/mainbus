@@ -94,6 +94,8 @@ A ticket with blockers that aren't Done is marked "blocked by" in your ticket to
 
 A ticket the user has put on hold is marked "held" in your ticket tools. Never propose starting a held ticket: propose_start refuses it. Leave a hold to the user, and propose a hold only when the user has asked for one or the ticket should clearly wait.
 
+A ticket marked "owner: the user" is the user's own: no agent works on it, and unattended mode never picks it up. Never propose starting it or updating it from main (propose_start refuses it), and never suggest that unattended mode will take it. When asked, read it and help: answer questions about it, suggest a checklist, or edit its text with update_ticket at the user's request.
+
 The board changes while you talk: read it again rather than relying on what you read earlier.`
 
 export const MESSAGE_HEADER_NOTE = `## Each message

@@ -25,9 +25,11 @@ import {
   type StuckEpisode,
   type Ticket,
   type TicketEdit,
+  type TicketOwner,
   type TicketRef,
   type Workspace
 } from '../shared/domain'
+import { agentsMayAct, yoursText } from '../shared/owner'
 import { applyRunSettings, checkRunSettings, findPreset, presetNames, presetRunSettings } from '../shared/runSettings'
 import { openDb } from './db/open'
 import { realClock, type Clock } from './holds/clock'
@@ -260,8 +262,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       decisions: repos.decisions,
       clock,
       emit,
-      onReleasedByDate: ({ workspaceId, hold, decision }) =>
-        decision === null ? addWake(workspaceId, 'released_hold', hold.id) : addWake(workspaceId, 'resurfaced', decision.id)
+      onReleasedByDate: async ({ workspaceId, hold, decision }) => {
+        if (decision !== null) return addWake(workspaceId, 'resurfaced', decision.id)
+        // A hold on the user's own ticket runs out quietly: nothing for an agent to do about it.
+        const held = await repos.tickets.get(hold.targetId).catch(() => null)
+        if (held && !agentsMayAct(held)) return
+        return addWake(workspaceId, 'released_hold', hold.id)
+      }
     })
 
     // New branches start from the newest base; the monitor (below) measures open branches against it.
@@ -696,6 +703,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      */
     const proposeStartIfAsked = async (ticketId: string): Promise<void> => {
       if (!(await repos.tickets.takeStartWhenReady(ticketId))) return
+      if (!agentsMayAct(await repos.tickets.get(ticketId))) return // the flag is spent; handing it back doesn't revive it
       try {
         await orchestrator.proposeStartWhenReady(await repos.tickets.get(ticketId))
       } catch {
@@ -725,6 +733,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
     /** Why a ticket can't be updated from main right now, or null. Judged from the last freshness check. */
     const whyNotUpdatableNow = async (ticket: Ticket): Promise<string | null> => {
       const n = `#${ticket.number}`
+      if (!agentsMayAct(ticket)) return yoursText(ticket.number)
       if (ticket.kind !== 'change') return `${n} is an Investigate ticket; Update from main is for Change tickets`
       if (ticket.manualColumn === 'done') return `${n} is Done`
       if (ticket.branch === null || ticket.worktreePath === null) return `${n} has no branch yet`
@@ -801,6 +810,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      */
     async function queueDoneReview(id: string): Promise<void> {
       if (!(await repos.settings.get()).reviewDoneTickets) return
+      if (!agentsMayAct(await repos.tickets.get(id))) return
       if ((await repos.runs.latest(id)) === null) return
       const since = new Date(now().getTime() - 24 * 60 * 60 * 1000).toISOString()
       if (await repos.wakes.reviewedSince('done_review', id, since)) return
@@ -827,6 +837,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      */
     const startChecked = async (ticketId: string, opts: StartOptions | undefined, via: 'ticket' | 'proposal'): Promise<void> => {
       requireRuntime()
+      // A human-owned ticket is refused inside runner.start (layer 1), before the hold is released or a note written.
       await roleModelsReady
       const { startAnyway, ...rest } = opts ?? {}
       const open = openBlockers(await repos.dependencies.blockersOf(ticketId))
@@ -933,6 +944,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         presets: (workspaceId) => repos.presets.list(workspaceId),
         ticketByNumber: (workspaceId, number) => repos.tickets.byNumber(workspaceId, number),
         async whyNotStartable(ticket) {
+          if (!agentsMayAct(ticket)) return yoursText(ticket.number)
           const held = await holds.active(ticket.id)
           if (held) {
             const until = held.until === null ? '' : ` until ${held.until.slice(0, 10)}`
@@ -1025,11 +1037,12 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       const stuckOf = await repos.stuck.openByTicket()
       // Only the tickets being built: an archived ticket's rows are read when it is opened (ticket.view).
       const ids = tickets.map((t) => t.id)
-      const [attached, edited, blockedBy, dependencyNotes] = await Promise.all([
+      const [attached, edited, blockedBy, dependencyNotes, ownerChanges] = await Promise.all([
         repos.attachments.listForTickets(ids),
         repos.ticketEdits.listForTickets(ids),
         repos.dependencies.forTickets(ids),
-        repos.dependencies.notesForTickets(ids)
+        repos.dependencies.notesForTickets(ids),
+        repos.tickets.ownerChangesFor(ids)
       ])
       // The first match wins, as `find` did.
       const fromOf = new Map<string, TicketRef>()
@@ -1048,6 +1061,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           attachments: attached.get(t.id) ?? [],
           blockedBy: blockedBy.get(t.id) ?? [],
           dependencyNotes: dependencyNotes.get(t.id) ?? [],
+          ownerChanges: ownerChanges.get(t.id) ?? [],
           promotion: {
             from: fromOf.get(t.id) ?? null,
             to: toOf.get(t.id) ?? null
@@ -1067,6 +1081,20 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
       await roleModelsReady
       const settings = input === null ? null : checkRunSettings(input, await repos.lineups.get(ticket.workspaceId, ticket.kind))
       const saved = await repos.tickets.setRunSettings(id, settings)
+      emit({ type: 'board.changed', workspaceId: saved.workspaceId })
+      return saved
+    }
+
+    /**
+     * Marks a ticket as the user's or hands it to agents. Refused in Done and while a run is open. Saved run settings are
+     * left alone: ignored while the user owns it (nothing starts), in force again when it is handed back.
+     */
+    const setOwner = async (id: string, input: TicketOwner): Promise<Ticket> => {
+      // The renderer is untrusted.
+      const owner = z.enum(['agent', 'human']).parse(input)
+      const ticket = await assertNotDone(id)
+      if (ticket.owner === owner) return ticket
+      const saved = await runner.setOwner(id, owner)
       emit({ type: 'board.changed', workspaceId: saved.workspaceId })
       return saved
     }
@@ -1250,12 +1278,13 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         case 'released_hold': {
           const hold = await repos.holds.get(row.ref)
           const ticket = hold && (await repos.tickets.get(hold.targetId).catch(() => null))
+          if (ticket && !agentsMayAct(ticket)) return null
           return hold && ticket ? { kind: 'released_hold', number: ticket.number, title: ticket.title, until: hold.until } : null
         }
         case 'done_review': {
           const ticket = await repos.tickets.get(row.ref).catch(() => null)
           // Moved back out of Done, or the setting turned off since: nothing to review.
-          if (!ticket || ticket.manualColumn !== 'done' || !(await repos.settings.get()).reviewDoneTickets) return null
+          if (!ticket || !agentsMayAct(ticket) || ticket.manualColumn !== 'done' || !(await repos.settings.get()).reviewDoneTickets) return null
           return { kind: 'done_review', review: await doneReviewOf(repos, ticket) }
         }
         case 'resurfaced': {
@@ -1349,7 +1378,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
           if (presented.has(h.id)) continue
           const ticket = await repos.tickets.get(h.targetId).catch(() => null)
           const ws = ticket && (await repos.workspaces.get(ticket.workspaceId))
-          if (ticket && ws && h.releasedAt !== null) {
+          if (ticket && ws && h.releasedAt !== null && agentsMayAct(ticket)) {
             released.push({ number: ticket.number, title: ticket.title, workspace: ws.name, until: h.until, releasedAt: h.releasedAt })
           }
         }
@@ -1759,6 +1788,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
         for (const workspaceId of new Set(restored.map((t) => t.workspaceId))) emit({ type: 'board.changed', workspaceId })
       },
       'ticket.setRunSettings': (id, settings) => setRunSettings(id, settings),
+      'ticket.setOwner': (id, owner) => setOwner(id, owner),
       'ticket.openPr': (id) => runner.openPr(id),
       'ticket.saveReport': (id) => runner.saveReport(id),
       'ticket.runSetup': (id) => runner.runSetupAgain(id),

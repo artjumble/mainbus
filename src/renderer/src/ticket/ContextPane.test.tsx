@@ -150,6 +150,20 @@ test('an edit the orchestrator made is in the Activity, and so is its Undo', () 
   expect(activity.getByText("The orchestrator's edit: title")).toBeInTheDocument()
 })
 
+test('Activity records marking a ticket as yours and handing it to agents, in time order', () => {
+  const ticket = makeTicket({
+    ownerChanges: [
+      { at: '2026-10-30T10:00:00.000Z', owner: 'human' },
+      { at: '2026-10-30T11:00:00.000Z', owner: 'agent' }
+    ]
+  })
+  renderWithMantine(<ContextPane ticket={ticket} events={[]} decisions={[]} />)
+  const text = within(screen.getByRole('region', { name: 'Activity' })).getByText('Marked as yours')
+  expect(text).toBeInTheDocument()
+  const region = screen.getByRole('region', { name: 'Activity' })
+  expect(region.textContent!.indexOf('Marked as yours')).toBeLessThan(region.textContent!.indexOf('Handed to agents'))
+})
+
 test('entry times are the time of day, with the date when it is not today', () => {
   const now = new Date(2026, 10, 3, 15, 0)
   expect(entryTime(new Date(2026, 10, 3, 9, 5).toISOString(), now)).toBe('09:05')

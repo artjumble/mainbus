@@ -14,6 +14,7 @@ import {
   type StripRole,
   type Ticket,
   type TicketKind,
+  type TicketOwner,
   type TicketSetup,
   type BaseTestsSummary,
   type TicketState,
@@ -21,6 +22,7 @@ import {
 } from '../../shared/domain'
 import type { AgentEvent, StoredEvent, ThreadEvent, ThreadRun, UsageEvent } from '../../shared/events'
 import { defaultFor, EFFORTS, EXTRA_INSTRUCTIONS_MAX, modelAllowed, resolveModelEffort } from '../../shared/models'
+import { agentsMayAct, yoursText } from '../../shared/owner'
 import { applyRunSettings } from '../../shared/runSettings'
 import { clockTime } from '../../shared/waiting'
 import { sessionUsageSoFar } from '../../shared/usageTotals'
@@ -923,6 +925,7 @@ export class TicketRunner {
         if (!run || run.id !== open.id || run.endReason !== null) return
         const ticket = await this.repos.tickets.get(run.ticketId)
         if (ticket.manualColumn === 'done') return
+        if (!agentsMayAct(ticket)) return // belt and braces: a run can't be open on a human ticket
         if (ticket.worktreePath !== null && !(await pathExists(ticket.worktreePath))) {
           await this.repos.runs.dequeue(run.id)
           await this.askAboutMissingFolder(run, ticket)
@@ -1003,8 +1006,30 @@ export class TicketRunner {
     return result
   }
 
+  /** Layer 1 of the human-owned rule: no start of any kind gets past this for a ticket that is the user's. */
+  private async assertAgentsMayAct(ticketId: string): Promise<void> {
+    const ticket = await this.repos.tickets.get(ticketId)
+    if (!agentsMayAct(ticket)) throw new Error(yoursText(ticket.number))
+  }
+
+  /**
+   * Changes who owns the ticket. Runs in the ticket's serial queue, so a start and a conversion never interleave:
+   * refused while a run is open (queued and usage-paused ones included) or a role is launching.
+   */
+  setOwner(ticketId: string, owner: TicketOwner): Promise<Ticket> {
+    return this.serial(ticketId, async () => {
+      const ticket = await this.repos.tickets.get(ticketId)
+      const latest = await this.repos.runs.latest(ticketId)
+      if ((latest && latest.endReason === null) || this.isLaunching(ticketId)) {
+        throw new Error(`#${ticket.number} has a run open; stop it before changing who owns it`)
+      }
+      return this.repos.tickets.setOwner(ticketId, owner)
+    })
+  }
+
   private async startNow(ticketId: string, opts: StartOptions, notices: string[] = []): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    await this.assertAgentsMayAct(ticketId)
     if (this.stopRequested.has(ticketId)) return
     const latest = await this.repos.runs.latest(ticketId)
     if (latest && latest.endReason === null) {
@@ -1064,6 +1089,7 @@ export class TicketRunner {
 
   private async updateFromMainNow(ticketId: string, input: UpdateFromMainInput, expect?: RunExpectation | null): Promise<void> {
     if (this.shuttingDown) throw new Error(SHUTTING_DOWN)
+    await this.assertAgentsMayAct(ticketId)
     if (this.isLaunching(ticketId)) throw new Error('A role is starting on this ticket; try again in a moment')
     const latest = await this.repos.runs.latest(ticketId)
     const open = latest !== null && latest.endReason === null

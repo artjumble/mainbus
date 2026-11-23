@@ -1,4 +1,5 @@
 import { compareRank } from '../../shared/boardOrder'
+import { agentsMayAct } from '../../shared/owner'
 import type { EngineEvent } from '../../shared/api'
 import type { Ticket, TicketState, UnattendedState, UnattendedStatus } from '../../shared/domain'
 
@@ -271,6 +272,8 @@ export class UnattendedMode {
     let othersLimited = false
     let skippedReady = false
     for (const ticket of tickets) {
+      // The user's own tickets are never started, and never count toward "tickets at once".
+      if (!agentsMayAct(ticket)) continue
       if (this.mine.has(ticket.id)) continue
       const state = await this.deps.runner.stateOf(ticket.id)
       if (!this.on) return

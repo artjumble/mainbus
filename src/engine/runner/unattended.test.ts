@@ -456,7 +456,7 @@ describe('UnattendedMode timing', () => {
 
   /** One ticket, #7, Ready until started; the test sets `box.state` after that. */
   function stub(limit: () => number | null = () => null) {
-    const ticket = { id: 't1', number: 7 } as Ticket
+    const ticket = { id: 't1', number: 7, owner: 'agent' } as Ticket
     const box = { state: ready }
     const state = () => box.state
     const runner = {
@@ -655,7 +655,7 @@ describe('UnattendedMode with several tickets at once', () => {
 
   /** Tickets #1..#count, all Ready; `start` makes a ticket working. */
   function multi(count: number, atOnce: number) {
-    const tickets = Array.from({ length: count }, (_, i) => ({ id: `t${i + 1}`, number: i + 1, rank: i + 1 }) as Ticket)
+    const tickets = Array.from({ length: count }, (_, i) => ({ id: `t${i + 1}`, number: i + 1, rank: i + 1, owner: 'agent' }) as Ticket)
     const states = new Map<string, TicketState>(tickets.map((t) => [t.id, ready]))
     const box = { atOnce, limit: null as number | null, held: new Set<string>(), blocked: new Set<string>(), failStart: new Set<string>() }
     const startedIds: string[] = []

@@ -118,6 +118,8 @@ export const tickets = sqliteTable(
     startWhenReady: integer('start_when_ready', { mode: 'boolean' }).notNull().default(false),
     /** The run settings the user saved for the ticket's next start (JSON of RunSettings); null means the lineup's defaults. */
     runSettings: text('run_settings'),
+    /** Who works on the ticket: 'agent' (the default) or 'human' (the user; no agent ever starts on it). */
+    owner: text('owner').notNull().default('agent'),
     /** The state of the workspace's setup command in this ticket's folder (JSON of TicketSetup); null when none applies. */
     setup: text('setup'),
     /** When the ticket last entered Done; null outside Done. Backfilled from updated_at for tickets already Done, so approximate. */
@@ -446,6 +448,20 @@ export const ticketDependencyNotes = sqliteTable(
     via: text('via', { enum: ['ticket', 'proposal'] })
   },
   (t) => [index('ticket_dependency_notes_ticket_idx').on(t.ticketId), index('ticket_dependency_notes_kind_idx').on(t.kind, t.at)]
+)
+
+/** Each time the ticket's owner changed, for its Activity. */
+export const ticketOwnerChanges = sqliteTable(
+  'ticket_owner_changes',
+  {
+    id: text('id').primaryKey(),
+    ticketId: text('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'cascade' }),
+    owner: text('owner', { enum: ['agent', 'human'] }).notNull(),
+    at: text('at').notNull()
+  },
+  (t) => [index('ticket_owner_changes_ticket_idx').on(t.ticketId)]
 )
 
 // Worktrees that still need removing; deliberately no foreign key, so a row can outlive its ticket.

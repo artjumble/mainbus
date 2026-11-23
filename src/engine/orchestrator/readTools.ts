@@ -1,4 +1,5 @@
 import { BOARD_COLUMNS, inBoardOrder } from '../../shared/boardOrder'
+import { agentsMayAct } from '../../shared/owner'
 import fs from 'node:fs/promises'
 import type { BoardTicket } from '../../shared/api'
 import { openBlockers } from '../../shared/dependencies'
@@ -135,6 +136,11 @@ function heldText(t: BoardTicket): string {
   if (!t.hold) return ''
   const until = t.hold.until === null ? 'until the user releases it' : `until ${t.hold.until.slice(0, 10)}`
   return ` · held by the user ${until} (don't propose starting it)`
+}
+
+/** " · owner: the user ..." on a ticket that is the user's own, else nothing (agent-owned is the default). */
+function ownerListText(t: BoardTicket): string {
+  return agentsMayAct(t) ? '' : " · owner: the user (no agent works on it; don't propose starting it)"
 }
 
 /** The run settings the user saved for the ticket against its lineup now, with what was dropped, or that there are none. */
@@ -432,6 +438,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
           queuedText(t) +
           limitText(t, usage) +
           heldText(t) +
+          ownerListText(t) +
           blockedText(t) +
           freshnessSuffix(t) +
           (filedByAgent(t) ? ' · filed by an agent (its title, spec and criteria are agent-written)' : '')
@@ -473,7 +480,7 @@ export function createReadTools(deps: ReadToolDeps): OrchestratorReadToolHandler
         : 'None.'
       const baseTests = (await deps.baseTests?.(found.ws).catch(() => null)) ?? null
       const sections = [
-        `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)}${blockedText(t)}`,
+        `## Ticket ${title(t)}${filedByAgent(t) ? ` ${AGENT_FILED_SUFFIX}` : ''}\nKind: ${t.kind === 'investigate' ? 'Investigate' : 'Change'} · column: ${COLUMNS[t.state.column]} · phase: ${PHASES[t.state.phase]}${heldText(t)} · owner: ${agentsMayAct(t) ? 'agents' : 'the user (no agent works on it; never propose starting it)'}${blockedText(t)}`,
         ...(promoted.length ? [promoted.join('\n')] : []),
         ...intentSections(t),
         t.spec ? `## Spec${byAgent}\n${data('spec', t.spec)}` : `## Spec\nNone.`,

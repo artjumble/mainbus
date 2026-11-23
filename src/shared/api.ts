@@ -10,6 +10,8 @@ import type {
   ArchivedTicket,
   TicketRef,
   DependencyNote,
+  OwnerChange,
+  TicketOwner,
   AppSettings,
   BaseTestsView,
   CardVia,
@@ -178,6 +180,8 @@ export type BoardTicket = Ticket & {
   blockedBy: Blocker[]
   /** When it was unblocked, or started while blocked, oldest first (the ticket's Activity). */
   dependencyNotes: DependencyNote[]
+  /** When it was marked as the user's or handed to agents, oldest first (the ticket's Activity). */
+  ownerChanges: OwnerChange[]
   /** How far its branch is behind the newest base, and whether merging it would conflict; null when not checked (no branch, or Done). */
   freshness: BranchFreshness | null
   /** The Investigate ticket this one was promoted from, and the Change ticket made from it; either may be archived. */
@@ -400,6 +404,12 @@ export interface EngineCommands {
    * lineup's defaults. Only while the ticket is in Backlog or Ready with no run open.
    */
   'ticket.setRunSettings'(id: string, settings: RunSettingsInput | null): Ticket
+  /**
+   * Marks the ticket as the user's own ('human': no agent ever starts on it) or hands it to agents. Refused while a run is
+   * open (queued or paused included) and in Done. Saved run settings are kept: ignored while it is the user's, back in force
+   * when handed to agents. Records an Activity entry; setting the owner it already has changes nothing.
+   */
+  'ticket.setOwner'(id: string, owner: TicketOwner): Ticket
   /**
    * The title and spec the Promote dialog starts with for an Investigate ticket's report: the ticket's title and a
    * spec drafted from the report (`drafted`), or the report itself when that failed. Refuses a ticket that can't be promoted.

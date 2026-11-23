@@ -60,6 +60,11 @@ describe('buildOrchestratorPrompt', () => {
     expect(prompt).toContain('Never propose starting a held ticket: propose_start refuses it')
   })
 
+  test("never proposes starting a ticket that is the user's own, but helps with it when asked", () => {
+    expect(prompt).toContain('Never propose starting it or updating it from main (propose_start refuses it)')
+    expect(prompt).toContain('When asked, read it and help')
+  })
+
   test('names the judgement flags an answer proposal can carry', () => {
     for (const field of ['widens_intent', 'open_question', 'recurring_theme', 'destructive']) {
       expect(prompt).toContain(field)
