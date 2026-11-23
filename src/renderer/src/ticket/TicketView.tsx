@@ -17,6 +17,8 @@ import { liveLine } from '../thread/liveLine'
 import { Thread } from '../thread/Thread'
 import { useThread } from '../thread/useThread'
 import { ContextPane } from './ContextPane'
+import { ContextResizeHandle } from './ContextResizeHandle'
+import { DEFAULT_CONTEXT_WIDTH, clampContextWidth, maxContextWidth, readContextWidth, writeContextWidth } from './contextWidth'
 import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
 import { MoveMenu } from './MoveMenu'
@@ -29,7 +31,6 @@ import { UpdateFromMainModal } from './UpdateFromMainModal'
 import { StartBlockedModal } from './StartBlockedModal'
 import { openBlockers } from '../../../shared/dependencies'
 
-const CONTEXT_WIDTH = 380
 /** Below this width the ticket view has no room for the side pane beside a usable conversation (the pane plus about 420 px). */
 const NARROW_BELOW = 800
 
@@ -148,7 +149,7 @@ export function TicketView(): ReactElement {
           </Text>
         )}
       </Stack>
-      <TicketBody key={ticket.id} ticket={ticket} narrow={narrow} detailsOpen={detailsOpen} onCloseDetails={() => setDetailsOpen(false)} />
+      <TicketBody key={ticket.id} ticket={ticket} narrow={narrow} viewWidth={width} detailsOpen={detailsOpen} onCloseDetails={() => setDetailsOpen(false)} />
     </Flex>
   )
 }
@@ -214,15 +215,24 @@ const DETAILS_ID = 'ticket-details'
 function TicketBody({
   ticket,
   narrow,
+  viewWidth,
   detailsOpen,
   onCloseDetails
 }: {
   ticket: BoardTicket
   narrow: boolean
+  viewWidth: number
   detailsOpen: boolean
   onCloseDetails: () => void
 }): ReactElement {
   const thread = useThread(ticket.id)
+  const [storedWidth, setStoredWidth] = useState(readContextWidth)
+  const contextMax = maxContextWidth(viewWidth)
+  const contextWidth = clampContextWidth(storedWidth, viewWidth)
+  function onContextWidthChange(next: number, done: boolean): void {
+    setStoredWidth(next)
+    if (done) writeContextWidth(next)
+  }
   // A move the engine has not finished (a move to Done may remove the worktree): nothing may start meanwhile.
   const moving = useMainbus((s) => ticket.id in s.pendingMoves)
   const [busy, setBusy] = useState(false)
@@ -420,7 +430,7 @@ function TicketBody({
       {(!narrow || detailsOpen) && (
         <Box
           id={DETAILS_ID}
-          w={narrow ? `min(${CONTEXT_WIDTH}px, 100%)` : CONTEXT_WIDTH}
+          w={narrow ? `min(${DEFAULT_CONTEXT_WIDTH}px, 100%)` : contextWidth}
           tabIndex={narrow ? -1 : undefined}
           ref={detailsRef}
           onKeyDown={(e) => {
@@ -443,6 +453,7 @@ function TicketBody({
           <ContextPane ticket={ticket} events={thread?.events ?? []} decisions={thread?.decisions ?? []} runs={thread?.runs} onViewRun={viewRun} />
         </Box>
       )}
+      {!narrow && <ContextResizeHandle width={contextWidth} max={contextMax} onChange={onContextWidthChange} />}
       {viewing !== null && thread ? (
         <PreviousRunView runId={viewing} thread={thread} onBack={() => setViewing(null)} />
       ) : (
