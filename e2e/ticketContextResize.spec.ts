@@ -80,17 +80,17 @@ test('dragging the ticket view handle widens the left column; the width survives
     const y = box.y + box.height / 2
     await page.mouse.move(x, y)
     await page.mouse.down()
-    await page.mouse.move(x + 100, y, { steps: 10 })
-    await expect(separator).toHaveAttribute('aria-valuenow', '480')
+    await page.mouse.move(x + 60, y, { steps: 10 })
+    await expect(separator).toHaveAttribute('aria-valuenow', '440')
     await page.mouse.up()
-    expect((await details.boundingBox())!.width).toBeCloseTo(480, 0)
+    expect((await details.boundingBox())!.width).toBeCloseTo(440, 0)
 
     await app.close()
     app = undefined
     ;({ app, page } = await launch(home, repo, false))
     await page.getByText('Resizable ticket').first().click()
-    await expect(page.getByRole('separator', { name: 'Resize ticket details' })).toHaveAttribute('aria-valuenow', '480')
-    expect((await page.locator('#ticket-details').boundingBox())!.width).toBeCloseTo(480, 0)
+    await expect(page.getByRole('separator', { name: 'Resize ticket details' })).toHaveAttribute('aria-valuenow', '440')
+    expect((await page.locator('#ticket-details').boundingBox())!.width).toBeCloseTo(440, 0)
 
     await page.getByRole('separator', { name: 'Resize ticket details' }).dblclick()
     await expect(page.getByRole('separator', { name: 'Resize ticket details' })).toHaveAttribute('aria-valuenow', '380')

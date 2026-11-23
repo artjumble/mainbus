@@ -64,7 +64,6 @@ export function ContextResizeHandle({ width, max, onChange }: Props): ReactEleme
       aria-valuemax={max}
       tabIndex={0}
       className={classes.handle}
-      style={{ left: width }}
       data-dragging={dragging || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

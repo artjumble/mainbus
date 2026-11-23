@@ -5,13 +5,15 @@
  */
 export const MIN_CONTEXT_WIDTH = 380
 export const DEFAULT_CONTEXT_WIDTH = 380
+/** The handle's gutter between the columns. */
+export const HANDLE_GUTTER = 44
 /** The room the conversation side keeps. */
 export const MIN_CONVERSATION_WIDTH = 360
 const KEY = 'mainbus.ticketContextWidth'
 
 /** The widest the left column may be in a view of this width (the minimum wins when there is no room). */
 export function maxContextWidth(viewWidth: number): number {
-  return Math.max(MIN_CONTEXT_WIDTH, Math.floor(viewWidth - MIN_CONVERSATION_WIDTH))
+  return Math.max(MIN_CONTEXT_WIDTH, Math.floor(viewWidth - HANDLE_GUTTER - MIN_CONVERSATION_WIDTH))
 }
 
 export function clampContextWidth(width: number, viewWidth: number): number {

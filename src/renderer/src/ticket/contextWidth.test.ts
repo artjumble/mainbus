@@ -17,8 +17,8 @@ test('ignores bad values and raises small ones to the minimum', () => {
   expect(readContextWidth()).toBe(380)
 })
 
-test('the maximum leaves 360 px for the conversation, never below 380', () => {
-  expect([600, 800, 1000, 1600].map(maxContextWidth)).toEqual([380, 440, 640, 1240])
-  expect(clampContextWidth(900, 1000)).toBe(640)
+test('the maximum leaves 360 px for the conversation beside the 44 px handle, never below 380', () => {
+  expect([600, 800, 1000, 1600].map(maxContextWidth)).toEqual([380, 396, 596, 1196])
+  expect(clampContextWidth(900, 1000)).toBe(596)
   expect(clampContextWidth(100, 1000)).toBe(380)
 })
