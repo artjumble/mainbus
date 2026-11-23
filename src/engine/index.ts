@@ -837,9 +837,7 @@ export async function createEngine(cfg: EngineConfig): Promise<Engine> {
      */
     const startChecked = async (ticketId: string, opts: StartOptions | undefined, via: 'ticket' | 'proposal'): Promise<void> => {
       requireRuntime()
-      // First, so a refused start leaves everything (a hold included) as it was.
-      const target = await repos.tickets.get(ticketId)
-      if (!agentsMayAct(target)) throw new Error(yoursText(target.number))
+      // A human-owned ticket is refused inside runner.start (layer 1), before the hold is released or a note written.
       await roleModelsReady
       const { startAnyway, ...rest } = opts ?? {}
       const open = openBlockers(await repos.dependencies.blockersOf(ticketId))

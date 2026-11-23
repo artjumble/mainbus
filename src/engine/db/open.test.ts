@@ -121,6 +121,24 @@ describe('openDb', () => {
     expect(rows.map((r) => [r.number, r.rank])).toEqual([[1, 1], [2, 2], [3, 3]])
   })
 
+  it("gives every existing ticket the agent as its owner", async () => {
+    // The migrations as they were before 0046 (ticket owners).
+    const first = await open(firstMigrations(46))
+    await first.db.run(
+      sql`insert into workspaces (id, name, repo_path, base_branch, slug, created_at)
+          values ('w1', 'W', 'repo-path', 'main', 'w', '2026-10-30T00:00:00.000Z')`
+    )
+    await first.db.run(
+      sql`insert into tickets (id, workspace_id, number, kind, title, intent, spec, labels, manual_column, created_at, updated_at)
+          values ('t1', 'w1', 1, 'change', 'T', '[]', '', '[]', 'ready', '2026-10-30T00:00:00.000Z', '2026-10-30T00:00:00.000Z')`
+    )
+    first.close()
+    closers = []
+
+    const { db } = await open()
+    expect((await db.select().from(tickets)).map((r) => r.owner)).toEqual(['agent'])
+  })
+
   it("turns each workspace's role into its lineup's Implementer, between the default Planner and Reviewer", async () => {
     // The migrations as they were before lineups: one role per workspace.
     const first = await open(firstMigrations(2))

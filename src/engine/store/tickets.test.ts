@@ -156,6 +156,7 @@ describe('ticket repo', () => {
       reportFileError: null,
       promotedFrom: null,
       runSettings: null,
+      owner: 'agent',
       setup: null,
       doneAt: null,
       archivedAt: null,

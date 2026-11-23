@@ -272,6 +272,22 @@ describe('restart recovery', () => {
     expect(runtime.specs[0]!.resumeSessionId).toBe('session-1-a')
   })
 
+  it('skips an open run whose ticket is the users own, even if the owner was changed behind the commands back', async () => {
+    const a = await newTicket('A')
+    const b = await newTicket('B')
+    const before = makeRunner(new FakeRuntime(working))
+    await startWorking(before, a)
+    await startWorking(before, b)
+    await before.shutdown()
+    await repos.tickets.setOwner(b.id, 'human')
+
+    const runtime = new FakeRuntime(working)
+    await relaunch(runtime)
+    expect(runtime.specs).toHaveLength(1)
+    expect(runtime.specs[0]!.resumeSessionId).toBe('session-1-a')
+    expect((await repos.runs.latest(b.id))?.queuedSeq).toBeNull()
+  })
+
   it('shutdown before the queue drains launches nothing', async () => {
     const t = await newTicket('A')
     const before = makeRunner(new FakeRuntime(working))

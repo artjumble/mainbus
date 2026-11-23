@@ -222,6 +222,17 @@ describe('list_tickets', () => {
     expect(await tools.getTicket({ number: free.number })).not.toContain('held')
   })
 
+  test("shows who owns a ticket: agents by default, and the user's own ones are marked", async () => {
+    const mine = await ticket({ title: 'Mine' })
+    await repos.tickets.setOwner(mine.id, 'human')
+    const theirs = await ticket({ title: 'Theirs' })
+    const list = (await tools.listTickets({})).split('\n')
+    expect(list[2]).toContain("· owner: the user (no agent works on it; don't propose starting it)")
+    expect(list[3]).not.toContain('owner:')
+    expect(await tools.getTicket({ number: mine.number })).toContain('owner: the user (no agent works on it; never propose starting it)')
+    expect(await tools.getTicket({ number: theirs.number })).toContain('owner: agents')
+  })
+
   test('filters by column and rejects an unknown one', async () => {
     await running(await ticket())
     await ticket({ title: 'Later' })
