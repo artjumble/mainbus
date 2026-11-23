@@ -407,3 +407,30 @@ test('Workspace agent lineup: the roles on the left, the open role on the right'
     await shot(page, 'workspace-lineup')
   })
 })
+
+test('Human-owned ticket: the You badge and accent, and the This ticket is yours view', async () => {
+  await withArtboard({ fixture: 'e2e/fixtures/artboard-detail-by-role.json', size: SCREEN }, async ({ page }) => {
+    await createTicket(page, { title: 'Write the launch post', column: 'ready', criteria: ['Draft', 'Proof'] })
+    await createTicket(page, { title: 'Add CSV export', column: 'ready' })
+    const id = await page.evaluate(async () => {
+      const mainbus = (globalThis as unknown as { mainbus: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).mainbus
+      const { tickets } = (await mainbus.invoke('board.get')) as { tickets: { id: string; title: string }[] }
+      const mine = tickets.find((t) => t.title === 'Write the launch post')!
+      await mainbus.invoke('ticket.setOwner', mine.id, 'human')
+      return mine.id
+    })
+    const card = page.locator(`[data-ticket-card="${id}"]`)
+    await expect(card.locator('[data-you-badge]')).toHaveText('You')
+    await shot(page, 'yours-board')
+    // Without color: the badge's icon and text and the thick left edge are what tell it apart.
+    await page.evaluate(() => (document.documentElement.style.filter = 'grayscale(1)'))
+    await shot(page, 'yours-board-grayscale')
+    await page.evaluate(() => (document.documentElement.style.filter = ''))
+
+    await openTicket(page, 'Write the launch post')
+    await expect(page.getByRole('heading', { name: 'This ticket is yours' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Mark done' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Hand to agents' })).toBeVisible()
+    await shot(page, 'yours-ticket')
+  })
+})

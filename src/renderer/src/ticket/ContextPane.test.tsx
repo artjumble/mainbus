@@ -440,3 +440,9 @@ test('the Activity says what the orchestrator found when it reviewed the finishe
   expect(proposed).toContain('View proposal')
   expect(items.some((i) => i.includes('Reviewed by the orchestrator: no follow-ups proposed'))).toBe(true)
 })
+
+test('a ticket of the user has no Acceptance criteria section: its panel shows them once', () => {
+  renderWithMantine(<ContextPane ticket={{ ...ticket, owner: 'human' }} events={[]} decisions={[]} />)
+  expect(screen.queryByRole('region', { name: 'Acceptance criteria' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox', { name: 'Toggle works' })).not.toBeInTheDocument()
+})

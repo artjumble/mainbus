@@ -49,6 +49,7 @@ import {
 } from 'react'
 import { baseBranchWarning } from '../../../shared/baseBranch'
 import { compareRank, isRanked } from '../../../shared/boardOrder'
+import { agentsMayAct } from '../../../shared/owner'
 import type { ArchivedTicket, Column } from '../../../shared/domain'
 import { invoke } from '../api'
 import { useWorkspaceBranches } from '../workspace/useWorkspaceBranches'
@@ -367,6 +368,7 @@ export function Board(): ReactElement {
     async (ticket: BoardTicket): Promise<void> => {
       const column = ticket.state.column
       if (column !== 'backlog' && column !== 'ready') return
+      if (!agentsMayAct(ticket)) return
       try {
         await proposeStart(ticket.id)
       } catch (err) {
@@ -481,6 +483,10 @@ export function Board(): ReactElement {
       const title = columnTitle(id)
       return id === 'in_progress' ? `${title}, which proposes starting it` : title
     }
+    const yoursOf = (id: unknown): boolean => {
+      const t = tickets.find((x) => x.id === id)
+      return !!t && !agentsMayAct(t)
+    }
     const spot = (active: Active, over: Over): string | undefined => {
       const at = dropFor(active, over)
       if (!at) return undefined
@@ -500,6 +506,7 @@ export function Board(): ReactElement {
         // dnd-kit reports the column the card started in right after the pick-up; that would drown "Picked up".
         if (tickets.find((t) => t.id === active.id)?.state.column === over.id && !moved.current) return undefined
         moved.current = true
+        if (over.id === 'in_progress' && yoursOf(active.id)) return `${name(active.id)} is over In progress, which takes only agents' tickets.`
         const at = spot(active, over)
         if (at) lastSpot.current = `${over.id}:${at}`
         return `${name(active.id)} is over ${where(over.id)}${at ? `, ${at}` : ''}.`
@@ -515,6 +522,10 @@ export function Board(): ReactElement {
       },
       onDragEnd: ({ active, over }) => {
         if (!over) return `${name(active.id)} was dropped outside a column and stays where it was.`
+        if (over.id === 'in_progress' && yoursOf(active.id)) {
+          const t = tickets.find((x) => x.id === active.id)
+          return `#${t?.number} is yours, so it can't go to In progress; it stays where it was.`
+        }
         if (over.id === 'in_progress') {
           return `${name(active.id)} was dropped on In progress: the orchestrator panel proposes starting it.`
         }
@@ -571,7 +582,7 @@ export function Board(): ReactElement {
       else if (at && !filteringRef.current && at.position - 1 !== (orderRef.current.get(at.column) ?? []).indexOf(ticket.id)) {
         void onReorder(ticket, at.before, at.position)
       }
-    } else if (target === 'in_progress') void onPropose(ticket)
+    } else if (target === 'in_progress' && agentsMayAct(ticket)) void onPropose(ticket)
   }
 
   return (
@@ -784,7 +795,9 @@ const BoardColumn = memo(function BoardColumn({
   /** Needs you with no tickets: a narrow strip with its title and count, like Done's, that never opens. */
   collapsed?: boolean
 }): ReactElement {
-  const { setNodeRef, isOver } = useDroppable({ id, disabled: !isManual(id) && id !== 'in_progress' })
+  const { setNodeRef, isOver: overRaw, active } = useDroppable({ id, disabled: !isManual(id) && id !== 'in_progress' })
+  // In progress takes only agents' tickets: a card of yours over it doesn't light the lane up as a target.
+  const isOver = overRaw && !(id === 'in_progress' && active?.data.current?.yours)
   const headingId = `column-${id}`
   if (collapsed) return <CollapsedLane ref={setNodeRef} title={title} headingId={headingId} />
   return (
@@ -1075,6 +1088,7 @@ const DraggableTicket = memo(function DraggableTicket({
   const locked = ticket.state.column === 'in_progress' || ticket.state.column === 'needs_you'
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
     id: ticket.id,
+    data: { yours: !agentsMayAct(ticket) },
     disabled: moving || locked
   })
   // Pointer drags start anywhere on the card; a keyboard drag only from the handle, so Enter on the title still opens.
@@ -1206,7 +1220,7 @@ const DraggableTicket = memo(function DraggableTicket({
             Move to {m.title}
           </Menu.Item>
         ))}
-        {(ticket.state.column === 'backlog' || ticket.state.column === 'ready') && (
+        {(ticket.state.column === 'backlog' || ticket.state.column === 'ready') && agentsMayAct(ticket) && (
           <Menu.Item disabled={moving} onClick={() => onPropose(ticket)}>
             Move to In progress…
           </Menu.Item>

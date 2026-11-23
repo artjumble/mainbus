@@ -1,5 +1,6 @@
 import type { BoardTicket } from '../../shared/api'
 import type { Column } from '../../shared/domain'
+import { agentsMayAct } from '../../shared/owner'
 
 /** What the tray shows: how many agents work, how many tickets need the user, and how many agents are open at all. */
 export interface Activity {
@@ -14,6 +15,7 @@ const OPEN_STATUSES = new Set(['working', 'queued', 'waiting_on_you'])
 export function countActivity(boards: BoardTicket[][]): Activity {
   const a: Activity = { working: 0, needsYou: 0, openAgents: 0 }
   for (const ticket of boards.flat()) {
+    if (!agentsMayAct(ticket)) continue
     const { agentStatus, column } = ticket.state
     if (agentStatus === 'working') a.working++
     if (column === 'needs_you') a.needsYou++

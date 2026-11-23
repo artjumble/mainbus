@@ -6,10 +6,11 @@ export function ticket(
   id: string,
   column: Column,
   agentStatus: AgentStatus | null = null,
-  extra: { workspaceId?: string; number?: number; title?: string; summary?: string | null } = {}
+  extra: { owner?: 'agent' | 'human'; workspaceId?: string; number?: number; title?: string; summary?: string | null } = {}
 ): BoardTicket {
   return {
     id,
+    owner: extra.owner ?? 'agent',
     workspaceId: extra.workspaceId ?? 'w1',
     number: extra.number ?? Number(id.replace(/\D/g, '') || 1),
     title: extra.title ?? `Ticket ${id}`,

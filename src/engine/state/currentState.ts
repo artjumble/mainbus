@@ -1,4 +1,5 @@
 import type { Decision, Phase, Ticket, TicketState } from '../../shared/domain'
+import { agentsMayAct } from '../../shared/owner'
 import type { StoredEvent } from '../../shared/events'
 import type { EndReason } from '../store/runs'
 
@@ -26,7 +27,7 @@ export interface StateInput {
 /**
  * Derives a ticket's board column, phase and agent status from its manual column,
  * its latest run, and the decisions still waiting on the user.
- * Precedence: done, handoff, pending decision, failed, stopped, deferred decision, paused by the user, queued, paused by the usage limit, paused, working.
+ * Precedence: done, a ticket agents may not act on (its manual column), handoff, pending decision, failed, stopped, deferred decision, paused by the user, queued, paused by the usage limit, paused, working.
  */
 export function currentState(input: StateInput): TicketState {
   const state = stateWithoutSetup(input)
@@ -41,7 +42,8 @@ function stateWithoutSetup(input: StateInput): TicketState {
   if (ticket.manualColumn === 'done') {
     return { ...none, column: 'done', phase: 'done', agentStatus: null }
   }
-  if (!run) {
+  if (!agentsMayAct(ticket) || !run) {
+    // A human ticket stays where the user put it, whatever its earlier runs did.
     return { ...none, column: ticket.manualColumn, phase: 'not_started', agentStatus: null }
   }
   if (run.endReason === 'handoff') {

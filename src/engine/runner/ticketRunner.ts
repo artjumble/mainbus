@@ -1549,7 +1549,7 @@ export class TicketRunner {
     // Out of Done it does show: the ticket goes back to Review or Needs you.
     const current = await this.repos.tickets.get(ticketId)
     const ended = run && (run.endReason === 'handoff' || run.endReason === 'failed')
-    if (ended && current.manualColumn !== 'done') throw new Error(ENDED_RUN_MOVE)
+    if (ended && current.manualColumn !== 'done' && agentsMayAct(current)) throw new Error(ENDED_RUN_MOVE)
     const ticket = await this.repos.tickets.setManualColumn(ticketId, column, rank)
     this.deps.emit({ type: 'board.changed', workspaceId: ticket.workspaceId })
   }

@@ -51,7 +51,7 @@ test.each(['light', 'dark'] as const)('%s looks exactly as it did before the the
   // in it, nor the board's lane and card border, added since.
   const now = resolvedVariables(id)
   const before = Object.keys(now)
-    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border)$|^--mainbus-(tooltip|menu-item-hover)|^--mainbus-code-|^--mainbus-rail-/.test(k))
+    .filter((k) => !/^--mantine-color-[a-z]+(Light|Dark)-|^--mainbus-color-(lane|card-border|yours)$|^--mainbus-(tooltip|menu-item-hover)|^--mainbus-code-|^--mainbus-rail-/.test(k))
     .sort()
   expect(Object.fromEntries(before.map((k) => [k, now[k]]))).toMatchSnapshot()
 })
@@ -92,7 +92,7 @@ describe.each(THEME_IDS)('%s', (id) => {
   test('has every token: the palette, ten shades of each named colour, and a neutral ramp in a dark theme', () => {
     for (const v of Object.values(def.palette)) expect(v).toMatch(HEX)
     expect(Object.keys(def.palette).sort()).toEqual(
-      ['anchor', 'border', 'cardBorder', 'dimmed', 'error', 'ground', 'lane', 'raised', 'strongBorder', 'surface', 'text'].sort()
+      ['anchor', 'border', 'cardBorder', 'dimmed', 'error', 'ground', 'lane', 'raised', 'strongBorder', 'surface', 'text', 'yours'].sort()
     )
     for (const v of Object.values(def.code)) expect(v).toMatch(HEX)
     expect(Object.keys(def.code).sort()).toEqual(
@@ -126,6 +126,7 @@ describe.each(THEME_IDS)('%s', (id) => {
     expect(vars['--mainbus-color-strong-border']).toBe(def.palette.strongBorder)
     expect(vars['--mainbus-color-lane']).toBe(def.palette.lane)
     expect(vars['--mainbus-color-card-border']).toBe(def.palette.cardBorder)
+    expect(vars['--mainbus-color-yours']).toBe(def.palette.yours)
   })
 
   test('a lane is a step away from the ground, and from the cards on it', () => {
@@ -162,6 +163,9 @@ describe.each(THEME_IDS)('%s', (id) => {
       ['a lane heading on the lane', text, vars['--mainbus-color-lane']],
       ['a lane count and its placeholder on the lane', dimmed, vars['--mainbus-color-lane']],
       ['placeholder on a surface', color('placeholder'), surface],
+      ['the You badge on the ground', vars['--mainbus-color-yours'], ground],
+      ['the You badge on a surface', vars['--mainbus-color-yours'], surface],
+      ['the You badge on the lane', vars['--mainbus-color-yours'], vars['--mainbus-color-lane']],
       // Floating surfaces, as Mantine paints them: a popover, menu, hover card, combobox list and notification are on
       // the surface (white in light, dark-6 in dark; the combobox list is dark-7 in dark).
       ['tooltip text on its background', vars['--mainbus-tooltip-fg'], vars['--mainbus-tooltip-bg']],
@@ -223,6 +227,9 @@ describe.each(THEME_IDS)('%s', (id) => {
       ['the recently-changed outline on the ground', color('working-5'), ground],
       ['the working dot on the ground', color('working-filled'), ground],
       ['the border of a card that needs you', color('needs-6'), ground],
+      ['the accent of your card on the lane', vars['--mainbus-color-yours'], vars['--mainbus-color-lane']],
+      ['the accent of your card on a lane a card is dragged over', vars['--mainbus-color-yours'], color('working-0')],
+      ['the accent of your card on the ground', vars['--mainbus-color-yours'], ground],
       ['a card border on the lane', vars['--mainbus-color-card-border'], vars['--mainbus-color-lane']],
       ['a card border on a lane a card is dragged over', vars['--mainbus-color-card-border'], color('working-0')],
       ['the border of a card that needs you on the Needs you tint', color('needs-6'), color('needs-0')],

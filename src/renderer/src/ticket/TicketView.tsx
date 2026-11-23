@@ -7,6 +7,8 @@ import { HoldChip } from '../board/HoldChip'
 import { RunSettingsChip } from '../board/RunSettingsChip'
 import { FreshnessChip } from '../board/FreshnessChip'
 import { CONFLICT_LOOK } from '../board/chipStyles'
+import { YouBadge } from '../board/YouBadge'
+import { agentsMayAct } from '../../../shared/owner'
 import { StuckChip, StuckEvidence } from '../board/StuckChip'
 import { PausedChip, PhaseChip, PrLink, QueuedChip, SettingUpChip } from '../board/TicketCard'
 import { showError } from '../notify'
@@ -21,7 +23,8 @@ import { ContextResizeHandle } from './ContextResizeHandle'
 import { DEFAULT_CONTEXT_WIDTH, clampContextWidth, maxContextWidth, readContextWidth, writeContextWidth } from './contextWidth'
 import { HoldMenu } from './HoldMenu'
 import { LineupStrip } from './LineupStrip'
-import { MoveMenu } from './MoveMenu'
+import { MoveMenu, moveWithNotices } from './MoveMenu'
+import { YoursPanel } from './YoursPanel'
 import { PromoteModal } from './PromoteModal'
 import { PreviousRunView } from './PreviousRunView'
 import { RunSettingsModal, runSettingsEditable } from './RunSettingsModal'
@@ -88,23 +91,31 @@ export function TicketView(): ReactElement {
     )
   }
 
+  const mine = !agentsMayAct(ticket)
+
   return (
     <Flex direction="column" h="100vh" ref={widthRef}>
       <Stack gap={4} px="md" py="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
         <Group gap="sm" align="baseline">
           {back}
           <Text c="dimmed">#{ticket.number}</Text>
-          <Title order={2} size="h3">
+          <Title order={2} size="h3" tabIndex={-1} style={{ outline: "none" }}>
             {ticket.title}
           </Title>
-          <Text>is</Text>
-          <PhaseChip state={ticket.state} />
-          <PausedChip state={ticket.state} />
-          <QueuedChip state={ticket.state} />
-          <SettingUpChip state={ticket.state} />
+          {mine ? (
+            <YouBadge />
+          ) : (
+            <>
+              <Text>is</Text>
+              <PhaseChip state={ticket.state} />
+              <PausedChip state={ticket.state} />
+              <QueuedChip state={ticket.state} />
+              <SettingUpChip state={ticket.state} />
+            </>
+          )}
           <HoldChip hold={ticket.hold} />
-          <RunSettingsChip ticket={ticket} />
-          <StuckChip stuck={ticket.stuck} />
+          {!mine && <RunSettingsChip ticket={ticket} />}
+          {!mine && <StuckChip stuck={ticket.stuck} />}
           <FreshnessChip freshness={ticket.freshness} done={ticket.manualColumn === 'done'} />
           {ticket.pr && <PrLink pr={ticket.pr} size="sm" />}
           {ticket.archivedAt !== null && (
@@ -137,7 +148,7 @@ export function TicketView(): ReactElement {
         )}
         {ticket.reportFileError !== null && ticket.state.column === 'review' && <ReportFileFailure ticket={ticket} />}
         {ticket.prError !== null && ticket.state.column === 'review' && <PrFailure ticket={ticket} />}
-        <StuckEvidence stuck={ticket.stuck} />
+        {!mine && <StuckEvidence stuck={ticket.stuck} />}
         {ticket.state.column === 'done' && (
           <Text size="sm" c="dimmed">
             Done tickets are read-only. Move it back to Ready to change it.
@@ -258,17 +269,20 @@ function TicketBody({
   const workspace = useMainbus((s) => s.workspace)
   const { agentStatus, canContinue, phase, pausedByUser, pausedByLimit, settingUp } = ticket.state
   const isDone = phase === 'done'
+  // The user's own ticket: nothing here starts, steers or updates an agent.
+  const mine = !agentsMayAct(ticket)
   // An Investigate ticket's report can become a Change ticket, once.
   const canPromote =
     ticket.kind === 'investigate' && !!ticket.report && (ticket.state.column === 'review' || ticket.state.column === 'done') && !promoted
   const ended = agentStatus === 'failed' || agentStatus === 'handed_off'
   // A ticket whose latest run ended can be started again; a done ticket cannot (it would re-create the removed worktree).
-  const canStart = !isDone && ((agentStatus === null && !canContinue) || ended)
+  const canStart = !mine && !isDone && ((agentStatus === null && !canContinue) || ended)
   const runOpen =
     canContinue || pausedByUser || pausedByLimit === true || agentStatus === 'working' || agentStatus === 'queued' || agentStatus === 'waiting_on_you'
 
   // "Run setup again": the workspace has a command, the folder exists and no role is working or about to be.
   const canRunSetup =
+    !mine &&
     !isDone &&
     settingUp !== true &&
     (workspace?.setupCommand ?? '') !== '' &&
@@ -277,6 +291,7 @@ function TicketBody({
 
   // "Update from main": the branch lacks commits of the base and no role is working, queued or starting. A paused or waiting run is ended by it.
   const canUpdate =
+    !mine &&
     !isDone &&
     ticket.kind === 'change' &&
     (ticket.freshness?.behind ?? 0) > 0 &&
@@ -287,7 +302,7 @@ function TicketBody({
   const conflicts = (ticket.freshness?.conflicts.length ?? 0) > 0
 
   // "Merge…": a ticket in Review with a branch.
-  const canMerge = !isDone && ticket.state.column === 'review' && ticket.branch !== null && settingUp !== true
+  const canMerge = !mine && !isDone && ticket.state.column === 'review' && ticket.branch !== null && settingUp !== true
 
   useEffect(() => {
     started.current = false
@@ -396,6 +411,25 @@ function TicketBody({
     return guarded(() => proposeReplace(ticket.id), 'Could not propose a replacement')
   }
 
+  /** Mark done: the same move as the Move to… menu, with its notices. */
+  async function markDone(): Promise<void> {
+    await moveWithNotices(useMainbus.getState().moveTicket, ticket.id, 'done')
+  }
+
+  /** Hands the ticket to agents, once confirmed. Resolves true once it is. */
+  async function handToAgents(): Promise<boolean> {
+    const done = await guarded(() => invoke('ticket.setOwner', ticket.id, 'agent').then(() => undefined), 'Could not hand it to agents')
+    if (done) {
+      announce(`Handed #${ticket.number} to agents`)
+      // The panel is replaced: focus goes to Start once it renders, else to the ticket's title.
+      setTimeout(() => {
+        const start = document.querySelector<HTMLElement>('[data-nobody-working] button')
+        ;(start ?? document.querySelector<HTMLElement>('h2'))?.focus()
+      }, 50)
+    }
+    return done
+  }
+
   /** Attaches images to the ticket; a working agent is told by Mainbus. */
   const attach = useCallback(
     (files: File[]) => {
@@ -413,7 +447,7 @@ function TicketBody({
     [thread]
   )
 
-  const activeRole = ticket.lineup.find((r) => r.active)
+  const activeRole = mine ? undefined : ticket.lineup.find((r) => r.active)
   // No run has happened: the thread is replaced by the panel that offers Start (so the controls row doesn't).
   const emptyPanel = thread !== null && thread.events.length === 0 && canStart && !ended
   const composerLabel = ended
@@ -458,7 +492,7 @@ function TicketBody({
         <PreviousRunView runId={viewing} thread={thread} onBack={() => setViewing(null)} />
       ) : (
         <Flex direction="column" flex={1} miw={0}>
-          <LineupStrip roles={ticket.lineup} />
+          {!mine && <LineupStrip roles={ticket.lineup} />}
           {/* When the buttons wrap, rows 18 px apart keep each button's 44 px hit area clear of the next row's. */}
           <Group
             px="md"
@@ -475,17 +509,17 @@ function TicketBody({
               <span />
             )}
             <Group gap="sm" style={{ rowGap: 18 }}>
-              {agentStatus === 'working' && (
+              {!mine && agentStatus === 'working' && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.pause', 'Could not pause')}>
                   Pause
                 </Button>
               )}
-              {(pausedByUser || pausedByLimit) && (
+              {!mine && (pausedByUser || pausedByLimit) && (
                 <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.resume', 'Could not resume')}>
                   Resume
                 </Button>
               )}
-              {(runOpen || settingUp === true) && (
+              {!mine && (runOpen || settingUp === true) && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void control('agent.stop', 'Could not stop')}>
                   Stop
                 </Button>
@@ -513,17 +547,17 @@ function TicketBody({
                   </Button>
                 </Tooltip>
               )}
-              {runOpen && activeRole && (
+              {!mine && runOpen && activeRole && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => setSkipping(true)}>
                   {`Skip to ${ticket.skipTo ?? 'next role'}`}
                 </Button>
               )}
-              {runOpen && activeRole && (
+              {!mine && runOpen && activeRole && (
                 <Button size="compact-sm" variant="default" disabled={busy} onClick={() => void replace()}>
                   Replace…
                 </Button>
               )}
-              {canContinue && (
+              {!mine && canContinue && (
                 <Button size="compact-sm" disabled={busy} onClick={() => void control('agent.continue', 'Could not continue')}>
                   Continue
                 </Button>
@@ -533,7 +567,7 @@ function TicketBody({
                   {ended ? 'Start again' : 'Start'}
                 </Button>
               )}
-              {thread !== null && !emptyPanel && (
+              {!mine && thread !== null && !emptyPanel && (
                 <Button size="compact-sm" variant="default" disabled={moving} onClick={() => setSettingsOpen(true)}>
                   Run settings…
                 </Button>
@@ -610,7 +644,9 @@ function TicketBody({
             onClose={() => setSkipping(false)}
             onSkip={skip}
           />
-          {emptyPanel ? (
+          {mine ? (
+            <YoursPanel ticket={ticket} busy={busy || moving} onMarkDone={markDone} onHandToAgents={handToAgents} />
+          ) : emptyPanel ? (
             <NobodyWorking
               workspaceName={workspace?.name ?? 'workspace'}
               roles={ticket.lineup.map((r) => r.name)}
@@ -640,6 +676,10 @@ function TicketBody({
             {isDone ? (
               <Text size="sm" c="dimmed">
                 This ticket is done.
+              </Text>
+            ) : mine ? (
+              <Text size="sm" c="dimmed">
+                No agent works on this ticket. Hand it to agents to message one.
               </Text>
             ) : (
               <Composer

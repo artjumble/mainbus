@@ -292,3 +292,39 @@ test('a ticket whose folder is being set up shows a Setting up… chip beside th
   renderWithMantine(<TicketCard ticket={working} onOpen={() => {}} />)
   expect(screen.queryByText('Setting up…')).not.toBeInTheDocument()
 })
+
+describe('a ticket the user owns', () => {
+  const yours = (overrides = {}): ReturnType<typeof makeTicket> =>
+    makeTicket({ number: 61, title: 'Write the post', owner: 'human', ...overrides }, { column: 'ready', phase: 'not_started', agentStatus: null })
+
+  test('shows the You badge with an icon, an accent, and the name "#N, yours: Title"', () => {
+    const { container } = renderWithMantine(<TicketCard ticket={yours()} onOpen={() => {}} />)
+    const badge = container.querySelector('[data-you-badge]')!
+    expect(badge).toHaveTextContent('You')
+    expect(badge.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: /^#61, yours:\s*Write the post$/ })).toBeInTheDocument()
+    const card = container.querySelector<HTMLElement>('[data-ticket-card]')!
+    expect(card.dataset.owner).toBe('human')
+  })
+
+  test('hides the agent-only chips, but keeps the hold and blocked chips', () => {
+    const saved = { excludedRoleIds: ['p'], roles: {}, extraInstructions: null, roleNames: { p: 'Planner' } }
+    const stuck = { reason: 'loop', since: '2026-10-30T00:00:00.000Z' } as never
+    const blocker = { id: 'b1', number: 3, title: 'Other', done: false } as never
+    const hold = { id: 'h1', targetKind: 'ticket', targetId: 't', reason: 'Waiting on a design', until: null, createdAt: '2026-10-30T00:00:00.000Z' } as never
+    const { container } = renderWithMantine(
+      <TicketCard ticket={yours({ runSettings: saved, stuck, hold, blockedBy: [blocker] })} onOpen={() => {}} />
+    )
+    expect(container.querySelector('[data-phase-chip]')).toBeNull()
+    expect(screen.queryByText('Custom run')).not.toBeInTheDocument()
+    expect(screen.getByText(/Held by you/)).toBeInTheDocument()
+    expect(screen.getByText(/Blocked/i)).toBeInTheDocument()
+  })
+
+  test('an agent ticket has no badge, no accent, and its plain name', () => {
+    const { container } = renderWithMantine(<TicketCard ticket={makeTicket({ title: 'Plain' })} onOpen={() => {}} />)
+    expect(container.querySelector('[data-you-badge]')).toBeNull()
+    expect(container.querySelector<HTMLElement>('[data-ticket-card]')!.dataset.owner).toBeUndefined()
+    expect(screen.getByRole('button', { name: 'Plain' })).toBeInTheDocument()
+  })
+})

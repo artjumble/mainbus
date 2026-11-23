@@ -158,6 +158,34 @@ describe('moving a card by keyboard', () => {
     expect(announced()).toMatch(/moved to position 1 of 1 in Ready/)
   })
 
+  test('a card of yours dropped on In progress proposes nothing, says why, and does not light the lane', async () => {
+    const ticket = makeTicket({ title: 'Drag me', owner: 'human' }, { column: 'backlog' })
+    const proposeStart = vi.fn()
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket], proposeStart }, true)
+    layOutColumns()
+    renderWithMantine(<Board />)
+    const lane = screen.getByRole('region', { name: 'In progress' })
+    handle(ticket.number).focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}')
+    await vi.waitFor(() => expect(announced()).toMatch(/is over In progress, which takes only agents' tickets/))
+    expect(lane.style.background).not.toContain('--mantine-color-working-0')
+    await userEvent.keyboard(' ')
+    await vi.waitFor(() => expect(announced()).toBe(`#${ticket.number} is yours, so it can't go to In progress; it stays where it was.`))
+    expect(proposeStart).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Drag me/ })).toBeInTheDocument()
+  })
+
+  test('the card menu of a ticket of yours has no Move to In progress…', async () => {
+    const ticket = makeTicket({ title: 'Mine', owner: 'human' }, { column: 'ready' })
+    const other = makeTicket({ title: 'Theirs' }, { column: 'ready' })
+    useMainbus.setState({ ...initial, workspace, workspaceLoaded: true, boardLoaded: true, tickets: [ticket, other] }, true)
+    renderWithMantine(<Board />)
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Mine/ }))
+    expect(await screen.findByRole('menuitem', { name: 'Move to Backlog' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Move to In progress…' })).not.toBeInTheDocument()
+  })
+
   test('the lane a card is over is highlighted, over its fill, and goes back to the fill after', async () => {
     const ticket = show()
     layOutColumns()

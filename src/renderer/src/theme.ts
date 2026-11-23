@@ -58,6 +58,8 @@ export interface Palette {
   border: string
   /** A board card's border: 3:1 on the lane, so a card's edge shows against it. */
   cardBorder: string
+  /** The user's own tickets: the card's 4 px left border and the You badge. 4.5:1 on the ground, a surface and the lane, so it also works as text. */
+  yours: string
   /** A border that means something: the dashed border of a failed card. */
   strongBorder: string
   /** Links. */
@@ -186,6 +188,7 @@ const light: ThemeDef = {
     lane: '#EAEAE5',
     border: '#CFCFCA',
     cardBorder: '#82827C',
+    yours: '#8A3FC4',
     strongBorder: DEFAULT_THEME.colors.dark[6],
     anchor: workingLight[6],
     error: redLight[6]
@@ -291,6 +294,7 @@ const dark: ThemeDef = {
     lane: '#252523',
     border: neutralDark[4],
     cardBorder: '#74746D',
+    yours: '#C99BF0',
     strongBorder: neutralDark[2],
     anchor: workingDark[7],
     error: redDark[7]
@@ -325,6 +329,7 @@ const nightOwl: ThemeDef = {
     lane: '#04203A',
     border: '#122D42', // focusBorder
     cardBorder: '#58789A',
+    yours: '#C792EA',
     strongBorder: '#8CA6BC',
     anchor: '#82AAFF',
     error: '#F26B68'
@@ -371,6 +376,7 @@ const lightOwl: ThemeDef = {
     lane: '#E6E6E6',
     border: '#D9D9D9', // input.border
     cardBorder: '#7E7E7E',
+    yours: '#7A3DAF',
     strongBorder: '#435761',
     anchor: '#2D5EC7',
     error: '#C12321'
@@ -490,6 +496,7 @@ function cssVariablesResolverOf(def: ThemeDef, scheme: ThemeScheme): CSSVariable
       '--mainbus-tooltip-fg': p.surface,
       '--mainbus-color-lane': p.lane,
       '--mainbus-color-card-border': p.cardBorder,
+      '--mainbus-color-yours': p.yours,
       ...Object.fromEntries(Object.entries(def.code).map(([token, color]) => [`--mainbus-code-${token}`, color])),
       ...Object.fromEntries(
         Object.entries(RAIL_TILES).flatMap(([k, { tint, deep }]) => [
