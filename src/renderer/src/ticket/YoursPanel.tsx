@@ -1,6 +1,6 @@
 import { Button, Center, Group, Modal, Stack, Text, Title } from '@mantine/core'
 import { useState, type ReactElement } from 'react'
-import type { BoardTicket } from '../store'
+import { useMainbus, type BoardTicket } from '../store'
 import { CriteriaChecklist } from './ContextPane'
 
 /** In place of the thread on a ticket the user owns: no agent will start on it, its checklist, and the two ways out. */
@@ -17,6 +17,7 @@ export function YoursPanel({
   onHandToAgents: () => Promise<boolean>
 }): ReactElement {
   const done = ticket.state.column === 'done'
+  const askOrchestrator = useMainbus((s) => s.askOrchestrator)
   const [asking, setAsking] = useState(false)
   const [handing, setHanding] = useState(false)
   return (
@@ -47,6 +48,9 @@ export function YoursPanel({
             </Button>
           </Group>
         )}
+        <Button variant="subtle" size="compact-sm" style={{ alignSelf: 'flex-start' }} onClick={() => askOrchestrator(`About #${ticket.number}: `)}>
+          Ask the orchestrator about this ticket
+        </Button>
         <Text size="xs" c="dimmed">
           Past runs on this ticket appear in the activity timeline.
         </Text>

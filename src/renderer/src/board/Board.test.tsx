@@ -491,6 +491,74 @@ describe('search', () => {
   })
 })
 
+describe('the Mine / Agents\' / All filter', () => {
+  beforeEach(() => localStorage.clear())
+  function showMixed(): void {
+    showBoard(
+      makeTicket({ number: 1, title: 'Mine one', owner: 'human' }, { column: 'backlog' }),
+      makeTicket({ number: 2, title: 'Agent one' }, { column: 'backlog' }),
+      makeTicket({ number: 3, title: 'Agent two' }, { column: 'ready' })
+    )
+  }
+  const option = (name: string): HTMLElement => screen.getByRole('radio', { name })
+  const shown = (): string => screen.getByTestId('filter-announcer').textContent ?? ''
+
+  test('each option narrows the board and the count is announced', async () => {
+    showMixed()
+    renderWithMantine(<Board />)
+    expect(shown()).toBe('')
+    await userEvent.click(option('Mine'))
+    expect(screen.getByRole('button', { name: /Mine one/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent one/ })).not.toBeInTheDocument()
+    expect(shown()).toBe('Showing 1 of 3 tickets')
+    await userEvent.click(option("Agents'"))
+    expect(screen.queryByRole('button', { name: /Mine one/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Agent two/ })).toBeInTheDocument()
+    expect(shown()).toBe('Showing 2 of 3 tickets')
+    await userEvent.click(option('All'))
+    expect(screen.getByRole('button', { name: /Mine one/ })).toBeInTheDocument()
+    expect(shown()).toBe('')
+  })
+
+  test('it is operable with the arrow keys', async () => {
+    showMixed()
+    renderWithMantine(<Board />)
+    option('All').focus()
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(option("Agents'")).toBeChecked()
+  })
+
+  test('it is remembered for the workspace', async () => {
+    showMixed()
+    const first = renderWithMantine(<Board />)
+    await userEvent.click(option('Mine'))
+    first.unmount()
+    renderWithMantine(<Board />)
+    expect(option('Mine')).toBeChecked()
+    expect(screen.queryByRole('button', { name: /Agent one/ })).not.toBeInTheDocument()
+  })
+
+  test('it combines with search', async () => {
+    showMixed()
+    renderWithMantine(<Board />)
+    await userEvent.click(option("Agents'"))
+    await userEvent.type(searchBox(), 'two')
+    expect(screen.getByRole('button', { name: /Agent two/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent one/ })).not.toBeInTheDocument()
+    expect(shown()).toBe('Showing 1 of 3 tickets')
+    await userEvent.clear(searchBox())
+    await userEvent.type(searchBox(), 'Mine')
+    expect(screen.queryByRole('button', { name: /Mine one/ })).not.toBeInTheDocument()
+    expect(shown()).toBe('Showing 0 of 3 tickets')
+  })
+
+  test('has no axe violations', async () => {
+    showMixed()
+    renderWithMantine(<Board />)
+    await expectNoAxeViolations()
+  })
+})
+
 describe('lanes', () => {
   const lanes = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('[data-lane]')]
 

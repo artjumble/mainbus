@@ -998,6 +998,15 @@ describe('a human-owned ticket', () => {
     expect(screen.getAllByRole('checkbox', { name: 'Draft' })).toHaveLength(1)
   })
 
+  test('Ask the orchestrator about this ticket prefills the panel with a reference and starts nothing', async () => {
+    const ticket = showMine()
+    renderWithMantine(<TicketView />)
+    mockInvoke.mockClear()
+    await userEvent.click(await screen.findByRole('button', { name: 'Ask the orchestrator about this ticket' }))
+    expect(useMainbus.getState().orchestratorPrefill?.text).toBe(`About #${ticket.number}: `)
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
   test('Mark done moves it to Done', async () => {
     const ticket = showMine()
     const move = vi.fn().mockResolvedValue('moved')
