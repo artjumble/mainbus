@@ -37,12 +37,17 @@ export function CodeBlock({
   const [scrollsSideways, setScrollsSideways] = useState(false)
   useEffect(() => {
     const viewport = rootRef.current?.querySelector<HTMLElement>('.mantine-ScrollArea-viewport')
-    if (!viewport) return undefined
-    const measure = (): void => setScrollsSideways(viewport.scrollWidth > viewport.clientWidth)
+    const pre = rootRef.current?.querySelector<HTMLElement>('pre')
+    if (!viewport && !pre) return undefined
+    const wide = (el: HTMLElement | null | undefined): boolean => !!el && el.scrollWidth > el.clientWidth
+    const measure = (): void => setScrollsSideways(wide(viewport) || wide(pre))
     measure()
     const observer = new ResizeObserver(measure)
-    observer.observe(viewport)
-    for (const child of Array.from(viewport.children)) observer.observe(child)
+    if (viewport) {
+      observer.observe(viewport)
+      for (const child of Array.from(viewport.children)) observer.observe(child)
+    }
+    if (pre) observer.observe(pre)
     return () => observer.disconnect()
   }, [code])
 
