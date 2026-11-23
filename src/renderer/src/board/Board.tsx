@@ -23,6 +23,7 @@ import {
   Loader,
   Menu,
   Paper,
+  SegmentedControl,
   Stack,
   Text,
   TextInput,
@@ -63,6 +64,7 @@ import { ArchiveNotice } from '../archive/ArchiveNotice'
 import { ArchiveOlderModal } from '../archive/ArchiveOlderModal'
 import { cardRects, laneOf, makeCoordinates, slotIn } from './reorder'
 import { matchesSearch } from './search'
+import { matchesOwner, OWNER_FILTERS, readOwnerFilter, writeOwnerFilter, type OwnerFilter } from './ownerFilter'
 import { TicketCard } from './TicketCard'
 import { UnattendedSwitch } from './UnattendedSwitch'
 
@@ -327,7 +329,19 @@ export function Board(): ReactElement {
   const [archiveOlderOpen, setArchiveOlderOpen] = useState(false)
   const openArchiveOlder = useCallback(() => setArchiveOlderOpen(true), [])
   const openSettings = useMainbus((s) => s.openSettings)
-  const filtering = search.trim() !== ''
+  const [ownerFilter, setOwnerFilterState] = useState<OwnerFilter>(() => readOwnerFilter(workspace?.id))
+  const [filterWorkspaceId, setFilterWorkspaceId] = useState(workspace?.id)
+  // Another workspace has its own remembered filter.
+  if (filterWorkspaceId !== workspace?.id) {
+    setFilterWorkspaceId(workspace?.id)
+    setOwnerFilterState(readOwnerFilter(workspace?.id))
+  }
+  const setOwnerFilter = (f: OwnerFilter): void => {
+    setOwnerFilterState(f)
+    writeOwnerFilter(workspace?.id, f)
+  }
+  // Reordering is off while anything narrows the board.
+  const filtering = search.trim() !== '' || ownerFilter !== 'all'
   const filteringRef = useRef(filtering)
   filteringRef.current = filtering
   const coordinateGetter = useMemo(() => makeCoordinates(() => filteringRef.current), [])
@@ -403,9 +417,19 @@ export function Board(): ReactElement {
     return out
   }, [tickets, pendingMoves, pendingRanks])
   const byColumn = useMemo(
-    () => new Map(COLUMNS.map((c) => [c.id, (inColumn.get(c.id) ?? []).filter((t) => matchesSearch(t, search))])),
-    [inColumn, search]
+    () =>
+      new Map(
+        COLUMNS.map((c) => [
+          c.id,
+          (inColumn.get(c.id) ?? []).filter((t) => matchesOwner(t, ownerFilter) && matchesSearch(t, search))
+        ])
+      ),
+    [inColumn, search, ownerFilter]
   )
+  const shownCount = useMemo(() => [...byColumn.values()].reduce((n, list) => n + list.length, 0), [byColumn])
+  // Said to screen readers whenever a filter or search narrows the board; empty (nothing to say) otherwise.
+  const filterStatus =
+    filtering ? `Showing ${shownCount} of ${tickets.length} tickets` : ''
   // The whole order of each column, search or not, which the menu's positions and the announcements count in.
   const orderIds = useMemo(() => new Map(COLUMNS.map((c) => [c.id, (inColumn.get(c.id) ?? []).map((t) => t.id)])), [inColumn])
   const orderRef = useRef(orderIds)
@@ -590,6 +614,9 @@ export function Board(): ReactElement {
       <VisuallyHidden role="status" aria-live="polite" data-testid="board-announcer">
         {status}
       </VisuallyHidden>
+      <VisuallyHidden role="status" aria-live="polite" data-testid="filter-announcer">
+        {filterStatus}
+      </VisuallyHidden>
       {/* Stays at the top of the board area while the board scrolls: the workspace name, search, Unattended, settings and
           New ticket. It spans the board edge to edge, on the page's own ground, so the cards don't show through. */}
       <Group
@@ -622,6 +649,15 @@ export function Board(): ReactElement {
           )}
         </Stack>
         <Group gap="md">
+          {!empty && (
+            <SegmentedControl
+              aria-label="Show tickets"
+              size="xs"
+              value={ownerFilter}
+              onChange={(v) => setOwnerFilter(v as OwnerFilter)}
+              data={OWNER_FILTERS}
+            />
+          )}
           {!empty && (
             <Stack gap={2}>
             <TextInput
