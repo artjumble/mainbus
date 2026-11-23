@@ -3,13 +3,23 @@ import type { BoardTicket } from '../../shared/api'
 import type { TicketState } from '../../shared/domain'
 import { railCounts } from './railCounts'
 
-function ticket(state: Partial<TicketState>): BoardTicket {
+function ticket(state: Partial<TicketState>, owner: 'agent' | 'human' = 'agent'): BoardTicket {
   return {
+    owner,
     state: { column: 'in_progress', phase: 'implementing', agentStatus: null, summary: null, canContinue: false, pausedByUser: false, deferredUntil: null, ...state }
   } as BoardTicket
 }
 
 describe('railCounts', () => {
+  it("does not count a human ticket, whatever its state says", () => {
+    const tickets = [
+      ticket({ column: 'needs_you', agentStatus: 'waiting_on_you' }, 'human'),
+      ticket({ agentStatus: 'working' }, 'human'),
+      ticket({ agentStatus: 'paused' }, 'human')
+    ]
+    expect(railCounts(tickets, false)).toEqual({ active: false, needsYou: 0, working: 0, waiting: 0, idle: 0 })
+  })
+
   it('counts the tickets in Needs you', () => {
     const tickets = [ticket({ column: 'needs_you' }), ticket({ column: 'needs_you' }), ticket({ column: 'ready' })]
     expect(railCounts(tickets, false)).toMatchObject({ active: false, needsYou: 2 })

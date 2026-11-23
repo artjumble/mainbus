@@ -318,6 +318,23 @@ describe('currentState', () => {
   })
 })
 
+describe('currentState for a ticket the user owns', () => {
+  const mine = { ...base, ticket: { ...base.ticket, owner: 'human' as const, manualColumn: 'ready' as const } }
+  const shows = { column: 'ready', phase: 'not_started', agentStatus: null }
+  test.each([
+    ['a handoff', { run: { endReason: 'handoff' as const, events: [] } }],
+    ['a failed run', { run: { endReason: 'failed' as const, events: [] } }],
+    ['a pending decision', { run: { endReason: null, events: [] }, pendingDecisions: [pending('question', 'Where?')] }]
+  ])('stays in its manual column after %s', (_name, extra) => {
+    expect(currentState({ ...mine, ...extra })).toMatchObject(shows)
+  })
+
+  test('shows Done in Done', () => {
+    const done = { ...mine, ticket: { ...mine.ticket, manualColumn: 'done' as const } }
+    expect(currentState(done)).toMatchObject({ column: 'done', phase: 'done', agentStatus: null })
+  })
+})
+
 describe('currentState while the setup command runs', () => {
   test('adds settingUp to whatever the state is, and nothing otherwise', () => {
     const running = currentState({ ...base, run: { endReason: null, events: [] }, processAlive: true, settingUp: true })

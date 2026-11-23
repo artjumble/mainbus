@@ -957,3 +957,83 @@ describe('Merge…', () => {
     expect(screen.queryByRole('button', { name: 'Merge…' })).not.toBeInTheDocument()
   })
 })
+
+describe('a human-owned ticket', () => {
+  function showMine(column: 'ready' | 'done' = 'ready'): ReturnType<typeof makeTicket> {
+    const ticket = makeTicket(
+      {
+        title: 'Write the post',
+        number: 12,
+        owner: 'human',
+        criteria: [
+          { position: 0, text: 'Draft', checked: false },
+          { position: 1, text: 'Proof', checked: false }
+        ]
+      },
+      { column, phase: column === 'done' ? 'done' : 'not_started', agentStatus: null }
+    )
+    useMainbus.setState({ workspace, tickets: [ticket], currentTicketId: ticket.id })
+    return ticket
+  }
+
+  test('shows the You badge, the panel with its checklist, and no way to start an agent', async () => {
+    const ticket = showMine()
+    const { container } = renderWithMantine(<TicketView />)
+    expect(await screen.findByRole('heading', { name: 'This ticket is yours' })).toBeInTheDocument()
+    expect(container.querySelector('[data-you-badge]')).not.toBeNull()
+    expect(screen.getByText(/No agent will start on it/)).toBeInTheDocument()
+    for (const name of ['Start', 'Start again', 'Run settings…', 'Send and start']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+    expect(container.querySelector('[data-nobody-working]')).toBeNull()
+    expect(screen.getByText(/No agent works on this ticket/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Draft' }))
+    expect(mockInvoke).toHaveBeenCalledWith('ticket.update', ticket.id, {
+      criteria: [
+        { position: 0, text: 'Draft', checked: true },
+        { position: 1, text: 'Proof', checked: false }
+      ]
+    })
+    // Once: the side pane doesn't repeat the criteria.
+    expect(screen.getAllByRole('checkbox', { name: 'Draft' })).toHaveLength(1)
+  })
+
+  test('Mark done moves it to Done', async () => {
+    const ticket = showMine()
+    const move = vi.fn().mockResolvedValue('moved')
+    useMainbus.setState({ moveTicket: move })
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark done' }))
+    expect(move).toHaveBeenCalledWith(ticket.id, 'done')
+  })
+
+  test('Hand to agents asks first; Cancel changes nothing and Hand to agents calls setOwner', async () => {
+    const ticket = showMine()
+    renderWithMantine(<TicketView />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Hand to agents' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Hand #12 to agents?' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(mockInvoke).not.toHaveBeenCalledWith('ticket.setOwner', expect.anything(), expect.anything())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hand to agents' }))
+    const again = await screen.findByRole('dialog', { name: 'Hand #12 to agents?' })
+    await userEvent.click(within(again).getByRole('button', { name: 'Hand to agents' }))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('ticket.setOwner', ticket.id, 'agent'))
+  })
+
+  test('in Done there are no action buttons and the checklist is read-only', async () => {
+    showMine('done')
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByRole('heading', { name: 'This ticket is yours' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Mark done' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Hand to agents' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Draft' })).toBeDisabled()
+  })
+
+  test('an agent ticket still shows Nobody is working on this yet', async () => {
+    show({ column: 'ready', phase: 'not_started', agentStatus: null })
+    renderWithMantine(<TicketView />)
+    expect(await screen.findByText('Nobody is working on this yet')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'This ticket is yours' })).not.toBeInTheDocument()
+  })
+})

@@ -1,4 +1,5 @@
 import type { BoardTicket } from '../../shared/api'
+import { agentsMayAct } from '../../shared/owner'
 
 /**
  * What the workspace rail shows for one workspace, from its tickets' stored state. `needsYou` counts the Needs you column.
@@ -7,9 +8,10 @@ import type { BoardTicket } from '../../shared/api'
  * The fleet counts are of agents: `working` work, `waiting` wait on you, `idle` are open but paused or queued.
  */
 export function railCounts(
-  tickets: BoardTicket[],
+  allTickets: BoardTicket[],
   recovering: boolean
 ): { active: boolean; needsYou: number; working: number; waiting: number; idle: number } {
+  const tickets = allTickets.filter(agentsMayAct)
   const needsYou = tickets.filter((t) => t.state.column === 'needs_you').length
   const active = tickets.some(({ state }) => {
     if (state.agentStatus === 'working' || state.agentStatus === 'queued') return true

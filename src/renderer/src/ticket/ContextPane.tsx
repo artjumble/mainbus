@@ -3,6 +3,7 @@ import { DictationTextarea } from '../voice/DictationTextarea'
 import { useState, type ReactElement, type ReactNode } from 'react'
 import { ANSWERED_VIA_PHRASES, type BranchFreshness, type Criterion, type Decision, type TicketRef } from '../../../shared/domain'
 import type { StoredEvent, ThreadRun } from '../../../shared/events'
+import { agentsMayAct } from '../../../shared/owner'
 import { stuckHeadline } from '../../../shared/stuck'
 import { describeEdit } from '../../../shared/ticketEdit'
 import { invoke } from '../api'
@@ -222,9 +223,8 @@ function Spec({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }):
   )
 }
 
-function Criteria({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement | null {
-  if (ticket.criteria.length === 0) return null
-
+/** The ticket's acceptance criteria as tickable checkboxes; saved as soon as one is ticked. Shared by the side pane and a human ticket's panel. */
+export function CriteriaChecklist({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement {
   async function toggle(position: number, checked: boolean): Promise<void> {
     const criteria: Criterion[] = ticket.criteria.map((c) => (c.position === position ? { ...c, checked } : c))
     try {
@@ -235,18 +235,26 @@ function Criteria({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean
   }
 
   return (
+    <Stack gap={6}>
+      {ticket.criteria.map((c) => (
+        <Checkbox
+          key={c.position}
+          label={c.text}
+          checked={c.checked}
+          disabled={readOnly}
+          onChange={(e) => void toggle(c.position, e.currentTarget.checked)}
+        />
+      ))}
+    </Stack>
+  )
+}
+
+function Criteria({ ticket, readOnly }: { ticket: BoardTicket; readOnly: boolean }): ReactElement | null {
+  // A human ticket shows them in its own panel, once: two live checkboxes per criterion would confuse screen readers.
+  if (ticket.criteria.length === 0 || !agentsMayAct(ticket)) return null
+  return (
     <Section title="Acceptance criteria">
-      <Stack gap={6}>
-        {ticket.criteria.map((c) => (
-          <Checkbox
-            key={c.position}
-            label={c.text}
-            checked={c.checked}
-            disabled={readOnly}
-            onChange={(e) => void toggle(c.position, e.currentTarget.checked)}
-          />
-        ))}
-      </Stack>
+      <CriteriaChecklist ticket={ticket} readOnly={readOnly} />
     </Section>
   )
 }

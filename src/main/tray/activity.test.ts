@@ -9,6 +9,14 @@ describe('countActivity', () => {
     expect(countActivity([a, b])).toEqual({ working: 2, needsYou: 1, openAgents: 4 })
   })
 
+  test('a human ticket is not agent work, whatever its state says', () => {
+    const mine = [
+      ticket('t1', 'needs_you', 'waiting_on_you', { owner: 'human' }),
+      ticket('t2', 'in_progress', 'working', { owner: 'human' })
+    ]
+    expect(countActivity([mine])).toEqual({ working: 0, needsYou: 0, openAgents: 0 })
+  })
+
   test('a paused or failed agent is not open, and an empty board is all zeros', () => {
     expect(countActivity([[ticket('t1', 'needs_you', 'failed'), ticket('t2', 'in_progress', 'paused')]])).toEqual({
       working: 0,

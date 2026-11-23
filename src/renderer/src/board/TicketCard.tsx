@@ -1,8 +1,9 @@
-import { Anchor, Badge, Group, Loader, Paper, Text, UnstyledButton } from '@mantine/core'
+import { Anchor, Badge, Group, Loader, Paper, Text, UnstyledButton, VisuallyHidden } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { memo, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type { Phase, PullRequest, TicketState } from '../../../shared/domain'
 import { waitingLabel } from '../../../shared/hold'
+import { agentsMayAct } from '../../../shared/owner'
 import { queuedLabel } from '../../../shared/queue'
 import type { BoardTicket } from '../store'
 import { AgentBadge } from './AgentBadge'
@@ -13,6 +14,7 @@ import { RunSettingsChip } from './RunSettingsChip'
 import { FreshnessChip } from './FreshnessChip'
 import { StuckChip } from './StuckChip'
 import { WRAPPING_CHIP } from './chipStyles'
+import { YouBadge } from './YouBadge'
 import classes from './TicketCard.module.css'
 
 const PHASE_LABELS: Partial<Record<Phase, string>> = {
@@ -166,11 +168,14 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
   const reducedMotion = useReducedMotion()
   const duration = reducedMotion ? STILL_MS : FADE_MS
   const recent = useRecentlyChanged(changedAt, duration)
+  // The user's own ticket: no agent works on it, so the agent-only chips stay off.
+  const mine = !agentsMayAct(ticket)
 
   return (
     // A click on the card's empty area opens the ticket too, as a pointer convenience; the title is the control.
     <Paper
       data-ticket-card={ticket.id}
+      data-owner={mine ? 'human' : undefined}
       withBorder
       p="sm"
       // Narrow sides: in a narrow column the title keeps room for its 44 px hit area beside the handle.
@@ -188,7 +193,12 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
       className={recent ? (reducedMotion ? classes.recentStill : classes.recent) : undefined}
       data-recently-changed={recent ? (reducedMotion ? 'still' : 'fade') : undefined}
       // Resumes the fade where it was when the card is shown again part-way through.
-      style={{ cursor: 'pointer', ...(recent && !reducedMotion ? { animationDelay: `-${Date.now() - changedAt!}ms` } : {}) }}
+      style={{
+        cursor: 'pointer',
+        // A thick accent on the left edge besides the badge, so it shows without color too; after `bd`, so it wins.
+        ...(mine ? { borderLeftWidth: 4, borderLeftColor: 'var(--mainbus-color-yours)' } : {}),
+        ...(recent && !reducedMotion ? { animationDelay: `-${Date.now() - changedAt!}ms` } : {})
+      }}
       onClick={() => onOpen(ticket.id)}
     >
       {/* The number and the handle share a row, the handle at the right and level with the number. */}
@@ -213,19 +223,21 @@ export const TicketCard = memo(function TicketCard({ ticket, cleaningUp = false,
         }}
       >
         <Text fw={500} size="sm">
+          {mine && <VisuallyHidden>{`#${ticket.number}, yours: `}</VisuallyHidden>}
           {ticket.title}
         </Text>
       </UnstyledButton>
       <Group gap="xs">
-        <PhaseChip state={state} />
-        <PausedChip state={state} />
-        <QueuedChip state={state} />
-        <SettingUpChip state={state} />
+        {!mine && <PhaseChip state={state} />}
+        {!mine && <PausedChip state={state} />}
+        {!mine && <QueuedChip state={state} />}
+        {!mine && <SettingUpChip state={state} />}
         <HoldChip hold={ticket.hold} />
         <BlockedChip blockedBy={ticket.blockedBy} done={ticket.manualColumn === 'done'} />
-        <RunSettingsChip ticket={ticket} />
-        <StuckChip stuck={ticket.stuck} />
+        {!mine && <RunSettingsChip ticket={ticket} />}
+        {!mine && <StuckChip stuck={ticket.stuck} />}
         <FreshnessChip freshness={ticket.freshness} done={ticket.manualColumn === 'done'} />
+        {mine && <YouBadge />}
         {ticket.kind === 'investigate' && (
           <Badge color="gray" variant="outline" size="sm" radius="sm" {...WRAPPING_CHIP}>
             Investigate

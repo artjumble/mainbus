@@ -680,6 +680,18 @@ describe('TicketRunner', () => {
     expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'review' })
   })
 
+  it('a ticket handed to the user after a handoff can be moved to Backlog, and shows there', async () => {
+    const runtime = new FakeRuntime(keepAlive)
+    const runner = makeRunner(runtime)
+    await runner.start(ticket.id)
+    await runtime.specs[0].roleTools.handoff({ summary: 'Added the limiter', notesForNext: '' })
+    await repos.tickets.setOwner(ticket.id, 'human')
+
+    await runner.moveToColumn(ticket.id, 'backlog')
+
+    expect(await runner.stateOf(ticket.id)).toMatchObject({ column: 'backlog', agentStatus: null })
+  })
+
   it('a handed-off ticket in Done can be moved back out, and shows in Review again', async () => {
     const runtime = new FakeRuntime(keepAlive)
     const runner = makeRunner(runtime)

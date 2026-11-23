@@ -13,6 +13,24 @@ const TARGETS: { id: ManualColumn; title: string }[] = [
 const ASKED_MESSAGE = "This ticket's folder is no longer a git worktree. Open the ticket to decide whether to delete it."
 const DIRTY_MESSAGE = 'This ticket has uncommitted changes in its folder. Ask the Implementer to commit them first.'
 
+/** Moves the ticket and says so when the engine can't finish (uncommitted changes, or a folder that needs the user's answer) or refuses. */
+export async function moveWithNotices(
+  move: (id: string, to: ManualColumn) => Promise<'moved' | 'dirty' | 'asked'>,
+  ticketId: string,
+  to: ManualColumn
+): Promise<void> {
+  try {
+    const result = await move(ticketId, to)
+    if (result === 'dirty') {
+      notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
+    } else if (result === 'asked') {
+      notifications.show({ color: 'needs', title: 'Mainbus needs your answer first', message: ASKED_MESSAGE })
+    }
+  } catch (err) {
+    showError(err, "Can't move this ticket")
+  }
+}
+
 interface Props {
   ticket: BoardTicket
   /** Which agent's run is open (working, paused or waiting); null when no agent is. Moving the ticket stops it. */
@@ -39,14 +57,7 @@ export function MoveMenu({ ticket, openRun, disabled }: Props): ReactElement {
   async function run(to: ManualColumn): Promise<void> {
     setMoving(true)
     try {
-      const result = await move(ticket.id, to)
-      if (result === 'dirty') {
-        notifications.show({ color: 'needs', title: "Can't move this ticket yet", message: DIRTY_MESSAGE })
-      } else if (result === 'asked') {
-        notifications.show({ color: 'needs', title: 'Mainbus needs your answer first', message: ASKED_MESSAGE })
-      }
-    } catch (err) {
-      showError(err, "Can't move this ticket")
+      await moveWithNotices(move, ticket.id, to)
     } finally {
       setMoving(false)
     }
